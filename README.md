@@ -23,10 +23,29 @@ Modernized MyHOME Custom Component for Home Assistant
    - Polling queries (`SCAN_INTERVAL`) drastically reduced by default for passive sensors.
    - Native integration caching (`ConfigEntryNotReady`) entirely eliminates the infamous "Restart required on first installation" crash loop.
 
-## ⚙️ Installation
+## ⚙️ Installation & Configuration
 
-You can install this integration via HACS!
-Upon adding your integration via the UI, it will automatically search for compatible gateways (MH200, F454, MyHomeServer1) over SSDP. Simply follow the UI wizard.
+### 1. Install via HACS (Recommended)
+You can install this integration as a Custom Repository via HACS!
+1. Go to HACS -> Integrations -> Click the three dots (top right) -> Custom repositories
+2. Add this repository URL and select `Integration` as the category.
+3. Restart Home Assistant.
+
+### 2. Add the Integration in Home Assistant
+**Important:** Do *not* use `configuration.yaml` for this integration. The legacy `myhome.yaml` approach has been completely disabled in favor of modern UI-driven architecture.
+
+1. Go to **Settings -> Devices & Services -> Add Integration**.
+2. Search for `MyHOME`.
+3. The component will automatically search your local network via SSDP for compatible BTicino gateways (e.g., MH200, F454, MyHomeServer1).
+4. Enter your gateway's OpenWebNet password when prompted.
+
+### 3. Entity Naming & Discovery
+Once connected, the integration strictly uses **Auto-Discovery** to find your Lights, Switches, Covers, and Audio Zones.
+Simply use your physical wall switches to interact with your house. Home Assistant will capture the physical bus events, dynamically generate the devices in your dashboard (naming them by their hardware address, e.g., `Light 18`, `Cover 18#4#02`), and store them permanently!
+
+To assign human-readable names (like "Kitchen Lights"):
+*   **The Modern Way:** Click on the generated Entity in the Home Assistant UI (`Settings -> Devices`), click the gear icon, and rename it natively.
+*   **The Power-User Way:** Use Home Assistant's native [customize.yaml](https://www.home-assistant.io/docs/configuration/customizing-devices/) feature to bulk-rename entities without touching the underlying integration logic.
 
 ### Advanced Usage & Protocol Handling
 
