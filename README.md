@@ -2,7 +2,7 @@
 Modernized MyHOME Custom Component for Home Assistant
 
 [![test-coverage](https://github.com/GreenGrassBlueOcean/MyHOME/actions/workflows/test-coverage.yaml/badge.svg)](https://github.com/GreenGrassBlueOcean/MyHOME/actions/workflows/test-coverage.yaml)
-[![codecov](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME)
+[![codecov](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME/graph/badge.svg)](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME)
 
 *This is a completely modernized, async-native fork of the original integration, specifically hardened for legacy MH200 hardware and modern Home Assistant (2025+).*
 
