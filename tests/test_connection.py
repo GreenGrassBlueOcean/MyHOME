@@ -342,9 +342,11 @@ class TestOWNCommandSession:
         
         with patch.object(session, 'connect', new_callable=AsyncMock) as mock_connect:
             # Need to restore writer to simulate reconnect success
-            async def restore_writer():
+            async def restore_network():
                 session._stream_writer = AsyncMock()
+                session._stream_reader = AsyncMock()
+                session._stream_reader.readuntil.return_value = b"*1*1*12##"
                 return {"Success": True}
-            mock_connect.side_effect = restore_writer
+            mock_connect.side_effect = restore_network
             await session.send("*1*1*12##")
             mock_connect.assert_called_once()

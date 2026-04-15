@@ -121,19 +121,33 @@ def test_get_soap_body():
     assert "getopenserverPort" in body
 
 
+class MockAioHttpResponse:
+    def __init__(self, text_data):
+        self._text = text_data
+    
+    async def text(self):
+        return self._text
+
+class MockAioHttpCM:
+    def __init__(self, text_data):
+        self._resp = MockAioHttpResponse(text_data)
+        
+    async def __aenter__(self):
+        return self._resp
+        
+    async def __aexit__(self, exc_type, exc, tb):
+        pass
+
 @pytest.mark.asyncio
 async def test_get_port_success():
-    mock_post_response = AsyncMock()
-    mock_post_response.text = AsyncMock(return_value='''<?xml version="1.0"?>
+    xml_data = '''<?xml version="1.0"?>
     <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
     <SOAP-ENV:Body>
     <u:getopenserverPortResponse xmlns:u="urn:schemas-bticino-it:service:openserver:1">
     <Port>20000</Port>
-    </u:getopenserverPortResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>''')
+    </u:getopenserverPortResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>'''
     
-    # Mocking async with
-    mock_cm = AsyncMock()
-    mock_cm.__aenter__.return_value = mock_post_response
+    mock_cm = MockAioHttpCM(xml_data)
 
     with patch('aiohttp.ClientSession.post', return_value=mock_cm) as mock_post:
         port = await get_port("http://192.168.1.135:80/description.xml")
@@ -166,11 +180,7 @@ async def test_get_scpd_details():
         <UDN>uuid:upnp-Basic gateway-1_0-000350001234::upnp:rootdevice</UDN>
     </root>'''
     
-    mock_get_response = AsyncMock()
-    mock_get_response.text = AsyncMock(return_value=xml_data)
-    
-    mock_cm = AsyncMock()
-    mock_cm.__aenter__.return_value = mock_get_response
+    mock_cm = MockAioHttpCM(xml_data)
 
     with patch('aiohttp.ClientSession.get', return_value=mock_cm), \
          patch('custom_components.myhome.ownd.discovery.get_port', return_value=20000):
