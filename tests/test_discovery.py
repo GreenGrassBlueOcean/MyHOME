@@ -147,9 +147,10 @@ async def test_get_port_success():
     <Port>20000</Port>
     </u:getopenserverPortResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>'''
     
-    mock_cm = MockAioHttpCM(xml_data)
+    mock_resp = MockAioHttpResponse(xml_data)
 
-    with patch('aiohttp.ClientSession.post', return_value=mock_cm) as mock_post:
+    with patch('aiohttp.ClientSession.post', new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
         port = await get_port("http://192.168.1.135:80/description.xml")
         assert port == 20000
         mock_post.assert_called_once()
@@ -180,10 +181,11 @@ async def test_get_scpd_details():
         <UDN>uuid:upnp-Basic gateway-1_0-000350001234::upnp:rootdevice</UDN>
     </root>'''
     
-    mock_cm = MockAioHttpCM(xml_data)
+    mock_resp = MockAioHttpResponse(xml_data)
 
-    with patch('aiohttp.ClientSession.get', return_value=mock_cm), \
+    with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get, \
          patch('custom_components.myhome.ownd.discovery.get_port', return_value=20000):
+        mock_get.return_value = mock_resp
         
         details = await _get_scpd_details("http://192.168.1.135:80/description.xml")
         

@@ -335,10 +335,7 @@ class TestOWNCommandSession:
         session._stream_writer = AsyncMock()
         session._stream_reader = AsyncMock()
         
-        async def mock_write(data):
-            raise ConnectionResetError()
-            
-        session._stream_writer.write.side_effect = mock_write
+        session._stream_writer.write.side_effect = ConnectionResetError
         
         with patch.object(session, 'connect', new_callable=AsyncMock) as mock_connect:
             # Need to restore writer to simulate reconnect success
