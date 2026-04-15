@@ -43,6 +43,7 @@ class TestSensorsCoverage:
             model="Meter",
             gateway=mock_gateway
         )
+        sensor.async_schedule_update_ha_state = MagicMock()
         msg = MagicMock()
         msg.message_type = "energy_totalizer"
         msg.total_consumption = 1500.0
@@ -62,6 +63,7 @@ class TestSensorsCoverage:
             model="Meter",
             gateway=mock_gateway
         )
+        sensor.async_schedule_update_ha_state = MagicMock()
         msg = MagicMock()
         msg.message_type = "main_temperature"
         msg.local_offset = 0
@@ -82,6 +84,7 @@ class TestSensorsCoverage:
             model="Meter",
             gateway=mock_gateway
         )
+        sensor.async_schedule_update_ha_state = MagicMock()
         msg = MagicMock()
         msg.message_type = "illuminance_value"
         msg.illuminance = 450
@@ -106,6 +109,7 @@ class TestBinarySensorsCoverage:
             model="Sensor",
             gateway=mock_gateway
         )
+        sensor.async_schedule_update_ha_state = MagicMock()
         msg = MagicMock(is_on=True, human_readable_log="o")
         sensor.handle_event(msg)
         assert sensor._attr_is_on is True
@@ -124,6 +128,7 @@ class TestBinarySensorsCoverage:
             model="Sensor",
             gateway=mock_gateway
         )
+        sensor.async_schedule_update_ha_state = MagicMock()
         msg = MagicMock(is_on=True, human_readable_log="m")
         sensor.handle_event(msg)
         assert sensor._attr_is_on is True
