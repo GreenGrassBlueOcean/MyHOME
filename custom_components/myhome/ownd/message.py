@@ -1603,22 +1603,31 @@ class OWNSoundEvent(OWNEvent):
         self._state = self._what
         self._zone = self._where
         self._is_source_event = self._zone.startswith("10") and len(self._zone) == 3
+        self._volume = None
 
-        if self._is_source_event:
-            self._source_id = str(int(self._zone) - 100)
-            if self._state == 0:
-                self._human_readable_log = f"Audio Source {self._source_id} is switched ON."
-            elif self._state == 10:
-                self._human_readable_log = f"Audio Source {self._source_id} is switched OFF."
+        if self._state is not None:
+            if self._is_source_event:
+                self._source_id = str(int(self._zone) - 100)
+                if self._state == 0:
+                    self._human_readable_log = f"Audio Source {self._source_id} is switched ON."
+                elif self._state == 10:
+                    self._human_readable_log = f"Audio Source {self._source_id} is switched OFF."
+                else:
+                    self._human_readable_log = f"Audio Source {self._source_id} received command: {self._state}."
             else:
-                self._human_readable_log = f"Audio Source {self._source_id} received command: {self._state}."
-        else:
-            if self._state == 0:
-                self._human_readable_log = f"Audio Zone {self._zone} is switched ON."
-            elif self._state == 10:
-                self._human_readable_log = f"Audio Zone {self._zone} is switched OFF."
-            else:
-                self._human_readable_log = f"Audio Zone {self._zone} received command: {self._state}."
+                if self._state == 0:
+                    self._human_readable_log = f"Audio Zone {self._zone} is switched ON."
+                elif self._state == 10:
+                    self._human_readable_log = f"Audio Zone {self._zone} is switched OFF."
+                else:
+                    self._human_readable_log = f"Audio Zone {self._zone} received command: {self._state}."
+        elif self._dimension is not None:
+            if self._dimension == 1:
+                try:
+                    self._volume = int(self._dimension_value[0])
+                    self._human_readable_log = f"Audio Zone {self._zone} volume is set to {self._volume}."
+                except (ValueError, IndexError):
+                    pass
 
     @property
     def is_on(self):
@@ -1639,6 +1648,10 @@ class OWNSoundEvent(OWNEvent):
     @property
     def zone(self):
         return self._zone
+
+    @property
+    def volume(self):
+        return self._volume
 
 
 class OWNCommand(OWNMessage):
@@ -2064,6 +2077,12 @@ class OWNSoundCommand(OWNCommand):
     def volume_down(cls, where):
         message = cls(f"*16*1000*{where}##")
         message._human_readable_log = f"Turning DOWN volume for audio zone {where}."
+        return message
+
+    @classmethod
+    def set_volume(cls, where, volume):
+        message = cls(f"*#16*{where}*#1*{volume}##")
+        message._human_readable_log = f"Setting volume to {volume} for audio zone {where}."
         return message
 
 

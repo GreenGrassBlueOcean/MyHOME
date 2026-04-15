@@ -139,12 +139,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             MediaPlayerEntityFeature.TURN_ON
             | MediaPlayerEntityFeature.TURN_OFF
             | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
         
         self._attr_state = MediaPlayerState.OFF
         self._attr_source_list = ["Source 1", "Source 2", "Source 3", "Source 4"]
         self._attr_source = None
+        self._attr_volume_level = None
+        self._attr_is_volume_muted = False
+        self._pre_mute_volume = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added to hass."""
@@ -191,6 +196,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Volume down."""
         await self._gateway_handler.send(OWNSoundCommand.volume_down(self._where))
 
+    async def async_set_volume_level(self, volume: float) -> None:
+        """Set volume level, range 0..1."""
+        # Unmute automatically if user slides volume up
+        if self._attr_is_volume_muted and volume > 0:
+            self._attr_is_volume_muted = False
+
+        # Convert float (0.0 - 1.0) to hardware scale (0 - 31)
+        hw_volume = int(round(volume * 31.0))
+        await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, hw_volume))
+
+    async def async_mute_volume(self, mute: bool) -> None:
+        """Mute or unmute the media player."""
+        if mute:
+            self._pre_mute_volume = self._attr_volume_level if self._attr_volume_level is not None else 0.5
+            await self.async_set_volume_level(0.0)
+        else:
+            restore_volume = self._pre_mute_volume if self._pre_mute_volume is not None else 0.3
+            await self.async_set_volume_level(restore_volume)
+        
+        self._attr_is_volume_muted = mute
+        self.async_schedule_update_ha_state()
+
     async def async_select_source(self, source: str):
         """Select input source."""
         if source in self._attr_source_list:
@@ -207,7 +234,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         )
         if message.is_on:
             self._attr_state = MediaPlayerState.ON
-        else:
+        elif message.is_off:
             self._attr_state = MediaPlayerState.OFF
+
+        if message.volume is not None:
+            self._attr_volume_level = message.volume / 31.0
+            # Auto-sync mute state if physical intervention drops volume to 0 or raises it
+            if message.volume == 0 and not self._attr_is_volume_muted:
+                self._attr_is_volume_muted = True
+            elif message.volume > 0 and self._attr_is_volume_muted:
+                self._attr_is_volume_muted = False
 
         self.async_schedule_update_ha_state()

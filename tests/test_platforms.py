@@ -194,6 +194,38 @@ class TestMediaPlayerEntity:
         await player.async_select_source("Invalid Source")
         player._gateway_handler.send.assert_not_called()
 
+    def test_handle_event_volume(self, player):
+        msg = OWNEvent.parse("*#16*1*1*15##")
+        player.handle_event(msg)
+        assert player._attr_volume_level == pytest.approx(15 / 31.0)
+        player.async_schedule_update_ha_state.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_async_set_volume_level(self, player):
+        await player.async_set_volume_level(0.50)
+        # 0.50 * 31.0 = 15.5 -> round to 16
+        args, _ = player._gateway_handler.send.call_args
+        command = args[0]
+        assert str(command) == "*#16*1*#1*16##"
+
+    @pytest.mark.asyncio
+    async def test_async_mute_volume(self, player):
+        player._attr_volume_level = 0.50
+        await player.async_mute_volume(True)
+        # Should set volume to 0
+        args, _ = player._gateway_handler.send.call_args
+        command = args[0]
+        assert str(command) == "*#16*1*#1*0##"
+        assert player._attr_is_volume_muted is True
+        assert player._pre_mute_volume == 0.50
+
+        await player.async_mute_volume(False)
+        # Should restore volume to 16 HW units (round(0.50 * 31))
+        args, _ = player._gateway_handler.send.call_args
+        command = args[0]
+        assert str(command) == "*#16*1*#1*16##"
+        assert player._attr_is_volume_muted is False
+
     @pytest.mark.asyncio
     async def test_async_update(self, player):
         await player.async_update()

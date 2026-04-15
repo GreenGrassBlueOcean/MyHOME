@@ -27,6 +27,13 @@ def test_own_sound_event_parsing():
     assert message.is_source_event is True
     assert message.source_id == "2"
 
+    # Test Volume Level Dimension (Volume 15 on zone 1)
+    message = OWNEvent.parse("*#16*1*1*15##")
+    assert isinstance(message, OWNSoundEvent)
+    assert message.who == 16
+    assert message.zone == "1"
+    assert message.volume == 15
+
 def test_own_sound_command_generation():
     """Test generating WHO=16 Audio Commands."""
     
@@ -53,3 +60,7 @@ def test_own_sound_command_generation():
     # Volume Down
     vol_down_msg = OWNSoundCommand.volume_down("21")
     assert str(vol_down_msg) == "*16*1000*21##"
+
+    # Set Volume
+    set_vol_msg = OWNSoundCommand.set_volume("1", 15)
+    assert str(set_vol_msg) == "*#16*1*#1*15##"
