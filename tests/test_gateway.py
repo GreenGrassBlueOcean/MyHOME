@@ -57,10 +57,11 @@ def mock_config_entry():
     return entry
 
 @pytest.fixture
-def gateway_handler(hass: HomeAssistant, mock_config_entry):
-    handler = MyHOMEGatewayHandler(hass, mock_config_entry)
-    with patch.object(handler.hass.bus, "async_fire"):
-        yield handler
+def gateway_handler(mock_config_entry):
+    mock_hass = MagicMock(spec=HomeAssistant)
+    handler = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    # The bus and async_fire are automatically MagicMocks now.
+    return handler
 
 @pytest.mark.asyncio
 async def test_listening_loop_lighting(gateway_handler):
