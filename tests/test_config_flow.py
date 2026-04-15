@@ -86,3 +86,48 @@ async def test_form_cannot_connect(hass: HomeAssistant) -> None:
     # connection_refused should cause an abort
     assert result3["type"] == FlowResultType.ABORT
     assert result3["reason"] == "connection_refused"
+
+
+async def test_form_already_configured(hass: HomeAssistant) -> None:
+    """Test aborting when the gateway is already configured."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "host": "192.168.1.135",
+            "port": 20000,
+            "mac": "00:03:50:00:12:34",
+        },
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.myhome.config_flow.find_gateways",
+        return_value=[]
+    ), patch(
+        "custom_components.myhome.config_flow.OWNSession.test_connection",
+        return_value={"Success": True},
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {
+                "address": "192.168.1.135",
+                "port": 20000,
+                "serialNumber": "00:03:50:00:12:34",
+                "modelName": "F454",
+            },
+        )
+
+    assert result3["type"] == FlowResultType.ABORT
+    assert result3["reason"] == "already_configured"

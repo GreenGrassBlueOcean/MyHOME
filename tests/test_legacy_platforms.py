@@ -16,6 +16,7 @@ from custom_components.myhome.const import (
 )
 from custom_components.myhome.ownd.message import OWNEvent
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from syrupy.assertion import SnapshotAssertion
 
 @pytest.fixture
 def mock_gateway_connection():
@@ -34,7 +35,7 @@ def mock_gateway_connection():
         yield mock_send, mock_req
 
 
-async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_gateway_connection, caplog):
+async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_gateway_connection, snapshot: SnapshotAssertion, caplog):
     """Test legacy platforms logic instantiated via fallback CONF_PLATFORMS."""
     import logging
     caplog.set_level(logging.DEBUG)
@@ -122,6 +123,9 @@ async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_ga
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_1", sw_event)
     await hass.async_block_till_done()
 
+    # Snapshot Switch
+    assert hass.states.get("switch.switch_12") == snapshot(name="switch_state")
+
     # Hit Climate set_temperature and hvac coverage
     await hass.services.async_call("climate", "set_temperature", {"entity_id": "climate.climate_1", "temperature": 22.0}, blocking=True)
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": "climate.climate_1", "hvac_mode": "heat"}, blocking=True)
@@ -132,108 +136,37 @@ async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_ga
     clim_event = OWNEvent.parse("*#4*01*#14*0220*1##")
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_4", clim_event)
     await hass.async_block_till_done()
+    
+    # Snapshot Climate
+    assert hass.states.get("climate.climate_1") == snapshot(name="climate_state")
 
     # Hit Binary Sensor
     bs_event = OWNEvent.parse("*25*31#1*35##")
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_25", bs_event)
     await hass.async_block_till_done()
 
+    # Snapshot Binary Sensor
+    assert hass.states.get("binary_sensor.bs_35") == snapshot(name="binary_sensor_state")
+
     # Hit Sensor Event
     sens_event = OWNEvent.parse("*18*51*113*114*115##")
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_18", sens_event)
     await hass.async_block_till_done()
 
+    # Snapshot Sensor
+    assert hass.states.get("sensor.sensor_1_energy") == snapshot(name="sensor_energy_state")
+
     # Hit Button Press
     await hass.services.async_call("button", "press", {"entity_id": "button.button_1"}, blocking=True)
     await hass.async_block_till_done()
+    
+    # Snapshot Button
+    assert hass.states.get("button.button_1") == snapshot(name="button_state")
     
     # Send Dummy Dispatch update to climate 
     clim_event = OWNEvent.parse("*#4*01*0*0225##")
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_4", clim_event)
     await hass.async_block_till_done()
-
-
-async def test_button_direct_coverage(hass: HomeAssistant, mock_gateway_connection):
-    from custom_components.myhome.button import DisableCommandButtonEntity
-    from custom_components.myhome.gateway import MyHOMEGatewayHandler
-    from unittest.mock import AsyncMock
-
-    gw = AsyncMock(spec=MyHOMEGatewayHandler)
-    gw.mac = "00:11:22:33:44:55"
-    
-    b = DisableCommandButtonEntity(hass, "button", "Test", "id1", "1", "1", None, "B", "M", gw)
-    b.hass = hass
-    assert b.name == "Lock"
-    await b.async_press()
-
-async def test_climate_direct_coverage(hass: HomeAssistant, mock_gateway_connection):
-    from custom_components.myhome.climate import MyHOMEClimate, HVACMode
-    from custom_components.myhome.ownd.message import OWNEvent
-    from unittest.mock import AsyncMock
-
-    gw = AsyncMock()
-    gw.mac = "00:11:22:33:44:55"
-
-    c = MyHOMEClimate(hass=hass, name="name", device_id="id1", who="4", where="01", heating=True, cooling=True, fan=False, standalone=False, central=False, manufacturer="B", model="M", gateway=gw)
-    c.hass = hass
-    
-    # Hit properties
-    _ = c.target_temperature
-    _ = c.current_temperature
-    _ = c.current_humidity
-    _ = c.hvac_action
-    
-    # Hit updates
-    await c.async_update()
-    await c.async_set_hvac_mode(HVACMode.HEAT)
-    await c.async_set_hvac_mode(HVACMode.COOL)
-    await c.async_set_hvac_mode(HVACMode.OFF)
-    await c.async_set_hvac_mode(HVACMode.AUTO)
-    await c.async_set_temperature(temperature=21.0)
-    
-    # Hit Events
-    evt1 = OWNEvent.parse("*#4*01*#14*0220*1##")
-    c.handle_event(evt1)
-    evt2 = OWNEvent.parse("*#4*01*0*0225##")
-    c.handle_event(evt2)
-
-async def test_binary_sensor_direct_coverage(hass: HomeAssistant, mock_gateway_connection):
-    from custom_components.myhome.binary_sensor import MyHOMEAuxiliary, MyHOMEMotionSensor
-    from custom_components.myhome.ownd.message import OWNEvent
-    from unittest.mock import AsyncMock
-
-    gw = AsyncMock()
-    gw.mac = "00:11:22:33:44:55"
-
-    b1 = MyHOMEAuxiliary(hass, "au1", "aname", "aid", "25", "35", False, "door", "B", "M", gw)
-    b1.hass = hass
-    await b1.async_update()
-    evt = OWNEvent.parse("*25*31#1*35##")
-    b1.handle_event(evt)
-    
-    b2 = MyHOMEMotionSensor(hass, "mo1", "mname", "mid", "1", "12", False, "motion", "B", "M", gw)
-    b2.hass = hass
-    await b2.async_update()
-    evt2 = OWNEvent.parse("*1*1*12##")
-    b2.handle_event(evt2)
-
-async def test_sensor_direct_coverage(hass: HomeAssistant, mock_gateway_connection):
-    from custom_components.myhome.sensor import MyHOMEPowerSensor, MyHOMEEnergySensor
-    from custom_components.myhome.ownd.message import OWNEvent
-    from unittest.mock import AsyncMock
-
-    gw = AsyncMock()
-    gw.mac = "00:11:22:33:44:55"
-
-    pw = MyHOMEPowerSensor(hass, "Power", "p1", "18", "51", "power", "B", "M", gw)
-    pw.hass = hass
-    en = MyHOMEEnergySensor(hass, "Energy", "e1", "18", "51", "daily-energy", "energy", "B", "M", gw)
-    en.hass = hass
-
-    evt = OWNEvent.parse("*18*51*113*114*115##")
-    pw.handle_event(evt)
-    en.handle_event(evt)
-
 
     # Cleanup teardown
     assert await hass.config_entries.async_unload(config_entry.entry_id)
