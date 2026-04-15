@@ -1,3 +1,4 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-p no:socket -p no:homeassistant"
+testpaths = ["tests"]
+addopts = "-p no:socket"
