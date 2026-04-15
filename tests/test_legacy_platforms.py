@@ -56,9 +56,9 @@ async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_ga
                 }
             },
             "binary_sensor": {
-                "bs_25": {
-                    CONF_WHO: "25", CONF_WHERE: "25", CONF_NAME: "BS 25",
-                    CONF_ENTITY_NAME: "BS 25", CONF_DEVICE_CLASS: "door",
+                "bs_35": {
+                    CONF_WHO: "25", CONF_WHERE: "35", CONF_NAME: "BS 35",
+                    CONF_ENTITY_NAME: "BS 35", CONF_DEVICE_CLASS: "door",
                     CONF_INVERTED: False, CONF_MANUFACTURER: "B", CONF_DEVICE_MODEL: "M"
                 }
             },
@@ -123,8 +123,8 @@ async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_ga
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": "climate.climate_1", "hvac_mode": "heat"}, blocking=True)
     
     # Send Dummy Dispatch updates to binary sensor
-    bs_event = OWNEvent.parse("*25*0*25##")
-    async_dispatcher_send(hass, f"myhome_update_{mac_addr}_25", bs_event)
+    bs_event = OWNEvent.parse("*25*0*35##")
+    async_dispatcher_send(hass, f"myhome_update_{mac_addr}_35", bs_event)
     await hass.async_block_till_done()
     
     # Send Dummy Dispatch update to climate 
