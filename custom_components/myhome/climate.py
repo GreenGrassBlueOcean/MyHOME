@@ -5,11 +5,6 @@ from homeassistant.components.climate import (
     DOMAIN as PLATFORM,
 )
 from homeassistant.components.climate.const import (
-    FAN_OFF,
-    FAN_AUTO,
-    FAN_LOW,
-    FAN_MEDIUM,
-    FAN_HIGH,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -160,11 +155,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if cooling:
                 self._attr_hvac_modes.append(HVACMode.COOL)
 
-        self._attr_fan_modes = []
+        # Fan mode is not yet implemented in the OpenWebNet protocol handler.
+        # Do not advertise FAN_MODE to avoid NotImplementedError in the UI.
         self._fan = fan
-        if fan:
-            self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
-            self._attr_fan_modes = [FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH, FAN_OFF]
 
         self._attr_current_temperature = None
         self._attr_current_humidity = None
@@ -175,7 +168,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_hvac_mode = None
         self._attr_hvac_action = None
 
-        self._attr_fan_mode = None
+
 
     async def async_update(self):
         """Update the entity.
@@ -232,9 +225,6 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     )
                 )
 
-    # async def async_set_fan_mode(self, fan_mode):
-    #     """Set new target fan mode."""
-    #     pass
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""

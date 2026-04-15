@@ -126,3 +126,7 @@ async def test_platform_dynamic_discovery(hass: HomeAssistant, mock_gateway_conn
     state = hass.states.get("light.light_21")
     assert state.state == "off"
 
+    # Clean up entry
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
+

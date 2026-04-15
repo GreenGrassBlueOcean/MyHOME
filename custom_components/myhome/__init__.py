@@ -1,4 +1,5 @@
 """ MyHOME integration. """
+import asyncio
 
 from .ownd.message import OWNCommand, OWNGatewayCommand
 from .gateway import MyHOMEGatewayHandler
@@ -59,8 +60,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     try:
         tests_results = await gateway.test()
-    except Exception as e:
-        # Prevent silent traceback crashes during setup
+    except (asyncio.TimeoutError, ConnectionError, OSError) as e:
+        LOGGER.warning("Gateway connection test failed: %s", e)
         tests_results = None
 
     if tests_results is None:

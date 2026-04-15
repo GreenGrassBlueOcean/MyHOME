@@ -15,6 +15,8 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_MAC,
 )
+from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 
 from .ownd.message import (
     OWNLightingEvent,
@@ -46,6 +48,49 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the MyHOME light platform dynamically via Discovery."""
     known_lights = set()
 
+    # Restore previously discovered entities from the Entity Registry so they
+    # are available immediately on restart, even before the gateway responds.
+    entity_registry = er.async_get(hass)
+    existing_entries = er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)
+    restored_lights = []
+
+    gateway = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_ENTITY]
+
+    for entry in existing_entries:
+        if entry.domain == PLATFORM:
+            unique_id = entry.unique_id
+            # unique_id format: "{mac}-{device_id}", device_id is "{where}" or "{where}#4#{interface}"
+            device_id = unique_id.replace(f"{config_entry.data[CONF_MAC]}-", "", 1)
+            if "#4#" in device_id:
+                parts = device_id.split("#4#")
+                where = parts[0]
+                interface = parts[1] if len(parts) > 1 else None
+            else:
+                where = device_id
+                interface = None
+
+            _light = MyHOMELight(
+                hass=hass,
+                name=f"Light {where}",
+                entity_name=None,
+                icon=None,
+                icon_on=None,
+                device_id=device_id,
+                who="1",
+                where=where,
+                interface=interface,
+                dimmable=False,
+                manufacturer="BTicino",
+                model="Lighting Device",
+                gateway=gateway,
+            )
+            known_lights.add(device_id)
+            restored_lights.append(_light)
+
+    if restored_lights:
+        async_add_entities(restored_lights)
+
+    @callback
     def async_add_light(message):
         """Add a light from a discovered message."""
         if not hasattr(message, "where") or not message.where:
@@ -64,7 +109,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             _light = MyHOMELight(
                 hass=hass,
                 name=f"Light {where}",
-                entity_name=f"Light {where}",
+                entity_name=None,
                 icon=None,
                 icon_on=None,
                 device_id=unique_id,
@@ -82,12 +127,18 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             
         async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_{unique_id}", message)
 
+    @callback
+    def _handle_light_message(msg):
+        """Filter and forward light messages."""
+        if isinstance(msg, OWNLightingEvent):
+            async_add_light(msg)
+
     # Listen to all incoming gateway messages
     config_entry.async_on_unload(
         async_dispatcher_connect(
             hass,
             f"myhome_message_{config_entry.data[CONF_MAC]}",
-            lambda msg: async_add_light(msg) if isinstance(msg, OWNLightingEvent) else None,
+            _handle_light_message,
         )
     )
 
