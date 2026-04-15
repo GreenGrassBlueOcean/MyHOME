@@ -27,7 +27,7 @@ async def test_form(hass: HomeAssistant) -> None:
         assert result["errors"] is None
 
         result2 = await hass.config_entries.flow.async_configure(
-            result["step_id"],
+            result["flow_id"],
             {
                 "host": "1.1.1.1",
                 "port": 20000,
@@ -61,7 +61,7 @@ async def test_form_cannot_connect(hass: HomeAssistant) -> None:
         )
 
         result2 = await hass.config_entries.flow.async_configure(
-            result["step_id"],
+            result["flow_id"],
             {
                 "host": "1.1.1.1",
                 "port": 20000,
