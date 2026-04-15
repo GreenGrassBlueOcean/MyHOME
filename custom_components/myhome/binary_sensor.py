@@ -13,7 +13,7 @@ from homeassistant.const import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from OWNd.message import (
+from .ownd.message import (
     OWNDryContactEvent,
     OWNDryContactCommand,
     OWNLightingCommand,
@@ -39,7 +39,7 @@ from .const import (
 from .myhome_device import MyHOMEEntity
 from .gateway import MyHOMEGatewayHandler
 
-SCAN_INTERVAL = timedelta(seconds=5)
+SCAN_INTERVAL = timedelta(seconds=30)
 PIR_SENSITIVITY = ["low", "medium", "high", "very high"]
 
 

@@ -32,8 +32,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
-from OWNd.connection import OWNGateway, OWNSession
-from OWNd.discovery import find_gateways
+from .ownd.connection import OWNGateway, OWNSession
+from .ownd.discovery import find_gateways
 
 from .const import (
     CONF_ADDRESS,
@@ -381,8 +381,6 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         self.data = dict(config_entry.data)
         if CONF_WORKER_COUNT not in self.options:
             self.options[CONF_WORKER_COUNT] = 1
-        if CONF_FILE_PATH not in self.options:
-            self.options[CONF_FILE_PATH] = "/config/myhome.yaml"
         if CONF_GENERATE_EVENTS not in self.options:
             self.options[CONF_GENERATE_EVENTS] = False
 
@@ -396,11 +394,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         errors = {}
 
         if user_input is not None:
-            if not os.path.isfile(user_input[CONF_FILE_PATH]):
-                errors[CONF_FILE_PATH] = "invalid_config_path"
-
             self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})
-            self.options.update({CONF_FILE_PATH: user_input[CONF_FILE_PATH]})
             self.options.update({CONF_GENERATE_EVENTS: user_input[CONF_GENERATE_EVENTS]})
 
             _data_update = not (self.data[CONF_HOST] == user_input[CONF_ADDRESS] and self.data[CONF_OWN_PASSWORD] == user_input[CONF_OWN_PASSWORD])
@@ -431,10 +425,6 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         CONF_OWN_PASSWORD,
                         description={"suggested_value": self.data[CONF_PASSWORD]},
                     ): str,
-                    Required(
-                        CONF_FILE_PATH,
-                        description={"suggested_value": self.options[CONF_FILE_PATH]},
-                    ): Coerce(str),
                     Required(
                         CONF_WORKER_COUNT,
                         description={"suggested_value": self.options[CONF_WORKER_COUNT]},

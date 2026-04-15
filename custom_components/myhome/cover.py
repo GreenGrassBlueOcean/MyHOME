@@ -12,10 +12,12 @@ from homeassistant.const import (
     CONF_MAC,
 )
 
-from OWNd.message import (
+from .ownd.message import (
     OWNAutomationEvent,
     OWNAutomationCommand,
 )
+
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 
 from .const import (
     CONF_PLATFORMS,
@@ -35,39 +37,55 @@ from .gateway import MyHOMEGatewayHandler
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    if PLATFORM not in hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS]:
-        return True
+    """Set up the MyHOME cover platform dynamically via Discovery."""
+    known_covers = set()
 
-    _covers = []
-    _configured_covers = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
+    def async_add_cover(message):
+        """Add a cover from a discovered message."""
+        if not hasattr(message, "where") or not message.where:
+            return
 
-    for _cover in _configured_covers.keys():
-        _cover = MyHOMECover(
-            hass=hass,
-            device_id=_cover,
-            who=_configured_covers[_cover][CONF_WHO],
-            where=_configured_covers[_cover][CONF_WHERE],
-            interface=_configured_covers[_cover][CONF_BUS_INTERFACE] if CONF_BUS_INTERFACE in _configured_covers[_cover] else None,
-            name=_configured_covers[_cover][CONF_NAME],
-            entity_name=_configured_covers[_cover][CONF_ENTITY_NAME],
-            advanced=_configured_covers[_cover][CONF_ADVANCED_SHUTTER],
-            manufacturer=_configured_covers[_cover][CONF_MANUFACTURER],
-            model=_configured_covers[_cover][CONF_DEVICE_MODEL],
-            gateway=hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_ENTITY],
+        # Skip groups, areas and general for now, as they represent many physical devices
+        if getattr(message, "is_group", False) or getattr(message, "is_area", False) or getattr(message, "is_general", False):
+            return
+
+        where = message.where
+        interface = getattr(message, "interface", None)
+        unique_id = f"{where}#4#{interface}" if interface else str(where)
+
+        if unique_id not in known_covers:
+            # We found a new cover!
+            _cover = MyHOMECover(
+                hass=hass,
+                name=f"Cover {where}",
+                entity_name=f"Cover {where}",
+                device_id=unique_id,
+                who=str(message.who),
+                where=where,
+                interface=interface,
+                advanced=False,  # Can be handled by OptionsFlow overrides later
+                manufacturer="BTicino",
+                model="Shutter / Cover",
+                gateway=hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_ENTITY],
+            )
+            known_covers.add(unique_id)
+            async_add_entities([_cover])
+            _cover.handle_event(message)
+            
+        async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_{unique_id}", message)
+
+    # Listen to all incoming gateway messages
+    config_entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"myhome_message_{config_entry.data[CONF_MAC]}",
+            lambda msg: async_add_cover(msg) if isinstance(msg, OWNAutomationEvent) else None,
         )
-        _covers.append(_cover)
-
-    async_add_entities(_covers)
-
+    )
 
 async def async_unload_entry(hass, config_entry):  # pylint: disable=unused-argument
-    if PLATFORM not in hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS]:
-        return True
-
-    _configured_covers = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
-
-    for _cover in _configured_covers.keys():
-        del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][_cover]
+    """Unload cover platform."""
+    return True
 
 
 class MyHOMECover(MyHOMEEntity, CoverEntity):
@@ -120,6 +138,16 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._attr_is_opening = None
         self._attr_is_closing = None
         self._attr_is_closed = None
+
+    async def async_added_to_hass(self):
+        """Run when entity about to be added to hass."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"myhome_update_{self._gateway_handler.mac}_{self._full_where}",
+                self.handle_event,
+            )
+        )
 
     async def async_update(self):
         """Update the entity.

@@ -9,7 +9,7 @@ from homeassistant.const import (
     CONF_MAC,
 )
 
-from OWNd.message import (
+from .ownd.message import (
     OWNLightingEvent,
     OWNLightingCommand,
 )

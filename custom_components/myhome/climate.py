@@ -20,7 +20,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 
-from OWNd.message import (
+from .ownd.message import (
     OWNHeatingEvent,
     OWNHeatingCommand,
     CLIMATE_MODE_OFF,

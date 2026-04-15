@@ -1,19 +1,33 @@
 # MyHOME
-MyHOME integration for Home-Assistant
+Modernized MyHOME Custom Component for Home Assistant
 
-## Installation
-The integration is able to install the gateway via the Home-Assistant graphical user interface, configuring the different devices needs to be done in YAML files however.
+[![test-coverage](https://github.com/GreenGrassBlueOcean/MyHOME/actions/workflows/test-coverage.yaml/badge.svg)](https://github.com/GreenGrassBlueOcean/MyHOME/actions/workflows/test-coverage.yaml)
+[![codecov](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/GreenGrassBlueOcean/MyHOME)
 
-Some common gateways should be auto-discovered, but it is still possible to force the inclusion of a gateway not discovered. One limitation however is that the gateway needs to be in the same network as your Home-Assistant instance.
+*This is a completely modernized, async-native fork of the original integration, specifically hardened for legacy MH200 hardware and modern Home Assistant (2025+).*
 
-It is possible that upon first install (and updates), the OWNd listener process crashes and you do not get any status feedback on your devices. If such is the case, a restart of Home Assistant should solve the issue.
+## 🌟 Modernization Features
 
-## BEWARE
+1. **Fully Dynamic Auto-Discovery (No more YAML!):**
+   The integration has been completely disentangled from file-system based `myhome.yaml` static configurations. Devices are now registered and configured natively through the Home Assistant UI Device Registry. The integration actively queries the OpenWebNet bus to discover all entities.
+   
+2. **Native Audio System Support (WHO=16):**
+   Full native support for Bticino/MyHome Audio Matrices. Exposes native `media_player` entities for all audio zones with bidirectional state tracking, supporting `turn_on`, `turn_off`, `volume_up/down`, and generic `select_source` integrations routing physical keypad events seamlessly directly to your UI.
 
-If you've been using this integration in version 0.8 and prior, configuration structure has changed and you need to create and populate the appropriate config file. See below for instructions.
+3. **MH200 & Stability Hardening:**
+   Resolved the fatal "Listener Death" bugs prevalent in the original library. 
+   - Strict 120-second active watchdogs drop permanently hung TCP sockets efficiently.
+   - Exponential Backoff routines (`2s -> 60s`) guard against embedded gateway DDoS on power restoration.
+   - Polling queries (`SCAN_INTERVAL`) drastically reduced by default for passive sensors.
+   - Native integration caching (`ConfigEntryNotReady`) entirely eliminates the infamous "Restart required on first installation" crash loop.
 
+## ⚙️ Installation
 
-## Configuration and use
+You can install this integration via HACS!
+Upon adding your integration via the UI, it will automatically search for compatible gateways (MH200, F454, MyHomeServer1) over SSDP. Simply follow the UI wizard.
 
-Please find the [configuration](https://github.com/anotherjulien/MyHOME/wiki/Configuration) on the project's wiki!  
-[Advanced uses](https://github.com/anotherjulien/MyHOME/wiki/Advanced-uses) are also listed in the wiki.
+### Advanced Usage & Protocol Handling
+
+The underlying OpenWebNet (`OWNd`) package has been exclusively vendored natively into this component (`custom_components/myhome/ownd`), allowing complete downstream control over exact OpenWebNet protocol implementations to maximize reliability.
+
+*(For legacy OpenWebNet implementation documentation, refer to the original bticino open specs).*

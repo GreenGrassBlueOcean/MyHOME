@@ -28,8 +28,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.components.climate import DOMAIN as CLIMATE
 
-from OWNd.connection import OWNSession, OWNEventSession, OWNCommandSession, OWNGateway
-from OWNd.message import (
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+from .ownd.connection import OWNSession, OWNEventSession, OWNCommandSession, OWNGateway
+from .ownd.message import (
     OWNMessage,
     OWNLightingEvent,
     OWNLightingCommand,
@@ -139,6 +141,12 @@ class MyHOMEGatewayHandler:
         await _event_session.connect()
         self.is_connected = True
 
+        # Active Discovery
+        await self.send_status_request(OWNCommand.parse("*#1*0##")) # Lighting
+        await self.send_status_request(OWNCommand.parse("*#2*0##")) # Automation / Covers
+        await self.send_status_request(OWNCommand.parse("*#4*0##")) # Heating / Climate
+        await self.send_status_request(OWNCommand.parse("*#16*0##")) # Audio
+
         while not self._terminate_listener:
             message = await _event_session.get_next()
             LOGGER.debug("%s Message received: `%s`", self.log_id, message)
@@ -151,22 +159,15 @@ class MyHOMEGatewayHandler:
                 else:
                     self.hass.bus.async_fire("myhome_message_event", {"gateway": str(self.gateway.host), "message": str(message)})
 
+            if isinstance(message, OWNMessage):
+                async_dispatcher_send(self.hass, f"myhome_message_{self.mac}", message)
+
             if not isinstance(message, OWNMessage):
                 LOGGER.warning(
                     "%s Data received is not a message: `%s`",
                     self.log_id,
                     message,
                 )
-            elif isinstance(message, OWNEnergyEvent):
-                if SENSOR in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS] and message.entity in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][SENSOR]:
-                    for _entity in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][SENSOR][message.entity][CONF_ENTITIES]:
-                        if isinstance(
-                            self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][SENSOR][message.entity][CONF_ENTITIES][_entity],
-                            MyHOMEEntity,
-                        ):
-                            self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][SENSOR][message.entity][CONF_ENTITIES][_entity].handle_event(message)
-                else:
-                    continue
             elif (
                 isinstance(message, OWNLightingEvent)
                 or isinstance(message, OWNAutomationEvent)
@@ -175,10 +176,8 @@ class MyHOMEGatewayHandler:
                 or isinstance(message, OWNHeatingEvent)
             ):
                 if not message.is_translation:
-                    is_event = False
                     if isinstance(message, OWNLightingEvent):
                         if message.is_general:
-                            is_event = True
                             event = "on" if message.is_on else "off"
                             self.hass.bus.async_fire(
                                 "myhome_general_light_event",
@@ -187,7 +186,6 @@ class MyHOMEGatewayHandler:
                             await asyncio.sleep(0.1)
                             await self.send_status_request(OWNLightingCommand.status("0"))
                         elif message.is_area:
-                            is_event = True
                             event = "on" if message.is_on else "off"
                             self.hass.bus.async_fire(
                                 "myhome_area_light_event",
@@ -200,7 +198,6 @@ class MyHOMEGatewayHandler:
                             await asyncio.sleep(0.1)
                             await self.send_status_request(OWNLightingCommand.status(message.area))
                         elif message.is_group:
-                            is_event = True
                             event = "on" if message.is_on else "off"
                             self.hass.bus.async_fire(
                                 "myhome_group_light_event",
@@ -212,7 +209,6 @@ class MyHOMEGatewayHandler:
                             )
                     elif isinstance(message, OWNAutomationEvent):
                         if message.is_general:
-                            is_event = True
                             if message.is_opening and not message.is_closing:
                                 event = "open"
                             elif message.is_closing and not message.is_opening:
@@ -224,7 +220,6 @@ class MyHOMEGatewayHandler:
                                 {"message": str(message), "event": event},
                             )
                         elif message.is_area:
-                            is_event = True
                             if message.is_opening and not message.is_closing:
                                 event = "open"
                             elif message.is_closing and not message.is_opening:
@@ -240,7 +235,6 @@ class MyHOMEGatewayHandler:
                                 },
                             )
                         elif message.is_group:
-                            is_event = True
                             if message.is_opening and not message.is_closing:
                                 event = "open"
                             elif message.is_closing and not message.is_opening:
@@ -255,33 +249,6 @@ class MyHOMEGatewayHandler:
                                     "event": event,
                                 },
                             )
-                    if not is_event:
-                        if isinstance(message, OWNLightingEvent) and message.brightness_preset:
-                            if isinstance(
-                                self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][LIGHT][message.entity][CONF_ENTITIES][LIGHT],
-                                MyHOMEEntity,
-                            ):
-                                await self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][LIGHT][message.entity][CONF_ENTITIES][LIGHT].async_update()
-                        else:
-                            for _platform in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS]:
-                                if _platform != BUTTON and message.entity in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform]:
-                                    for _entity in self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform][message.entity][CONF_ENTITIES]:
-                                        if (
-                                            isinstance(
-                                                self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform][message.entity][CONF_ENTITIES][_entity],
-                                                MyHOMEEntity,
-                                            )
-                                            and not isinstance(
-                                                self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform][message.entity][CONF_ENTITIES][_entity],
-                                                DisableCommandButtonEntity,
-                                            )
-                                            and not isinstance(
-                                                self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform][message.entity][CONF_ENTITIES][_entity],
-                                                EnableCommandButtonEntity,
-                                            )
-                                        ):
-                                            self.hass.data[DOMAIN][self.mac][CONF_PLATFORMS][_platform][message.entity][CONF_ENTITIES][_entity].handle_event(message)
-
                 else:
                     LOGGER.debug(
                         "%s Ignoring translation message `%s`",

@@ -26,7 +26,7 @@ from homeassistant.const import (
 )
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
-from OWNd.message import (
+from .ownd.message import (
     MESSAGE_TYPE_ACTIVE_POWER,
     MESSAGE_TYPE_CURRENT_DAY_CONSUMPTION,
     MESSAGE_TYPE_CURRENT_MONTH_CONSUMPTION,
@@ -56,7 +56,7 @@ from .const import (
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
-SCAN_INTERVAL = timedelta(seconds=60)
+SCAN_INTERVAL = timedelta(seconds=300)
 
 SERVICE_SEND_INSTANT_POWER = "start_sending_instant_power"
 
