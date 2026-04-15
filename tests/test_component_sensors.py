@@ -131,7 +131,7 @@ class TestBinarySensorsCoverage:
         sensor.async_schedule_update_ha_state = MagicMock()
         sensor.async_write_ha_state = MagicMock()
         msg = MagicMock()
-        msg.message_type = "motion"
+        msg.message_type = "motion_detected"
         msg.motion = True
         msg.human_readable_log = "m"
         sensor.handle_event(msg)
