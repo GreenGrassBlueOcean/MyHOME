@@ -228,6 +228,7 @@ async def test_options_flow(hass: HomeAssistant) -> None:
             "command_worker_count": 1,
             "generate_events": False,
         },
+        unique_id="00:03:50:00:12:34",
     )
     entry.add_to_hass(hass)
 
