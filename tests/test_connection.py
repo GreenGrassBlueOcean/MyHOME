@@ -227,3 +227,122 @@ class TestCryptoHelpers:
         )
         # They use different input strings (encode includes 'scope' constants)
         assert encoded != decoded
+
+# ── OWNSession IO Mocking ────────────────────────────────────────────────
+
+import asyncio
+from unittest.mock import patch, AsyncMock, MagicMock
+from custom_components.myhome.ownd.connection import OWNEventSession, OWNCommandSession
+
+class TestOWNSessionConnecting:
+    @pytest.fixture
+    def session(self):
+        gw = OWNGateway({"address": "127.0.0.1", "port": 20000})
+        return OWNSession(gateway=gw, connection_type="test", logger=logging.getLogger("test"))
+
+    @pytest.mark.asyncio
+    async def test_connect_success(self, session):
+        mock_reader = AsyncMock()
+        mock_writer = AsyncMock()
+        
+        with patch('asyncio.open_connection', return_value=(mock_reader, mock_writer)) as mock_open:
+            with patch.object(session, '_negotiate', return_value={"Success": True}) as mock_neg:
+                res = await session.connect()
+                assert res["Success"] is True
+                mock_open.assert_called_once_with("127.0.0.1", 20000)
+                mock_neg.assert_called_once()
+                assert session._stream_reader == mock_reader
+                assert session._stream_writer == mock_writer
+
+    @pytest.mark.asyncio
+    async def test_connect_refused_retry_success(self, session):
+        mock_reader = AsyncMock()
+        mock_writer = AsyncMock()
+        
+        with patch('asyncio.sleep', return_value=None):
+            with patch('asyncio.open_connection', side_effect=[ConnectionRefusedError, (mock_reader, mock_writer)]) as mock_open:
+                with patch.object(session, '_negotiate', return_value={"Success": True}):
+                    res = await session.connect()
+                    assert res["Success"] is True
+                    assert mock_open.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_connect_refused_max_retries(self, session):
+        with patch('asyncio.sleep', return_value=None):
+            with patch('asyncio.open_connection', side_effect=ConnectionRefusedError) as mock_open:
+                res = await session.connect()
+                assert res is None
+                assert mock_open.call_count == 6  # Submits 6 total checks (0 through 5) before returning None
+
+    @pytest.mark.asyncio
+    async def test_close(self, session):
+        session._stream_writer = AsyncMock()
+        await session.close()
+        session._stream_writer.close.assert_called_once()
+        session._stream_writer.wait_closed.assert_called_once()
+
+class TestOWNEventSession:
+    @pytest.fixture
+    def session(self):
+        gw = OWNGateway({"address": "127.0.0.1", "port": 20000})
+        return OWNEventSession(gateway=gw, logger=logging.getLogger("test"))
+
+    @pytest.mark.asyncio
+    async def test_get_next_success(self, session):
+        session._stream_reader = AsyncMock()
+        session._stream_reader.readuntil.return_value = b"*1*1*12##"
+        
+        msg = await session.get_next()
+        assert msg is not None
+
+    @pytest.mark.asyncio
+    async def test_get_next_heartbeat_timeout(self, session):
+        session._stream_reader = AsyncMock()
+        
+        async def mock_readuntil(*args, **kwargs):
+            raise asyncio.TimeoutError()
+            
+        session._stream_reader.readuntil.side_effect = mock_readuntil
+        
+        with patch('asyncio.sleep', return_value=None):
+            with patch.object(session, 'close', new_callable=AsyncMock) as mock_close:
+                with patch.object(session, 'connect', new_callable=AsyncMock) as mock_connect:
+                    msg = await session.get_next()
+                    assert msg is None
+                    mock_close.assert_called_once()
+                    mock_connect.assert_called_once()
+
+class TestOWNCommandSession:
+    @pytest.fixture
+    def session(self):
+        gw = OWNGateway({"address": "127.0.0.1", "port": 20000})
+        return OWNCommandSession(gateway=gw, logger=logging.getLogger("test"))
+
+    @pytest.mark.asyncio
+    async def test_send_success(self, session):
+        session._stream_writer = AsyncMock()
+        session._stream_reader = AsyncMock()
+        
+        # Simulating ACK response
+        session._stream_reader.readuntil.return_value = b"*#*1##"
+
+        await session.send("*1*1*12##")
+        session._stream_writer.write.assert_called_once()
+        session._stream_writer.drain.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_retry_on_reset(self, session):
+        session._stream_writer = AsyncMock()
+        session._stream_reader = AsyncMock()
+        
+        async def mock_write(data):
+            raise ConnectionResetError()
+            
+        session._stream_writer.write.side_effect = mock_write
+        
+        with patch.object(session, 'connect', new_callable=AsyncMock) as mock_connect:
+            # Prevent infinite loop by patching send on the second attempt
+            with patch.object(session, 'send', new_callable=AsyncMock) as mock_send_recurse:
+                await session.send("*1*1*12##")
+                mock_connect.assert_called_once()
+                mock_send_recurse.assert_called_once_with(message="*1*1*12##", is_status_request=False)
