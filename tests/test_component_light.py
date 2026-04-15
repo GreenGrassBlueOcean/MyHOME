@@ -136,6 +136,7 @@ async def test_light_entity_onoff(hass):
         device_id="13", who="1", where="13", interface=None, dimmable=False,
         manufacturer="B", model="M", gateway=gateway
     )
+    light.hass = hass
     light.async_schedule_update_ha_state = MagicMock()
     
     assert light.color_mode == ColorMode.ONOFF

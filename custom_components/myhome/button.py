@@ -40,7 +40,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         CONF_PLATFORMS
     ][PLATFORM]
 
-    for _button in _configured_buttons.keys():
+    for _button in list(_configured_buttons.keys()):
         _disable_button = DisableCommandButtonEntity(
             hass=hass,
             platform=PLATFORM,
@@ -88,7 +88,7 @@ async def async_unload_entry(hass, config_entry):
         CONF_PLATFORMS
     ][PLATFORM]
 
-    for _button in _configured_buttons.keys():
+    for _button in list(_configured_buttons.keys()):
         del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][
             _button
         ]

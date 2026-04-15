@@ -65,7 +65,7 @@ async def test_setup_and_unload_entry(hass):
     climate_entity = entities[0]
     
     assert isinstance(climate_entity, MyHOMEClimate)
-    assert climate_entity.name == "Zone 1"
+    assert climate_entity.device_info["name"] == "Zone 1"
     
     # Test unload
     await async_unload_entry(hass, config_entry)

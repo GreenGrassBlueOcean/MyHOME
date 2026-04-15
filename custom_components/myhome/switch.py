@@ -41,7 +41,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     _switches = []
     _configured_switches = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
 
-    for _switch in _configured_switches.keys():
+    for _switch in list(_configured_switches.keys()):
         _switch = MyHOMESwitch(
             hass=hass,
             device_id=_switch,
@@ -68,7 +68,7 @@ async def async_unload_entry(hass, config_entry):
 
     _configured_switches = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
 
-    for _switch in _configured_switches.keys():
+    for _switch in list(_configured_switches.keys()):
         del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][_switch]
 
 

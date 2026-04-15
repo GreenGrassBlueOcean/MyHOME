@@ -344,7 +344,10 @@ async def test_reauth_flow(hass: HomeAssistant) -> None:
     with patch(
         "custom_components.myhome.config_flow.OWNSession.test_connection",
         return_value={"Success": True},
-    ):
+    ), patch(
+        "custom_components.myhome.async_setup_entry",
+        return_value=True,
+    ) as mock_setup_entry:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"password": "correct_password"},
@@ -366,7 +369,10 @@ async def test_password_required_and_error(hass: HomeAssistant) -> None:
             {"Success": False, "Message": "password_error"},
             {"Success": True}
         ]
-    ):
+    ), patch(
+        "custom_components.myhome.async_setup_entry",
+        return_value=True,
+    ) as mock_setup_entry:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )

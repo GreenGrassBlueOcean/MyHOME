@@ -61,7 +61,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         CONF_PLATFORMS
     ][PLATFORM]
 
-    for _climate_device in _configured_climate_devices.keys():
+    for _climate_device in list(_configured_climate_devices.keys()):
         _climate_devices.append(
             MyHOMEClimate(
                 hass=hass,
@@ -99,7 +99,7 @@ async def async_unload_entry(hass, config_entry):
         CONF_PLATFORMS
     ][PLATFORM]
 
-    for _climate_device in _configured_climate_devices.keys():
+    for _climate_device in list(_configured_climate_devices.keys()):
         del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][
             _climate_device
         ]

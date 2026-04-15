@@ -51,7 +51,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     _binary_sensors = []
     _configured_binary_sensors = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
 
-    for _binary_sensor in _configured_binary_sensors.keys():
+    for _binary_sensor in list(_configured_binary_sensors.keys()):
         _who = int(_configured_binary_sensors[_binary_sensor][CONF_WHO])
         _device_class = _configured_binary_sensors[_binary_sensor][CONF_DEVICE_CLASS]
         if _who == 25:
@@ -109,7 +109,7 @@ async def async_unload_entry(hass, config_entry):
 
     _configured_binary_sensors = hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM]
 
-    for _binary_sensor in _configured_binary_sensors.keys():
+    for _binary_sensor in list(_configured_binary_sensors.keys()):
         del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][_binary_sensor]
 
 

@@ -148,11 +148,11 @@ async def async_unload_entry(hass, config_entry):
 
 
 def eight_bits_to_percent(value: int) -> int:
-    return int(round(100 / 255 * value, 0))
+    return int(round(value / 2.55, 0))
 
 
 def percent_to_eight_bits(value: int) -> int:
-    return int(round(255 / 100 * value, 0))
+    return int(round(value * 2.55, 0))
 
 
 class MyHOMELight(MyHOMEEntity, LightEntity):

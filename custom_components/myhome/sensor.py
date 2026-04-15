@@ -77,7 +77,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ][PLATFORM]
     _power_devices_configured = False
 
-    for _sensor in _configured_sensors.keys():
+    for _sensor in list(_configured_sensors.keys()):
         if (
             _configured_sensors[_sensor][CONF_DEVICE_CLASS] == SensorDeviceClass.POWER
             or _configured_sensors[_sensor][CONF_DEVICE_CLASS]
@@ -201,7 +201,7 @@ async def async_unload_entry(hass, config_entry):
         CONF_PLATFORMS
     ][PLATFORM]
 
-    for _sensor in _configured_sensors.keys():
+    for _sensor in list(_configured_sensors.keys()):
         del hass.data[DOMAIN][config_entry.data[CONF_MAC]][CONF_PLATFORMS][PLATFORM][
             _sensor
         ]
