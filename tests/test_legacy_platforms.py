@@ -162,6 +162,7 @@ async def test_button_direct_coverage(hass: HomeAssistant, mock_gateway_connecti
     gw.mac = "00:11:22:33:44:55"
     
     b = DisableCommandButtonEntity(hass, "button", "Test", "id1", "1", "1", None, "B", "M", gw)
+    b.hass = hass
     assert b.name == "Lock"
     await b.async_press()
 
@@ -173,7 +174,8 @@ async def test_climate_direct_coverage(hass: HomeAssistant, mock_gateway_connect
     gw = AsyncMock()
     gw.mac = "00:11:22:33:44:55"
 
-    c = MyHOMEClimate(hass, "id1", "4", "01", "name", True, True, False, False, False, "B", "M", gw)
+    c = MyHOMEClimate(hass=hass, name="name", device_id="id1", who="4", where="01", heating=True, cooling=True, fan=False, standalone=False, central=False, manufacturer="B", model="M", gateway=gw)
+    c.hass = hass
     
     # Hit properties
     _ = c.target_temperature
@@ -204,11 +206,13 @@ async def test_binary_sensor_direct_coverage(hass: HomeAssistant, mock_gateway_c
     gw.mac = "00:11:22:33:44:55"
 
     b1 = MyHOMEAuxiliary(hass, "au1", "aname", "aid", "25", "35", False, "door", "B", "M", gw)
+    b1.hass = hass
     await b1.async_update()
     evt = OWNEvent.parse("*25*31#1*35##")
     b1.handle_event(evt)
     
     b2 = MyHOMEMotionSensor(hass, "mo1", "mname", "mid", "1", "12", False, "motion", "B", "M", gw)
+    b2.hass = hass
     await b2.async_update()
     evt2 = OWNEvent.parse("*1*1*12##")
     b2.handle_event(evt2)
@@ -222,7 +226,9 @@ async def test_sensor_direct_coverage(hass: HomeAssistant, mock_gateway_connecti
     gw.mac = "00:11:22:33:44:55"
 
     pw = MyHOMEPowerSensor(hass, "Power", "p1", "18", "51", "power", "B", "M", gw)
-    en = MyHOMEEnergySensor(hass, "Energy", "e1", "18", "51", "daily", "energy", "B", "M", gw)
+    pw.hass = hass
+    en = MyHOMEEnergySensor(hass, "Energy", "e1", "18", "51", "daily-energy", "energy", "B", "M", gw)
+    en.hass = hass
 
     evt = OWNEvent.parse("*18*51*113*114*115##")
     pw.handle_event(evt)
