@@ -1,6 +1,7 @@
 """ MyHOME integration. """
 
 from .ownd.message import OWNCommand, OWNGatewayCommand
+from .gateway import MyHOMEGatewayHandler
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.core import HomeAssistant

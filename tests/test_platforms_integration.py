@@ -23,9 +23,9 @@ def mock_gateway_connection():
         "custom_components.myhome.ownd.connection.OWNEventSession.connect",
         return_value={"Success": True, "Message": None}
     ), patch(
-        "custom_components.myhome.gateway.MyHOMEGatewayHandler.start_event_listener"
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
     ), patch(
-        "custom_components.myhome.gateway.MyHOMEGatewayHandler._run_discovery"
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
     ):
         yield
 

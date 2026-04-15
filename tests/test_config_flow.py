@@ -22,7 +22,10 @@ async def test_form(hass: HomeAssistant) -> None:
     ), patch(
         "custom_components.myhome.async_setup_entry",
         return_value=True,
-    ) as mock_setup_entry:
+    ) as mock_setup_entry, patch(
+        "custom_components.myhome.config_flow.find_gateways",
+        return_value=[]
+    ):
         result2 = await hass.config_entries.flow.async_configure(
             result["step_id"],
             {
@@ -53,6 +56,9 @@ async def test_form_cannot_connect(hass: HomeAssistant) -> None:
     with patch(
         "custom_components.myhome.ownd.connection.OWNSession.test_gateway",
         return_value={"Success": False, "Message": "connection_refused"},
+    ), patch(
+        "custom_components.myhome.config_flow.find_gateways",
+        return_value=[]
     ):
         result2 = await hass.config_entries.flow.async_configure(
             result["step_id"],
