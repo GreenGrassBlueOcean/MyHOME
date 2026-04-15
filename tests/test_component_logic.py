@@ -161,7 +161,7 @@ class TestSensorEntity:
     def test_power_sensor_handle_event(self, power_sensor):
         msg = MagicMock()
         msg.message_type = "active_power"
-        msg.total_consumption = 113.0
+        msg.active_power = 113.0
         msg.human_readable_log = "mock"
         power_sensor.handle_event(msg)
         assert power_sensor._attr_native_value == 113.0
@@ -175,6 +175,6 @@ class TestGatewayConnection:
         with patch("asyncio.open_connection", side_effect=ConnectionRefusedError()):
             mock_gateway.address = "invalid_host"
             mock_gateway.port = 20000
-            session = OWNSession(gateway=mock_gateway)
+            session = OWNSession(gateway=mock_gateway, logger=MagicMock())
             response = await session.test_connection()
             assert response is None
