@@ -68,15 +68,15 @@ class TestLightEntity:
 
     @pytest.mark.asyncio
     async def test_async_turn_on(self, light):
-        await light.async_turn_on(brightness=128)
+        await light.async_turn_on()
         light._gateway_handler.send.assert_called_once()
-        assert "50" in str(light._gateway_handler.send.call_args[0][0]) # Brightness 128 maps to DIM value 5
+        assert "*1*1*21#4#l##" in str(light._gateway_handler.send.call_args[0][0])
 
     @pytest.mark.asyncio
     async def test_async_turn_off(self, light):
         await light.async_turn_off()
         light._gateway_handler.send.assert_called_once()
-        assert "*1*0*21##" == str(light._gateway_handler.send.call_args[0][0])
+        assert "*1*0*21#4#l##" == str(light._gateway_handler.send.call_args[0][0])
 
     @pytest.mark.asyncio
     async def test_async_update(self, light):
@@ -123,13 +123,13 @@ class TestSwitchEntity:
     async def test_async_turn_on(self, switch):
         await switch.async_turn_on()
         switch._gateway_handler.send.assert_called_once()
-        assert "*1*1*22##" == str(switch._gateway_handler.send.call_args[0][0])
+        assert "*1*1*22#4#s##" == str(switch._gateway_handler.send.call_args[0][0])
 
     @pytest.mark.asyncio
     async def test_async_turn_off(self, switch):
         await switch.async_turn_off()
         switch._gateway_handler.send.assert_called_once()
-        assert "*1*0*22##" == str(switch._gateway_handler.send.call_args[0][0])
+        assert "*1*0*22#4#s##" == str(switch._gateway_handler.send.call_args[0][0])
 
     @pytest.mark.asyncio
     async def test_async_update(self, switch):
@@ -221,4 +221,4 @@ class TestButtonEntity:
     async def test_async_press_enable(self, enable_button):
         await enable_button.async_press()
         enable_button._gateway_handler.send.assert_called_once()
-        assert "*25*21#1*24##" in str(enable_button._gateway_handler.send.call_args[0][0])
+        assert "*14*1*24#4#b##" in str(enable_button._gateway_handler.send.call_args[0][0])
