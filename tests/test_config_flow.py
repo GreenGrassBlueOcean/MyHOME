@@ -213,8 +213,13 @@ async def test_form_discovery_already_configured(hass: HomeAssistant) -> None:
     assert result2["reason"] == "already_configured"
 
 
-@patch("custom_components.myhome.async_setup_entry", return_value=True)
-async def test_options_flow(mock_setup_entry, hass: HomeAssistant) -> None:
+@patch(
+    "custom_components.myhome.gateway.OWNSession.test_connection",
+    return_value={"Success": True, "Message": None}
+)
+@patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop")
+@patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop")
+async def test_options_flow(mock_sending, mock_listening, mock_test_connection, hass: HomeAssistant) -> None:
     """Test options config flow."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -250,7 +255,20 @@ async def test_options_flow(mock_setup_entry, hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
 
-    # Submit updated options
+    # Test invalid ip address config error
+    result_invalid = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "command_worker_count": 3,
+            "generate_events": True,
+            "address": "invalid_ip",
+            "password": "new_password"
+        },
+    )
+    assert result_invalid["type"] == FlowResultType.FORM
+    assert result_invalid["errors"]["address"] == "invalid_ip"
+
+    # Submit updated options (valid)
     result2 = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
@@ -266,19 +284,6 @@ async def test_options_flow(mock_setup_entry, hass: HomeAssistant) -> None:
     assert entry.options["generate_events"] is True
     assert entry.data["host"] == "192.168.1.136"
     assert entry.data["password"] == "new_password"
-
-    # Test invalid ip address config error
-    result_invalid = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={
-            "command_worker_count": 3,
-            "generate_events": True,
-            "address": "invalid_ip",
-            "password": "new_password"
-        },
-    )
-    assert result_invalid["type"] == FlowResultType.FORM
-    assert result_invalid["errors"]["address"] == "invalid_ip"
 
 
 async def test_ssdp_discovery(hass: HomeAssistant) -> None:
