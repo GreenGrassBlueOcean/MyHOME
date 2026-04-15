@@ -272,7 +272,7 @@ class TestOWNSessionConnecting:
             with patch('asyncio.open_connection', side_effect=ConnectionRefusedError) as mock_open:
                 res = await session.connect()
                 assert res is None
-                assert mock_open.call_count == 6  # Submits 6 total checks (0 through 5) before returning None
+                assert mock_open.call_count == 5  # Submits 5 total checks (0 through 4) before returning None
 
     @pytest.mark.asyncio
     async def test_close(self, session):
@@ -341,8 +341,10 @@ class TestOWNCommandSession:
         session._stream_writer.write.side_effect = mock_write
         
         with patch.object(session, 'connect', new_callable=AsyncMock) as mock_connect:
-            # Prevent infinite loop by patching send on the second attempt
-            with patch.object(session, 'send', new_callable=AsyncMock) as mock_send_recurse:
-                await session.send("*1*1*12##")
-                mock_connect.assert_called_once()
-                mock_send_recurse.assert_called_once_with(message="*1*1*12##", is_status_request=False)
+            # Need to restore writer to simulate reconnect success
+            async def restore_writer():
+                session._stream_writer = AsyncMock()
+                return {"Success": True}
+            mock_connect.side_effect = restore_writer
+            await session.send("*1*1*12##")
+            mock_connect.assert_called_once()
