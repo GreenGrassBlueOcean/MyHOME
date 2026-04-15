@@ -86,3 +86,73 @@ async def test_setup_entry_connection_failed(hass: HomeAssistant):
         # Should return False
         assert not result
         assert config_entry.state is ConfigEntryState.SETUP_ERROR
+
+async def test_setup_yaml(hass: HomeAssistant):
+    """Test setup from yaml configurations returns false."""
+    from custom_components.myhome import async_setup
+    result = await async_setup(hass, {DOMAIN: {}})
+    assert not result
+
+async def test_services(hass: HomeAssistant):
+    """Test sync_time and send_message services."""
+    from custom_components.myhome.const import ATTR_GATEWAY, ATTR_MESSAGE
+
+    with patch(
+        "custom_components.myhome.gateway.OWNSession.test_connection",
+        return_value={"Success": True, "Message": None}
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
+    ):
+        config_entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                "host": "192.168.0.35",
+                "port": 20000,
+                "password": "pass",
+                "mac": "00:03:50:00:12:34",
+                "name": "F454",
+            },
+            unique_id="00:03:50:00:12:34",
+        )
+        config_entry.add_to_hass(hass)
+
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        gateway = hass.data[DOMAIN]["00:03:50:00:12:34"]["gateway"]
+        gateway.send = AsyncMock()
+
+        # Test sync_time service
+        await hass.services.async_call(
+            DOMAIN, "sync_time", {ATTR_GATEWAY: "00:03:50:00:12:34"}, blocking=True
+        )
+        gateway.send.assert_called_once()
+        gateway.send.reset_mock()
+
+        # Test sync_time without gateway specified
+        await hass.services.async_call(
+            DOMAIN, "sync_time", {}, blocking=True
+        )
+        gateway.send.assert_called_once()
+        gateway.send.reset_mock()
+
+        # Test send_message service (valid)
+        await hass.services.async_call(
+            DOMAIN, "send_message", {ATTR_GATEWAY: "00:03:50:00:12:34", ATTR_MESSAGE: "*1*1*12##"}, blocking=True
+        )
+        gateway.send.assert_called_once()
+        gateway.send.reset_mock()
+
+        # Test send_message service (invalid)
+        await hass.services.async_call(
+            DOMAIN, "send_message", {ATTR_GATEWAY: "00:03:50:00:12:34", ATTR_MESSAGE: "invalid"}, blocking=True
+        )
+        gateway.send.assert_not_called()
+
+        # Test missing gateway
+        await hass.services.async_call(
+            DOMAIN, "send_message", {ATTR_GATEWAY: "00:03:50:00:00:00", ATTR_MESSAGE: "*1*1*12##"}, blocking=True
+        )
+        gateway.send.assert_not_called()
