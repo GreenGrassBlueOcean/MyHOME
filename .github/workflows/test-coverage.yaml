@@ -5,7 +5,8 @@ on:
     branches: [main, master]
   pull_request:
 
-permissions: read-all
+permissions:
+  contents: write
 
 jobs:
   test-coverage:
@@ -31,7 +32,8 @@ jobs:
           PYTHONPATH=. pytest tests/ --snapshot-update --cov=custom_components.myhome --cov-report=xml
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add tests/**/__snapshots__/*.ambr || true
+          git add "tests/**/__snapshots__/*" || true
+          git add "tests/__snapshots__/*" || true
           git commit -m "chore: auto-generate syrupy snapshots [skip ci]" || echo "No snapshots changed"
           git push || echo "No snapshots pushed"
 
