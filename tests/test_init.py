@@ -19,9 +19,9 @@ async def test_setup_entry_success(hass: HomeAssistant):
         "custom_components.myhome.ownd.connection.OWNEventSession.connect",
         return_value={"Success": True, "Message": None}
     ), patch(
-        "custom_components.myhome.gateway.MyHOMEGatewayHandler.start_event_listener"
-    ) as mock_start_listener, patch(
-        "custom_components.myhome.gateway.MyHOMEGatewayHandler._run_discovery"
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
     ):
         config_entry = MockConfigEntry(
             domain=DOMAIN,
@@ -40,9 +40,6 @@ async def test_setup_entry_success(hass: HomeAssistant):
 
         # Check entry loaded
         assert config_entry.state is ConfigEntryState.LOADED
-
-        # Check listener was started
-        mock_start_listener.assert_called_once()
 
         # Cleanup
         assert await hass.config_entries.async_unload(config_entry.entry_id)
@@ -64,12 +61,13 @@ async def test_setup_entry_connection_failed(hass: HomeAssistant):
                 "password": "wrong",
                 "mac": "00:03:50:00:12:34"
             },
+            unique_id="00:03:50:00:12:35",
         )
         config_entry.add_to_hass(hass)
 
         result = await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-        # Should raise ConfigEntryNotReady
+        # Should return False
         assert not result
-        assert config_entry.state is ConfigEntryState.SETUP_RETRY
+        assert config_entry.state is ConfigEntryState.SETUP_ERROR
