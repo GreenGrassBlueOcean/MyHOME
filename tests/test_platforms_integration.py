@@ -17,10 +17,7 @@ PLATFORMS = ["light", "climate", "cover", "sensor", "binary_sensor", "switch", "
 @pytest.fixture
 def mock_gateway_connection():
     with patch(
-        "custom_components.myhome.ownd.connection.OWNCommandSession.connect",
-        return_value={"Success": True, "Message": None}
-    ), patch(
-        "custom_components.myhome.ownd.connection.OWNEventSession.connect",
+        "custom_components.myhome.gateway.OWNSession.test_connection",
         return_value={"Success": True, "Message": None}
     ), patch(
         "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"

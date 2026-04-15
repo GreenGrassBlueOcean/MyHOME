@@ -13,10 +13,7 @@ async def test_setup_entry_success(hass: HomeAssistant):
     """Test successful setup of the integration via MockConfigEntry."""
     # 1. Provide a realistic connection mock that succeeds
     with patch(
-        "custom_components.myhome.ownd.connection.OWNCommandSession.connect",
-        return_value={"Success": True, "Message": None}
-    ), patch(
-        "custom_components.myhome.ownd.connection.OWNEventSession.connect",
+        "custom_components.myhome.gateway.OWNSession.test_connection",
         return_value={"Success": True, "Message": None}
     ), patch(
         "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
@@ -59,7 +56,7 @@ async def test_setup_entry_success(hass: HomeAssistant):
 async def test_setup_entry_connection_failed(hass: HomeAssistant):
     """Test failing setup due to bad password or timeout."""
     with patch(
-        "custom_components.myhome.ownd.connection.OWNCommandSession.connect",
+        "custom_components.myhome.gateway.OWNSession.test_connection",
         return_value={"Success": False, "Message": "password_error"}
     ):
         config_entry = MockConfigEntry(
