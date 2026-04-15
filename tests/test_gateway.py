@@ -189,13 +189,19 @@ async def test_listening_loop_other_events(gateway_handler):
         
         msg_cenplus = MagicMock(spec=OWNCENPlusEvent)
         msg_cenplus.is_short_pressed = True
+        msg_cenplus.is_short_pressed_and_hold = False
+        msg_cenplus.is_held = False
+        msg_cenplus.is_still_held = False
+        msg_cenplus.is_released = False
         msg_cenplus.object = "1"
         msg_cenplus.push_button = "2"
         msg_cenplus.human_readable_log = "CP"
 
         msg_cen = MagicMock(spec=OWNCENEvent)
-        msg_cen.is_held = True
         msg_cen.is_pressed = False
+        msg_cen.is_released_after_short_press = False
+        msg_cen.is_held = True
+        msg_cen.is_released_after_long_press = False
         msg_cen.object = "3"
         msg_cen.push_button = "4"
         msg_cen.human_readable_log = "C"
@@ -228,7 +234,7 @@ async def test_sending_loop(gateway_handler):
         mock_cmd_session.close = AsyncMock()
         mock_cmd_class.return_value = mock_cmd_session
 
-        gateway_handler.sending_workers = [AsyncMock()]
+        gateway_handler.sending_workers = [MagicMock()]
         
         # Replace the real queue with a mock to avoid task_done() internal tracking errors
         mock_queue = MagicMock()
