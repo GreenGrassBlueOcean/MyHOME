@@ -123,7 +123,7 @@ async def test_legacy_platforms_setup_and_execution(hass: HomeAssistant, mock_ga
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": "climate.climate_1", "hvac_mode": "heat"}, blocking=True)
     
     # Send Dummy Dispatch updates to binary sensor
-    bs_event = OWNEvent.parse("*25*0*35##")
+    bs_event = OWNEvent.parse("*25*31#1*35##")
     async_dispatcher_send(hass, f"myhome_update_{mac_addr}_35", bs_event)
     await hass.async_block_till_done()
     
