@@ -125,7 +125,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             async_add_entities([_light])
             _light.handle_event(message)
             
-        async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_{unique_id}", message)
+        async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_1_{unique_id}", message)
 
     @callback
     def _handle_light_message(msg):
@@ -223,7 +223,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"myhome_update_{self._gateway_handler.mac}_{self._full_where}",
+                f"myhome_update_{self._gateway_handler.mac}_1_{self._full_where}",
                 self.handle_event,
             )
         )

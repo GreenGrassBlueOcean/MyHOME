@@ -115,7 +115,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             async_add_entities([_cover])
             _cover.handle_event(message)
             
-        async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_{unique_id}", message)
+        async_dispatcher_send(hass, f"myhome_update_{config_entry.data[CONF_MAC]}_2_{unique_id}", message)
 
     @callback
     def _handle_cover_message(msg):
@@ -193,7 +193,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"myhome_update_{self._gateway_handler.mac}_{self._full_where}",
+                f"myhome_update_{self._gateway_handler.mac}_2_{self._full_where}",
                 self.handle_event,
             )
         )
