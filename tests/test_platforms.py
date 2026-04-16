@@ -65,7 +65,7 @@ class TestMyHOMEEntity:
                 model="Test",
                 gateway=mock_gateway,
             )
-            assert entity._attr_unique_id == f"{mock_gateway.mac}-21"
+            assert entity._attr_unique_id == f"{mock_gateway.mac}-1-21"
             assert entity._attr_should_poll is False
             assert entity._attr_has_entity_name is True
             assert entity._manufacturer == "BTicino"
