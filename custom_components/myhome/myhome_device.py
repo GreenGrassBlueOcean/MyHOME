@@ -31,7 +31,7 @@ class MyHOMEEntity(Entity):
         self._who = who
         self._where = where
         self._device_id = device_id
-        self._attr_unique_id = f"{gateway.mac}-{self._device_id}"
+        self._attr_unique_id = f"{gateway.mac}-{self._who}-{self._device_id}"
         self._manufacturer = manufacturer or "BTicino S.p.A."
         self._model = model
         self._gateway_handler = gateway
@@ -41,7 +41,7 @@ class MyHOMEEntity(Entity):
         self._attr_should_poll = False
 
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{gateway.mac}-{self._device_id}")},
+            "identifiers": {(DOMAIN, f"{gateway.mac}-{self._who}-{self._device_id}")},
             "name": name,
             "manufacturer": self._manufacturer,
             "model": self._model,
