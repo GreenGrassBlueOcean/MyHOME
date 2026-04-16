@@ -399,9 +399,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})
             self.options.update({CONF_GENERATE_EVENTS: user_input[CONF_GENERATE_EVENTS]})
 
-            _data_update = not (self.data[CONF_HOST] == user_input[CONF_ADDRESS] and self.data[CONF_OWN_PASSWORD] == user_input[CONF_OWN_PASSWORD])
-            self.data.update({CONF_HOST: user_input[CONF_ADDRESS]})
-            self.data.update({CONF_OWN_PASSWORD: user_input[CONF_OWN_PASSWORD]})
+            _data_update = not (self.data.get(CONF_HOST) == user_input.get(CONF_ADDRESS) and self.data.get(CONF_PASSWORD) == user_input.get(CONF_OWN_PASSWORD))
+            self.data.update({CONF_HOST: user_input.get(CONF_ADDRESS)})
+            self.data.update({CONF_PASSWORD: user_input.get(CONF_OWN_PASSWORD)})
 
             try:
                 self.data[CONF_HOST] = str(ipaddress.IPv4Address(self.data[CONF_HOST]))
@@ -421,11 +421,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 {
                     Required(
                         CONF_ADDRESS,
-                        description={"suggested_value": self.data[CONF_HOST]},
+                        description={"suggested_value": self.data.get(CONF_HOST, "")},
                     ): str,
                     Required(
                         CONF_OWN_PASSWORD,
-                        description={"suggested_value": self.data[CONF_PASSWORD]},
+                        description={"suggested_value": self.data.get(CONF_PASSWORD, "")},
                     ): str,
                     Required(
                         CONF_WORKER_COUNT,
