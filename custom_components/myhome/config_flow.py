@@ -6,6 +6,7 @@ import os
 from typing import Dict, Optional
 
 import async_timeout
+import voluptuous as vol
 from voluptuous import (
     Schema,
     Required,
@@ -421,11 +422,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 {
                     Required(
                         CONF_ADDRESS,
-                        description={"suggested_value": self.data.get(CONF_HOST, "")},
+                        description={"suggested_value": self.data.get(CONF_HOST) or ""},
                     ): str,
-                    Required(
+                    vol.Optional(
                         CONF_OWN_PASSWORD,
-                        description={"suggested_value": self.data.get(CONF_PASSWORD, "")},
+                        description={"suggested_value": self.data.get(CONF_PASSWORD) or ""},
                     ): str,
                     Required(
                         CONF_WORKER_COUNT,
