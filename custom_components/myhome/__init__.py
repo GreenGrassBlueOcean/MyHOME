@@ -55,6 +55,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             entry, unique_id=dr.format_mac(entry.unique_id)
         )
         LOGGER.warning("Migrating config entry unique_id to %s", entry.unique_id)
+        
+    entity_registry = er.async_get(hass)
+    _mac = entry.data[CONF_MAC]
+    
+    _domain_to_who = {
+        "light": "1",
+        "cover": "2",
+        "switch": "1",
+        "media_player": "16",
+    }
+    
+    registry_entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    for reg_entry in registry_entries:
+        parts = reg_entry.unique_id.split("-")
+        # Old unique_id format: MAC-WHERE
+        if len(parts) == 2 and parts[0] == _mac:
+            where_part = parts[1]
+            who = _domain_to_who.get(reg_entry.domain)
+            if who:
+                new_unique_id = f"{_mac}-{who}-{where_part}"
+                if not entity_registry.async_get_entity_id(reg_entry.domain, DOMAIN, new_unique_id):
+                    try:
+                        entity_registry.async_update_entity(
+                            reg_entry.entity_id, new_unique_id=new_unique_id
+                        )
+                        LOGGER.info("Resurrecting orphaned MyHOME entity %s to new unique_id %s", reg_entry.entity_id, new_unique_id)
+                    except ValueError as e:
+                        LOGGER.warning("Could not auto-migrate entity %s to %s: %s", reg_entry.entity_id, new_unique_id, e)
+
+    # Hack to forcefully absorb customize.yaml for users who deleted their integrations
+    # and therefore lost the transparent entity_registry migration!
+    import os
+    from homeassistant.util.yaml.loader import load_yaml
+    
+    hass.data[DOMAIN]["customizations"] = {}
+    customize_file = hass.config.path("customize.yaml")
+    if os.path.isfile(customize_file):
+        try:
+            hass.data[DOMAIN]["customizations"] = load_yaml(customize_file) or {}
+            LOGGER.info("Successfully loaded %s custom names from customize.yaml for recovery", len(hass.data[DOMAIN]["customizations"]))
+        except Exception as e:
+            LOGGER.error("Failed to parse customize.yaml for friendly_name recovery: %s", e)
 
     gateway = MyHOMEGatewayHandler(
         hass=hass, config_entry=entry, generate_events=_generate_events
