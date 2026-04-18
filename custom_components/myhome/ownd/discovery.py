@@ -318,6 +318,29 @@ async def find_gateways() -> list:
 
 
 async def get_gateway(address: str) -> dict:
+    """Discover a gateway by IP address.
+
+    First tries a direct HTTP fetch of the UPnP device descriptor at the
+    standard BTicino port (49153).  This works even inside Docker containers
+    where SSDP multicast is not available.  Falls back to the broadcast-based
+    SSDP discovery only if the direct fetch fails.
+    """
+
+    # --- Attempt 1: direct HTTP fetch (most reliable) ---
+    _UPNP_PORTS = [49153, 80]
+    for _port in _UPNP_PORTS:
+        scpd_url = f"http://{address}:{_port}/description.xml"
+        try:
+            details = await _get_scpd_details(scpd_url)
+            if details and details.get("serialNumber"):
+                details["address"] = address
+                details["ssdp_location"] = scpd_url
+                details["ssdp_st"] = None
+                return details
+        except Exception:  # pylint: disable=broad-except
+            continue
+
+    # --- Attempt 2: SSDP multicast fallback ---
     _local_gateways = await find_gateways()
     for _gateway in _local_gateways:
         if _gateway["address"] == address:
