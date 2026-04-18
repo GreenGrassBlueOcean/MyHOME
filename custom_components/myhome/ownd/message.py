@@ -1602,22 +1602,27 @@ class OWNSoundEvent(OWNEvent):
 
         self._state = self._what
         self._zone = self._where
-        self._is_source_event = self._zone.startswith("10") and len(self._zone) == 3
+        self._is_source_event = (
+            len(self._zone) == 3
+            and self._zone.startswith("10")
+            and self._zone != "100"
+        )
         self._volume = None
+        self._source_id = None
 
         if self._state is not None:
             if self._is_source_event:
                 self._source_id = str(int(self._zone) - 100)
-                if self._state == 0:
+                if self._state in (0, 3):
                     self._human_readable_log = f"Audio Source {self._source_id} is switched ON."
-                elif self._state == 10:
+                elif self._state in (10, 13):
                     self._human_readable_log = f"Audio Source {self._source_id} is switched OFF."
                 else:
                     self._human_readable_log = f"Audio Source {self._source_id} received command: {self._state}."
             else:
-                if self._state == 0:
+                if self._state in (0, 3):
                     self._human_readable_log = f"Audio Zone {self._zone} is switched ON."
-                elif self._state == 10:
+                elif self._state in (10, 13):
                     self._human_readable_log = f"Audio Zone {self._zone} is switched OFF."
                 else:
                     self._human_readable_log = f"Audio Zone {self._zone} received command: {self._state}."
@@ -1631,11 +1636,11 @@ class OWNSoundEvent(OWNEvent):
 
     @property
     def is_on(self):
-        return self._state == 0
+        return self._state in (0, 3)
 
     @property
     def is_off(self):
-        return self._state == 10
+        return self._state in (10, 13)
 
     @property
     def is_source_event(self):
@@ -2049,13 +2054,13 @@ class OWNSoundCommand(OWNCommand):
 
     @classmethod
     def turn_on(cls, where):
-        message = cls(f"*16*0*{where}##")
+        message = cls(f"*16*3*{where}##")
         message._human_readable_log = f"Turning ON audio zone {where}."
         return message
 
     @classmethod
     def turn_off(cls, where):
-        message = cls(f"*16*10*{where}##")
+        message = cls(f"*16*13*{where}##")
         message._human_readable_log = f"Turning OFF audio zone {where}."
         return message
 
@@ -2063,8 +2068,8 @@ class OWNSoundCommand(OWNCommand):
     def select_source(cls, source_id):
         # source_id is usually 1-4, mapped to 101-104
         where = str(100 + int(source_id))
-        message = cls(f"*16*0*{where}##")
-        message._human_readable_log = f"Selecting generic source {source_id} (address {where})."
+        message = cls(f"*16*3*{where}##")
+        message._human_readable_log = f"Selecting source {source_id} (address {where})."
         return message
 
     @classmethod
