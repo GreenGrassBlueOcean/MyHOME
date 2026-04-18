@@ -1604,7 +1604,7 @@ class OWNSoundEvent(OWNEvent):
         self._zone = self._where
         self._is_source_event = (
             len(self._zone) == 3
-            and self._zone.startswith("10")
+            and int(self._zone[0:2]) in (10, 11, 12, 13, 14)
             and self._zone != "100"
         )
         self._volume = None
@@ -1612,7 +1612,9 @@ class OWNSoundEvent(OWNEvent):
 
         if self._state is not None:
             if self._is_source_event:
-                self._source_id = str(int(self._zone) - 100)
+                # Source base: 10x/11x→source 1, 12x→source 2, 13x→source 3, 14x→source 4
+                _base = int(self._zone[0:2])
+                self._source_id = str(max(1, _base - 10))
                 if self._state in (0, 3):
                     self._human_readable_log = f"Audio Source {self._source_id} is switched ON."
                 elif self._state in (10, 13):
@@ -2065,11 +2067,24 @@ class OWNSoundCommand(OWNCommand):
         return message
 
     @classmethod
-    def select_source(cls, source_id):
-        # source_id is usually 1-4, mapped to 101-104
-        where = str(100 + int(source_id))
-        message = cls(f"*16*3*{where}##")
-        message._human_readable_log = f"Selecting source {source_id} (address {where})."
+    def select_source(cls, where, source_id):
+        """Select source for a specific zone.
+
+        For Sound System 2.0 stereo hardware, the source address encodes
+        both the source number and the zone's last digit:
+            Source 1 → base 11x  (stereo)
+            Source 2 → base 12x
+            Source 3 → base 13x
+            Source 4 → base 14x
+        where 'x' is the last digit of the zone address.
+        """
+        zone_digit = str(where)[-1]
+        source_base = 10 + int(source_id)  # source 1→11, 2→12, 3→13, 4→14
+        source_addr = f"{source_base}{zone_digit}"
+        message = cls(f"*16*3*{source_addr}##")
+        message._human_readable_log = (
+            f"Selecting source {source_id} for zone {where} (address {source_addr})."
+        )
         return message
 
     @classmethod

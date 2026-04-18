@@ -225,7 +225,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Select input source."""
         if source in self._attr_source_list:
             source_id = source.split(" ")[1]
-            await self._gateway_handler.send(OWNSoundCommand.select_source(source_id))
+            await self._gateway_handler.send(OWNSoundCommand.select_source(self._where, source_id))
 
     @callback
     def handle_event(self, message: OWNSoundEvent):
