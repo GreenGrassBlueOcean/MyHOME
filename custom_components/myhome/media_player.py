@@ -39,9 +39,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for entry in existing_entries:
         if entry.domain == PLATFORM:
             unique_id = entry.unique_id
-            # unique_id format: "{mac}-{zone}#16"
-            device_id = unique_id.replace(f"{config_entry.data[CONF_MAC]}-", "", 1)
-            # device_id is "{zone}#16"
+            # unique_id format: "{mac}-{who}-{device_id}" where device_id = "{zone}#16"
+            after_mac = unique_id.replace(f"{config_entry.data[CONF_MAC]}-", "", 1)
+            # after_mac is "{who}-{zone}#16" e.g. "16-22#16" — strip the who prefix
+            parts = after_mac.split("-", 1)
+            device_id = parts[-1] if len(parts) > 1 else after_mac
+            # device_id is "{zone}#16" e.g. "22#16"
             zone = device_id.replace("#16", "")
 
             _player = MyHOMEMediaPlayer(
@@ -156,7 +159,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"myhome_update_{self._gateway_handler.mac}_16_{self.unique_id}",
+                f"myhome_update_{self._gateway_handler.mac}_16_{self._device_id}",
                 self.handle_event,
             )
         )
