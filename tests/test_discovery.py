@@ -238,7 +238,8 @@ async def test_get_gateway():
         {"address": "192.168.1.135", "modelName": "F454"},
         {"address": "192.168.1.136", "modelName": "MH200N"}
     ]
-    with patch('custom_components.myhome.ownd.discovery.find_gateways', return_value=mock_gateways):
+    with patch('custom_components.myhome.ownd.discovery._get_scpd_details', side_effect=Exception("no network")), \
+         patch('custom_components.myhome.ownd.discovery.find_gateways', return_value=mock_gateways):
         gw = await get_gateway("192.168.1.136")
         assert gw is not None
         assert gw["modelName"] == "MH200N"
