@@ -149,9 +149,9 @@ def test_own_sound_command_generation():
     off_msg = OWNSoundCommand.turn_off("11")
     assert str(off_msg) == "*16*13*11##"
 
-    # Select Source — must send WHAT=3 (stereo)
-    source_msg = OWNSoundCommand.select_source("3")
-    assert str(source_msg) == "*16*3*103##"  # 100 + 3
+    # Select Source — must send WHAT=3 (stereo) to zone-specific source address
+    source_msg = OWNSoundCommand.select_source("22", "3")
+    assert str(source_msg) == "*16*3*132##"  # source 3 base=13, zone digit=2
 
     # Volume Up
     vol_up_msg = OWNSoundCommand.volume_up("0") # All zones

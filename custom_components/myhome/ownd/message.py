@@ -1604,7 +1604,7 @@ class OWNSoundEvent(OWNEvent):
         self._zone = self._where
         self._is_source_event = (
             len(self._zone) == 3
-            and int(self._zone[0:2]) in (10, 11, 12, 13, 14)
+            and self._zone.startswith("10")
             and self._zone != "100"
         )
         self._volume = None
@@ -1612,9 +1612,7 @@ class OWNSoundEvent(OWNEvent):
 
         if self._state is not None:
             if self._is_source_event:
-                # Source base: 10x/11x→source 1, 12x→source 2, 13x→source 3, 14x→source 4
-                _base = int(self._zone[0:2])
-                self._source_id = str(max(1, _base - 10))
+                self._source_id = str(int(self._zone) - 100)
                 if self._state in (0, 3):
                     self._human_readable_log = f"Audio Source {self._source_id} is switched ON."
                 elif self._state in (10, 13):
