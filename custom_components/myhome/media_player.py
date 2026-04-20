@@ -398,18 +398,46 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     decoder_id,
                 )
 
-        # 3. Turn on the BTicino zone amplifier and route the matrix to the
-        #    decoder's source input. (For Stereo hardware, select_source acts as TURN_ON)
-        # We must NOT send the generic turn_on command to stereo zones because it
-        # puts them into an invalid state and causes a loud hardware hiss.
+        # 3. Turn on the BTicino zone amplifier and route the matrix.
+        #
+        # The BTicino F441M stereo module requires a specific cold-boot
+        # initialisation sequence (captured from the physical wall panel):
+        #   a) OFF-reset the zone  — clears stale relay state
+        #   b) Volume init dance   — max then zero (hardware handshake)
+        #   c) Turn ON the zone    — wakes the amplifier relays
+        #   d) Select source       — routes the matrix input
+        #
+        # Sending just select_source alone leaves a sleeping amplifier dead.
+        # Sending just turn_on + select_source (without the reset) causes
+        # a loud hardware hiss because the relays latch in a corrupt state.
+        #
+        # When the zone is already ON, we skip the init and just re-route.
+        if self._attr_state != MediaPlayerState.ON:
+            # a) OFF-reset
+            await self._gateway_handler.send(
+                OWNSoundCommand.turn_off(self._where)
+            )
+            # b) Volume init dance (max → zero) — the hardware handshake
+            await self._gateway_handler.send(
+                OWNSoundCommand.set_volume(self._where, 31)
+            )
+            await self._gateway_handler.send(
+                OWNSoundCommand.set_volume(self._where, 0)
+            )
+            # c) Turn ON the zone
+            await self._gateway_handler.send(
+                OWNSoundCommand.turn_on(self._where)
+            )
+
+        # d) Route the matrix to the decoder's source input
         await self._gateway_handler.send(
             OWNSoundCommand.select_source(self._where, str(source_num))
         )
 
-        # Because the stereo select_source command uses a compound address (e.g., 121), 
-        # the Home Assistant dispatcher for Zone 21 misses the ON event.
-        # We must manually assert the ON state here to prevent Music Assistant from
-        # thinking the zone is OFF and forcefully muting the stream volume to 0.
+        # The stereo select_source command uses a compound address (e.g., 121)
+        # so the HA dispatcher for zone 21 misses the ON event.  We must
+        # manually assert the ON state to prevent Music Assistant from
+        # thinking the zone is OFF and forcefully muting the stream volume.
         if self._attr_state != MediaPlayerState.ON:
             self._attr_state = MediaPlayerState.ON
             self.async_write_ha_state()
