@@ -308,6 +308,24 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 )
             )
 
+        # ── Pool rebuild listener (Options Flow saved) ────────────────────
+        # When the user configures decoders via the UI, supported_features
+        # changes.  We must fire a state update so Music Assistant re-reads
+        # our features and discovers the new PLAY_MEDIA capability.
+        @callback
+        def _pool_updated(*args) -> None:
+            """Re-publish state after decoder pool rebuild."""
+            LOGGER.debug("%s: decoder pool updated — re-publishing features", self.entity_id)
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"myhome_pool_updated_{self._gateway_handler.mac}",
+                _pool_updated,
+            )
+        )
+
     # ── Proxy: play_media ─────────────────────────────────────────────────────
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:

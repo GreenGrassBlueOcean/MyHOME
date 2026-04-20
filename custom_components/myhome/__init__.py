@@ -208,6 +208,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             len(decoder_map),
         )
 
+        # Signal all media player entities to re-publish supported_features
+        # so Music Assistant picks up the new PLAY_MEDIA capability.
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        async_dispatcher_send(hass, f"myhome_pool_updated_{mac}")
+
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     gateway.listening_worker = entry.async_create_background_task(
