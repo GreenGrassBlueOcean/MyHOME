@@ -153,20 +153,45 @@ class TestMediaPlayerEntity:
         assert player._attr_state == MediaPlayerState.OFF
 
     def test_handle_event_source_0_routing(self, player):
+        """Routing events update the source label but do NOT force state to ON."""
         from homeassistant.components.media_player import MediaPlayerState
         msg = OWNEvent.parse("*16*3*101##")
         player.handle_event(msg)
-        assert player._attr_state == MediaPlayerState.ON
+        # Routing events only update the source label, NOT the state
+        assert player._attr_state == MediaPlayerState.OFF
         assert player._attr_source == "Source 0"
         player.async_schedule_update_ha_state.assert_called()
 
     def test_handle_event_source_1_routing(self, player):
+        """Routing events update the source label but do NOT force state to ON."""
         from homeassistant.components.media_player import MediaPlayerState
         msg = OWNEvent.parse("*16*3*111##")
         player.handle_event(msg)
-        assert player._attr_state == MediaPlayerState.ON
+        assert player._attr_state == MediaPlayerState.OFF
         assert player._attr_source == "Source 1"
         player.async_schedule_update_ha_state.assert_called()
+
+    def test_routing_event_does_not_resurrect_off_zone(self, player):
+        """Regression: F441M re-broadcasts routing for ALL zones when ANY zone
+        changes source.  A zone that was turned OFF must stay OFF when it
+        receives a stale routing event from the matrix."""
+        from homeassistant.components.media_player import MediaPlayerState
+        # 1. Turn on the zone via an ON event
+        on_msg = OWNEvent.parse("*16*0*1##")
+        player.handle_event(on_msg)
+        assert player._attr_state == MediaPlayerState.ON
+
+        # 2. Turn off the zone via an OFF event
+        off_msg = OWNEvent.parse("*16*10*1##")
+        player.handle_event(off_msg)
+        assert player._attr_state == MediaPlayerState.OFF
+
+        # 3. Another zone turns on, causing the matrix to re-broadcast
+        #    this zone's routing info — must NOT resurrect the state
+        routing_msg = OWNEvent.parse("*16*3*111##")
+        player.handle_event(routing_msg)
+        assert player._attr_state == MediaPlayerState.OFF
+        assert player._attr_source == "Source 1"
 
     @pytest.mark.asyncio
     async def test_turn_on(self, player):

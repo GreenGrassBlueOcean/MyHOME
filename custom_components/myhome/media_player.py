@@ -772,11 +772,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Handle incoming state updates directly from the bus."""
         zone_str = str(message.zone)
         # Parse matrix routing events (e.g. 121 -> Route Source 2 to Zone x1)
+        # NOTE: Only update the source label here, NOT the state.  The F441M
+        # matrix re-broadcasts routing info for ALL zones whenever ANY zone
+        # changes source.  If we unconditionally set state=ON here, a zone
+        # that was just turned OFF would be resurrected as a ghost "On" entity
+        # whenever a different zone turns on.
         if len(zone_str) == 3 and zone_str[:2] in ("10", "11", "12", "13", "14"):
             if self._where.endswith(zone_str[-1]):
                 source_num = int(zone_str[1])
                 self._attr_source = f"Source {source_num}"
-                self._attr_state = MediaPlayerState.ON
         elif message.is_on:
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:
