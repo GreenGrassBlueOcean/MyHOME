@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "myhome-gateway": {
+      "command": "c:\\Users\\laurensvdb\\Documents\\GitHub\\MyHOME\\mcp_server\\.venv\\Scripts\\python.exe",
+      "args": [
+        "c:\\Users\\laurensvdb\\Documents\\GitHub\\MyHOME\\mcp_server\\server.py"
+      ],
+      "timeout": 30000
+    }
+  }
+}

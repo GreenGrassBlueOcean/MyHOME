@@ -566,7 +566,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             schema_dict[vol.Optional(
                 source_key,
                 description={"suggested_value": self.options.get(source_key, i)},
-            )] = All(Coerce(int), Range(min=1, max=4))
+            )] = All(Coerce(int), Range(min=0, max=4))
             schema_dict[vol.Optional(
                 gain_key,
                 description={"suggested_value": self.options.get(gain_key, 0)},

@@ -149,14 +149,16 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
         zone = str(message.zone)
 
         # Intercept stereo module pseudo-zones used for source selection
-        # (e.g. 11x, 12x, 13x, 14x representing source 1-4 for zone 2x)
+        # (e.g. 11x, 12x, 13x, 14x representing source 1-4 for amplifier output x)
         if len(zone) == 3 and zone[:2] in ("11", "12", "13", "14"):
-            target_zone = f"2{zone[-1]}"
-            async_dispatcher_send(
-                hass, 
-                f"myhome_update_{config_entry.data[CONF_MAC]}_16_{target_zone}#16", 
-                message
-            )
+            point = zone[-1]
+            for player_id in known_media_players:
+                if player_id.split("#")[0].endswith(point):
+                    async_dispatcher_send(
+                        hass, 
+                        f"myhome_update_{config_entry.data[CONF_MAC]}_16_{player_id}", 
+                        message
+                    )
             return
 
         # Hide global source events (101, 102, etc.) from entity discovery
@@ -243,7 +245,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         # ── Base hardware state ────────────────────────────────────────────
         self._attr_state = MediaPlayerState.OFF
-        self._attr_source_list = ["Source 1", "Source 2", "Source 3", "Source 4"]
+        self._attr_source_list = ["Source 0", "Source 1", "Source 2", "Source 3", "Source 4"]
         self._attr_source = None
         self._attr_volume_level = None
         self._attr_is_volume_muted = False
@@ -417,20 +419,16 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # When the zone is already ON, we skip the init and just re-route.
         if self._attr_state != MediaPlayerState.ON:
             # a) OFF-reset
-            await self._gateway_handler.send(
-                OWNSoundCommand.turn_off(self._where)
-            )
+            await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+            await asyncio.sleep(0.2)
             # b) Volume init dance (max → zero) — the hardware handshake
-            await self._gateway_handler.send(
-                OWNSoundCommand.set_volume(self._where, 31)
-            )
-            await self._gateway_handler.send(
-                OWNSoundCommand.set_volume(self._where, 0)
-            )
+            await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 31))
+            await asyncio.sleep(0.2)
+            await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 0))
+            await asyncio.sleep(0.2)
             # c) Turn ON the zone
-            await self._gateway_handler.send(
-                OWNSoundCommand.turn_on(self._where)
-            )
+            await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+            await asyncio.sleep(0.2)
 
         # d) Route the matrix to the decoder's source input
         await self._gateway_handler.send(
@@ -514,9 +512,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         source_id = self._attr_source.split(" ")[-1] if self._attr_source else "1"
         if self._attr_state != MediaPlayerState.ON:
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+            await asyncio.sleep(0.2)
             await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 31))
+            await asyncio.sleep(0.2)
             await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 0))
+            await asyncio.sleep(0.2)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+            await asyncio.sleep(0.2)
         await self._gateway_handler.send(OWNSoundCommand.select_source(self._where, source_id))
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -644,9 +646,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             source_id = source.split(" ")[1]
             if self._attr_state != MediaPlayerState.ON:
                 await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+                await asyncio.sleep(0.2)
                 await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 31))
+                await asyncio.sleep(0.2)
                 await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, 0))
+                await asyncio.sleep(0.2)
                 await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+                await asyncio.sleep(0.2)
             await self._gateway_handler.send(
                 OWNSoundCommand.select_source(self._where, source_id)
             )
@@ -760,11 +766,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Handle incoming state updates directly from the bus."""
         zone_str = str(message.zone)
-        # Parse matrix routing events (e.g. 121 -> Route Source 2 to Zone 21)
+        # Parse matrix routing events (e.g. 121 -> Route Source 2 to Zone x1)
         if len(zone_str) == 3 and zone_str[:2] in ("11", "12", "13", "14"):
-            source_num = int(zone_str[1])
-            self._attr_source = f"Source {source_num}"
-            self._attr_state = MediaPlayerState.ON
+            if self._where.endswith(zone_str[-1]):
+                source_num = int(zone_str[1])
+                self._attr_source = f"Source {source_num}"
+                self._attr_state = MediaPlayerState.ON
         elif message.is_on:
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:
