@@ -430,10 +430,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
             await asyncio.sleep(0.2)
 
-        # d) Route the matrix to the decoder's source input
-        await self._gateway_handler.send(
-            OWNSoundCommand.select_source(self._where, str(source_num))
-        )
+        # d) Activate source device + route the matrix to the decoder's input
+        for cmd in OWNSoundCommand.select_source(self._where, str(source_num)):
+            await self._gateway_handler.send(cmd)
+            await asyncio.sleep(0.2)
 
         # The stereo select_source command uses a compound address (e.g., 121)
         # so the HA dispatcher for zone 21 misses the ON event.  We must
@@ -519,7 +519,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             await asyncio.sleep(0.2)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
             await asyncio.sleep(0.2)
-        await self._gateway_handler.send(OWNSoundCommand.select_source(self._where, source_id))
+        for cmd in OWNSoundCommand.select_source(self._where, source_id):
+            await self._gateway_handler.send(cmd)
+            await asyncio.sleep(0.2)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the zone amplifier off and release any claimed decoder.
@@ -658,9 +660,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 await asyncio.sleep(0.2)
                 await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
                 await asyncio.sleep(0.2)
-            await self._gateway_handler.send(
-                OWNSoundCommand.select_source(self._where, source_id)
-            )
+            for cmd in OWNSoundCommand.select_source(self._where, source_id):
+                await self._gateway_handler.send(cmd)
+                await asyncio.sleep(0.2)
 
     # ── State and metadata mirroring ──────────────────────────────────────────
 

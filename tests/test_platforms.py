@@ -196,7 +196,7 @@ class TestMediaPlayerEntity:
     @pytest.mark.asyncio
     async def test_turn_on(self, player):
         await player.async_turn_on()
-        assert player._gateway_handler.send.call_count == 5
+        assert player._gateway_handler.send.call_count == 6
 
     @pytest.mark.asyncio
     async def test_turn_off(self, player):
@@ -219,7 +219,7 @@ class TestMediaPlayerEntity:
     @pytest.mark.asyncio
     async def test_select_source(self, player):
         await player.async_select_source("Source 3")
-        assert player._gateway_handler.send.call_count == 5
+        assert player._gateway_handler.send.call_count == 6
 
     @pytest.mark.asyncio
     async def test_select_source_invalid(self, player):

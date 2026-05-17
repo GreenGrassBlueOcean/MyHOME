@@ -2068,22 +2068,40 @@ class OWNSoundCommand(OWNCommand):
     def select_source(cls, where, source_id):
         """Select source for a specific zone.
 
-        For Sound System 2.0 stereo hardware, the source address encodes
-        both the source number and the zone's last digit:
-            Source 1 → base 11x  (stereo)
-            Source 2 → base 12x
-            Source 3 → base 13x
-            Source 4 → base 14x
-        where 'x' is the last digit of the zone address.
+        The F441M matrix requires TWO commands (captured from wall-panel
+        bus traffic):
+
+        1. **Activate the source device** on the bus:
+           ``*16*3*10{source}##``  (WHERE = 100 + source number)
+           This powers on / makes audible the source module that feeds
+           the matrix input.
+
+        2. **Route the amplifier output** to that source using the
+           compound stereo address:
+           ``*16*3*1{source}{zone_digit}##``
+           e.g. Source 2, Output 1 → ``*16*3*121##``
+
+        Both commands use WHAT = 3 (stereo channel ON).
         """
         zone_digit = str(where)[-1]
-        source_base = 10 + int(source_id)  # source 0->10, 1->11, 2->12, 3->13, 4->14
-        source_addr = f"{source_base}{zone_digit}"
-        message = cls(f"*16*3*{source_addr}##")
-        message._human_readable_log = (
-            f"Selecting source {source_id} for zone {where} (address {source_addr})."
+        source_num = int(source_id)
+
+        # Command 1: activate the source device (WHERE = 101–109)
+        source_device_addr = 100 + source_num
+        activate = cls(f"*16*3*{source_device_addr}##")
+        activate._human_readable_log = (
+            f"Activating source device {source_num} (address {source_device_addr})."
         )
-        return message
+
+        # Command 2: route the amplifier output to that source (compound 1XY)
+        source_base = 10 + source_num
+        source_addr = f"{source_base}{zone_digit}"
+        route = cls(f"*16*3*{source_addr}##")
+        route._human_readable_log = (
+            f"Routing zone {where} to source {source_num} (address {source_addr})."
+        )
+
+        return [activate, route]
 
     @classmethod
     def volume_up(cls, where):
