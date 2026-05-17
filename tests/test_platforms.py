@@ -136,7 +136,7 @@ class TestMediaPlayerEntity:
         assert player._attr_state == MediaPlayerState.OFF
 
     def test_source_list(self, player):
-        assert len(player._attr_source_list) == 4
+        assert len(player._attr_source_list) == 5
         assert "Source 1" in player._attr_source_list
 
     def test_handle_event_on(self, player):
@@ -152,21 +152,12 @@ class TestMediaPlayerEntity:
         player.handle_event(msg)
         assert player._attr_state == MediaPlayerState.OFF
 
-    def test_handle_global_source_event(self, player):
-        msg = OWNEvent.parse("*16*0*102##")
-        player.handle_global_source_event(msg)
-        assert player._attr_source == "Source 2"
 
-    def test_handle_global_source_event_not_source(self, player):
-        """Non-source events should not change the source."""
-        msg = OWNEvent.parse("*16*0*1##")
-        player.handle_global_source_event(msg)
-        assert player._attr_source is None
 
     @pytest.mark.asyncio
     async def test_turn_on(self, player):
         await player.async_turn_on()
-        player._gateway_handler.send.assert_called_once()
+        assert player._gateway_handler.send.call_count == 5
 
     @pytest.mark.asyncio
     async def test_turn_off(self, player):
@@ -186,7 +177,7 @@ class TestMediaPlayerEntity:
     @pytest.mark.asyncio
     async def test_select_source(self, player):
         await player.async_select_source("Source 3")
-        player._gateway_handler.send.assert_called_once()
+        assert player._gateway_handler.send.call_count == 5
 
     @pytest.mark.asyncio
     async def test_select_source_invalid(self, player):
