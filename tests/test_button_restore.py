@@ -150,7 +150,7 @@ async def test_restore_filters_and_deduplicates_actuators(hass, unload_callbacks
             for who in ("1", "2") for suffix in ("disable", "enable")
         }
         assert len(lock_unlock) == 4
-        assert lock_unlock[0].entity_id == "button.configured_light_lock"
+        assert lock_unlock[0]._display_name == "Configured light Lock"
     finally:
         unload_callbacks()
 

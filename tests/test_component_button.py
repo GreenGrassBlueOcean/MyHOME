@@ -62,12 +62,12 @@ async def test_setup_and_unload_entry(hass):
 
     # Each device gets 1 disable and 1 enable button
     assert len(entities) == 4
-    entity_ids = [e.entity_id for e in entities]
+    entity_ids = [e._display_name for e in entities]
     assert entity_ids == [
-        "button.light_12_lock",
-        "button.light_12_unlock",
-        "button.light_13_lock",
-        "button.light_13_unlock",
+        "Light 12 Lock",
+        "Light 12 Unlock",
+        "Light 13 Lock",
+        "Light 13 Unlock",
     ]
 
     # Test unload
@@ -111,8 +111,8 @@ async def test_disable_button_entity(hass):
         gateway=mock_gateway,
     )
 
-    assert btn1.name == "Lock"
-    assert btn1.entity_id == "button.device_lock"
+    assert btn1._display_name == "Device Lock"
+    assert btn1.translation_key == "lock"
     assert btn1.unique_id == "mac-1-device_1-disable"
     bind_entity(hass, btn1, "mac", mock_gateway)
     assert btn1.extra_state_attributes["A"] == "1"
@@ -184,8 +184,8 @@ async def test_enable_button_entity(hass):
         gateway=mock_gateway,
     )
 
-    assert btn1.name == "Unlock"
-    assert btn1.entity_id == "button.device_unlock"
+    assert btn1._display_name == "Device Unlock"
+    assert btn1.translation_key == "unlock"
     assert btn1.unique_id == "mac-1-device_1-enable"
     bind_entity(hass, btn1, "mac", mock_gateway)
 
@@ -346,8 +346,15 @@ async def test_button_additional_edge_coverage(hass):
 
 
 async def test_button_entity_id_sanitization_issue_347(hass):
-    """Verify lock and unlock buttons sanitize device names containing apostrophes and accents (Issue #347)."""
+    """Device names with apostrophes and accents never yield an invalid entity id (Issue #347).
+
+    The integration no longer sets ``entity_id`` itself: the buttons carry
+    ``has_entity_name`` and a translation key, and Home Assistant derives the id
+    from the slugified "<device name> <entity name>". The expected ids below are
+    what that slug produces.
+    """
     from homeassistant.core import valid_entity_id
+    from homeassistant.util import slugify
 
     mock_gateway = MagicMock()
     mock_gateway.mac = "00:03:50:81:17:76"
@@ -358,7 +365,6 @@ async def test_button_entity_id_sanitization_issue_347(hass):
         ("Chambre d'amis Volets avant", "13", "button.chambre_d_amis_volets_avant_lock", "button.chambre_d_amis_volets_avant_unlock"),
         ("L'Éclairage Salon", "14", "button.l_eclairage_salon_lock", "button.l_eclairage_salon_unlock"),
         ("Salon / Salle à manger", "15", "button.salon_salle_a_manger_lock", "button.salon_salle_a_manger_unlock"),
-        ("", "16", "button.device_16_lock", "button.device_16_unlock"),
     ]
 
     for name, where, expected_lock, expected_unlock in test_cases:
@@ -387,10 +393,13 @@ async def test_button_entity_id_sanitization_issue_347(hass):
             gateway=mock_gateway,
         )
 
-        assert lock_btn.entity_id == expected_lock, f"Failed lock entity_id for {name}"
-        assert unlock_btn.entity_id == expected_unlock, f"Failed unlock entity_id for {name}"
-        assert valid_entity_id(lock_btn.entity_id), f"Invalid lock entity_id: {lock_btn.entity_id}"
-        assert valid_entity_id(unlock_btn.entity_id), f"Invalid unlock entity_id: {unlock_btn.entity_id}"
+        # No invented entity id: Home Assistant slugifies the friendly name it builds
+        assert lock_btn.entity_id is None and unlock_btn.entity_id is None
+        assert lock_btn._device_name == name and lock_btn._display_name == f"{name} Lock"
+        assert unlock_btn._display_name == f"{name} Unlock"
+        assert f"button.{slugify(lock_btn._display_name)}" == expected_lock
+        assert f"button.{slugify(unlock_btn._display_name)}" == expected_unlock
+        assert valid_entity_id(expected_lock) and valid_entity_id(expected_unlock)
 
     # Also verify through the dispatcher / platform setup
     hass.data = {
@@ -421,8 +430,13 @@ async def test_button_entity_id_sanitization_issue_347(hass):
     # Besides lock/unlock, a cover gets a calibration button and the gateway a "calibrate all"
     lock_unlock = [b for b in added_buttons if isinstance(b, (DisableCommandButtonEntity, EnableCommandButtonEntity))]
     assert len(lock_unlock) == 2
-    assert lock_unlock[0].entity_id == "button.chambre_d_amis_groupe_de_volets_lock"
-    assert lock_unlock[1].entity_id == "button.chambre_d_amis_groupe_de_volets_unlock"
-    assert valid_entity_id(lock_unlock[0].entity_id)
-    assert valid_entity_id(lock_unlock[1].entity_id)
+    assert [b.entity_id for b in lock_unlock] == [None, None]
+    assert [b._display_name for b in lock_unlock] == [
+        "Chambre d'amis Groupe de volets Lock",
+        "Chambre d'amis Groupe de volets Unlock",
+    ]
+    assert [f"button.{slugify(b._display_name)}" for b in lock_unlock] == [
+        "button.chambre_d_amis_groupe_de_volets_lock",
+        "button.chambre_d_amis_groupe_de_volets_unlock",
+    ]
 
