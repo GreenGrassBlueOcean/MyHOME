@@ -35,6 +35,7 @@ from custom_components.myhome.const import (
     CONF_STANDALONE,
     DOMAIN,
 )
+from tests.conftest import attach_runtime
 
 MAC = "00:03:50:11:22:33"
 
@@ -67,6 +68,7 @@ async def test_standalone_zone_auto_discovery_exposes_fan_by_default(hass: HomeA
     }
 
     added_entities: list[MyHOMEClimate] = []
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, added_entities.extend)
 
     # Deliver a frame from zone 1 to trigger auto-discovery
@@ -111,6 +113,7 @@ async def test_central_unit_does_not_expose_fan(hass: HomeAssistant, mock_gatewa
     }
 
     added_entities: list[MyHOMEClimate] = []
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, added_entities.extend)
 
     event = OWNEvent.parse("*#4*#0*0*0215##")
@@ -143,6 +146,7 @@ async def test_plant_with_central_unit_and_zone_1_radiator_has_no_fan(hass: Home
     }
 
     added_entities: list[MyHOMEClimate] = []
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, added_entities.extend)
 
     # 1. Discover central unit #0
@@ -269,6 +273,7 @@ async def test_explicit_yaml_fan_false_respected(hass: HomeAssistant, mock_gatew
     }
 
     added_entities: list[MyHOMEClimate] = []
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, added_entities.extend)
 
     assert len(added_entities) == 1
@@ -444,6 +449,7 @@ async def test_issue_303_bus_trace_replay(hass: HomeAssistant, mock_gateway):
             hass.async_create_task(e.async_added_to_hass())
         added_entities.extend(entities)
 
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, _add_entities)
 
     # Trace excerpt from issue 303:
@@ -748,6 +754,7 @@ async def test_climate_setup_skips_non_zone_addresses(hass: HomeAssistant, mock_
     }
 
     added_entities = []
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, added_entities.extend)
     assert len(added_entities) == 0
 

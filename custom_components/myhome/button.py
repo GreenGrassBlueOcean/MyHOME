@@ -15,7 +15,6 @@ from homeassistant.components.button import (
     ButtonEntity,
 )
 from homeassistant.const import (
-    CONF_ENTITIES,
     CONF_MAC,
     CONF_NAME,
     EntityCategory,
@@ -30,15 +29,14 @@ from homeassistant.util import slugify
 from .const import (
     CONF_BUS_INTERFACE,
     CONF_DEVICE_MODEL,
-    CONF_ENTITY,
     CONF_MANUFACTURER,
-    CONF_PLATFORMS,
     CONF_WHERE,
     CONF_WHO,
     DOMAIN,
     LOGGER,
     SERVICE_CALIBRATE_COVER,
 )
+from .data import get_runtime_data
 from .myhome_device import MyHOMEEntity
 
 PARALLEL_UPDATES = 0
@@ -50,15 +48,14 @@ def _valid_device_address(address: str) -> bool:
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    mac = config_entry.data.get(CONF_MAC)
-    if not mac or mac not in hass.data.get(DOMAIN, {}):
+    runtime = get_runtime_data(config_entry)
+    if runtime is None or PLATFORM not in runtime.platforms:
         return True
-    if PLATFORM not in hass.data[DOMAIN][mac].get(CONF_PLATFORMS, {}):
-        return True
+    mac = runtime.mac
 
     _buttons = []
-    _configured_buttons = hass.data[DOMAIN][mac][CONF_PLATFORMS][PLATFORM]
-    gateway = hass.data[DOMAIN][mac].get(CONF_ENTITY)
+    _configured_buttons = runtime.platforms[PLATFORM]
+    gateway = runtime.gateway
 
     known_button_actuators = set()
     known_calibration_covers: set[str] = set()
@@ -152,7 +149,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # must not be resurrected just because its old buttons remain registered.
     registry = er.async_get(hass)
     registered_entries = er.async_entries_for_config_entry(registry, config_entry.entry_id)
-    mac_prefixes = (f"{gateway.mac}-", f"{mac}-")
+    # Registry ids may carry the config entry's MAC spelling as well as the gateway's
+    mac_prefixes = (f"{gateway.mac}-", f"{config_entry.data.get(CONF_MAC, mac)}-")
 
     def _registered_id(registered):
         if registered.platform == DOMAIN:
@@ -183,7 +181,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         if _valid_device_address(address):
             non_light_addresses.add(address)
 
-    configured_platforms = hass.data[DOMAIN][mac].get(CONF_PLATFORMS, {})
+    configured_platforms = runtime.platforms
     for domain, default_who in (("switch", "1"), ("sensor", "1"), ("binary_sensor", "25")):
         for dev_id, cfg in configured_platforms.get(domain, {}).items():
             if str(cfg.get(CONF_WHO, default_who)) != "1":
@@ -249,16 +247,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 async def async_unload_entry(hass, config_entry):
-    mac = config_entry.data.get(CONF_MAC)
-    if not mac or mac not in hass.data.get(DOMAIN, {}):
-        return True
-    if PLATFORM not in hass.data[DOMAIN][mac].get(CONF_PLATFORMS, {}):
+    runtime = get_runtime_data(config_entry)
+    if runtime is None or PLATFORM not in runtime.platforms:
         return True
 
-    _configured_buttons = hass.data[DOMAIN][mac][CONF_PLATFORMS][PLATFORM]
+    _configured_buttons = runtime.platforms[PLATFORM]
 
     for _button in list(_configured_buttons.keys()):
-        del hass.data[DOMAIN][mac][CONF_PLATFORMS][PLATFORM][_button]
+        del runtime.platforms[PLATFORM][_button]
     return True
 
 
@@ -315,22 +311,11 @@ class DisableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
     async def async_added_to_hass(self):
         """When entity is added to hass."""
         self._register_availability_listener()
-        try:
-            device_dict = self._hass.data[DOMAIN][self._gateway_handler.mac][CONF_PLATFORMS][self._platform][self._device_id]
-            if CONF_ENTITIES not in device_dict or not isinstance(device_dict[CONF_ENTITIES], dict):
-                device_dict[CONF_ENTITIES] = {}
-            device_dict[CONF_ENTITIES]["disable"] = self
-        except (KeyError, TypeError):
-            pass
+        self._register_entity_ref("disable")
 
     async def async_will_remove_from_hass(self):
         """When entity is removed from hass."""
-        try:
-            device_dict = self._hass.data[DOMAIN][self._gateway_handler.mac][CONF_PLATFORMS][self._platform][self._device_id]
-            if CONF_ENTITIES in device_dict and isinstance(device_dict[CONF_ENTITIES], dict) and "disable" in device_dict[CONF_ENTITIES]:
-                del device_dict[CONF_ENTITIES]["disable"]
-        except (KeyError, TypeError):
-            pass
+        self._unregister_entity_ref("disable")
 
     async def async_press(self) -> None:
         """Press the button."""
@@ -390,22 +375,11 @@ class EnableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
     async def async_added_to_hass(self):
         """When entity is added to hass."""
         self._register_availability_listener()
-        try:
-            device_dict = self._hass.data[DOMAIN][self._gateway_handler.mac][CONF_PLATFORMS][self._platform][self._device_id]
-            if CONF_ENTITIES not in device_dict or not isinstance(device_dict[CONF_ENTITIES], dict):
-                device_dict[CONF_ENTITIES] = {}
-            device_dict[CONF_ENTITIES]["enable"] = self
-        except (KeyError, TypeError):
-            pass
+        self._register_entity_ref("enable")
 
     async def async_will_remove_from_hass(self):
         """When entity is removed from hass."""
-        try:
-            device_dict = self._hass.data[DOMAIN][self._gateway_handler.mac][CONF_PLATFORMS][self._platform][self._device_id]
-            if CONF_ENTITIES in device_dict and isinstance(device_dict[CONF_ENTITIES], dict) and "enable" in device_dict[CONF_ENTITIES]:
-                del device_dict[CONF_ENTITIES]["enable"]
-        except (KeyError, TypeError):
-            pass
+        self._unregister_entity_ref("enable")
 
     async def async_press(self) -> None:
         """Press the button."""

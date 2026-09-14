@@ -28,6 +28,7 @@ from custom_components.myhome.light import (
     async_setup_entry as async_setup_light,
 )
 from custom_components.myhome.switch import MyHOMESwitch
+from tests.conftest import attach_runtime
 
 
 @pytest.mark.asyncio
@@ -155,6 +156,7 @@ async def test_dynamic_discovery_rejects_command_translation(hass):
     config_entry = MagicMock()
     config_entry.data = {CONF_MAC: "test_mac_discovery"}
     config_entry.entry_id = "entry_discovery_test"
+    attach_runtime(hass, config_entry)
 
     added_entities = []
 
@@ -305,6 +307,7 @@ async def test_cover_dynamic_discovery_rejects_command_translation(hass):
     config_entry = MagicMock()
     config_entry.data = {CONF_MAC: "test_mac_cover"}
     config_entry.entry_id = "entry_cover_test"
+    attach_runtime(hass, config_entry)
 
     added_entities = []
 

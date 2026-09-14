@@ -27,6 +27,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.climate import MyHOMEClimate, async_setup_entry
 from custom_components.myhome.const import CONF_ENTITY, CONF_PLATFORMS, DOMAIN
+from tests.conftest import attach_runtime
 
 FIXTURES_PLANTS_DIR = Path(__file__).resolve().parent / "fixtures" / "plants"
 MAC = "00:03:50:00:03:33"
@@ -48,6 +49,7 @@ async def zones(hass):
     config_entry = MagicMock()
     config_entry.entry_id = "issue_333"
     config_entry.data = {CONF_MAC: MAC}
+    attach_runtime(hass, config_entry)
     added: list[MyHOMEClimate] = []
     await async_setup_entry(hass, config_entry, added.extend)
     by_where = {e._where: e for e in added}
@@ -155,7 +157,7 @@ async def test_real_world_trace_replay_issue_333(hass: HomeAssistant) -> None:
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    handler = hass.data[DOMAIN][MAC][CONF_ENTITY]
+    handler = entry.runtime_data.gateway
     handler._on_event_connection_state_change(True)
 
     climate_1 = hass.states.get("climate.climate_zone_1")

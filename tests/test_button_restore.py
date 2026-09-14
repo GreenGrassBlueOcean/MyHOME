@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome import button
 from custom_components.myhome.const import CONF_BUS_INTERFACE, DOMAIN
+from tests.conftest import attach_runtime
 
 MAC = "00:03:50:81:17:76"
 
@@ -74,6 +75,7 @@ async def test_registered_actuator_buttons_survive_reload(hass, domain, who, add
     for _ in range(2):
         # Only the entity registry survives a fresh setup: no YAML/discovery cache.
         hass.data[DOMAIN] = {MAC: {"entity": gateway, "platforms": {"button": {}}}}
+        attach_runtime(hass, entry)
         platform = EntityPlatform(
             hass=hass, logger=logging.getLogger(__name__), domain="button",
             platform_name=DOMAIN, platform=button, scan_interval=timedelta(seconds=30),
@@ -138,6 +140,7 @@ async def test_restore_filters_and_deduplicates_actuators(hass, unload_callbacks
             "configured": {"who": "1", "where": "01", "name": "Configured light"},
         }},
     }}
+    attach_runtime(hass, entry)
     added = []
     await button.async_setup_entry(hass, entry, added.extend)
     try:
@@ -186,6 +189,7 @@ async def test_restore_before_parent_cleanup(hass, unload_callbacks, reverse, co
             "pir": {"who": "1", "where": "12", CONF_BUS_INTERFACE: "02"},
         }
     hass.data[DOMAIN] = {MAC: {"entity": gateway, "platforms": platforms}}
+    attach_runtime(hass, entry)
     added = []
     await button.async_setup_entry(hass, entry, added.extend)
     expected = {"1-06", "1-12#4#03", "1-0015", "1-21", "2-12#4#02"}
@@ -217,6 +221,7 @@ async def test_restore_accepts_configured_mac_prefix(hass, unload_callbacks):
         )
     gateway = MagicMock(mac=MAC, unique_id=MAC)
     hass.data[DOMAIN] = {raw_mac: {"entity": gateway, "platforms": {"button": {}}}}
+    attach_runtime(hass, entry)
     added = []
     await button.async_setup_entry(hass, entry, added.extend)
     assert [e.unique_id for e in _lock_unlock(added)] == [
