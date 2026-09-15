@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from OWNd.message import OWNEvent
+from OWNd.message import OWNCommand, OWNEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.const import CONF_ENTITY, DOMAIN
@@ -147,10 +147,19 @@ async def test_fast_discovery_reply_during_slow_platform_setup(hass: HomeAssista
     Workers still start before the platforms (so a bounded queue cannot block
     setup), but the sweep is only queued once every platform listener exists.
     """
+    from custom_components.myhome.gateway import MyHOMEGatewayHandler
+
     mac = "00:03:50:00:12:34"
+    queue_size = 2
     sent: list[str] = []
     sweep_sent_during_platform_setup = None
     workers_running_during_platform_setup = None
+
+    original_init = MyHOMEGatewayHandler.__init__
+
+    def small_queue_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.send_buffer = asyncio.Queue(maxsize=queue_size)
 
     async def fast_gateway(self, worker_id):
         # Consume the queue and answer the cover sweep immediately.
@@ -175,10 +184,16 @@ async def test_fast_discovery_reply_during_slow_platform_setup(hass: HomeAssista
 
     async def slow_forward(entry, platforms):
         nonlocal sweep_sent_during_platform_setup, workers_running_during_platform_setup
-        workers_running_during_platform_setup = bool(entry.runtime_data.sending_workers)
+        gateway = entry.runtime_data
+        workers_running_during_platform_setup = bool(gateway.sending_workers)
         # Give the listener and the fast gateway every chance to run first.
         for _ in range(20):
             await asyncio.sleep(0)
+        # A large plant queues more status requests than the queue holds; this
+        # only completes because a worker is already draining it.
+        async with asyncio.timeout(5):
+            for _ in range(queue_size * 3):
+                await gateway.send_status_request(OWNCommand.parse("*#1*11##"))
         await original_forward(entry, platforms)
         sweep_sent_during_platform_setup = "*#2*0##" in sent
 
@@ -195,6 +210,8 @@ async def test_fast_discovery_reply_during_slow_platform_setup(hass: HomeAssista
     ), patch(
         "custom_components.myhome.gateway.OWNEventSession", return_value=event_session
     ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.__init__", new=small_queue_init
+    ), patch(
         "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop", new=fast_gateway
     ), patch.object(
         hass.config_entries, "async_forward_entry_setups", side_effect=slow_forward
@@ -203,6 +220,7 @@ async def test_fast_discovery_reply_during_slow_platform_setup(hass: HomeAssista
         await hass.async_block_till_done()
 
         assert workers_running_during_platform_setup is True
+        assert sent.count("*#1*11##") == queue_size * 3
         assert sweep_sent_during_platform_setup is False
         assert "*#2*0##" in sent
         cover_entry = er.async_get(hass).async_get_entity_id("cover", DOMAIN, f"{mac}-2-31")
