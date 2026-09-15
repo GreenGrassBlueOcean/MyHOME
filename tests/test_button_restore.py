@@ -2,7 +2,7 @@
 
 import logging
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
@@ -13,9 +13,25 @@ from homeassistant.helpers.entity_platform import EntityPlatform
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome import button
-from custom_components.myhome.const import DOMAIN
+from custom_components.myhome.const import CONF_BUS_INTERFACE, DOMAIN
 
 MAC = "00:03:50:81:17:76"
+
+
+@pytest.fixture
+def unload_callbacks(monkeypatch):
+    """Exercise registered cleanup callbacks without a private ConfigEntry API."""
+    callbacks = []
+    monkeypatch.setattr(
+        MockConfigEntry, "async_on_unload", lambda self, callback: callbacks.append(callback)
+    )
+
+    def cleanup():
+        while callbacks:
+            callbacks.pop()()
+
+    yield cleanup
+    cleanup()
 
 
 @pytest.mark.parametrize(
@@ -23,7 +39,7 @@ MAC = "00:03:50:81:17:76"
     [("light", "1", "01"), ("switch", "1", "0015"),
      ("cover", "2", "01"), ("cover", "2", "01#4#02")],
 )
-async def test_registered_actuator_buttons_survive_reload(hass, domain, who, address):
+async def test_registered_actuator_buttons_survive_reload(hass, domain, who, address, unload_callbacks):
     """Restore the same HA entities without requiring a new discovery event."""
     entry = MockConfigEntry(domain=DOMAIN, data={"mac": MAC})
     entry.add_to_hass(hass)
@@ -89,10 +105,10 @@ async def test_registered_actuator_buttons_survive_reload(hass, domain, who, add
             assert all(hass.states.get(e).state != STATE_UNAVAILABLE for e in expected_ids)
         finally:
             await platform.async_reset()
-            await entry._async_process_on_unload(hass)
+            unload_callbacks()
 
 
-async def test_restore_filters_and_deduplicates_actuators(hass):
+async def test_restore_filters_and_deduplicates_actuators(hass, unload_callbacks):
     """Keep gateway/WHO/address boundaries and ignore unrelated or deleted devices."""
     entry = MockConfigEntry(domain=DOMAIN, data={"mac": MAC})
     entry.add_to_hass(hass)
@@ -127,4 +143,76 @@ async def test_restore_filters_and_deduplicates_actuators(hass):
         assert len(added) == 4
         assert added[0].entity_id == "button.configured_light_lock"
     finally:
-        await entry._async_process_on_unload(hass)
+        unload_callbacks()
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("configured_sensor", [False, True])
+async def test_restore_before_parent_cleanup(hass, unload_callbacks, reverse, configured_sensor):
+    """Ignore corrupt/ghost parents regardless of registry and platform setup order."""
+    entry = MockConfigEntry(domain=DOMAIN, data={"mac": MAC})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    parents = [
+        ("switch", "1-1-06"),  # Old corrupted identity; never send WHERE=1-06.
+        ("switch", "1-06"),
+        ("light", "1-06"),  # Ghost of the switch above.
+        ("light", "1-12#4#02"),  # Ghost of a WHO 1 sensor.
+        ("light", "1-12#4#03"),  # Same WHERE on another bus is a real actuator.
+        ("light", "1-0015"),  # Distinct from the legacy sensor at WHERE=15.
+        ("light", "1-15"),
+        ("binary_sensor", "15-motion"),
+        ("light", "1-21"),  # WHO 18 telemetry does not claim WHO 1.
+        ("sensor", "18-21-power"),
+        ("cover", "2-12#4#02"),  # WHO 2 remains independent of WHO 1.
+    ]
+    if not configured_sensor:
+        parents.append(("sensor", "1-12#4#02-illuminance"))
+    for domain, suffix in reversed(parents) if reverse else parents:
+        registry.async_get_or_create(
+            domain, DOMAIN, f"{MAC}-{suffix}", config_entry=entry,
+            original_name=f"{domain} {suffix}",
+        )
+    gateway = MagicMock(mac=MAC, unique_id=MAC, send=AsyncMock())
+    platforms = {"button": {}}
+    if configured_sensor:
+        platforms["binary_sensor"] = {
+            "pir": {"who": "1", "where": "12", CONF_BUS_INTERFACE: "02"},
+        }
+    hass.data[DOMAIN] = {MAC: {"entity": gateway, "platforms": platforms}}
+    added = []
+    await button.async_setup_entry(hass, entry, added.extend)
+    expected = {"1-06", "1-12#4#03", "1-0015", "1-21", "2-12#4#02"}
+    assert {e.unique_id for e in added} == {
+        f"{MAC}-{address}-{suffix}"
+        for address in expected for suffix in ("disable", "enable")
+    }
+    assert len(added) == 2 * len(expected)
+    for entity in added:
+        await entity.async_press()
+    assert {call.args[0] for call in gateway.send.await_args_list} == {
+        f"*14*{command}*{address.split('-', 1)[1]}##"
+        for address in expected for command in ("0", "1")
+    }
+    # No parent platform ran: restoration must not depend on its cleanup.
+    assert registry.async_get_entity_id("switch", DOMAIN, f"{MAC}-1-1-06")
+
+
+async def test_restore_accepts_configured_mac_prefix(hass, unload_callbacks):
+    """Allow the config entry MAC spelling as well as the normalized gateway MAC."""
+    raw_mac = MAC.replace(":", "")
+    entry = MockConfigEntry(domain=DOMAIN, data={"mac": raw_mac})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    for prefix, where in ((raw_mac, "01"), (raw_mac, "02"), (MAC, "02")):
+        registry.async_get_or_create(
+            "light", DOMAIN, f"{prefix}-1-{where}", config_entry=entry,
+        )
+    gateway = MagicMock(mac=MAC, unique_id=MAC)
+    hass.data[DOMAIN] = {raw_mac: {"entity": gateway, "platforms": {"button": {}}}}
+    added = []
+    await button.async_setup_entry(hass, entry, added.extend)
+    assert [e.unique_id for e in added] == [
+        f"{MAC}-1-{where}-{suffix}"
+        for where in ("01", "02") for suffix in ("disable", "enable")
+    ]
