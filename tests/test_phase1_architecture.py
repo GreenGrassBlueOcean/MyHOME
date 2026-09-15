@@ -516,7 +516,10 @@ class TestQueueMechanics:
             def create_mock_session(*args, **kwargs):
                 s = MagicMock()
                 s.connect = AsyncMock(return_value=True)
-                async def mock_send(message, is_status_request=False):
+                async def mock_send(
+                    message, is_status_request=False, retry_after_lost_ack=False
+                ):
+                    assert retry_after_lost_ack is True
                     sent_messages.append(str(message))
                     await asyncio.sleep(0.01)
                     return True
@@ -1332,5 +1335,4 @@ class TestPhase1GoldenPlantSampleIssue247:
         assert state_energy.state == "602"
 
         await hass.config_entries.async_unload(entry.entry_id)
-
 

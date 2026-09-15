@@ -1,5 +1,6 @@
 """Code to handle a MyHome Gateway."""
 import asyncio
+import contextlib
 import inspect
 import time
 from functools import lru_cache
@@ -85,7 +86,6 @@ def _registry_supports_via_device_id() -> bool:
     """
     params = inspect.signature(dr.DeviceRegistry.async_get_or_create).parameters
     return "via_device_id" in params
-COMMAND_SESSION_IDLE_TIMEOUT = 15.0
 AVAILABILITY_GRACE = 60
 
 
@@ -141,14 +141,15 @@ class MyHOMEGatewayHandler:
         if device_key in self._cen_devices or (who, obj_str) in self._cen_devices:
             return
 
-        self._cen_devices.add(device_key)
-        self._cen_devices.add((who, obj_str))
-        try:
-            self._cen_devices.add((who, int(object_id)))
-        except (ValueError, TypeError):
-            pass
-
         if not self.config_entry or not hasattr(self.config_entry, "entry_id") or not isinstance(self.config_entry.entry_id, str):
+            return
+        if self.device_registry_id is None:
+            LOGGER.debug(
+                "%s Deferring %s device %s until the gateway device is registered.",
+                self.log_id,
+                "CEN+" if who == 25 else "CEN",
+                obj_str,
+            )
             return
 
         try:
@@ -168,6 +169,12 @@ class MyHOMEGatewayHandler:
                 model=f"{type_name} Scenario Control",
                 **via_kwargs,
             )
+            self._cen_devices.add(device_key)
+            self._cen_devices.add((who, obj_str))
+            try:
+                self._cen_devices.add((who, int(object_id)))
+            except (ValueError, TypeError):
+                pass
         except Exception as err:
             LOGGER.debug("Could not auto-register %s device %s: %s", who, object_id, err)
 
@@ -338,6 +345,11 @@ class MyHOMEGatewayHandler:
 
     async def _process_message(self, message: Any) -> None:
         """Process a received message and dispatch to Home Assistant."""
+        if message is None:
+            # A routine EOF during reconnect is not a bus event or a warning.
+            LOGGER.debug("%s Data received is not a message: `None`", self.log_id)
+            return
+
         if self.generate_events:
             if isinstance(message, OWNMessage):
                 _event_content = {"gateway": str(self.gateway.host)}
@@ -645,75 +657,103 @@ class MyHOMEGatewayHandler:
         )
 
         _command_session = OWNCommandSession(gateway=self.gateway, logger=LOGGER)
-        res = await _command_session.connect()
-        if isinstance(res, dict) and not res.get("Success", True):
-            if res.get("Message") in ("password_error", "password_required", "negotiation_refused", "connection_refused"):
-                LOGGER.error(
-                    "%s Command session authentication or connection refused (%s). Terminating sending worker %s to prevent gateway lockout.",
+        try:
+            try:
+                res = await _command_session.connect()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                LOGGER.exception(
+                    "%s Worker %s: initial command session connection raised; "
+                    "queued commands will retry on send.",
                     self.log_id,
-                    res.get("Message"),
                     worker_id,
                 )
-                return
+                res = None
 
-        while not self._terminate_sender:
-            try:
-                task = await asyncio.wait_for(
-                    self.send_buffer.get(),
-                    timeout=COMMAND_SESSION_IDLE_TIMEOUT,
-                )
-            except TimeoutError:
-                if _command_session and _command_session.is_connected:
-                    LOGGER.debug(
-                        "%s Command session idle for %ss; closing socket to release gateway resource.",
+            if isinstance(res, dict) and not res.get("Success", True):
+                if res.get("Message") in (
+                    "password_error",
+                    "password_required",
+                    "negotiation_refused",
+                    "connection_refused",
+                ):
+                    LOGGER.error(
+                        "%s Command session authentication or connection refused "
+                        "(%s). Terminating sending worker %s to prevent gateway lockout.",
                         self.log_id,
-                        COMMAND_SESSION_IDLE_TIMEOUT,
+                        res.get("Message"),
+                        worker_id,
                     )
-                    await _command_session.close()
-                continue
+                    return
 
-            if task is None:
-                self.send_buffer.task_done()
-                break
+            while not self._terminate_sender:
+                task = await self.send_buffer.get()
+                try:
+                    if task is None:
+                        break
 
-
-            LOGGER.debug(
-                "%s Message `%s` was successfully unqueued by worker %s.",
-                self.log_id,
-                task["message"],
-                worker_id,
-            )
-            task_start = time.time()
-            self.bus_monitor.record_frame(
-                direction="tx",
-                raw=str(task["message"]),
-                parsed=task["message"] if isinstance(task["message"], OWNMessage) else None,
-            )
-            collected = await _command_session.send(message=task["message"], is_status_request=task["is_status_request"])
-            if collected and isinstance(collected, list):
-                for resp in collected:
-                    raw_resp = str(resp)
-                    if self.bus_monitor.has_frame_since(task_start, direction="rx", raw=raw_resp):
-                        continue
-                    frame = self.bus_monitor.record_frame(
-                        direction="rx",
-                        raw=raw_resp,
-                        parsed=resp if isinstance(resp, OWNMessage) else None,
+                    LOGGER.debug(
+                        "%s Message `%s` was successfully unqueued by worker %s.",
+                        self.log_id,
+                        task["message"],
+                        worker_id,
                     )
-                    if not getattr(frame, "is_duplicate", False) and isinstance(resp, OWNMessage):
-                        async_dispatcher_send(self.hass, f"myhome_message_{self.mac}", resp)
-            self.send_buffer.task_done()
+                    task_start = time.time()
+                    self.bus_monitor.record_frame(
+                        direction="tx",
+                        raw=str(task["message"]),
+                        parsed=(
+                            task["message"]
+                            if isinstance(task["message"], OWNMessage)
+                            else None
+                        ),
+                    )
+                    collected = await _command_session.send(
+                        message=task["message"],
+                        is_status_request=task["is_status_request"],
+                        retry_after_lost_ack=True,
+                    )
+                    if collected and isinstance(collected, list):
+                        for resp in collected:
+                            raw_resp = str(resp)
+                            if self.bus_monitor.has_frame_since(
+                                task_start, direction="rx", raw=raw_resp
+                            ):
+                                continue
+                            frame = self.bus_monitor.record_frame(
+                                direction="rx",
+                                raw=raw_resp,
+                                parsed=resp if isinstance(resp, OWNMessage) else None,
+                            )
+                            if not getattr(
+                                frame, "is_duplicate", False
+                            ) and isinstance(resp, OWNMessage):
+                                async_dispatcher_send(
+                                    self.hass, f"myhome_message_{self.mac}", resp
+                                )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    LOGGER.exception(
+                        "%s Worker %s: unexpected error while sending `%s`; "
+                        "delivery is unconfirmed.",
+                        self.log_id,
+                        worker_id,
+                        task.get("message") if isinstance(task, dict) else task,
+                    )
+                finally:
+                    self.send_buffer.task_done()
 
-            if hasattr(self.gateway, "profile") and self.gateway.profile.command_queue_delay > 0:
-                await asyncio.sleep(self.gateway.profile.command_queue_delay)
-
-        await _command_session.close()
-
-        LOGGER.debug(
-            "%s Destroying sending worker %s",
-            self.log_id,
-            worker_id,
-        )
+                if (
+                    hasattr(self.gateway, "profile")
+                    and self.gateway.profile.command_queue_delay > 0
+                ):
+                    await asyncio.sleep(self.gateway.profile.command_queue_delay)
+        finally:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(_command_session.close())
+            LOGGER.debug("%s Destroying sending worker %s", self.log_id, worker_id)
 
     async def initial_discovery(self) -> None:
         """Queue the startup sweep that discovers devices missing from the config.

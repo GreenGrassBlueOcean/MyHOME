@@ -736,7 +736,8 @@ async def test_sending_loop(gateway_handler):
         ])
         gateway_handler.send_buffer = mock_queue
 
-        def mock_send(message, is_status_request):
+        def mock_send(message, is_status_request, retry_after_lost_ack):
+            assert retry_after_lost_ack is True
             if message == "msg2":
                 gateway_handler._terminate_sender = True
 
@@ -772,7 +773,10 @@ async def test_sending_loop_collected_responses_and_pacing(gateway_handler):
         resp_raw = "*#1*0##"
         concurrent_raw = "*#1*1##"
 
-        async def mock_send_with_concurrent_event(message, is_status_request):
+        async def mock_send_with_concurrent_event(
+            message, is_status_request, retry_after_lost_ack
+        ):
+            assert retry_after_lost_ack is True
             gateway_handler.bus_monitor.record_frame(direction="rx", raw=concurrent_raw, parsed=None)
             return [resp_msg, concurrent_raw, resp_raw]
 
@@ -793,7 +797,11 @@ async def test_sending_loop_collected_responses_and_pacing(gateway_handler):
         with patch("custom_components.myhome.gateway.async_dispatcher_send") as mock_dispatcher:
             await gateway_handler.sending_loop(0)
 
-            mock_cmd_session.send.assert_called_once_with(message=cmd, is_status_request=False)
+            mock_cmd_session.send.assert_called_once_with(
+                message=cmd,
+                is_status_request=False,
+                retry_after_lost_ack=True,
+            )
             mock_dispatcher.assert_called_once_with(
                 gateway_handler.hass,
                 f"myhome_message_{gateway_handler.mac}",
@@ -808,6 +816,7 @@ async def test_gateway_cen_event_and_auto_registration(gateway_handler: MyHOMEGa
     """Test receiving OWNCENEvent dispatches bus event and registers CEN scenario device."""
     mock_dr = MagicMock()
     gateway_handler.config_entry.entry_id = "test_entry_123"
+    gateway_handler.device_registry_id = "gateway_device_123"
 
     cen_msg = MagicMock(spec=OWNCENEvent)
     cen_msg.object = "5"
@@ -847,10 +856,9 @@ async def test_gateway_cen_event_and_auto_registration(gateway_handler: MyHOMEGa
                 # Check device registry auto-registration called once (deduplicated)
                 mock_dr.async_get_or_create.assert_called_once()
                 kwargs = mock_dr.async_get_or_create.call_args.kwargs
-                # The link to the gateway device is via_device_id on current cores
-                # (only once the gateway device exists) and via_device on old ones.
+                # The scenario control is attached to its gateway device.
                 via = {k: kwargs.pop(k) for k in ("via_device", "via_device_id") if k in kwargs}
-                assert via in ({}, {"via_device": (DOMAIN, gateway_handler.mac)})
+                assert via == {"via_device_id": "gateway_device_123"}
                 assert kwargs == {
                     "config_entry_id": "test_entry_123",
                     "identifiers": {(DOMAIN, f"{gateway_handler.mac}-15-5")},
@@ -865,6 +873,7 @@ async def test_gateway_cenplus_event_and_auto_registration(gateway_handler: MyHO
     """Test receiving OWNCENPlusEvent dispatches bus event and registers CEN+ scenario device."""
     mock_dr = MagicMock()
     gateway_handler.config_entry.entry_id = "test_entry_456"
+    gateway_handler.device_registry_id = "gateway_device_456"
 
     cenplus_msg = MagicMock(spec=OWNCENPlusEvent)
     cenplus_msg.object = "12"
@@ -908,10 +917,9 @@ async def test_gateway_cenplus_event_and_auto_registration(gateway_handler: MyHO
                 # Check device registry auto-registration
                 mock_dr.async_get_or_create.assert_called_once()
                 kwargs = mock_dr.async_get_or_create.call_args.kwargs
-                # The link to the gateway device is via_device_id on current cores
-                # (only once the gateway device exists) and via_device on old ones.
+                # The scenario control is attached to its gateway device.
                 via = {k: kwargs.pop(k) for k in ("via_device", "via_device_id") if k in kwargs}
-                assert via in ({}, {"via_device": (DOMAIN, gateway_handler.mac)})
+                assert via == {"via_device_id": "gateway_device_456"}
                 assert kwargs == {
                     "config_entry_id": "test_entry_456",
                     "identifiers": {(DOMAIN, f"{gateway_handler.mac}-25-12")},
@@ -964,70 +972,38 @@ def test_event_connection_state_controls_command_readiness(gateway_handler):
     assert gateway_handler._event_session_ready.is_set() is False
 
 
-async def test_sending_loop_idle_timeout_closes_session(gateway_handler, monkeypatch):
-    """Verify idle timeout in sending_loop closes command session to free gateway sockets."""
-    import custom_components.myhome.gateway as gw_module
-    monkeypatch.setattr(gw_module, "COMMAND_SESSION_IDLE_TIMEOUT", 0.01)
-
+async def test_sending_loop_accounts_for_failed_task_and_closes_session(
+    gateway_handler,
+):
+    """A failed send must not leak the queue item or command session."""
     with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
         mock_cmd_session = MagicMock()
         mock_cmd_session.connect = AsyncMock(return_value={"Success": True})
+        mock_cmd_session.send = AsyncMock(side_effect=RuntimeError("send failed"))
         mock_cmd_session.close = AsyncMock()
-        mock_cmd_session.is_connected = True
         mock_cmd_class.return_value = mock_cmd_session
 
         gateway_handler._event_session_ready.set()
         worker = asyncio.create_task(gateway_handler.sending_loop(0))
-
-        # Allow idle timeout to trigger
-        await asyncio.sleep(0.05)
-        mock_cmd_session.close.assert_called()
-
-        # Stop worker
+        await gateway_handler.send_buffer.put(
+            {"message": "*1*1*1##", "is_status_request": False}
+        )
+        await asyncio.wait_for(gateway_handler.send_buffer.join(), timeout=1)
         await gateway_handler.send_buffer.put(None)
         await asyncio.wait_for(worker, timeout=1)
 
+        mock_cmd_session.close.assert_called_once()
 
-async def test_issue_254_mh201_idle_disconnect_and_reconnection_e2e(gateway_handler, monkeypatch):
-    """Verify Issue #254: MH201 idle disconnect releases socket and reconnects for subsequent commands."""
-    from OWNd.message import OWNCommand
 
-    import custom_components.myhome.gateway as gw_module
+async def test_event_eof_is_not_a_warning_or_bus_event(gateway_handler):
+    """A routine EOF is reported by reconnect handling, not as a bad frame."""
+    gateway_handler.generate_events = True
+    with patch("custom_components.myhome.gateway.LOGGER") as logger:
+        await gateway_handler._process_message(None)
 
-    # Set idle timeout short for testing
-    monkeypatch.setattr(gw_module, "COMMAND_SESSION_IDLE_TIMEOUT", 0.04)
-
-    with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
-        mock_cmd_session = MagicMock()
-        mock_cmd_session.connect = AsyncMock(return_value={"Success": True})
-        mock_cmd_session.close = AsyncMock()
-        mock_cmd_session.send = AsyncMock(return_value=True)
-        mock_cmd_session.is_connected = True
-        mock_cmd_class.return_value = mock_cmd_session
-
-        gateway_handler._event_session_ready.set()
-        worker = asyncio.create_task(gateway_handler.sending_loop(0))
-
-        # 1. User sends cover command *2*1*14##
-        cmd1 = OWNCommand.parse("*2*1*14##")
-        await gateway_handler.send(cmd1)
-        await asyncio.sleep(0.08)
-        mock_cmd_session.send.assert_called_with(message=cmd1, is_status_request=False)
-
-        # 2. Simulate 49-minute idle period: idle timeout fires and releases socket
-        await asyncio.sleep(0.12)
-        assert mock_cmd_session.close.call_count >= 1
-
-        # 3. User sends another cover command after idle: *2*1*14##
-        mock_cmd_session.send.reset_mock()
-        cmd2 = OWNCommand.parse("*2*1*14##")
-        await gateway_handler.send(cmd2)
-        await asyncio.sleep(0.08)
-        mock_cmd_session.send.assert_called_with(message=cmd2, is_status_request=False)
-
-        # Clean shutdown
-        await gateway_handler.send_buffer.put(None)
-        await asyncio.wait_for(worker, timeout=1)
+    logger.warning.assert_not_called()
+    logger.debug.assert_called_once()
+    gateway_handler.hass.bus.async_fire.assert_not_called()
 
 
 async def test_gateway_properties_and_cen_branches(gateway_handler):
@@ -1045,7 +1021,7 @@ async def test_gateway_properties_and_cen_branches(gateway_handler):
     gateway_handler.config_entry = MagicMock(spec=[])
     gateway_handler._cen_devices.clear()
     gateway_handler._ensure_cen_device(25, 1)
-    assert (25, 1) in gateway_handler._cen_devices
+    assert (25, 1) not in gateway_handler._cen_devices
 
     # CEN device with invalid non-integer object_id (triggers ValueError branch)
     gateway_handler._ensure_cen_device(25, "not_an_int")
@@ -1082,7 +1058,6 @@ async def test_gateway_sending_loop_timeout_and_terminate_branches(gateway_handl
     """Test sending_loop timeout while waiting for event session and terminate while waiting."""
     import custom_components.myhome.gateway as gw_module
     monkeypatch.setattr(gw_module, "EVENT_READY_TIMEOUT", 0.01)
-    monkeypatch.setattr(gw_module, "COMMAND_SESSION_IDLE_TIMEOUT", 0.02)
 
     gateway_handler._event_session_ready.clear()
     gateway_handler._terminate_sender = False
@@ -1174,7 +1149,6 @@ def test_compat_gateway_timezone():
 
     # 3. Short values list without timezone element
     assert _compat_gateway_timezone(["23", "06", "59"]) == ""
-
 
 
 

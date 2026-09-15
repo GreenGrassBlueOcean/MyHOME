@@ -87,20 +87,21 @@ def test_cen_device_uses_via_device_id_when_supported(gateway_handler):
     assert "via_device" not in kwargs
     assert kwargs["identifiers"] == {(DOMAIN, f"{gateway_handler.mac}-15-7")}
 
-    # Without a gateway device id yet, neither link is passed (never a stale via_device)
+    # Before the parent gateway exists registration is deferred, rather than
+    # creating an orphaned CEN device which cannot later be linked correctly.
     mock_dr.reset_mock()
     gateway_handler._cen_devices.clear()
     gateway_handler.device_registry_id = None
     with patch("custom_components.myhome.gateway._registry_supports_via_device_id", return_value=True), \
          patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr):
         gateway_handler._ensure_cen_device(25, "3")
-    kwargs = mock_dr.async_get_or_create.call_args.kwargs
-    assert "via_device_id" not in kwargs and "via_device" not in kwargs
+    mock_dr.async_get_or_create.assert_not_called()
 
 
 def test_cen_device_falls_back_to_via_device_on_old_cores(gateway_handler):
     """Older cores without via_device_id keep the legacy tuple link."""
     mock_dr = MagicMock()
+    gateway_handler.device_registry_id = "gateway_dev_id"
     with patch("custom_components.myhome.gateway._registry_supports_via_device_id", return_value=False), \
          patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr):
         gateway_handler._ensure_cen_device(15, "9")
@@ -121,4 +122,3 @@ def test_registry_probe_matches_installed_core():
     assert _registry_supports_via_device_id.cache_info().hits == 0
     _registry_supports_via_device_id()
     assert _registry_supports_via_device_id.cache_info().hits == 1
-
