@@ -21,6 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import slugify
 
 from .const import (
     CONF_BUS_INTERFACE,
@@ -166,7 +167,10 @@ class DisableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
         self._attr_entity_category = EntityCategory.CONFIG
 
         self._attr_unique_id = f"{gateway.mac}-{self._who}-{self._device_id}-disable"
-        self.entity_id = f"{platform.lower()}.{name.lower().replace(' ', '_')}_lock"
+        clean_name = slugify(name) if name else ""
+        if not clean_name:
+            clean_name = slugify(f"device_{where}") or "device"
+        self.entity_id = f"{platform.lower()}.{clean_name}_lock"
         self._interface = interface
         self._full_where = (
             f"{self._where}#4#{self._interface}"
@@ -238,7 +242,10 @@ class EnableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
         self._attr_entity_category = EntityCategory.CONFIG
 
         self._attr_unique_id = f"{gateway.mac}-{self._who}-{self._device_id}-enable"
-        self.entity_id = f"{platform.lower()}.{name.lower().replace(' ', '_')}_unlock"
+        clean_name = slugify(name) if name else ""
+        if not clean_name:
+            clean_name = slugify(f"device_{where}") or "device"
+        self.entity_id = f"{platform.lower()}.{clean_name}_unlock"
         self._interface = interface
         self._full_where = (
             f"{self._where}#4#{self._interface}"
