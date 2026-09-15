@@ -297,11 +297,6 @@ class MyHOMEGatewayHandler:
                 self.log_id,
             )
 
-        # Active Discovery (WHO=1 general status request *#1*0## is invalid in OpenWebNet and omitted)
-        await self.send_status_request(OWNCommand.parse("*#2*0##")) # Automation / Covers
-        await self.send_status_request(OWNCommand.parse("*#4*0##")) # Heating / Climate
-        await self.send_status_request(OWNCommand.parse("*#16*0##")) # Audio
-
         while not self._terminate_listener:
             message = await _event_session.get_next()
             if message is not None:
@@ -696,6 +691,18 @@ class MyHOMEGatewayHandler:
             self.log_id,
             worker_id,
         )
+
+    async def initial_discovery(self) -> None:
+        """Queue the startup sweep that discovers devices missing from the config.
+
+        Replies are dispatched to the platform message listeners, so this must
+        only run once every platform has subscribed: a fast gateway can answer
+        before then and the reply would be silently dropped.
+        """
+        # WHO=1 general status request *#1*0## is invalid in OpenWebNet and omitted
+        await self.send_status_request(OWNCommand.parse("*#2*0##")) # Automation / Covers
+        await self.send_status_request(OWNCommand.parse("*#4*0##")) # Heating / Climate
+        await self.send_status_request(OWNCommand.parse("*#16*0##")) # Audio
 
     async def close_listener(self) -> bool:
         LOGGER.info("%s Closing event listener", self.log_id)

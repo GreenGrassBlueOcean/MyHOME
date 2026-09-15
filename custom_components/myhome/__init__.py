@@ -539,6 +539,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Every platform is now subscribed to gateway messages, so discovery replies
+    # can no longer be lost.  Queued from a task because the bounded command
+    # queue may still be full of the platforms' own status requests.
+    entry.async_create_background_task(
+        hass, gateway.initial_discovery(), name=f"myhome_{entry.entry_id}_discovery"
+    )
+
     # Prune orphaned devices with 0 entities from the device registry
     try:
         gateway_dev_id = getattr(gateway_device_entry, "id", None)

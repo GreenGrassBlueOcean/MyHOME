@@ -229,6 +229,18 @@ async def test_gateway_send_and_send_status_request(gateway_handler):
 
 
 @pytest.mark.asyncio
+async def test_gateway_initial_discovery_queues_sweep(gateway_handler):
+    """The startup sweep queues covers, heating and audio status requests, never *#1*0##."""
+    await gateway_handler.initial_discovery()
+    queued = []
+    while not gateway_handler.send_buffer.empty():
+        item = gateway_handler.send_buffer.get_nowait()
+        assert item["is_status_request"] is True
+        queued.append(str(item["message"]))
+    assert queued == ["*#2*0##", "*#4*0##", "*#16*0##"]
+
+
+@pytest.mark.asyncio
 async def test_gateway_close_listener(gateway_handler):
     gateway_handler.sending_workers = [MagicMock(), MagicMock()]
     cancel_timer = MagicMock()
@@ -1058,10 +1070,12 @@ async def test_gateway_listening_loop_unhandled_event_status(gateway_handler):
         async def stop_listener(*args, **kwargs):
             gateway_handler._terminate_listener = True
 
-        with patch.object(gateway_handler, "send_status_request", side_effect=stop_listener) as mock_status:
+        mock_event_session.get_next = AsyncMock(side_effect=stop_listener)
+        with patch.object(gateway_handler, "send_status_request") as mock_status:
             await gateway_handler.listening_loop()
             assert gateway_handler.is_connected is False
-            assert mock_status.call_count >= 1
+            # The discovery sweep is queued by async_setup_entry, not the listener.
+            mock_status.assert_not_called()
 
 
 async def test_gateway_sending_loop_timeout_and_terminate_branches(gateway_handler, monkeypatch):
