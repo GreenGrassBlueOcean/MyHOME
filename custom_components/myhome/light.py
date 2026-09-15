@@ -39,7 +39,6 @@ from OWNd.message import (
 )
 
 from .const import (
-    CONF_AUTO_PROMOTE,
     CONF_COLOR_TEMP,
     CONF_DEVICE_MODEL,
     CONF_DIMMABLE,
@@ -91,24 +90,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     def build(ctx: DeviceContext) -> MyHOMELight:
         cfg = ctx.cfg
-        # lock_features (or auto_promote: false) pins the colour modes to the
-        # configured ones; an explicit false forbids that mode even when the bus
-        # reports it (#288 / #307).
+        # With lock_features the light is exactly what myhome.yaml declares and
+        # never learns another mode from the bus (#288 / #307).
         lock_features = cfg.get(CONF_LOCK_FEATURES, False)
-        if not lock_features and CONF_AUTO_PROMOTE in cfg:
-            lock_features = not cfg.get(CONF_AUTO_PROMOTE, True)
-        disallowed: set[ColorMode] = set()
-        if cfg.get(CONF_RGB) is False:
-            disallowed.add(ColorMode.HS)
-        if cfg.get(CONF_COLOR_TEMP) is False:
-            disallowed.add(ColorMode.COLOR_TEMP)
-        if cfg.get(CONF_DIMMABLE) is False:
-            disallowed.add(ColorMode.BRIGHTNESS)
         dimmable = cfg.get(CONF_DIMMABLE, False)
-        if ctx.source == "bus" and not dimmable and not (lock_features and ColorMode.BRIGHTNESS in disallowed):
+        if ctx.source == "bus" and not dimmable and not lock_features:
             # Auto-detect a dimmer from the first frame that carries a level
             dimmable = ctx.message.brightness is not None or ctx.message.brightness_preset is not None
-        kwargs = {"lock_features": lock_features, "disallowed_color_modes": disallowed or None}
+        kwargs = {"lock_features": lock_features}
         if ctx.source != "bus":
             kwargs |= {"color_temp": cfg.get(CONF_COLOR_TEMP, False), "rgb": cfg.get(CONF_RGB, False) or cfg.get(CONF_HS, False)}
         return MyHOMELight(
@@ -276,7 +265,6 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         color_temp: bool = False,
         rgb: bool = False,
         lock_features: bool = False,
-        disallowed_color_modes: set[ColorMode] | None = None,
     ):
         super().__init__(
             hass=hass,
@@ -294,8 +282,13 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._interface = interface
         self._full_where = f"{self._where}#4#{self._interface}" if self._interface is not None else self._where
 
+        # With lock_features the configuration is authoritative: the light
+        # supports exactly the modes declared (rgb / color_temp / dimmable) and
+        # never learns another one from the bus or from a restored state.  This
+        # is the answer to DALI gateways that keep replaying an HSV or tunable
+        # white value that was once written to a fixture that cannot use it
+        # (issue #288).
         self._lock_features = bool(lock_features)
-        self._disallowed_color_modes: set[ColorMode] = set(disallowed_color_modes) if disallowed_color_modes else set()
         self._allowed_color_modes: set[ColorMode] = set()
         if self._lock_features:
             if rgb:
@@ -304,23 +297,23 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._allowed_color_modes.add(ColorMode.COLOR_TEMP)
             if dimmable:
                 self._allowed_color_modes.add(ColorMode.BRIGHTNESS)
-            if not (rgb or color_temp or dimmable):
+            if not self._allowed_color_modes:
                 self._allowed_color_modes.add(ColorMode.ONOFF)
 
         self._attr_supported_features = 0
         self._attr_supported_color_modes: set[ColorMode] = set()
 
-        if rgb and not self._is_mode_forbidden(ColorMode.HS):
+        if rgb:
             self._attr_supported_color_modes.add(ColorMode.HS)
             self._attr_color_mode = ColorMode.HS
             self._attr_supported_features |= LightEntityFeature.TRANSITION
-        if color_temp and not self._is_mode_forbidden(ColorMode.COLOR_TEMP):
+        if color_temp:
             self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
             if ColorMode.HS not in self._attr_supported_color_modes:
                 self._attr_color_mode = ColorMode.COLOR_TEMP
             self._attr_supported_features |= LightEntityFeature.TRANSITION
         if not (self._attr_supported_color_modes & {ColorMode.HS, ColorMode.COLOR_TEMP}):
-            if dimmable and not self._is_mode_forbidden(ColorMode.BRIGHTNESS):
+            if dimmable:
                 self._attr_supported_color_modes.add(ColorMode.BRIGHTNESS)
                 self._attr_color_mode = ColorMode.BRIGHTNESS
                 self._attr_supported_features |= LightEntityFeature.TRANSITION
@@ -382,12 +375,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         await super().async_added_to_hass()
 
     def _is_mode_forbidden(self, mode: ColorMode) -> bool:
-        """Return whether a color mode is forbidden by lock_features or disallowed list."""
-        if self._lock_features and mode not in self._allowed_color_modes:
-            return True
-        if mode in self._disallowed_color_modes:
-            return True
-        return False
+        """Return whether lock_features keeps this light from adopting ``mode``."""
+        return self._lock_features and mode not in self._allowed_color_modes
 
     def _promote_color_mode(self, mode: ColorMode) -> None:
         """Add a color capability learned from the bus without dropping others.
