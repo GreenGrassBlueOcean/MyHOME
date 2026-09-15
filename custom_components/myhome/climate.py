@@ -702,7 +702,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if message.local_control_state in (LOCAL_CONTROL_UNKNOWN, None):
                 self._knob_pos = "UNKNOWN"
             elif message.local_control_state == LOCAL_CONTROL_OFFSET:
-                self._knob_pos = f"{message.local_offset:+d}"
+                self._knob_pos = f"{self._local_offset:+d}"
             elif message.local_control_state == LOCAL_CONTROL_NORMAL:
                 self._knob_pos = "0"
             elif message.local_control_state == LOCAL_CONTROL_OFF:
