@@ -20,6 +20,8 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
@@ -97,6 +99,32 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     for _button in list(_configured_buttons.keys()):
         _buttons.extend(_create_buttons_for_device(_button, _configured_buttons[_button]))
+
+    # Discovered actuators are restored by their platforms from the registry.
+    # They no longer emit a new-device signal, so rebuild their buttons here too.
+    # Use parent actuators rather than stale button entries: a deleted actuator
+    # must not be resurrected just because its old buttons remain registered.
+    registry = er.async_get(hass)
+    for registered in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        who = {"light": "1", "switch": "1", "cover": "2"}.get(registered.domain)
+        if registered.platform != DOMAIN or who is None:
+            continue
+        prefix = f"{gateway.mac}-{who}-"
+        if not registered.unique_id.startswith(prefix):
+            continue
+        device_id = registered.unique_id[len(prefix):]
+        where, _, interface = device_id.partition("#4#")
+        default_suffix = f"{where}I{interface}" if interface else where
+        device = dr.async_get(hass).async_get(registered.device_id) if registered.device_id else None
+        _buttons.extend(_create_buttons_for_device(device_id, {
+            CONF_WHO: who,
+            CONF_WHERE: where,
+            CONF_BUS_INTERFACE: interface or None,
+            CONF_NAME: (device.name if device else None) or registered.original_name
+            or f"{registered.domain.title()} {default_suffix}",
+            CONF_MANUFACTURER: (device.manufacturer if device else None) or "BTicino",
+            CONF_DEVICE_MODEL: (device.model if device else None) or "Actuator",
+        }))
 
     if _buttons:
         async_add_entities(_buttons)
