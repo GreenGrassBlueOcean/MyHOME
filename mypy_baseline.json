@@ -1,10 +1,5 @@
 {
   "_comment": "Strict-mypy error ceiling per module; lowered by scripts/typing_ratchet.py --update, never raised.",
-  "total": 269,
-  "modules": {
-    "custom_components/myhome/binary_sensor.py": 43,
-    "custom_components/myhome/config_flow.py": 105,
-    "custom_components/myhome/cover.py": 64,
-    "custom_components/myhome/validate.py": 57
-  }
+  "total": 0,
+  "modules": {}
 }
