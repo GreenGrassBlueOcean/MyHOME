@@ -287,6 +287,12 @@
     },
     "decoder_start_failed": {
       "message": "{entity_id}: decoder {decoder} failed to start playback: {error}"
+    },
+    "group_no_transition": {
+      "message": "{name}: a lighting group does not support software transition"
+    },
+    "group_no_timer": {
+      "message": "{name}: timed on/off is not supported for a lighting group"
     }
   },
   "entity": {

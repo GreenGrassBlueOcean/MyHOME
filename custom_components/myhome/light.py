@@ -51,6 +51,7 @@ from .const import (
     CONF_ICON_ON,
     CONF_LOCK_FEATURES,
     CONF_MANUFACTURER,
+    CONF_MEMBERS,
     CONF_RGB,
     CONF_TRANSITION_MODE,
     CONF_WHO,
@@ -70,6 +71,7 @@ from .const import (
 from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery, parse_unique_id
 from .gateway import MyHOMEGatewayHandler
+from .light_group import MyHOMELightGroup, _color_modes_from_flags
 from .myhome_device import MyHOMEEntity
 
 PARALLEL_UPDATES = 0
@@ -96,8 +98,38 @@ async def async_setup_entry(
 
     foreign = _ForeignAddresses(hass, config_entry, gateway.mac, mac)
 
-    def build(ctx: DeviceContext) -> MyHOMELight:
+    def build(ctx: DeviceContext):
         cfg = ctx.cfg
+        where = ctx.address.where
+
+        if where.startswith("#"):
+            group = int(where[1:])
+            members = cfg.get(CONF_MEMBERS, [])
+            return MyHOMELightGroup(
+                hass,
+                cfg.get(CONF_NAME, f"Lighting Group {group}"),
+                ctx.key,
+                group,
+                gateway,
+                members,
+                dimmable=cfg.get(CONF_DIMMABLE, False),
+                color_temp=cfg.get(CONF_COLOR_TEMP, False),
+                rgb=cfg.get(CONF_RGB, False) or cfg.get(CONF_HS, False),
+                hs=cfg.get(CONF_HS, False),
+                icon=cfg.get(CONF_ICON),
+                icon_on=cfg.get(CONF_ICON_ON),
+            )
+
+        if where in ("0", "00", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"):
+            # Matches validate.py's General()/Area() validators exactly: a yaml
+            # `where` this loose is a broadcast address, not a light - never an
+            # auto-discovered entity for a group, area or general address (#368).
+            # Not is_apl_address(): plenty of real point-to-point WHEREs (F422
+            # sub-bus addresses like "02") are not full APL-feasible and must
+            # still build a light (see #256/#257, #288).
+            LOGGER.warning("Refusing to create a light entity for broadcast WHERE %s (must be group or point-to-point)", where)
+            return None
+
         # With lock_features the light is exactly what myhome.yaml declares and
         # never learns another mode from the bus (#288 / #307).
         lock_features = cfg.get(CONF_LOCK_FEATURES, False)
@@ -167,6 +199,7 @@ async def async_setup_entry(
             },
             "async_turn_on_timed",
         )
+
 
 
 
@@ -307,24 +340,15 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._attr_supported_features = LightEntityFeature(0)
         self._attr_supported_color_modes: set[ColorMode] = set()
 
-        if rgb:
-            self._attr_supported_color_modes.add(ColorMode.HS)
-            self._attr_color_mode = ColorMode.HS
+        modes, color_mode = _color_modes_from_flags(dimmable, color_temp, rgb, False)
+        self._attr_supported_color_modes = modes
+        self._attr_color_mode = color_mode
+
+        if modes == {ColorMode.ONOFF}:
+            # Plain on/off light: flash is the only extra it can do.
+            self._attr_supported_features |= LightEntityFeature.FLASH
+        else:
             self._attr_supported_features |= LightEntityFeature.TRANSITION
-        if color_temp:
-            self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
-            if ColorMode.HS not in self._attr_supported_color_modes:
-                self._attr_color_mode = ColorMode.COLOR_TEMP
-            self._attr_supported_features |= LightEntityFeature.TRANSITION
-        if not (self._attr_supported_color_modes & {ColorMode.HS, ColorMode.COLOR_TEMP}):
-            if dimmable:
-                self._attr_supported_color_modes.add(ColorMode.BRIGHTNESS)
-                self._attr_color_mode = ColorMode.BRIGHTNESS
-                self._attr_supported_features |= LightEntityFeature.TRANSITION
-            else:
-                self._attr_supported_color_modes.add(ColorMode.ONOFF)
-                self._attr_color_mode = ColorMode.ONOFF
-                self._attr_supported_features |= LightEntityFeature.FLASH
 
         self._attr_min_color_temp_kelvin = 2000
         self._attr_max_color_temp_kelvin = 6535

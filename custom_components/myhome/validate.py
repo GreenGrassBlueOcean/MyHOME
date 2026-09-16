@@ -59,6 +59,7 @@ from .const import (
     CONF_INVERTED,
     CONF_LOCK_FEATURES,
     CONF_MANUFACTURER,
+    CONF_MEMBERS,
     CONF_PLATFORMS,
     CONF_RGB,
     CONF_STANDALONE,
@@ -331,9 +332,21 @@ light_schema = MyHomeDeviceSchema(
             Optional(CONF_LOCK_FEATURES): Boolean(),
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
             Optional(CONF_DEVICE_MODEL): Coerce(str),
+            Optional(CONF_MEMBERS): [All(Coerce(str), PointToPoint())],
         }
     }
 )
+
+def _validate_light_members(data: dict) -> dict:
+    for device, cfg in data.items():
+        if CONF_MEMBERS in cfg:
+            where = cfg.get(CONF_WHERE)
+            if not where or not str(where).startswith("#"):
+                raise Invalid("Members can only be defined on a group light (where must start with #)")
+    return data
+
+light_schema = All(light_schema, _validate_light_members)
+
 
 switch_schema = MyHomeDeviceSchema(
     {
