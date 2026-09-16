@@ -52,10 +52,10 @@ from homeassistant.components.media_player.const import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.const import CONF_MAC, Platform
+from homeassistant.const import Platform
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
@@ -142,8 +142,8 @@ async def async_setup_entry(
 
     discovery = PlatformDiscovery(
         hass, config_entry, async_add_entities,
-        platform=Platform.MEDIA_PLAYER, who="16", event_type=OWNSoundEvent, build=build,
-        address=_zone_address, pre_message=_route_pseudo_zones(hass, config_entry.data[CONF_MAC]),
+        platform=PLATFORM, who="16", event_type=OWNSoundEvent, build=build,
+        address=_zone_address, pre_message=_route_pseudo_zones(runtime.router),
         key_suffix="#16",
     )
     # Audio zones are keyed "<zone>#16" in unique ids; the registry restore reads that key back.
@@ -159,7 +159,7 @@ def _zone_address(message: Any) -> Address | None:
 
 
 def _route_pseudo_zones(
-    hass: HomeAssistant, mac: str
+    router: Any
 ) -> Callable[[Any, Address, KnownDevices], bool]:
     """Stereo-module pseudo zones (10x-14x) select the source for amplifier x."""
 
@@ -168,9 +168,9 @@ def _route_pseudo_zones(
         zone = address.where
         if len(zone) == 3 and zone[:2] in ("10", "11", "12", "13", "14"):
             point = zone[-1]
-            for player_id in known:
-                if player_id.split("#")[0].endswith(point):
-                    async_dispatcher_send(hass, f"myhome_update_{mac}_16_{player_id}", message)
+            zones = [player_id for player_id in known if player_id.split("#")[0].endswith(point)]
+            if zones:
+                router.publish("16", zones, message)
             return True
         return False
 
@@ -286,14 +286,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Register listeners when entity is added to Home Assistant."""
         self._register_availability_listener()
-        # Existing OWN event dispatcher connections
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"myhome_update_{self._gateway_handler.mac}_16_{self._device_id}",
-                self.handle_event,
-            )
-        )
         # ── Decoder state listener ────────────────────────────────────────
         pool = self._get_pool()
         if pool and pool.is_configured:

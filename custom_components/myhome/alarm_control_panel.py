@@ -11,7 +11,6 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
     OWNAlarmCommand,
@@ -25,7 +24,7 @@ from .const import (
     LOGGER,
 )
 from .data import MyHOMERuntimeData
-from .discovery import DeviceContext, PlatformDiscovery
+from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -70,6 +69,8 @@ async def async_setup_entry(
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="5", event_type=OWNAlarmEvent, build=build, general_is_device=True,
+        # WHERE=0 is the central unit, and every panel follows its broadcasts
+        known_keys=lambda ctx: [*default_known_keys(ctx), "0"],
     ).start()
     return True
 
@@ -127,22 +128,6 @@ class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
     async def async_added_to_hass(self) -> None:
         """Register dispatcher listener when added to hass."""
         self._register_availability_listener()
-        target_hass = self.hass or self._hass
-        if target_hass is not None:
-            unsub = async_dispatcher_connect(
-                target_hass,
-                f"myhome_update_{self._gateway_handler.mac}_5_{self._where}",
-                self.handle_event,
-            )
-            self.async_on_remove(unsub)
-            # Also listen to global broadcast zone 0
-            if self._where != "0":
-                unsub_global = async_dispatcher_connect(
-                    target_hass,
-                    f"myhome_update_{self._gateway_handler.mac}_5_0",
-                    self.handle_event,
-                )
-                self.async_on_remove(unsub_global)
         await self.async_update()
 
     async def async_update(self) -> None:

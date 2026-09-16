@@ -781,6 +781,19 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.evt.dim.level10.ptp.67",
+    "frame": "*1*10*67##",
+    "direction": "event",
+    "who": 1,
+    "what": 10,
+    "where": "67",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Dimming level 10 (100%) event at address '67' (MH200 physical plant sweep)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
@@ -1018,6 +1031,20 @@
     "source": "community-plant-capture",
     "mcp_valid": true,
     "mcp_notes": "Automation: Absolute position level 10% report for address 73 (issue #247 reporter plant)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.evt.stop.routed.interface.02",
+    "frame": "*2*0*14#4#02##",
+    "direction": "event",
+    "who": 2,
+    "what": 0,
+    "where": "14",
+    "interface": "02",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: STOP event at address '14' routed via private bus interface 02 (MH200 physical plant sweep)",
     "roundtrip": true,
     "_file": "who02_automation.yaml"
   },
@@ -1603,6 +1630,56 @@
     "source": "community-plant-capture",
     "mcp_valid": true,
     "mcp_notes": "Gateway Management: Set gateway internal datetime to 2026-09-11 17:33:54 (issue #247 reporter plant)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
+    "id": "gateway.req.device_type",
+    "frame": "*#13**15##",
+    "direction": "dimension_request",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 15,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: Request gateway model / device type (physical MH200 check)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
+    "id": "gateway.resp.model.device_type.mh200",
+    "frame": "*#13**15*4##",
+    "direction": "dimension_response",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 15,
+    "dimension_values": [
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: Gateway reports device type code 4 (MH200 physical gateway)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
+    "id": "gateway.resp.firmware.version.2_1_0",
+    "frame": "*#13**16*2*1*0##",
+    "direction": "dimension_response",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 16,
+    "dimension_values": [
+      "2",
+      "1",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: Gateway reports firmware version 2.1.0 (MH200 physical gateway)",
     "roundtrip": true,
     "_file": "who13_gateway.yaml"
   },

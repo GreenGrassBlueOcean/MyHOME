@@ -12,7 +12,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import RegistryEntry
 from OWNd.message import (
@@ -32,7 +31,7 @@ from .const import (
     build_timed_turn_on_command,
 )
 from .data import get_runtime_data
-from .discovery import DeviceContext, PlatformDiscovery
+from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -88,10 +87,15 @@ async def async_setup_entry(
         # Duplicate unique ids like "{mac}-1-1-06" written by earlier versions
         return bool(entry.unique_id and "-1-1-" in entry.unique_id)
 
+    def known_keys(ctx: DeviceContext) -> list[str]:
+        # The light platform claims the bare WHERE of a routed switch for it
+        # (_ForeignAddresses) and publishes under that spelling too.
+        return [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where]
+
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="1", event_type=None, build=build, announce=True,
-        reject_registry_entry=corrupted,
+        reject_registry_entry=corrupted, known_keys=known_keys,
         yaml_device_id=lambda address: address.clean_key,
     ).start(listen=False)
 
@@ -175,27 +179,6 @@ class MyHOMESwitch(MyHOMEEntity, SwitchEntity):
             self._attr_icon = self._off_icon
 
         self._attr_is_on = None
-
-    async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added to hass."""
-        target_hass = self.hass or self._hass
-        if target_hass is not None:
-            self.async_on_remove(
-                async_dispatcher_connect(
-                    target_hass,
-                    f"myhome_update_{self._gateway_handler.mac}_1_{self._full_where}",
-                    self.handle_event,
-                )
-            )
-            if self._full_where != self._where:
-                self.async_on_remove(
-                    async_dispatcher_connect(
-                        target_hass,
-                        f"myhome_update_{self._gateway_handler.mac}_1_{self._where}",
-                        self.handle_event,
-                    )
-                )
-        await super().async_added_to_hass()
 
     async def async_update(self) -> None:
         """Update the entity.
