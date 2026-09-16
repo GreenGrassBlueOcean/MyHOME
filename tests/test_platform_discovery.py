@@ -6,6 +6,7 @@ F422 bus-routing form ``APL#4#<bus>`` (``0311#4#01``).
 """
 from unittest.mock import MagicMock, patch
 
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from OWNd.message import OWNAutomationEvent, OWNEvent, OWNLightingEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -86,8 +87,16 @@ async def test_skeleton_configures_discovers_and_routes(hass):
             return None  # a platform may decline an address
         return _entity(ctx.cfg.get("name", f"Light {ctx.suffix}"))
 
-    async_dispatcher_connect(hass, f"myhome_new_device_{MAC}", announced.append)
-    async_dispatcher_connect(hass, update_signal(MAC, "1", "12"), routed.append)
+    @callback
+    def on_announced(device):
+        announced.append(device)
+
+    @callback
+    def on_routed(msg):
+        routed.append(msg)
+
+    async_dispatcher_connect(hass, f"myhome_new_device_{MAC}", on_announced)
+    async_dispatcher_connect(hass, update_signal(MAC, "1", "12"), on_routed)
 
     discovery = PlatformDiscovery(
         hass, entry, added.extend, platform="light", who="1", event_type=OWNLightingEvent, build=build, announce=True,
