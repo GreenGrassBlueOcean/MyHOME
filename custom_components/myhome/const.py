@@ -135,7 +135,7 @@ def is_apl_address(base: str) -> bool:
     if len(base) == 2:
         a = int(base[0])
         pl = int(base[1])
-        return 0 <= a <= 9 and 1 <= pl <= 9
+        return 1 <= a <= 9 and 1 <= pl <= 9
     if len(base) == 4:
         a = int(base[:2])
         pl = int(base[2:])

@@ -48,6 +48,7 @@ from .const import (
     CONF_ICON_ON,
     CONF_LOCK_FEATURES,
     CONF_MANUFACTURER,
+    CONF_MEMBERS,
     CONF_RGB,
     CONF_TRANSITION_MODE,
     CONF_WHO,
@@ -66,6 +67,7 @@ from .const import (
 )
 from .discovery import Address, DeviceContext, PlatformDiscovery, parse_unique_id
 from .gateway import MyHOMEGatewayHandler
+from .light_group import MyHOMELightGroup, _color_modes_from_flags
 from .myhome_device import MyHOMEEntity
 
 PARALLEL_UPDATES = 0
@@ -89,9 +91,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     foreign = _ForeignAddresses(hass, config_entry, gateway.mac, mac)
 
     def build(ctx: DeviceContext):
-        from .const import CONF_MEMBERS
-        from .light_group import MyHOMELightGroup
-
         cfg = ctx.cfg
         where = ctx.address.where
 
@@ -114,6 +113,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             )
 
         if where in ("0", "00", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"):
+            # Matches validate.py's General()/Area() validators exactly: a yaml
+            # `where` this loose is a broadcast address, not a light - never an
+            # auto-discovered entity for a group, area or general address (#368).
+            # Not is_apl_address(): plenty of real point-to-point WHEREs (F422
+            # sub-bus addresses like "02") are not full APL-feasible and must
+            # still build a light (see #256/#257, #288).
             LOGGER.warning("Refusing to create a light entity for broadcast WHERE %s (must be group or point-to-point)", where)
             return None
 
@@ -195,25 +200,6 @@ def _route_who1(hass, mac: str, message, address: Address) -> None:
         async_dispatcher_send(hass, f"myhome_update_{mac}_1_{norm_where}", message)
 
 
-
-def _color_modes_from_flags(dimmable: bool, color_temp: bool, rgb: bool, hs: bool) -> tuple[set[ColorMode], ColorMode]:
-    modes = set()
-    color_mode = None
-    if rgb or hs:
-        modes.add(ColorMode.HS)
-        color_mode = ColorMode.HS
-    if color_temp:
-        modes.add(ColorMode.COLOR_TEMP)
-        if ColorMode.HS not in modes:
-            color_mode = ColorMode.COLOR_TEMP
-    if not (modes & {ColorMode.HS, ColorMode.COLOR_TEMP}):
-        if dimmable:
-            modes.add(ColorMode.BRIGHTNESS)
-            color_mode = ColorMode.BRIGHTNESS
-        else:
-            modes.add(ColorMode.ONOFF)
-            color_mode = ColorMode.ONOFF
-    return modes, color_mode
 
 class _ForeignAddresses:
     """WHO=1 addresses that belong to the switch or sensor platforms, not to a light."""
@@ -356,9 +342,11 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._attr_supported_color_modes = modes
         self._attr_color_mode = color_mode
 
-        if ColorMode.HS in modes or ColorMode.COLOR_TEMP in modes or ColorMode.BRIGHTNESS in modes:
+        if modes == {ColorMode.ONOFF}:
+            # Plain on/off light: flash is the only extra it can do.
+            self._attr_supported_features |= LightEntityFeature.FLASH
+        else:
             self._attr_supported_features |= LightEntityFeature.TRANSITION
-        self._attr_supported_features |= LightEntityFeature.FLASH
 
         self._attr_min_color_temp_kelvin = 2000
         self._attr_max_color_temp_kelvin = 6535
