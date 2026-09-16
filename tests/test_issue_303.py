@@ -76,13 +76,23 @@ async def test_standalone_zone_auto_discovery_exposes_fan_by_default(hass: HomeA
 
     assert len(added_entities) == 1
     zone1 = added_entities[0]
+    zone1.hass = hass
     assert zone1._where == "1"
     assert zone1._standalone is True
+    assert zone1._fan is False
+    assert not (zone1.supported_features & ClimateEntityFeature.FAN_MODE)
+    assert zone1.fan_modes is None
+    assert "fan_mode" not in zone1.extra_state_attributes
+
+    # Deliver a fan frame from zone 1: dynamic activation enables FAN_MODE
+    event_fan = OWNEvent.parse("*#4*1#2*20*8##")
+    zone1.handle_event(event_fan)
+
     assert zone1._fan is True
     assert zone1.supported_features & ClimateEntityFeature.FAN_MODE
-    assert zone1.fan_modes == ["auto", "low", "medium", "high"]
-    assert zone1.fan_mode == "auto"
-    assert zone1.extra_state_attributes["fan_mode"] == "auto"
+    assert zone1.fan_modes == ["auto", "low", "medium", "high", "off"]
+    assert zone1.fan_mode == "high"
+    assert zone1.extra_state_attributes["fan_mode"] == "high"
 
 
 async def test_central_unit_does_not_expose_fan(hass: HomeAssistant, mock_gateway):
@@ -115,6 +125,123 @@ async def test_central_unit_does_not_expose_fan(hass: HomeAssistant, mock_gatewa
     assert not (central.supported_features & ClimateEntityFeature.FAN_MODE)
     assert central.fan_modes is None
     assert "fan_mode" not in central.extra_state_attributes
+
+
+async def test_plant_with_central_unit_and_zone_1_radiator_has_no_fan(hass: HomeAssistant, mock_gateway):
+    """Test plant with central unit #0 and zone 1 radiator does not expose fan on zone 1 (PR #352 review)."""
+    config_entry = MagicMock()
+    config_entry.entry_id = "test_entry_303_central_plus_zone1"
+    config_entry.data = {CONF_MAC: MAC}
+
+    hass.data = {
+        DOMAIN: {
+            MAC: {
+                CONF_PLATFORMS: {"climate": {}},
+                CONF_ENTITY: mock_gateway,
+            }
+        }
+    }
+
+    added_entities: list[MyHOMEClimate] = []
+    await async_setup_entry(hass, config_entry, added_entities.extend)
+
+    # 1. Discover central unit #0
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNEvent.parse("*#4*#0*0*0215##"))
+    # 2. Discover zone 1 (radiator, emits temperature reading)
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNEvent.parse("*#4*1*0*0205##"))
+    await hass.async_block_till_done()
+
+    assert len(added_entities) == 2
+    by_where = {e._where: e for e in added_entities}
+
+    # Central unit #0 has no fan
+    central = by_where["#0"]
+    assert central._fan is False
+    assert not (central.supported_features & ClimateEntityFeature.FAN_MODE)
+
+    # Zone 1 (radiator) has no fan
+    zone1 = by_where["1"]
+    assert zone1._fan is False
+    assert not (zone1.supported_features & ClimateEntityFeature.FAN_MODE)
+    assert zone1.fan_modes is None
+
+
+async def test_fan_off_frame_after_high_transitions_to_off(hass: HomeAssistant, mock_gateway):
+    """Test fan off frame (*20*5 and *11*4) updates fan_mode from high to off (PR #352 review)."""
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Fancoil Zone",
+        device_id="4-1",
+        who="4",
+        where="1",
+        heating=True,
+        cooling=True,
+        fan=True,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Fancoil Unit",
+        gateway=mock_gateway,
+    )
+    climate.entity_id = "climate.fancoil_zone"
+    climate.async_schedule_update_ha_state = MagicMock()
+
+    # Dimension 20: set to high (*20*8), then off (*20*5)
+    climate.handle_event(OWNEvent.parse("*#4*1#2*20*8##"))
+    assert climate.fan_mode == "high"
+
+    climate.handle_event(OWNEvent.parse("*#4*1#2*20*5##"))
+    assert climate.fan_mode == "off"
+
+    # Dimension 11: set to high (*11*3), then off (*11*4)
+    climate.handle_event(OWNEvent.parse("*#4*1*11*3##"))
+    assert climate.fan_mode == "high"
+
+    climate.handle_event(OWNEvent.parse("*#4*1*11*4##"))
+    assert climate.fan_mode == "off"
+
+
+async def test_valve_active_in_auto_or_off_does_not_set_heating(hass: HomeAssistant, mock_gateway):
+    """Test active valve (*20*1) only infers heating/cooling in HEAT/COOL, not in AUTO/OFF (PR #352 review)."""
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Zone 1",
+        device_id="4-1",
+        who="4",
+        where="1",
+        heating=True,
+        cooling=True,
+        fan=False,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Heating Zone",
+        gateway=mock_gateway,
+    )
+    climate.entity_id = "climate.zone_1"
+    climate.async_schedule_update_ha_state = MagicMock()
+
+    # 1. In HEAT mode -> valve open sets HVACAction.HEATING
+    climate._attr_hvac_mode = HVACMode.HEAT
+    climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
+    assert climate.hvac_action == HVACAction.HEATING
+
+    # 2. In COOL mode -> valve open sets HVACAction.COOLING
+    climate._attr_hvac_mode = HVACMode.COOL
+    climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
+    assert climate.hvac_action == HVACAction.COOLING
+
+    # 3. In AUTO mode (e.g. summer cooling) -> valve open leaves action alone
+    climate._attr_hvac_mode = HVACMode.AUTO
+    climate._attr_hvac_action = HVACAction.IDLE
+    climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
+    assert climate.hvac_action == HVACAction.IDLE
+
+    # 4. In OFF mode -> valve open leaves action as OFF
+    climate._attr_hvac_mode = HVACMode.OFF
+    climate._attr_hvac_action = HVACAction.OFF
+    climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
+    assert climate.hvac_action == HVACAction.OFF
 
 
 async def test_explicit_yaml_fan_false_respected(hass: HomeAssistant, mock_gateway):
@@ -180,7 +307,7 @@ async def test_dynamic_fan_mode_activation_on_actuator_event(hass: HomeAssistant
 
     assert climate._fan is True
     assert climate.supported_features & ClimateEntityFeature.FAN_MODE
-    assert climate.fan_modes == ["auto", "low", "medium", "high"]
+    assert climate.fan_modes == ["auto", "low", "medium", "high", "off"]
     assert climate.fan_mode == "low"
     # Actuator fan status must not set hvac_action to HEATING
     assert climate.hvac_action is None
@@ -224,6 +351,7 @@ async def test_dimension_20_does_not_corrupt_valve_hvac_action(hass: HomeAssista
     climate.handle_event(event_fan_off)
     # Action remains COOLING because valve is still open; fan off does NOT set IDLE
     assert climate.hvac_action == HVACAction.COOLING
+    assert climate.fan_mode == "off"
 
 
 async def test_dimension_11_event_handling(hass: HomeAssistant, mock_gateway):
@@ -358,16 +486,19 @@ async def test_issue_303_bus_trace_replay(hass: HomeAssistant, mock_gateway):
     for zone in ("1", "2", "3", "5", "6"):
         assert by_where[zone]._fan is True
         assert by_where[zone].supported_features & ClimateEntityFeature.FAN_MODE
+        assert by_where[zone].fan_modes == ["auto", "low", "medium", "high", "off"]
 
     # Check resulting fan modes:
     # Zone 1 ended at speed 3 -> high
     assert by_where["1"].fan_mode == "high"
+    # Zone 2 received high (*20*8) then fan off (*20*5) -> off
+    assert by_where["2"].fan_mode == "off"
     # Zone 3 ended at speed 1 -> low
     assert by_where["3"].fan_mode == "low"
     # Zone 5 ended at speed 1 -> low
     assert by_where["5"].fan_mode == "low"
-    # Zone 6 ended with value 5 (fan off, mode remains auto default)
-    assert by_where["6"].fan_mode == "auto"
+    # Zone 6 ended with value 5 (fan off) -> off
+    assert by_where["6"].fan_mode == "off"
 
 
 async def test_subordinate_zone_central_mode_update(hass: HomeAssistant, mock_gateway):
@@ -549,17 +680,26 @@ async def test_dimension_20_and_11_all_speed_branches(hass: HomeAssistant, mock_
     climate.handle_event(mock_event_speed0)
     assert climate.fan_mode == "auto"
 
-    # Valve active when hvac_mode is HEAT -> HVACAction.HEATING (lines 660-661)
+    # Valve active when hvac_mode is HEAT -> HVACAction.HEATING
     climate._attr_hvac_mode = HVACMode.HEAT
     climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
     assert climate.hvac_action == HVACAction.HEATING
 
-    # Valve active when hvac_mode is AUTO -> default fallback HVACAction.HEATING (lines 662-663)
+    # Valve active when hvac_mode is AUTO -> does not force HEATING, action remains unchanged
+    climate._attr_hvac_action = HVACAction.IDLE
     climate._attr_hvac_mode = HVACMode.AUTO
     climate.handle_event(OWNEvent.parse("*#4*1#1*20*1##"))
-    assert climate.hvac_action == HVACAction.HEATING
+    assert climate.hvac_action == HVACAction.IDLE
 
-    # Dimension 11 mock event with speed None and fan_on True (line 691)
+    # Dimension 20 fan off frame (*20*5) sets fan_mode to "off"
+    climate.handle_event(OWNEvent.parse("*#4*1#2*20*5##"))
+    assert climate.fan_mode == "off"
+
+    # Dimension 11 fan off frame (*11*4) sets fan_mode to "off"
+    climate.handle_event(OWNEvent.parse("*#4*1*11*4##"))
+    assert climate.fan_mode == "off"
+
+    # Dimension 11 mock event with speed None and fan_on True
     mock_d11 = MagicMock()
     mock_d11.message_type = MESSAGE_TYPE_FAN_SPEED
     mock_d11.human_readable_log = "mock"

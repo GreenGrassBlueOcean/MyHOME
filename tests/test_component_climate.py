@@ -536,12 +536,12 @@ async def test_climate_fan_mode_and_attributes(hass):
     climate_fancoil.async_schedule_update_ha_state = MagicMock()
 
     assert climate_fancoil.supported_features & ClimateEntityFeature.FAN_MODE
-    assert climate_fancoil.fan_modes == ["auto", "low", "medium", "high"]
+    assert climate_fancoil.fan_modes == ["auto", "low", "medium", "high", "off"]
     assert climate_fancoil.fan_mode == "auto"
     assert climate_fancoil.extra_state_attributes["local_offset"] == 0
     assert climate_fancoil.extra_state_attributes["fan_mode"] == "auto"
 
-    # Test setting fan modes: low (1), medium (2), high (3), auto (0)
+    # Test setting fan modes: low (1), medium (2), high (3), auto (0), off (4)
     await climate_fancoil.async_set_fan_mode("low")
     assert climate_fancoil.fan_mode == "low"
     assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*1##"
@@ -553,6 +553,10 @@ async def test_climate_fan_mode_and_attributes(hass):
     await climate_fancoil.async_set_fan_mode("high")
     assert climate_fancoil.fan_mode == "high"
     assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*3##"
+
+    await climate_fancoil.async_set_fan_mode("off")
+    assert climate_fancoil.fan_mode == "off"
+    assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*4##"
 
     await climate_fancoil.async_set_fan_mode("auto")
     assert climate_fancoil.fan_mode == "auto"
@@ -581,7 +585,13 @@ async def test_climate_fan_mode_and_attributes(hass):
     climate_fancoil.handle_event(event)
     assert climate_fancoil.fan_mode == "high"
 
+    event.fan_speed = None
+    event.fan_on = False
+    climate_fancoil.handle_event(event)
+    assert climate_fancoil.fan_mode == "off"
+
     event.fan_speed = 0
+    event.fan_on = True
     climate_fancoil.handle_event(event)
     assert climate_fancoil.fan_mode == "auto"
 

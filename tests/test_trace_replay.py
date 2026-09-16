@@ -903,19 +903,19 @@ class TestTraceReplayHarness:
         z1 = hass.states.get("climate.climate_zone_1")
         assert z1 is not None, f"Available states: {[s.entity_id for s in hass.states.async_all()]}"
         assert z1.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z1.attributes.get("fan_modes") == ["auto", "low", "medium", "high"]
+        assert z1.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
         assert z1.attributes.get("fan_mode") == "high"
         assert z1.attributes.get("current_temperature") == 23.4
         assert z1.attributes.get("temperature") == 20.0
         assert z1.attributes.get("current_humidity") == 55
         assert z1.state == HVACMode.OFF
 
-        # Zone 2: *#4*2*12*0210*3##, *4*0*2##, *#4*2*0*0231##, *#4*2#2*20*8## (high)
+        # Zone 2: *#4*2*12*0210*3##, *4*0*2##, *#4*2*0*0231##, *#4*2#2*20*8## (high), *#4*2#2*20*5## (off)
         z2 = hass.states.get("climate.climate_zone_2")
         assert z2 is not None
         assert z2.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z2.attributes.get("fan_modes") == ["auto", "low", "medium", "high"]
-        assert z2.attributes.get("fan_mode") == "high"
+        assert z2.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
+        assert z2.attributes.get("fan_mode") == "off"
         assert z2.attributes.get("current_temperature") == 23.1
         assert z2.attributes.get("temperature") == 26.5
         assert z2.attributes.get("current_humidity") == 54
@@ -936,11 +936,11 @@ class TestTraceReplayHarness:
         assert z5.attributes.get("current_temperature") == 23.0
         assert z5.attributes.get("current_humidity") == 61
 
-        # Zone 6: *#4*6*0*0228##, *#4*6*60*59##, *#4*6#2*20*5## (auto/idle)
+        # Zone 6: *#4*6*0*0228##, *#4*6*60*59##, *#4*6#2*20*5## (fan off)
         z6 = hass.states.get("climate.climate_zone_6")
         assert z6 is not None
         assert z6.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z6.attributes.get("fan_mode") == "auto"
+        assert z6.attributes.get("fan_mode") == "off"
         assert z6.attributes.get("current_temperature") == 22.8
         assert z6.attributes.get("current_humidity") == 59
 
@@ -976,6 +976,17 @@ class TestTraceReplayHarness:
             )
             mock_send.assert_awaited_once()
             assert str(mock_send.call_args[0][0]) == "*#4*1*#11*0##"
+
+        # 6. Service call: change fan mode to off
+        with patch.object(handler, "send", new_callable=AsyncMock) as mock_send:
+            await hass.services.async_call(
+                "climate",
+                "set_fan_mode",
+                {"entity_id": "climate.climate_zone_1", "fan_mode": "off"},
+                blocking=True,
+            )
+            mock_send.assert_awaited_once()
+            assert str(mock_send.call_args[0][0]) == "*#4*1*#11*4##"
 
         await hass.config_entries.async_unload(entry.entry_id)
 
