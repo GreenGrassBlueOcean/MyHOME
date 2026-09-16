@@ -995,6 +995,67 @@ async def test_sending_loop_accounts_for_failed_task_and_closes_session(
         mock_cmd_session.close.assert_called_once()
 
 
+async def test_sending_loop_survives_initial_connect_error(gateway_handler):
+    """A command session that fails to connect must not kill the worker."""
+    with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
+        mock_cmd_session = MagicMock()
+        mock_cmd_session.connect = AsyncMock(side_effect=RuntimeError("connect failed"))
+        mock_cmd_session.send = AsyncMock(return_value=[])
+        mock_cmd_session.close = AsyncMock()
+        mock_cmd_class.return_value = mock_cmd_session
+
+        gateway_handler._event_session_ready.set()
+        worker = asyncio.create_task(gateway_handler.sending_loop(0))
+        await gateway_handler.send_buffer.put(
+            {"message": "*1*1*1##", "is_status_request": False}
+        )
+        await asyncio.wait_for(gateway_handler.send_buffer.join(), timeout=1)
+        await gateway_handler.send_buffer.put(None)
+        await asyncio.wait_for(worker, timeout=1)
+
+        # The queued command is still handed over; the session reconnects on send.
+        mock_cmd_session.send.assert_awaited_once()
+        mock_cmd_session.close.assert_called_once()
+
+
+async def test_sending_loop_propagates_cancellation_while_connecting(gateway_handler):
+    """Cancelling the worker during connect is not swallowed as a connection error."""
+    with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
+        mock_cmd_session = MagicMock()
+        mock_cmd_session.connect = AsyncMock(side_effect=asyncio.CancelledError)
+        mock_cmd_session.close = AsyncMock()
+        mock_cmd_class.return_value = mock_cmd_session
+
+        gateway_handler._event_session_ready.set()
+        worker = asyncio.create_task(gateway_handler.sending_loop(0))
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(worker, timeout=1)
+
+        mock_cmd_session.close.assert_called_once()
+
+
+async def test_sending_loop_propagates_cancellation_while_sending(gateway_handler):
+    """Cancelling the worker mid-send re-raises instead of logging a send failure."""
+    with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
+        mock_cmd_session = MagicMock()
+        mock_cmd_session.connect = AsyncMock(return_value={"Success": True})
+        mock_cmd_session.send = AsyncMock(side_effect=asyncio.CancelledError)
+        mock_cmd_session.close = AsyncMock()
+        mock_cmd_class.return_value = mock_cmd_session
+
+        gateway_handler._event_session_ready.set()
+        worker = asyncio.create_task(gateway_handler.sending_loop(0))
+        await gateway_handler.send_buffer.put(
+            {"message": "*1*1*1##", "is_status_request": False}
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(worker, timeout=1)
+
+        # The interrupted item is still accounted for and the socket is released.
+        assert gateway_handler.send_buffer.empty()
+        mock_cmd_session.close.assert_called_once()
+
+
 async def test_event_eof_is_not_a_warning_or_bus_event(gateway_handler):
     """A routine EOF is reported by reconnect handling, not as a bad frame."""
     gateway_handler.generate_events = True
@@ -1023,14 +1084,27 @@ async def test_gateway_properties_and_cen_branches(gateway_handler):
     gateway_handler._ensure_cen_device(25, 1)
     assert (25, 1) not in gateway_handler._cen_devices
 
+    gateway_handler.config_entry = MagicMock()
+    gateway_handler.config_entry.entry_id = "valid_entry_id"
+
+    # Registration is deferred while the gateway device does not exist yet, so
+    # the scenario control is not remembered and is retried on the next frame.
+    gateway_handler.device_registry_id = None
+    gateway_handler._ensure_cen_device(25, 2)
+    assert (25, 2) not in gateway_handler._cen_devices
+
+    gateway_handler.device_registry_id = "gateway_device_id"
+
     # CEN device with invalid non-integer object_id (triggers ValueError branch)
-    gateway_handler._ensure_cen_device(25, "not_an_int")
+    with patch("homeassistant.helpers.device_registry.async_get") as mock_registry:
+        gateway_handler._ensure_cen_device(25, "not_an_int")
+        mock_registry.return_value.async_get_or_create.assert_called_once()
+    assert (25, "not_an_int") in gateway_handler._cen_devices
 
     # CEN device when device_registry throws exception (triggers debug log branch)
     with patch("homeassistant.helpers.device_registry.async_get", side_effect=RuntimeError("dr_error")):
-        gateway_handler.config_entry = MagicMock()
-        gateway_handler.config_entry.entry_id = "valid_entry_id"
         gateway_handler._ensure_cen_device(25, 99)
+    assert (25, 99) not in gateway_handler._cen_devices
 
 
 async def test_gateway_listening_loop_unhandled_event_status(gateway_handler):
