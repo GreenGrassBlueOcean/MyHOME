@@ -63,9 +63,10 @@ from .const import (
     IDENTIFICATION_UNKNOWN,
     IDENTIFICATION_WHO13,
     LOGGER,
+    WHO13_AMBIGUOUS_DEVICE_TYPES,
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
-    gateway_model_family,
+    is_who13_code_compatible,
 )
 from .repairs import (
     async_create_identity_corrected_issue,
@@ -712,13 +713,14 @@ class MyHOMEGatewayHandler:
             self._sync_device_registry_model(configured)
             return
 
-        same_family = gateway_model_family(who13_model) == gateway_model_family(configured)
+        is_ambiguous = raw_code in WHO13_AMBIGUOUS_DEVICE_TYPES
+        is_compatible = is_who13_code_compatible(raw_code, configured)
 
-        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) or (source == IDENTIFICATION_MANUAL and not official):
-            # The announced (or serial-fixed) model wins outright; a manual model is only
-            # questioned, not overruled, by a code we merely observed in the field.
+        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) or (source == IDENTIFICATION_MANUAL and (not official or is_compatible)):
+            # The announced (or serial-fixed) model wins outright; a manual model is kept
+            # if compatible with the reply or only questioned by observed field evidence.
             conflict = None
-            if not same_family:
+            if not is_compatible:
                 basis = "the OpenWebNet specification" if official else "field evidence"
                 conflict = (
                     f"configured as {configured} ({source}) but WHO=13 device type {raw_code} "
@@ -729,7 +731,14 @@ class MyHOMEGatewayHandler:
             self._sync_device_registry_model(configured)
             return
 
-        if source == IDENTIFICATION_MANUAL and same_family:
+        if is_ambiguous:
+            # An ambiguous code (e.g. 200 seen on both F454 and MyHOMEServer1) cannot
+            # uniquely label an unconfigured gateway.
+            LOGGER.info(
+                "%s WHO=13 reports device type %s (seen on multiple modern gateways: %s); "
+                "keeping model `%s` without auto-labelling.",
+                self.log_id, raw_code, who13_model, configured,
+            )
             self._set_conflict(None, entry_id)
             self._sync_device_registry_model(configured)
             return
