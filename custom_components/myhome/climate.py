@@ -122,6 +122,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             )
 
             is_central = cfg.get(CONF_CENTRAL, clean_where in ("0", "01") or where in ("#0", "#0#1"))
+            is_standalone = cfg.get(CONF_STANDALONE, not is_central)
             _customs = hass.data.get(DOMAIN, {}).get("customizations", {})
             _custom_entry = _customs.get(entry.entity_id, {})
             _entry_name = getattr(entry, "name", None)
@@ -145,7 +146,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 heating=cfg.get(CONF_HEATING_SUPPORT, True),
                 cooling=cfg.get(CONF_COOLING_SUPPORT, True),
                 fan=cfg.get(CONF_FAN_SUPPORT, False),
-                standalone=cfg.get(CONF_STANDALONE, not is_central),
+                standalone=is_standalone,
                 central=is_central,
                 manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
                 model=cfg.get(CONF_DEVICE_MODEL, default_model),
@@ -180,6 +181,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         seen_configured_where.add(clean_unique_id)
 
         is_central = cfg.get(CONF_CENTRAL, clean_where in ("0", "01") or where in ("#0", "#0#1"))
+        is_standalone = cfg.get(CONF_STANDALONE, not is_central)
         default_name = f"Central Unit {default_suffix}" if is_central else f"Climate Zone {default_suffix}"
         default_model = "Central Unit (3550)" if where == "#0" else ("Central Unit (4695)" if where == "#0#1" else "Heating Zone")
         _climate = MyHOMEClimate(
@@ -192,7 +194,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             heating=cfg.get(CONF_HEATING_SUPPORT, True),
             cooling=cfg.get(CONF_COOLING_SUPPORT, True),
             fan=cfg.get(CONF_FAN_SUPPORT, False),
-            standalone=cfg.get(CONF_STANDALONE, not is_central),
+            standalone=is_standalone,
             central=is_central,
             manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
             model=cfg.get(CONF_DEVICE_MODEL, default_model),
@@ -235,7 +237,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 calling_zones.append(str(int(what_param[0])))
             except (ValueError, TypeError):
                 pass
-        if where_param and where_param[0] != "4":
+        if where_param and where_param[0] != "4" and str(raw_where) in ("0", ""):
             try:
                 calling_zones.append(str(int(where_param[0])))
             except (ValueError, TypeError):
@@ -278,6 +280,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     or {}
                 )
                 is_central = clean_where in ("0", "01") or where in ("#0", "#0#1")
+                is_standalone = cfg.get(CONF_STANDALONE, not is_central)
                 _customs = hass.data.get(DOMAIN, {}).get("customizations", {})
                 _predicted_id = f"climate.climate_zone_{default_suffix.lower().replace(' ', '_')}"
                 _custom_entry = _customs.get(_predicted_id, {})
@@ -297,7 +300,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     heating=cfg.get(CONF_HEATING_SUPPORT, True),
                     cooling=cfg.get(CONF_COOLING_SUPPORT, True),
                     fan=cfg.get(CONF_FAN_SUPPORT, False),
-                    standalone=cfg.get(CONF_STANDALONE, not is_central),
+                    standalone=is_standalone,
                     central=is_central,
                     manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
                     model=cfg.get(CONF_DEVICE_MODEL, default_model),
@@ -426,11 +429,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_hvac_modes.append(HVACMode.COOL)
 
         # Fan mode support (fancoil 3-speed + auto)
-        self._fan = fan
-        if self._fan:
-            self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
-            self._attr_fan_modes = ["auto", "low", "medium", "high"]
-            self._attr_fan_mode = "auto"
+        self._fan = False
+        self._attr_fan_mode = None
+        self._attr_fan_modes = None
+        if fan:
+            self._enable_fan_mode()
 
         self._attr_current_temperature = None
         self._attr_current_humidity = None
@@ -440,6 +443,15 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
         self._attr_hvac_mode = None
         self._attr_hvac_action = None
+
+    def _enable_fan_mode(self) -> None:
+        """Dynamically enable fan mode support if not already enabled."""
+        if not self._fan:
+            self._fan = True
+            self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
+            self._attr_fan_modes = ["auto", "low", "medium", "high", "off"]
+            if self._attr_fan_mode is None:
+                self._attr_fan_mode = "auto"
 
     @property
     def extra_state_attributes(self):
@@ -529,6 +541,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             "low": 1,
             "medium": 2,
             "high": 3,
+            "off": 4,
         }
         speed_code = fan_mode_map.get(str(fan_mode).lower())
         if speed_code is not None:
@@ -794,12 +807,35 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._gateway_handler.log_id,
                 message.human_readable_log,
             )
-            if message.is_active():
+            # Actuator status (Dimension 20) with values >= 5 reports fancoil fan status in OWNd.
+            is_fan = isinstance(getattr(message, "fan_speed", None), int) or isinstance(
+                getattr(message, "fan_on", None), bool
+            )
+            if is_fan:
+                self._enable_fan_mode()
+                speed = getattr(message, "fan_speed", None)
+                if speed == 0:
+                    self._attr_fan_mode = "auto"
+                elif speed == 1:
+                    self._attr_fan_mode = "low"
+                elif speed == 2:
+                    self._attr_fan_mode = "medium"
+                elif speed == 3:
+                    self._attr_fan_mode = "high"
+                elif getattr(message, "fan_on", None) is False or speed == 4:
+                    self._attr_fan_mode = "off"
+                elif getattr(message, "fan_on", None) is True:
+                    self._attr_fan_mode = "auto"
+            elif message.is_active():
                 if self._heating and self._cooling:
                     if message.is_heating():
                         self._attr_hvac_action = HVACAction.HEATING
                     elif message.is_cooling():
                         self._attr_hvac_action = HVACAction.COOLING
+                    elif self._attr_hvac_mode == HVACMode.COOL:
+                        self._attr_hvac_action = HVACAction.COOLING
+                    elif self._attr_hvac_mode == HVACMode.HEAT:
+                        self._attr_hvac_action = HVACAction.HEATING
                 elif self._heating:
                     self._attr_hvac_action = HVACAction.HEATING
                 elif self._cooling:
@@ -816,6 +852,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._gateway_handler.log_id,
                 message.human_readable_log,
             )
+            self._enable_fan_mode()
             speed = getattr(message, "fan_speed", None)
             if speed == 0:
                 self._attr_fan_mode = "auto"
@@ -825,5 +862,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_fan_mode = "medium"
             elif speed == 3:
                 self._attr_fan_mode = "high"
+            elif getattr(message, "fan_on", None) is False or speed == 4:
+                self._attr_fan_mode = "off"
+            elif getattr(message, "fan_on", None) is True:
+                self._attr_fan_mode = "auto"
 
         self._publish_state()
