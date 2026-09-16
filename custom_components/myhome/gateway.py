@@ -42,7 +42,6 @@ from OWNd.profiles import get_gateway_profile
 
 from .bus_monitor import BusMonitor
 from .const import (
-    CONF_BROADCAST_RESYNC,
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
     CONF_LONG_PRESS,
@@ -127,7 +126,13 @@ class MyHOMEGatewayHandler:
     # Device registry id of the gateway device; set once the entry's device exists.
     device_registry_id: str | None = None
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, generate_events: bool = False) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        generate_events: bool = False,
+        broadcast_resync: bool = True,
+    ) -> None:
         build_info = {
             "address": config_entry.data.get(CONF_HOST),
             "port": config_entry.data.get(CONF_PORT, 20000),
@@ -145,7 +150,6 @@ class MyHOMEGatewayHandler:
         }
         self.hass = hass
         self.config_entry = config_entry
-        self.options = self.config_entry.options if self.config_entry else {}
         self.generate_events = generate_events
         self.gateway = OWNGateway(build_info)
         self._terminate_listener = False
@@ -173,9 +177,9 @@ class MyHOMEGatewayHandler:
             "firmware": None, "kernel": None, "distribution": None,
         }
         self._identity_conflict: str | None = None
-        self.broadcast_resync = self.options.get(CONF_BROADCAST_RESYNC, True)
+        self.broadcast_resync = broadcast_resync
         self._last_point_frame: float = 0.0
-        self._resync_timers = {}
+        self._resync_timers: dict[str, CALLBACK_TYPE] = {}
 
     def _ensure_cen_device(self, who: int, object_id: int | str) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
@@ -476,7 +480,6 @@ class MyHOMEGatewayHandler:
         ):
             if not message.is_translation:
                 if isinstance(message, OWNLightingEvent) and not getattr(message, "is_group", False) and not getattr(message, "is_area", False) and not getattr(message, "is_general", False):
-                    import time
                     self._last_point_frame = time.monotonic()
 
                 if isinstance(message, OWNLightingEvent):
@@ -1116,7 +1119,7 @@ class MyHOMEGatewayHandler:
                 _, key = parse_unique_id(entry.unique_id, self.gateway.mac)
                 if not key:
                     continue
-                address = Address(key)
+                address = Address.from_device_id(key)
                 area = area_of_where(address.where)
                 if area:
                     areas.add(area)
@@ -1130,7 +1133,11 @@ class MyHOMEGatewayHandler:
         if getattr(message, "is_group", False):
             targets.append(f"#{message.group}")
         elif getattr(message, "is_area", False):
-            targets.append(f"{message.area}")
+            # Use the frame's raw WHERE ("00"/"1".."9"/"100"), not `message.area`
+            # (an int, e.g. 0 for area "00" or 10 for area "100"): re-deriving the
+            # status request from the int would either emit the banned `*#1*0##`
+            # (general) or target the wrong point-to-point address (`*#1*10##`).
+            targets.append(str(message.where))
         elif getattr(message, "is_general", False):
             for a in self._known_light_areas():
                 targets.append(f"{a}")

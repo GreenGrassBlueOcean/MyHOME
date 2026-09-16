@@ -20,6 +20,30 @@ Each request is only sent when the gateway's OWNd **profile** advertises that WH
 
 ---
 
+## 🔁 Broadcast re-sync (group / area / general)
+
+A group (`*1*x*#G##`), area (`*1*x*A##`) or general (`*1*x*0##`) command comes from a
+physical wall switch or scene, not from Home Assistant, so no single actuator's own
+status reply is guaranteed to follow it. Some gateways (F461, F429G, F454) echo every
+member's individual status right after the broadcast; sweeping on every broadcast frame
+regardless would double that traffic for no benefit. Instead, the integration debounces:
+
+1. A group/area/general frame arms a 250 ms timer for that address.
+2. If any point-to-point light status arrives before the timer fires, the sweep is
+   cancelled - the gateway is already telling you the members' real state.
+3. Otherwise, one status request is sent:
+   - **Group** `#G`: `*#1*#G##` (the group's own status).
+   - **Area** `A`: `*#1*A##`, using the frame's own `WHERE` (`"00"`, `"1"`.."9", `"100"`)
+     - never a value re-derived from an integer, which would risk emitting the banned
+     `*#1*0##`.
+   - **General**: one `*#1*A##` per area that has at least one known light (from the
+     entity registry), never `*#1*0##`.
+
+Disable this with **Sweep group/area/general light addresses for status** in the
+Options Flow if your gateway lags on repeated status requests.
+
+---
+
 ## 🧱 Every platform follows the same life cycle
 
 Every entity platform shares one setup skeleton (`custom_components/myhome/discovery.py`). For each gateway a platform runs, in order:
