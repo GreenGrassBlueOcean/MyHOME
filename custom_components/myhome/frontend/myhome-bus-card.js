@@ -354,6 +354,20 @@ class MyHomeBusCard extends HTMLElement {
     return `WHO=${strWho}`;
   }
 
+  _formatFrameTime(frame) {
+    // Frames are stamped in UTC by the backend; render them in the browser's
+    // local time zone (HH:MM:SS.mmm) so they line up with the HA logbook.
+    let date = null;
+    if (typeof frame.timestamp === "number" && frame.timestamp > 0) {
+      date = new Date(frame.timestamp * 1000);
+    } else if (frame.iso_time) {
+      date = new Date(frame.iso_time);
+    }
+    if (!date || Number.isNaN(date.getTime())) return "";
+    const pad = (n, w = 2) => String(n).padStart(w, "0");
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+  }
+
   _getWhoClass(who) {
     if (who == null) return "who-default";
     const entry = WHO_CATALOG[String(who).trim()];
@@ -807,7 +821,6 @@ class MyHomeBusCard extends HTMLElement {
     const gw = this._gatewayInfo || {};
     const integrationVersion = gw.integration_version || "2.0.0b8";
     const owndVersion = gw.ownd_version || "Unknown";
-    const userAgent = (typeof navigator !== "undefined" && navigator.userAgent) ? navigator.userAgent : "Unknown";
     const timestamp = new Date().toISOString();
 
     const model = gw.model || "Unknown";
@@ -817,11 +830,13 @@ class MyHomeBusCard extends HTMLElement {
       gw.mac_prefix ||
       (this._config && this._config.mac ? this._config.mac.substring(0, 8) : "Unknown");
 
+    // The bundle is meant to be pasted into a public issue: name the transport,
+    // never the address (LAN IP / port, serial device path) or the browser.
     let conn = "Unknown";
     if (gw.serial_port) {
-      conn = `USB / Serial (${gw.serial_port})`;
+      conn = "USB / Serial";
     } else if (gw.host) {
-      conn = `Ethernet TCP (${gw.host}:${gw.port || 20000})`;
+      conn = "Ethernet TCP";
     }
 
     const queuePacing = gw.queue_pacing != null ? `${gw.queue_pacing}s` : "0.0s";
@@ -842,12 +857,7 @@ class MyHomeBusCard extends HTMLElement {
     const filterDesc = activeFilter.length > 0 ? activeFilter.join(", ") : "None (All frames)";
 
     const frameLines = this._frames.map((f) => {
-      let timeStr = "";
-      if (f.iso_time && f.iso_time.includes("T")) {
-        timeStr = f.iso_time.split("T")[1].substring(0, 12);
-      } else if (f.timestamp) {
-        timeStr = new Date(f.timestamp * 1000).toISOString().split("T")[1].substring(0, 12);
-      }
+      const timeStr = this._formatFrameTime(f);
       const dir = (f.direction || "rx").toUpperCase();
       return `[${timeStr}] [${dir}] ${f.raw || ""}`;
     });
@@ -863,7 +873,6 @@ class MyHomeBusCard extends HTMLElement {
 - **Home Assistant Version:** ${haVersion}
 - **Integration Version:** ${integrationVersion}
 - **OWNd Protocol Engine:** ${owndVersion}
-- **Browser / User Agent:** ${userAgent}
 - **Timestamp:** ${timestamp}
 
 **Active Gateway Configuration:**
@@ -979,7 +988,6 @@ ${framesText}
         integration_version: integrationVersion,
         ownd_version: owndVersion,
         exported_at: timestampIso,
-        user_agent: navigator.userAgent,
       },
       gateway: {
         model: (this._gatewayInfo && this._gatewayInfo.model) || "Unknown",
@@ -989,6 +997,9 @@ ${framesText}
         connection_type: (this._gatewayInfo && this._gatewayInfo.connection_type) || "tcp",
         queue_pacing: (this._gatewayInfo && this._gatewayInfo.queue_pacing) || "standard",
         is_connected: (this._gatewayInfo && this._gatewayInfo.is_connected) !== false,
+        // How the model label was established (ssdp / manual / serial / who13) and the
+        // WHO=13 evidence behind it - so a trace never hides a mislabelled gateway.
+        identification: (this._gatewayInfo && this._gatewayInfo.identification) || null,
       },
       telemetry: {
         total_rx: this._stats.total_rx,
@@ -999,12 +1010,15 @@ ${framesText}
       },
       frames: this._frames.map((f) => ({
         timestamp: f.timestamp,
-        direction: f.dir,
+        iso_time: f.iso_time || null,
+        direction: f.direction || null,
         raw: f.raw,
         who: f.who,
         what: f.what,
         where: f.where,
-        description: f.desc || "",
+        dimension: f.dimension != null ? f.dimension : null,
+        is_ack: !!f.is_ack,
+        is_nack: !!f.is_nack,
       })),
     };
 
@@ -1176,9 +1190,7 @@ ${framesText}
     const div = document.createElement("div");
     div.className = "frame-line";
 
-    const timeStr = frame.iso_time && frame.iso_time.includes("T")
-      ? frame.iso_time.split("T")[1].substring(0, 12)
-      : (frame.timestamp ? new Date(frame.timestamp * 1000).toISOString().split("T")[1].substring(0, 12) : "");
+    const timeStr = this._formatFrameTime(frame);
     const dirClass = frame.direction === "rx" ? "dir-rx" : "dir-tx";
     const dirLabel = frame.direction ? frame.direction.toUpperCase() : "RX";
     const whoClass = this._getWhoClass(frame.who);
