@@ -37,3 +37,17 @@
   mcp_notes: "Gateway Management: Set gateway internal datetime to 2026-09-11 17:33:54 (issue #247 reporter plant)"
   roundtrip: true
 
+- id: gateway.resp.model.device_type.200
+  frame: "*#13**15*200##"
+  direction: dimension_response
+  who: 13
+  what: null
+  where: ""
+  dimension: 15
+  dimension_values: ["200"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Gateway Management: Gateway reports device type code 200 (F454 / MyHomeServer1, issue #370)"
+  roundtrip: true
+
+
