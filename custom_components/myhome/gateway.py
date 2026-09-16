@@ -295,6 +295,17 @@ class MyHOMEGatewayHandler:
         return self.gateway.profile
 
     @property
+    def command_session_idle_timeout(self) -> float:
+        """Idle timeout before releasing the command session socket.
+
+        Uses the gateway profile's custom timeout if configured; otherwise falls
+        back to COMMAND_SESSION_IDLE_TIMEOUT.
+        """
+        profile = getattr(self.gateway, "profile", None)
+        profile_timeout = getattr(profile, "command_session_idle_timeout", None) if profile else None
+        return float(profile_timeout) if profile_timeout is not None else COMMAND_SESSION_IDLE_TIMEOUT
+
+    @property
     def available(self) -> bool:
         """Return the grace-filtered gateway availability."""
         return self._available
@@ -857,10 +868,11 @@ class MyHOMEGatewayHandler:
                 return
 
             while not self._terminate_sender:
+                idle_timeout = self.command_session_idle_timeout
                 try:
                     task = await asyncio.wait_for(
                         self.send_buffer.get(),
-                        timeout=COMMAND_SESSION_IDLE_TIMEOUT,
+                        timeout=idle_timeout,
                     )
                 except TimeoutError:
                     # The gateway drops an idle command session on its own timeline
@@ -871,7 +883,7 @@ class MyHOMEGatewayHandler:
                         LOGGER.debug(
                             "%s Command session idle for %ss; closing socket to release gateway resource.",
                             self.log_id,
-                            COMMAND_SESSION_IDLE_TIMEOUT,
+                            idle_timeout,
                         )
                         await _command_session.close()
                     continue

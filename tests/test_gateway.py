@@ -845,6 +845,24 @@ async def test_issue_254_mh201_idle_disconnect_and_reconnection_e2e(gateway_hand
         await asyncio.wait_for(worker, timeout=1)
 
 
+def test_gateway_command_session_idle_timeout_property_and_profile_override(gateway_handler):
+    """Test that command_session_idle_timeout defaults to COMMAND_SESSION_IDLE_TIMEOUT
+    or adopts profile-specified value if present on the gateway profile."""
+    import custom_components.myhome.gateway as gw_module
+
+    # 1. Default without profile override returns COMMAND_SESSION_IDLE_TIMEOUT
+    assert gateway_handler.command_session_idle_timeout == gw_module.COMMAND_SESSION_IDLE_TIMEOUT
+
+    # 2. Profile with explicit command_session_idle_timeout overrides the default
+    gateway_handler.gateway.profile = MagicMock()
+    gateway_handler.gateway.profile.command_session_idle_timeout = 42.0
+    assert gateway_handler.command_session_idle_timeout == 42.0
+
+    # 3. Profile without attribute falls back to default
+    gateway_handler.gateway.profile = MagicMock(spec=[])
+    assert gateway_handler.command_session_idle_timeout == gw_module.COMMAND_SESSION_IDLE_TIMEOUT
+
+
 @pytest.mark.asyncio
 async def test_sending_loop_collected_responses_and_pacing(gateway_handler):
     with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
