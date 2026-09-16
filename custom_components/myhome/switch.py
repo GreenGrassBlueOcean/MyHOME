@@ -29,7 +29,7 @@ from .const import (
     build_timed_turn_on_command,
 )
 from .data import get_runtime_data
-from .discovery import DeviceContext, PlatformDiscovery
+from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -69,10 +69,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         # Duplicate unique ids like "{mac}-1-1-06" written by earlier versions
         return "-1-1-" in entry.unique_id
 
+    def known_keys(ctx: DeviceContext) -> list[str]:
+        # The light platform claims the bare WHERE of a routed switch for it
+        # (_ForeignAddresses) and publishes under that spelling too.
+        return [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where]
+
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="1", event_type=None, build=build, announce=True,
-        reject_registry_entry=corrupted,
+        reject_registry_entry=corrupted, known_keys=known_keys,
         yaml_device_id=lambda address: address.clean_key,
     ).start(listen=False)
 

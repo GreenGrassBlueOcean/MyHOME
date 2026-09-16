@@ -55,7 +55,7 @@ from .const import (
     LOGGER,
 )
 from .data import get_runtime_data
-from .discovery import Address, DeviceContext, PlatformDiscovery, config_for
+from .discovery import Address, DeviceContext, PlatformDiscovery, config_for, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -114,7 +114,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         return True
 
     def known_keys(ctx: DeviceContext) -> list[str]:
-        keys = [ctx.key, ctx.address.key, ctx.address.where, ctx.config_id or ""]
+        keys = [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where, ctx.config_id or ""]
         if not ctx.address.interface:
             keys.append(_zone_number(ctx.address.where))
         return [k for k in keys if k]
