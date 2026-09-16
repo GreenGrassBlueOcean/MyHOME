@@ -655,6 +655,21 @@ class MyHOMEGatewayHandler:
         dim = getattr(message, "dimension", getattr(message, "_dimension", None))
         dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
 
+        # ── Dimension 0: Date & Time ─────────────────────────────────────
+        if dim == 0 and dim_val:
+            from .repairs import (
+                async_create_unconfigured_timezone_issue,
+                async_delete_unconfigured_timezone_issue,
+            )
+
+            # Check if timezone is 999 (either literally or if our OWNd compatibility shim processed it)
+            if len(dim_val) > 3 and str(dim_val[3]) == "999":
+                if self.config_entry:
+                    async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
+            elif len(dim_val) > 3 and str(dim_val[3]) != "":
+                if self.config_entry:
+                    async_delete_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
+
         # ── Dimension 15: Device type (MODEL REQUEST) ────────────────────
         if dim == 15 and dim_val:
             self._handle_device_type(str(dim_val[0]))

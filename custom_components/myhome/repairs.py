@@ -17,9 +17,26 @@ _LOGGER = logging.getLogger(__name__)
 ISSUE_GATEWAY_AUTH = "gateway_authentication_failed"
 ISSUE_BUS_COLLISION = "bus_collision_storm"
 ISSUE_GATEWAY_IDENTITY = "gateway_identity_mismatch"
-
+ISSUE_UNCONFIGURED_TIMEZONE = "unconfigured_timezone"
 
 ISSUE_GATEWAY_IDENTITY_CORRECTED = "gateway_identity_corrected"
+
+
+def async_create_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str) -> None:
+    """Create a repair issue when the gateway reports an unconfigured timezone (999)."""
+    async_create_issue(
+        hass,
+        DOMAIN,
+        f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}",
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_UNCONFIGURED_TIMEZONE,
+    )
+
+
+def async_delete_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete the unconfigured timezone issue once the gateway returns a valid timezone."""
+    async_delete_issue(hass, DOMAIN, f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}")
 
 
 def async_create_identity_issue(
