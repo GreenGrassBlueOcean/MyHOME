@@ -142,7 +142,7 @@ async def async_setup_entry(
 
     discovery = PlatformDiscovery(
         hass, config_entry, async_add_entities,
-        platform=PLATFORM, who="16", event_type=OWNSoundEvent, build=build,
+        platform=Platform.MEDIA_PLAYER, who="16", event_type=OWNSoundEvent, build=build,
         address=_zone_address, pre_message=_route_pseudo_zones(runtime.router),
         key_suffix="#16",
     )
