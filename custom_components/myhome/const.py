@@ -49,6 +49,7 @@ CONF_UDN = "UDN"
 CONF_WORKER_COUNT = "command_worker_count"
 CONF_FILE_PATH = "config_file_path"
 CONF_GENERATE_EVENTS = "generate_events"
+CONF_BROADCAST_RESYNC = "broadcast_resync"
 CONF_PARENT_ID = "parent_id"
 CONF_WHO = "who"
 CONF_WHERE = "where"
@@ -120,6 +121,26 @@ SOFTWARE_TRANSITION_STEP_INTERVAL = 0.3   # target seconds between steps
 SOFTWARE_TRANSITION_MIN_STEPS = 2
 SOFTWARE_TRANSITION_MAX_STEPS = 25
 
+
+
+def area_of_where(where: str | int | None) -> str | None:
+    """Return the area status WHERE for a given Point-to-Point (APL) WHERE."""
+    if where is None:
+        return None
+    where_str = str(where).strip()
+    parts = where_str.split("#", 1)
+    base = parts[0]
+    if not is_apl_address(base):
+        return None
+    if len(base) == 2:
+        return base[0]
+    # Length is 4
+    a = base[:2]
+    if a == "00":
+        return "00"
+    if a == "10":
+        return "100"
+    return str(int(a))
 
 def is_apl_address(base: str) -> bool:
     """Check if base address is a valid OpenWebNet Point-to-Point (APL) address.
