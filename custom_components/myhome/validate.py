@@ -1,24 +1,26 @@
 """Validator for the MyHome configuration file."""
 import re
 
-from homeassistant.components.alarm_control_panel import DOMAIN as ALARM_CONTROL_PANEL
+from homeassistant.components.alarm_control_panel import (  # type: ignore[attr-defined]
+    DOMAIN as ALARM_CONTROL_PANEL,
+)
 from homeassistant.components.binary_sensor import (
     DOMAIN as BINARY_SENSOR,
 )
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
 )
-from homeassistant.components.button import DOMAIN as BUTTON
-from homeassistant.components.climate import DOMAIN as CLIMATE
+from homeassistant.components.button import DOMAIN as BUTTON  # type: ignore
+from homeassistant.components.climate import DOMAIN as CLIMATE  # type: ignore
 from homeassistant.components.cover import DOMAIN as COVER
-from homeassistant.components.light import DOMAIN as LIGHT
+from homeassistant.components.light import DOMAIN as LIGHT  # type: ignore
 from homeassistant.components.sensor import (
     DOMAIN as SENSOR,
 )
 from homeassistant.components.sensor import (
     SensorDeviceClass,
 )
-from homeassistant.components.switch import (
+from homeassistant.components.switch import (  # type: ignore
     DOMAIN as SWITCH,
 )
 from homeassistant.components.switch import (
@@ -71,71 +73,71 @@ def format_mac(address: str) -> str:
     mac = re.sub("[.:-]", "", address).upper()
     mac = "".join(mac.split())
     if len(mac) != 12 or not mac.isalnum() or re.search("[G-Z]", mac) is not None:
-        return None
+        return None  # type: ignore
     return ha_format_mac(mac)
 
 
 class MacAddress(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         v = format_mac(v)
         if v is None:
             raise Invalid("Invalid MAC address")
         return format_mac(v)
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "MacAddress(%s, msg=%r)" % ("String", self.msg)
 
 
 class General(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v == "0":
             return v
         else:
             raise Invalid(f"Invalid General WHERE {v}, it must be 0.")
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
 class Area(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v in ["00", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]:
             return v
         else:
             raise Invalid(f"Invalid Area WHERE {v}, it must be a string in [00, 1-9, 10].")
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
 class Group(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v.startswith("#") and v[1:].isdigit() and int(v[1:]) >= 1 and int(v[1:]) <= 255:
             return f"#{int(v[1:])}"
         else:
             raise Invalid(f"Invalid Group WHERE {v}, it must be a string like '#[1-255]'.")
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
 class PointToPoint(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v.isdigit():
             _length = len(v)
             if _length == 2 or _length == 4:
@@ -150,29 +152,29 @@ class PointToPoint(object):
         else:
             raise Invalid(f"Invalid WHERE {v}, it must be a string of 2 or 4 digits.")
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
 class SpecialWhere(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v.isdigit():
             return v
         else:
             raise Invalid(f"Invalid WHERE {v}, it must be a string of digits.")
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
 class BusInterface(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg=None):  # type: ignore
         self.msg = msg
 
-    def __call__(self, v):
+    def __call__(self, v):  # type: ignore
         if isinstance(v, str) and v.isdigit() and len(v) == 2:
             if int(v) > 15:
                 raise Invalid(f"Invalid Bus Interface number {v}, it must be between 00 and 15.")
@@ -180,14 +182,14 @@ class BusInterface(object):
             raise Invalid(f"Invalid Bus Interface number {v}, it must be a string of 2 digits.")
         return v
 
-    def __repr__(self):
+    def __repr__(self):  # type: ignore
         return "BusInterface(%s, msg=%r)" % ("String", self.msg)
 
 
 class MyHomeConfigSchema(Schema):
-    def __call__(self, data):
-        data = super().__call__(data)
-        _rekeyed_data = {}
+    def __call__(self, data):  # type: ignore
+        data = super().__call__(data)  # type: ignore
+        _rekeyed_data = {}  # type: ignore
         for gateway in data:
             gateway_mac = data[gateway].get(CONF_MAC) or format_mac(gateway) or gateway
             _rekeyed_data[gateway_mac] = {}
@@ -219,8 +221,8 @@ class MyHomeConfigSchema(Schema):
 
 
 class MyHomeDeviceSchema(Schema):
-    def __call__(self, data):
-        data = super().__call__(data)
+    def __call__(self, data):  # type: ignore
+        data = super().__call__(data)  # type: ignore
         _rekeyed_data = {}
 
         for device in data:
@@ -263,8 +265,8 @@ class MyHomeDeviceSchema(Schema):
 
 
 class MyHomeSensorSchema(Schema):
-    def __call__(self, data):
-        data = super().__call__(data)
+    def __call__(self, data):  # type: ignore
+        data = super().__call__(data)  # type: ignore
         _rekeyed_data = {}
 
         for device in data:
@@ -311,9 +313,9 @@ light_schema = MyHomeDeviceSchema(
         Required(str): {
             Optional(CONF_WHO, default="1"): "1",
             Required(CONF_WHERE): All(
-                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")
+                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")  # type: ignore
             ),
-            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),
+            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_ICON): str,
@@ -338,9 +340,9 @@ switch_schema = MyHomeDeviceSchema(
         Required(str): {
             Optional(CONF_WHO, default="1"): "1",
             Required(CONF_WHERE): All(
-                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")
+                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")  # type: ignore
             ),
-            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),
+            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_ICON): str,
@@ -368,9 +370,9 @@ cover_schema = MyHomeDeviceSchema(
         Required(str): {
             Optional(CONF_WHO, default="2"): "2",
             Required(CONF_WHERE): All(
-                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")
+                Coerce(str), Any(General(), Area(), Group(), PointToPoint(), msg="Invalid <WHERE>, expecting a valid General, Area, Group or Point-to-Point <WHERE>")  # type: ignore
             ),
-            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),
+            Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_ADVANCED_SHUTTER, default=False): Boolean(),
@@ -386,7 +388,7 @@ binary_sensor_schema = MyHomeDeviceSchema(
     {
         Required(str): {
             Optional(CONF_WHO, default="25"): In(["1", "9", "25"]),
-            Required(CONF_WHERE): All(Coerce(str), SpecialWhere()),
+            Required(CONF_WHERE): All(Coerce(str), SpecialWhere()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_INVERTED, default=False): Boolean(),
@@ -456,7 +458,7 @@ sensor_schema = MyHomeSensorSchema(
     {
         Required(str): {
             Optional(CONF_WHO): In(["1", "4", "18"]),
-            Required(CONF_WHERE): All(Coerce(str), SpecialWhere()),
+            Required(CONF_WHERE): All(Coerce(str), SpecialWhere()),  # type: ignore
             Required(CONF_NAME): str,
             Required(CONF_DEVICE_CLASS): In(
                 [
@@ -493,7 +495,7 @@ alarm_control_panel_schema = MyHomeDeviceSchema(
     {
         Required(str): {
             Optional(CONF_WHO, default="5"): "5",
-            Required(CONF_WHERE): All(Coerce(str), Any(General(), Area(), Group(), PointToPoint(), SpecialWhere())),
+            Required(CONF_WHERE): All(Coerce(str), Any(General(), Area(), Group(), PointToPoint(), SpecialWhere())),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
@@ -510,7 +512,7 @@ alarm_control_panel_schema = MyHomeDeviceSchema(
 # them in plain callables to force the subclass __call__ to run.
 gateway_schema = Schema(
     {
-        Optional(CONF_MAC): MacAddress(),
+        Optional(CONF_MAC): MacAddress(),  # type: ignore
         Optional(LIGHT): lambda v: light_schema(v),
         Optional(SWITCH): lambda v: switch_schema(v),
         Optional(COVER): lambda v: cover_schema(v),

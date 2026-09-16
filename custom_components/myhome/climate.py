@@ -1,11 +1,5 @@
-"""Support for MyHome heating."""
-from __future__ import annotations
-
 from typing import Any
 
-from homeassistant.components.climate import (
-    DOMAIN as PLATFORM,
-)
 from homeassistant.components.climate import (
     ClimateEntity,
 )
@@ -14,12 +8,15 @@ from homeassistant.components.climate.const import (
     HVACAction,
     HVACMode,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
+    Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
     CLIMATE_MODE_AUTO,
     CLIMATE_MODE_COOL,
@@ -59,10 +56,15 @@ from .discovery import Address, DeviceContext, PlatformDiscovery, config_for, de
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
+PLATFORM = Platform.CLIMATE
 PARALLEL_UPDATES = 0
 
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> bool:
     """Set up the heating zones of a gateway (WHO=4): registry, myhome.yaml, then bus discovery.
 
     A zone is WHERE 1-99 (the central unit is ``#0`` / ``#0#1``); WHERE >= 100
@@ -203,7 +205,7 @@ def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     return keys
 
 
-async def async_unload_entry(hass, config_entry):
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     runtime = get_runtime_data(config_entry)
     if runtime is None or PLATFORM not in runtime.platforms:
         return True
@@ -218,7 +220,7 @@ async def async_unload_entry(hass, config_entry):
 class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     def __init__(
         self,
-        hass,
+        hass: HomeAssistant | None,
         name: str,
         device_id: str,
         who: str,
@@ -232,7 +234,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         model: str,
         gateway: MyHOMEGatewayHandler,
         interface: str | None = None,
-    ):
+    ) -> None:
         super().__init__(
             hass=hass,
             name=name,
@@ -244,7 +246,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             model=model,
             gateway=gateway,
         )
-        self.hass = hass
+        if hass is not None:
+            self.hass = hass
 
         self._interface = interface
         self._full_where = (
@@ -275,21 +278,21 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_hvac_modes.append(HVACMode.COOL)
 
         # Fan mode support (fancoil 3-speed + auto)
-        self._fan = False
-        self._attr_fan_mode = None
-        self._attr_fan_modes = None
+        self._fan: bool = False
+        self._attr_fan_mode: str | None = None
+        self._attr_fan_modes: list[str] | None = None
         if fan:
             self._enable_fan_mode()
 
-        self._attr_current_temperature = None
-        self._attr_current_humidity = None
-        self._target_temperature = None
-        self._local_offset = 0
-        self._knob_pos = "UNKNOWN"
-        self._local_target_temperature = None
+        self._attr_current_temperature: float | None = None
+        self._attr_current_humidity: float | None = None
+        self._target_temperature: float | None = None
+        self._local_offset: float = 0
+        self._knob_pos: str = "UNKNOWN"
+        self._local_target_temperature: float | None = None
 
-        self._attr_hvac_mode = None
-        self._attr_hvac_action = None
+        self._attr_hvac_mode: HVACMode | None = None
+        self._attr_hvac_action: HVACAction | None = None
 
     def _enable_fan_mode(self) -> None:
         """Dynamically enable fan mode support if not already enabled."""
@@ -301,9 +304,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_fan_mode = "auto"
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return device specific attributes."""
-        attrs = {
+        attrs: dict[str, Any] = {
             "local_offset": self._local_offset,
             "local_target_temperature": self._local_target_temperature,
             "knob_pos": self._knob_pos,
@@ -314,7 +317,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             attrs["Int"] = self._interface
         return attrs
 
-    async def async_restore_last_state(self, last_state) -> None:
+    async def async_restore_last_state(self, last_state: State | None) -> None:
         """Restore climate state from HA storage."""
         if last_state is not None and last_state.state is not None:
             try:
@@ -339,7 +342,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         else:
             await self._gateway_handler.send_status_request(OWNHeatingCommand.status(self._full_where))
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         target_hass = self.hass or self._hass
         if target_hass is not None:
@@ -368,7 +371,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         if self.hass is not None:
             self.async_write_ha_state()
 
-    async def async_set_fan_mode(self, fan_mode: str):
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set new target fan mode."""
         fan_mode_map = {
             "auto": 0,
@@ -391,13 +394,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self.async_write_ha_state()
 
     @property
-    def target_temperature(self) -> float:
+    def target_temperature(self) -> float | None:
         if self._local_target_temperature is not None:
             return self._local_target_temperature
         else:
             return self._target_temperature
 
-    async def async_set_hvac_mode(self, hvac_mode):
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if self._central:
             mode_map = {
@@ -461,11 +464,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     )
                 )
 
-    async def async_set_temperature(self, **kwargs):
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
-        target_temperature = (
-            kwargs.get("temperature", self._local_target_temperature) - self._local_offset
-        )
+        target_temperature = float(
+            kwargs.get("temperature", self._local_target_temperature)  # type: ignore[arg-type]
+        ) - self._local_offset
         if self._central:
             mode = "heat" if self._attr_hvac_mode != HVACMode.COOL else "cool"
             await self._gateway_handler.send(
@@ -508,7 +511,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             )
 
     @callback
-    def handle_event(self, message: OWNHeatingEvent):
+    def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
             LOGGER.debug(
@@ -531,7 +534,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._target_temperature = message.set_temperature
-            self._local_target_temperature = self._target_temperature + self._local_offset
+            self._local_target_temperature = (
+                self._target_temperature + self._local_offset
+                if self._target_temperature is not None
+                else None
+            )
         elif message.message_type == MESSAGE_TYPE_LOCAL_OFFSET:
             LOGGER.debug(
                 "%s %s",
@@ -562,7 +569,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._local_target_temperature = message.local_set_temperature
-            self._target_temperature = self._local_target_temperature - self._local_offset
+            self._target_temperature = (
+                self._local_target_temperature - self._local_offset
+                if self._local_target_temperature is not None
+                else None
+            )
         elif message.message_type == MESSAGE_TYPE_MODE:
             if message.mode == CLIMATE_MODE_AUTO and HVACMode.AUTO in self._attr_hvac_modes:
                 LOGGER.debug(
@@ -642,7 +653,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
             self._target_temperature = message.set_temperature
-            self._local_target_temperature = self._target_temperature + self._local_offset
+            self._local_target_temperature = (
+                self._target_temperature + self._local_offset
+                if self._target_temperature is not None
+                else None
+            )
             if self._central and self.hass is not None and self._attr_hvac_mode is not None:
                 async_dispatcher_send(
                     self.hass,
