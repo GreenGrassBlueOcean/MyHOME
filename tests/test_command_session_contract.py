@@ -105,3 +105,39 @@ async def test_worker_call_binds_to_ownd_send_signature():
     session.send.assert_awaited_once()
     kwargs = session.send.await_args.kwargs
     assert set(kwargs) <= {"message", "is_status_request"}
+
+
+@pytest.mark.asyncio
+async def test_worker_delivers_golden_mh200_device_type_request():
+    """Golden sample: worker -> real OWNCommandSession -> TCP -> mock gateway responding with MH200.
+
+    Verifies that a status request (*#13**15##) is dispatched with is_status_request=True,
+    arrives at the gateway, and the gateway's golden response (*#13**15*4##) is collected.
+    """
+    harness = MockGatewayHarness()
+
+    def _handle_device_type(msg: str, writer) -> str | None:
+        if msg == "*99*0##":
+            return "*#*1##"
+        if msg == "*#13**15##":
+            return "*#13**15*4##*#*1##"
+        return None
+
+    harness.set_custom_handler(_handle_device_type)
+    port = await harness.start()
+    handler = _handler(port)
+    handler._event_session_ready.set()
+    worker = asyncio.create_task(handler.sending_loop(0))
+    try:
+        from OWNd.message import OWNMessage
+
+        written = await handler.send_status_request(OWNMessage.parse("*#13**15##"))
+        await asyncio.wait_for(asyncio.shield(written), timeout=5)
+    finally:
+        await handler.send_buffer.put(None)
+        await asyncio.wait_for(worker, timeout=5)
+        await harness.stop()
+
+    assert "*#13**15##" in harness.received_messages
+    assert written.done() and not written.cancelled()
+    assert isinstance(written.result(), float)
