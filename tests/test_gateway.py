@@ -1256,7 +1256,7 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
 
     with patch("custom_components.myhome.repairs.async_create_unconfigured_timezone_issue") as create_issue, \
          patch("custom_components.myhome.repairs.async_delete_unconfigured_timezone_issue") as delete_issue:
-        
+
         # 1. 999 sentinel triggers issue
         msg = OWNEvent.parse("*#13**0*23*52*03*999##")
         gateway_handler._handle_gateway_diagnostics(msg)
