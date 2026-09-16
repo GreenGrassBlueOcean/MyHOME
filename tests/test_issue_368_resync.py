@@ -16,6 +16,8 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.myhome.const import (
     CONF_BROADCAST_RESYNC,
     DOMAIN,
+    RESYNC_DEBOUNCE_S,
+    RESYNC_LEADING_WINDOW_S,
     area_of_where,
 )
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
@@ -29,8 +31,15 @@ def test_area_of_where():
     assert area_of_where("0115") == "1"
     assert area_of_where("0015") == "00"
     assert area_of_where("1003") == "100"
+    assert area_of_where("12#4#01") == "1"
     assert area_of_where("invalid") is None
     assert area_of_where(None) is None
+
+
+def test_resync_timing_constants():
+    """Ensure timing constants are exposed."""
+    assert RESYNC_DEBOUNCE_S == 0.5
+    assert RESYNC_LEADING_WINDOW_S == 1.5
 
 
 def _entry(hass: HomeAssistant, *, broadcast_resync: bool = True) -> MockConfigEntry:
@@ -86,16 +95,93 @@ async def test_resync_group(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
 
 @pytest.mark.asyncio
 async def test_resync_group_with_echo(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
-    """A point-to-point frame inside the debounce window cancels the sweep."""
+    """Multiple point-to-point member echoes inside the window cancel a group sweep."""
     msg_grp = OWNMessage.parse("*1*1*#6##")
     await handler._process_message(msg_grp)
 
-    msg_pt = OWNMessage.parse("*1*1*11##")
-    await handler._process_message(msg_pt)
+    # First echo
+    await handler._process_message(OWNMessage.parse("*1*1*11##"))
+    # Second echo (reaches the threshold of >= 2 member echoes)
+    await handler._process_message(OWNMessage.parse("*1*1*12##"))
 
     await _advance(hass)
 
     handler.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_group_single_ptp_does_not_cancel(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """A single isolated PTP frame does not cancel a group sweep."""
+    msg_grp = OWNMessage.parse("*1*1*#6##")
+    await handler._process_message(msg_grp)
+
+    # Only one echo: below the threshold of >= 2
+    await handler._process_message(OWNMessage.parse("*1*1*11##"))
+
+    await _advance(hass)
+
+    handler.send_status_request.assert_called_once()
+    arg = handler.send_status_request.call_args[0][0]
+    assert str(arg) == "*#1*#6##"
+
+
+@pytest.mark.asyncio
+async def test_resync_ptp_echo_only_cancels_matching_area(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """A PTP echo in area 1 cancels area 1 only; area 00 still sweeps."""
+    msg_gen = OWNMessage.parse("*1*1*0##")
+
+    with patch.object(handler, "_known_light_areas", return_value=["1", "00"]):
+        await handler._process_message(msg_gen)
+
+        # Area 1 echo arrives
+        await handler._process_message(OWNMessage.parse("*1*1*12##"))
+        await _advance(hass)
+
+    handler.send_status_request.assert_called_once()
+    arg = handler.send_status_request.call_args[0][0]
+    assert str(arg) == "*#1*00##"
+
+
+@pytest.mark.asyncio
+async def test_resync_group_leading_echoes_skip_sweep(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """Leading member echoes before the group frame (e.g. MyHomeServer1) skip the sweep."""
+    # Member echoes arrive first (~0.9s before group frame on MyHomeServer1)
+    await handler._process_message(OWNMessage.parse("*1*1*11##"))
+    await handler._process_message(OWNMessage.parse("*1*1*12##"))
+
+    # Group frame arrives after members have already reported
+    await handler._process_message(OWNMessage.parse("*1*1*#6##"))
+    await _advance(hass)
+
+    handler.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_area_leading_echoes_skip_sweep(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """A leading member echo before the area frame skips the sweep for that area."""
+    # Area 3 member echoes before area 3 broadcast
+    await handler._process_message(OWNMessage.parse("*1*1*32##"))
+    await handler._process_message(OWNMessage.parse("*1*0*3##"))
+    await _advance(hass)
+
+    handler.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_general_leading_echo_skips_matching_area(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """A leading echo in area 1 causes general sweep to skip area 1 while still sweeping area 00."""
+    # Area 1 echo arrives before general command
+    await handler._process_message(OWNMessage.parse("*1*1*12##"))
+
+    msg_gen = OWNMessage.parse("*1*1*0##")
+    with patch.object(handler, "_known_light_areas", return_value=["1", "00"]):
+        await handler._process_message(msg_gen)
+        await _advance(hass)
+
+    # Only area 00 is swept; area 1 had leading echo
+    handler.send_status_request.assert_called_once()
+    arg = handler.send_status_request.call_args[0][0]
+    assert str(arg) == "*#1*00##"
 
 
 @pytest.mark.asyncio
@@ -163,6 +249,14 @@ async def test_known_light_areas_from_registry(hass: HomeAssistant, entry: MockC
         registry.async_get_or_create(
             "light", DOMAIN, f"{MAC}-1-{where}", config_entry=entry,
         )
+    # Routed address: Address.from_device_id("12#4#01") extracts where="12", yielding area "1".
+    registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-12#4#01", config_entry=entry,
+    )
+    # WHO=1 switch/relay actuator (e.g. F411U2 outlet) also contributes its area.
+    registry.async_get_or_create(
+        "switch", DOMAIN, f"{MAC}-1-23", config_entry=entry,
+    )
     # A sensor sharing WHO=1 addressing must not be treated as a light area.
     registry.async_get_or_create(
         "binary_sensor", DOMAIN, f"{MAC}-1-14", config_entry=entry,
@@ -172,7 +266,7 @@ async def test_known_light_areas_from_registry(hass: HomeAssistant, entry: MockC
         "light", DOMAIN, f"{MAC}-", config_entry=entry,
     )
 
-    assert handler._known_light_areas() == ["00", "1", "100"]
+    assert handler._known_light_areas() == ["00", "1", "100", "2"]
 
 
 @pytest.mark.asyncio
@@ -210,6 +304,10 @@ async def test_close_listener_cancels_pending_resync(hass: HomeAssistant, handle
     handler.send_status_request.assert_not_called()
     assert not handler._resync_timers
 
+    # An in-flight _resync_broadcast task after listener teardown is a no-op
+    await handler._resync_broadcast("1")
+    handler.send_status_request.assert_not_called()
+
 
 def test_known_light_areas_without_valid_entry_id(hass: HomeAssistant):
     """A config entry without a usable entry_id yields no areas."""
@@ -222,6 +320,30 @@ def test_known_light_areas_without_valid_entry_id(hass: HomeAssistant):
     assert handler._known_light_areas() == []
 
 
+GOLDEN_MH200_BURST = [
+    "*1*0*11##",
+    "*2*0*11#4#02##",
+    "*1*0*12##",
+    "*1*0*21##",
+    "*1*0*31##",
+    "*1*0*29##",
+    "*1*0*32##",
+    "*1*0*41##",
+    "*1*0*51##",
+    "*1*0*42##",
+    "*1*0*52##",
+    "*1*0*61##",
+    "*1*0*71##",
+    "*1*1*81##",
+    "*1*0*82##",
+    "*1*0*83##",
+    "*1*10*62##",
+    "*#1001*74*11*111110111111111111110111##",
+    "*#13**15*4##",
+    "*2*0*15#4#02##",
+]
+
+
 @pytest.mark.asyncio
 async def test_resync_golden_mh200_sweep_burst(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
     """
@@ -229,30 +351,7 @@ async def test_resync_golden_mh200_sweep_burst(hass: HomeAssistant, handler: MyH
     (which can include interleaved WHO=2 automation events, WHO=13 gateway events,
     and WHO=1001 diagnostic events) is processed safely without triggering further resync loops.
     """
-    golden_frames = [
-        "*1*0*11##",
-        "*2*0*11#4#02##",
-        "*1*0*12##",
-        "*1*0*21##",
-        "*1*0*31##",
-        "*1*0*29##",
-        "*1*0*32##",
-        "*1*0*41##",
-        "*1*0*51##",
-        "*1*0*42##",
-        "*1*0*52##",
-        "*1*0*61##",
-        "*1*0*71##",
-        "*1*1*81##",
-        "*1*0*82##",
-        "*1*0*83##",
-        "*1*10*62##",
-        "*#1001*74*11*111110111111111111110111##",
-        "*#13**15*4##",
-        "*2*0*15#4#02##"
-    ]
-
-    for frame in golden_frames:
+    for frame in GOLDEN_MH200_BURST:
         msg = OWNMessage.parse(frame)
         if msg is not None:
             await handler._process_message(msg)
@@ -261,3 +360,34 @@ async def test_resync_golden_mh200_sweep_burst(hass: HomeAssistant, handler: MyH
 
     # Point-to-point status reports and interleaved events must NOT spawn broad sweeps.
     handler.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_cascade_replay_with_golden_burst(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """
+    Replay: A general lighting command schedules sweeps for areas 1 and 00.
+    The golden MH200 burst arrives during the debounce window.
+    Frames in the burst cancel area 1, while area 00 (silent in the burst) still sweeps.
+    """
+    msg_gen = OWNMessage.parse("*1*1*0##")
+
+    with patch.object(handler, "_known_light_areas", return_value=["1", "00"]):
+        await handler._process_message(msg_gen)
+        assert "1" in handler._resync_timers
+        assert "00" in handler._resync_timers
+
+        for frame in GOLDEN_MH200_BURST:
+            msg = OWNMessage.parse(frame)
+            if msg is not None:
+                await handler._process_message(msg)
+
+        # Area 1 had echoes in the burst (*1*0*11##, *1*0*12##), so its timer was popped.
+        assert "1" not in handler._resync_timers
+        # Area 00 had no echoes in the burst, so its timer remains armed.
+        assert "00" in handler._resync_timers
+
+        await _advance(hass)
+
+    handler.send_status_request.assert_called_once()
+    arg = handler.send_status_request.call_args[0][0]
+    assert str(arg) == "*#1*00##"

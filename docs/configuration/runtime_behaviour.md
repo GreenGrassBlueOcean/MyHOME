@@ -24,20 +24,28 @@ Each request is only sent when the gateway's OWNd **profile** advertises that WH
 
 A group (`*1*x*#G##`), area (`*1*x*A##`) or general (`*1*x*0##`) command comes from a
 physical wall switch or scene, not from Home Assistant, so no single actuator's own
-status reply is guaranteed to follow it. Some gateways (F461, F429G, F454) echo every
-member's individual status right after the broadcast; sweeping on every broadcast frame
-regardless would double that traffic for no benefit. Instead, the integration debounces:
+status reply is guaranteed to follow it. Depending on the gateway model and firmware,
+member status replies may arrive either *before* the broadcast frame (e.g. ~0.9 s prior on
+MyHomeServer1) or *after* it (e.g. trailing ~60–200 ms on F454 and other installations).
+Sweeping on every broadcast frame regardless would double that traffic for no benefit.
+Instead, the integration debounces across a bidirectional window:
 
-1. A group/area/general frame arms a 250 ms timer for that address.
-2. If any point-to-point light status arrives before the timer fires, the sweep is
-   cancelled - the gateway is already telling you the members' real state.
-3. Otherwise, one status request is sent:
+1. A group/area/general frame checks for **leading echoes** received in the preceding 1.5 s
+   (`RESYNC_LEADING_WINDOW_S`). If members already reported their status, no sweep is scheduled.
+2. Otherwise, a 0.5 s timer (`RESYNC_DEBOUNCE_S`) is armed for that target.
+3. If member point-to-point status frames arrive before the timer fires (**trailing echoes**),
+   the sweep is cancelled:
+   - For an **area**, only point-to-point echoes in that matching area cancel its timer;
+     unrelated areas stay armed.
+   - For a **group**, receiving multiple member echoes ($\ge 2$) in the window cancels its
+     timer, protecting against unrelated bus frames.
+4. Otherwise, one status request is sent:
    - **Group** `#G`: `*#1*#G##` (the group's own status).
    - **Area** `A`: `*#1*A##`, using the frame's own `WHERE` (`"00"`, `"1"`.."9", `"100"`)
      - never a value re-derived from an integer, which would risk emitting the banned
      `*#1*0##`.
-   - **General**: one `*#1*A##` per area that has at least one known light (from the
-     entity registry), never `*#1*0##`.
+   - **General**: one `*#1*A##` per area that has at least one known WHO=1 actuator
+     (`light` or `switch` in the entity registry), never `*#1*0##`.
 
 Disable this with **Sweep group/area/general light addresses for status** in the
 Options Flow if your gateway lags on repeated status requests.
