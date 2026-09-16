@@ -1,13 +1,10 @@
-from __future__ import annotations
-import typing
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 """Support for MyHome covers."""
+from __future__ import annotations
 
 import asyncio
 import collections
 import time
+import typing
 from datetime import timedelta
 from typing import Any
 
@@ -22,18 +19,20 @@ from homeassistant.components.cover import (
 from homeassistant.components.cover import (
     DOMAIN as PLATFORM,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_MAC,
     CONF_NAME,
     STATE_CLOSED,
     STATE_OPEN,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 from OWNd.message import (
     OWNAutomationCommand,

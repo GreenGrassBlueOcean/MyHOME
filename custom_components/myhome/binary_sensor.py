@@ -1,10 +1,7 @@
-from __future__ import annotations
-import typing
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 """Support for MyHome binary sensors (dry contacts and motion sensors)."""
+from __future__ import annotations
 
+import typing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -15,14 +12,16 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_MAC,
     CONF_NAME,
     STATE_ON,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
     MESSAGE_TYPE_MOTION,
     MESSAGE_TYPE_MOTION_TIMEOUT,

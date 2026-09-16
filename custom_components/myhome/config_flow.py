@@ -1,8 +1,8 @@
-import typing
 """Config flow to configure MyHome."""
 import asyncio
 import ipaddress
 import re
+import typing
 from typing import Dict, Optional
 
 import voluptuous as vol

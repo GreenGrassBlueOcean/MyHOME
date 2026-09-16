@@ -1,7 +1,9 @@
 """Validator for the MyHome configuration file."""
 import re
 
-from homeassistant.components.alarm_control_panel import DOMAIN as ALARM_CONTROL_PANEL  # type: ignore
+from homeassistant.components.alarm_control_panel import (  # type: ignore[attr-defined]
+    DOMAIN as ALARM_CONTROL_PANEL,
+)
 from homeassistant.components.binary_sensor import (
     DOMAIN as BINARY_SENSOR,
 )
