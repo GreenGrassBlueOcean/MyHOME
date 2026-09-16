@@ -220,3 +220,44 @@ def test_known_light_areas_without_valid_entry_id(hass: HomeAssistant):
         handler.gateway.mac = MAC
 
     assert handler._known_light_areas() == []
+
+
+@pytest.mark.asyncio
+async def test_resync_golden_mh200_sweep_burst(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """
+    Test that a real-world burst of responses from an MH200 during an area status sweep
+    (which can include interleaved WHO=2 automation events, WHO=13 gateway events,
+    and WHO=1001 diagnostic events) is processed safely without triggering further resync loops.
+    """
+    golden_frames = [
+        "*1*0*11##",
+        "*2*0*11#4#02##",
+        "*1*0*12##",
+        "*1*0*21##",
+        "*1*0*31##",
+        "*1*0*29##",
+        "*1*0*32##",
+        "*1*0*41##",
+        "*1*0*51##",
+        "*1*0*42##",
+        "*1*0*52##",
+        "*1*0*61##",
+        "*1*0*71##",
+        "*1*1*81##",
+        "*1*0*82##",
+        "*1*0*83##",
+        "*1*10*62##",
+        "*#1001*74*11*111110111111111111110111##",
+        "*#13**15*4##",
+        "*2*0*15#4#02##"
+    ]
+
+    for frame in golden_frames:
+        msg = OWNMessage.parse(frame)
+        if msg is not None:
+            await handler._process_message(msg)
+
+    await _advance(hass)
+
+    # Point-to-point status reports and interleaved events must NOT spawn broad sweeps.
+    handler.send_status_request.assert_not_called()
