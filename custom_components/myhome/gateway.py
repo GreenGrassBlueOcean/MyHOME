@@ -714,19 +714,25 @@ class MyHOMEGatewayHandler:
             return
 
         is_ambiguous = raw_code in WHO13_AMBIGUOUS_DEVICE_TYPES
-        is_compatible = is_who13_code_compatible(raw_code, configured)
+        compatibility = is_who13_code_compatible(raw_code, configured)
 
-        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) or (source == IDENTIFICATION_MANUAL and (not official or is_compatible)):
+        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) or (source == IDENTIFICATION_MANUAL and (not official or compatibility is not False)):
             # The announced (or serial-fixed) model wins outright; a manual model is kept
-            # if compatible with the reply or only questioned by observed field evidence.
+            # if compatible with the reply or only questioned by unverified field evidence.
             conflict = None
-            if not is_compatible:
+            if compatibility is False:
                 basis = "the OpenWebNet specification" if official else "field evidence"
                 conflict = (
                     f"configured as {configured} ({source}) but WHO=13 device type {raw_code} "
                     f"identifies {who13_model} per {basis}"
                 )
                 LOGGER.warning("%s Gateway identity mismatch: %s.", self.log_id, conflict)
+            elif compatibility is None:
+                LOGGER.info(
+                    "%s WHO=13 reports device type %s (%s per field evidence); "
+                    "compatibility with `%s` is unverified, keeping configured model.",
+                    self.log_id, raw_code, who13_model, configured,
+                )
             self._set_conflict(conflict, entry_id, who13_model=who13_model, raw_code=raw_code, source=source, official=bool(official))
             self._sync_device_registry_model(configured)
             return

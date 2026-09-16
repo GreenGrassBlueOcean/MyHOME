@@ -255,8 +255,15 @@ def gateway_model_family(model: str | None) -> str:
     return m.group(1) if m else name
 
 
-def is_who13_code_compatible(raw_code: str, model: str | None) -> bool:
-    """Check if a WHO=13 dimension 15 code is compatible with a gateway model."""
+def is_who13_code_compatible(raw_code: str, model: str | None) -> bool | None:
+    """Check if a WHO=13 dimension 15 code is compatible with a gateway model.
+
+    Returns:
+        True: Confirmed compatible (matches official spec or known empirical family).
+        False: Confirmed contradiction (contradicts official 2006 OpenWebNet spec).
+        None: Compatibility unknown (observed/empirical code on an unverified model,
+              or unknown code; cannot prove contradiction).
+    """
     if not model or not raw_code:
         return False
     family = gateway_model_family(model)
@@ -265,11 +272,15 @@ def is_who13_code_compatible(raw_code: str, model: str | None) -> bool:
         return family == gateway_model_family(official)
     allowed_families = WHO13_AMBIGUOUS_DEVICE_TYPES.get(raw_code)
     if allowed_families:
-        return family in allowed_families
+        if family in allowed_families:
+            return True
+        return None
     observed = WHO13_OBSERVED_DEVICE_TYPES.get(raw_code)
     if observed:
-        return family == gateway_model_family(observed)
-    return False
+        if family == gateway_model_family(observed):
+            return True
+        return None
+    return None
 
 
 

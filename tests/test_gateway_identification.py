@@ -85,16 +85,20 @@ def test_official_table_is_the_2006_document_verbatim():
 
 
 def test_is_who13_code_compatible():
-    assert is_who13_code_compatible("4", "MH200")
-    assert is_who13_code_compatible("4", "MH200N")
-    assert not is_who13_code_compatible("4", "F454")
-    assert is_who13_code_compatible("200", "F454")
-    assert is_who13_code_compatible("200", "MyHomeServer1")
-    assert not is_who13_code_compatible("200", "MH200")
-    assert not is_who13_code_compatible("200", "F452")
-    assert not is_who13_code_compatible("999", "F454")
-    assert not is_who13_code_compatible("", "F454")
-    assert not is_who13_code_compatible("200", None)
+    assert is_who13_code_compatible("4", "MH200") is True
+    assert is_who13_code_compatible("4", "MH200N") is True
+    assert is_who13_code_compatible("4", "F454") is False
+    assert is_who13_code_compatible("200", "F454") is True
+    assert is_who13_code_compatible("200", "MyHomeServer1") is True
+    assert is_who13_code_compatible("200", "MH200") is None
+    assert is_who13_code_compatible("200", "F452") is None
+    assert is_who13_code_compatible("999", "F454") is None
+    assert is_who13_code_compatible("", "F454") is False
+    assert is_who13_code_compatible("200", None) is False
+
+    with patch.dict(WHO13_OBSERVED_DEVICE_TYPES, {"300": "MH200"}, clear=False):
+        assert is_who13_code_compatible("300", "MH200") is True
+        assert is_who13_code_compatible("300", "F454") is None
 
 
 def test_official_table_matches_ownd_decoder():
@@ -236,21 +240,39 @@ def test_manual_model_contradicted_by_official_code_is_corrected(dev_reg, issues
     dev_reg.async_update_device.assert_called_once_with("dev_gw", model="F452")
 
 
-def test_manual_model_contradicted_by_observed_code_is_only_questioned(dev_reg, issues):
-    """An observed code contradicting a manual model (e.g. manual MH200, reports 200)."""
+def test_manual_model_with_unverified_observed_code_keeps_model_without_conflict(dev_reg, issues):
+    """An observed code whose compatibility is unverified (e.g. manual MH200, reports 200) keeps the model without conflict."""
     create, delete, corrected = issues
     h = _handler({"name": "MH200"}, title="MH200 Gateway")
     h.gateway.model_name = "MH200"
     dev_reg.async_get.return_value = MagicMock(model="MH200")
 
     _who13(h, "200")
-    assert h.gateway.model_name == "MH200"  # not overruled by field evidence alone
+    assert h.gateway.model_name == "MH200"  # not overruled by field evidence
     h.hass.config_entries.async_update_entry.assert_not_called()
     corrected.assert_not_called()
-    create.assert_called_once()
-    assert create.call_args.args[1:] == ("entry_ident", "MH200", "F454 / MyHomeServer1", "200", "manual", False)
+    create.assert_not_called()
+    assert h._identity_conflict is None
     ident = h.identification()
     assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1"
+    assert ident["conflict"] is None
+
+
+def test_ssdp_model_with_unverified_observed_code_keeps_model_without_conflict(dev_reg, issues):
+    """An observed code whose compatibility is unverified on an SSDP gateway keeps the model without conflict."""
+    create, delete, corrected = issues
+    h = _handler({"name": "MH202", "ssdp_location": "http://192.168.1.40:49153/desc.xml"})
+    h.gateway.model_name = "MH202"
+    dev_reg.async_get.return_value = MagicMock(model="MH202")
+
+    _who13(h, "200")
+    assert h.gateway.model_name == "MH202"
+    assert h._identity_conflict is None
+    create.assert_not_called()
+    corrected.assert_not_called()
+    ident = h.identification()
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+    assert ident["conflict"] is None
 
 
 def test_unknown_code_on_configured_gateway_is_recorded_not_applied(dev_reg, issues):
@@ -344,13 +366,17 @@ def test_stale_identity_issue_is_cleared_by_a_fresh_handler(dev_reg, issues):
     """PR #345 review: a reload creates a handler with no conflict in memory, but the
     previous instance's warning is still in the issue registry; a matching reply must remove it."""
     create, delete, corrected = issues
-    first = _handler()  # manual MH200
-    _who13(first, "200")  # observed-only MyHomeServer1 code: questioned, issue created
+    first = _handler({"name": "MH200", "ssdp_location": "http://192.168.1.40:49153/desc.xml"})
+    first.gateway.model_name = "MH200"
+    dev_reg.async_get.return_value = MagicMock(model="MH200")
+    _who13(first, "6")  # official F452 code contradicts announced MH200: issue created
     assert first._identity_conflict is not None
     create.assert_called_once()
     delete.assert_not_called()
 
-    second = _handler()  # the integration reloaded: same entry, new handler, no conflict in memory
+    second = _handler({"name": "MH200", "ssdp_location": "http://192.168.1.40:49153/desc.xml"})
+    second.gateway.model_name = "MH200"
+    dev_reg.async_get.return_value = MagicMock(model="MH200")
     assert second._identity_conflict is None
     _who13(second, "4")  # MH200 per the 2006 table: matches the configured model
     assert second._identity_conflict is None
