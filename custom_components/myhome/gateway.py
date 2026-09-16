@@ -902,10 +902,13 @@ class MyHOMEGatewayHandler:
                             _cancel_written(task)
                             continue
                     written_at = time.monotonic()
+                    # OWNd's send() decides the retry policy itself: a status
+                    # request may be retried after a transport reset, a written
+                    # command is never replayed. Keep this call to its public
+                    # signature - the test suite pins it against the real class.
                     collected = await _command_session.send(
                         message=task["message"],
                         is_status_request=task["is_status_request"],
-                        retry_after_lost_ack=True,
                     )
                     if collected is None:
                         _cancel_written(task)
