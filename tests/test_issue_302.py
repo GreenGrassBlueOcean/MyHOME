@@ -576,3 +576,49 @@ async def test_worker_terminates_when_the_gateway_refuses_the_reconnect(handler)
     assert refused.cancelled()
     assert session.send.await_count == 1
 
+
+# ── review of #379 (MH200 full run virtual stop) ─────────────────────────
+
+async def test_issue_379_mh200_golden_sample_full_run(cover, gateway, clock, fake_time, sleeps):
+    """Issue #379: Golden MH200 full-close sample.
+    The integration must NOT send an artificial *2*0*21## stop frame for target=0.
+    Instead, it waits the default travel time (10s), executes a virtual stop,
+    and lets the physical actuator hit its limit switch (finecorsa) later.
+    A trailing *2*0*21## stop frame from the MH200 at e.g. 14.2s must be safely ignored.
+    """
+    cover._attr_current_cover_position = 100
+    cover._start_position = 100
+    
+    await cover.async_set_cover_position(**{ATTR_POSITION: 0})
+    assert cover.is_closing is True
+    assert cover._stop_task is not None
+    
+    _, written = gateway.deliveries[0]
+    clock.now = 0.5
+    written.set_result(0.5)
+    await _yield()
+    
+    clock.now = 0.6
+    cover.handle_event(OWNEvent.parse("*2*2*21##"))  # MH200 Motor starts
+    
+    # Fast forward past the 10.0s run_duration (anchored at 0.6)
+    clock.now = 10.6
+    await _yield(10)
+    
+    # Virtual stop should have cleared the motion
+    assert cover.is_closing is False
+    assert cover.is_closed is True
+    assert cover.current_cover_position == 0
+    assert cover._move_start_time is None
+    
+    # Verify ONLY the down command was sent, no artificial STOP frame!
+    assert [f for f, _ in gateway.deliveries] == ["*2*2*21##"]
+    
+    # At 14.2s, the physical MH200 actuator hits its limit switch and relays a STOP frame
+    clock.now = 14.2
+    cover.handle_event(OWNEvent.parse("*2*0*21##"))
+    
+    # State remains securely closed without corruption
+    assert cover.is_closing is False
+    assert cover.is_closed is True
+    assert cover.current_cover_position == 0

@@ -294,6 +294,36 @@ class TestMyHOMECoverEntity:
             assert basic_cover.is_closing is False
             assert basic_cover.current_cover_position == 20
 
+        # Set to 0 (full close) - should virtual stop without sending *2*0*WHERE##
+        basic_cover._gateway_handler.send.reset_mock()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 0})
+            assert basic_cover.is_closing is True
+            assert basic_cover._stop_task is not None
+            basic_cover.handle_event(OWNEvent.parse("*2*2*21##"))
+            await basic_cover._stop_task
+            assert basic_cover.is_closing is False
+            assert basic_cover.is_closed is True
+            assert basic_cover.current_cover_position == 0
+            # *2*2*21## was sent (down), but NO *2*0*21## was sent (stop)
+            assert basic_cover._gateway_handler.send.call_count == 1
+            assert str(basic_cover._gateway_handler.send.call_args_list[0][0][0]) == "*2*2*21##"
+
+        # Set to 100 (full open) - should virtual stop without sending *2*0*WHERE##
+        basic_cover._gateway_handler.send.reset_mock()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+            assert basic_cover.is_opening is True
+            assert basic_cover._stop_task is not None
+            basic_cover.handle_event(OWNEvent.parse("*2*1*21##"))
+            await basic_cover._stop_task
+            assert basic_cover.is_opening is False
+            assert basic_cover.is_closed is False
+            assert basic_cover.current_cover_position == 100
+            # *2*1*21## was sent (up), but NO *2*0*21## was sent (stop)
+            assert basic_cover._gateway_handler.send.call_count == 1
+            assert str(basic_cover._gateway_handler.send.call_args_list[0][0][0]) == "*2*1*21##"
+
         # Direction reversal 1: Opening cover receives external closing event
         basic_cover.handle_event(OWNEvent.parse("*2*0*21##"))
         basic_cover._attr_current_cover_position = 20

@@ -1010,16 +1010,29 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 await asyncio.sleep(max(0.0, run_duration - (time.monotonic() - anchor)))
                 if generation != self._run_generation:
                     return
-                # By the model we are at the target now; the motor keeps
-                # running until the stop frame is written, so re-anchor the
-                # run here and let the stop's write time freeze the estimate
-                # (target plus whatever the queue delay added).
-                self._start_position = target_position
-                self._attr_current_cover_position = target_position
-                self._move_start_time = time.monotonic()
-                await self.async_stop_cover()
-                if self.hass is not None:
-                    self.async_write_ha_state()
+                
+                if target_position in (0, 100):
+                    # Virtual stop: update the UI state model without sending a STOP frame to the bus.
+                    # This allows the physical motor to reach its mechanical limit switch and resync.
+                    self._start_position = target_position
+                    self._attr_current_cover_position = target_position
+                    self._move_start_time = None
+                    self._attr_is_opening = False
+                    self._attr_is_closing = False
+                    self._attr_is_closed = (target_position == 0)
+                    if self.hass is not None:
+                        self.async_write_ha_state()
+                else:
+                    # By the model we are at the target now; the motor keeps
+                    # running until the stop frame is written, so re-anchor the
+                    # run here and let the stop's write time freeze the estimate
+                    # (target plus whatever the queue delay added).
+                    self._start_position = target_position
+                    self._attr_current_cover_position = target_position
+                    self._move_start_time = time.monotonic()
+                    await self.async_stop_cover()
+                    if self.hass is not None:
+                        self.async_write_ha_state()
             except asyncio.CancelledError:
                 pass
 
