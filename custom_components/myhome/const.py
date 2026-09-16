@@ -44,6 +44,7 @@ CONF_DEVICE_TYPE = "deviceType"
 CONF_DEVICE_MODEL = "model"
 CONF_MANUFACTURER = "manufacturer"
 CONF_MANUFACTURER_URL = "manufacturerURL"
+CONF_MEMBERS = "members"
 CONF_UDN = "UDN"
 CONF_WORKER_COUNT = "command_worker_count"
 CONF_FILE_PATH = "config_file_path"
@@ -134,7 +135,7 @@ def is_apl_address(base: str) -> bool:
     if len(base) == 2:
         a = int(base[0])
         pl = int(base[1])
-        return 1 <= a <= 9 and 1 <= pl <= 9
+        return 0 <= a <= 9 and 1 <= pl <= 9
     if len(base) == 4:
         a = int(base[:2])
         pl = int(base[2:])
