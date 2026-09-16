@@ -1,5 +1,5 @@
 """Test the MyHOME climate component."""
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
@@ -81,6 +81,32 @@ async def test_setup_and_unload_entry(hass):
     attach_runtime(hass, config_entry)
     await async_unload_entry(hass, config_entry)
     assert "device_1" not in hass.data["myhome"]["mac"]["platforms"]["climate"]
+
+
+async def test_legacy_routed_zone_listens_under_clean_spellings(hass):
+    """A zone restored from a legacy ``4-`` prefixed id behind an F422 interface is
+    reached under the spellings a frame is published under (``1#4#01``, ``1``)."""
+    hass.data = {"myhome": {"mac": {"platforms": {"climate": {}}, "entity": MagicMock()}}}
+    config_entry = MagicMock()
+    config_entry.data = {"mac": "mac"}
+    config_entry.entry_id = "test_entry"
+    legacy = MagicMock()
+    legacy.domain = "climate"
+    legacy.unique_id = "mac-4-4-1#4#01"
+    legacy.entity_id = "climate.zone_1"
+    legacy.name = None
+
+    with patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[legacy]), \
+         patch("custom_components.myhome.discovery.er.async_get"):
+        attach_runtime(hass, config_entry)
+        entities = []
+        await async_setup_entry(hass, config_entry, entities.extend)
+
+    assert len(entities) == 1
+    router = config_entry.runtime_data.router
+    assert router.subscribers("4", "4-1#4#01") == 1  # the id it was restored under
+    assert router.subscribers("4", "1#4#01") == 1  # the frame's key
+    assert router.subscribers("4", "1") == 1  # the bare zone
 
 async def test_climate_properties_and_hvac_modes(hass):
     """Test climate entity properties and set_hvac_mode."""

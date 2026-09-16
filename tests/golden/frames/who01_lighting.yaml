@@ -577,3 +577,14 @@
     class: OWNLightingCommand
     method: set_hsv_color
     args: ["#6", 120, 50, 80]
+
+- id: light.evt.dim.level10.ptp.67
+  frame: "*1*10*67##"
+  direction: event
+  who: 1
+  what: 10
+  where: "67"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: Dimming level 10 (100%) event at address '67' (MH200 physical plant sweep)"
+  roundtrip: true

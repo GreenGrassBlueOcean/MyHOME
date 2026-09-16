@@ -858,6 +858,19 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.evt.dim.level10.ptp.67",
+    "frame": "*1*10*67##",
+    "direction": "event",
+    "who": 1,
+    "what": 10,
+    "where": "67",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Dimming level 10 (100%) event at address '67' (MH200 physical plant sweep)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
@@ -1095,6 +1108,20 @@
     "source": "community-plant-capture",
     "mcp_valid": true,
     "mcp_notes": "Automation: Absolute position level 10% report for address 73 (issue #247 reporter plant)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.evt.stop.routed.interface.02",
+    "frame": "*2*0*14#4#02##",
+    "direction": "event",
+    "who": 2,
+    "what": 0,
+    "where": "14",
+    "interface": "02",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: STOP event at address '14' routed via private bus interface 02 (MH200 physical plant sweep)",
     "roundtrip": true,
     "_file": "who02_automation.yaml"
   },
