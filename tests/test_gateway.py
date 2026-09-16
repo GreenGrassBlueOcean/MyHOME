@@ -1248,6 +1248,30 @@ def test_device_type_4_is_mh200_not_mh200n(gateway_handler):
     assert not mock_dev_reg.async_update_device.called
 
 
+def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_entry):
+    """Test WHO=13 dimension 0 (timezone) issues."""
+    from OWNd.message import OWNEvent
+
+    gateway_handler.config_entry.entry_id = "entry_diag"
+
+    with patch("custom_components.myhome.repairs.async_create_unconfigured_timezone_issue") as create_issue, \
+         patch("custom_components.myhome.repairs.async_delete_unconfigured_timezone_issue") as delete_issue:
+        
+        # 1. 999 sentinel triggers issue
+        msg = OWNEvent.parse("*#13**0*23*52*03*999##")
+        gateway_handler._handle_gateway_diagnostics(msg)
+        create_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+        delete_issue.assert_not_called()
+
+        create_issue.reset_mock()
+
+        # 2. Valid timezone (+1) resolves issue
+        msg_valid = OWNEvent.parse("*#13**0*23*52*03*001##")
+        gateway_handler._handle_gateway_diagnostics(msg_valid)
+        create_issue.assert_not_called()
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+
 def test_compat_gateway_timezone():
     """Verify OWNd compatibility timezone patch handles F454 '999' sentinel."""
     from custom_components.myhome.gateway import _compat_gateway_timezone
