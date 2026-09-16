@@ -8,7 +8,6 @@ from homeassistant.const import CONF_NAME, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import OWNMessage
 from voluptuous.error import Invalid
 
