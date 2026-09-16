@@ -391,3 +391,35 @@ async def test_resync_cascade_replay_with_golden_burst(hass: HomeAssistant, hand
     handler.send_status_request.assert_called_once()
     arg = handler.send_status_request.call_args[0][0]
     assert str(arg) == "*#1*00##"
+
+
+@pytest.mark.asyncio
+async def test_resync_ptp_evicts_stale_leading_echoes(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """Point-to-point echoes older than the leading window are evicted when a new PTP echo arrives."""
+    stale_time = 100.0
+    handler._recent_ptp.append((stale_time, "11", "1"))
+
+    with patch("custom_components.myhome.gateway.time.monotonic", return_value=stale_time + RESYNC_LEADING_WINDOW_S + 1.0):
+        await handler._process_message(OWNMessage.parse("*1*1*12##"))
+
+    assert len(handler._recent_ptp) == 1
+    assert handler._recent_ptp[0][1] == "12"
+
+
+@pytest.mark.asyncio
+async def test_resync_broadcast_evicts_stale_leading_echoes(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
+    """Point-to-point echoes older than the leading window are evicted before scheduling a resync."""
+    stale_time = 100.0
+    handler._recent_ptp.append((stale_time, "32", "3"))
+
+    # An area 3 command arrives after the leading window has elapsed.
+    # The stale echo for area 3 must be evicted so the area 3 sweep is NOT skipped.
+    with patch("custom_components.myhome.gateway.time.monotonic", return_value=stale_time + RESYNC_LEADING_WINDOW_S + 1.0):
+        await handler._process_message(OWNMessage.parse("*1*0*3##"))
+        await _advance(hass)
+
+    assert len(handler._recent_ptp) == 0
+    handler.send_status_request.assert_called_once()
+    arg = handler.send_status_request.call_args[0][0]
+    assert str(arg) == "*#1*3##"
+
