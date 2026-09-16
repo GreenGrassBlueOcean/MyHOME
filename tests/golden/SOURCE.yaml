@@ -92,6 +92,12 @@ authorities:
         date: "2026-09-15"
         gateway: "BTicino MyHomeServer1"
         devices: "Thermoregulation 3550 central unit (#0), 6 zones (LN4691), F430R8 actuators"
+      - name: "Physical Bus Capture (BTicino MyHomeServer1 + Automation WHO 2, idle command-session loss)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/378#issuecomment-5703741524"
+        author: "TheDarkWizard"
+        date: "2026-09-16"
+        gateway: "BTicino MyHomeServer1"
+        devices: "Cover/shutter actuator, address 03; WHO 2 command-translation echoes (*2*1000#0/1/2*03##)"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 

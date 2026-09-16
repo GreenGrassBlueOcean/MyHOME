@@ -1022,6 +1022,48 @@
     "_file": "who02_automation.yaml"
   },
   {
+    "id": "cover.cmd.translation.stop.03",
+    "frame": "*2*1000#0*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#0",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): STOP movement at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.translation.up.03",
+    "frame": "*2*1000#1*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#1",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): UP (Open shutter) at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.translation.down.03",
+    "frame": "*2*1000#2*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#2",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): DOWN (Close shutter) at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
     "id": "thermo.req.temp.zone1",
     "frame": "*#4*1*0##",
     "direction": "dimension_request",
