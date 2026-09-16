@@ -481,10 +481,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
-        base_temp = kwargs.get("temperature", self._local_target_temperature)
-        if base_temp is None:
-            return
-        target_temperature = float(base_temp) - self._local_offset
+        target_temperature = float(
+            kwargs.get("temperature", self._local_target_temperature)  # type: ignore[arg-type]
+        ) - self._local_offset
         if self._central:
             mode = "heat" if self._attr_hvac_mode != HVACMode.COOL else "cool"
             await self._gateway_handler.send(
