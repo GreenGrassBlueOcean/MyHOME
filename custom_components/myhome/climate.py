@@ -246,6 +246,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             model=model,
             gateway=gateway,
         )
+        if hass is not None:
+            self.hass = hass
 
         self._interface = interface
         self._full_where = (
@@ -285,7 +287,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_current_temperature: float | None = None
         self._attr_current_humidity: float | None = None
         self._target_temperature: float | None = None
-        self._local_offset: float = 0.0
+        self._local_offset: float = 0
         self._knob_pos: str = "UNKNOWN"
         self._local_target_temperature: float | None = None
 
