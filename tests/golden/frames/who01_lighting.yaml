@@ -526,3 +526,19 @@
   mcp_valid: true
   mcp_notes: "Lighting: Command Translation frame on private SCS bus 01"
   roundtrip: true
+
+- id: light.req.status.ptp.05
+  frame: "*#1*05##"
+  direction: status_request
+  who: 1
+  what: null
+  where: "05"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: Query status of light at address '05' (BTicino MH201 physical plant test, issue #378, fedem95)"
+  roundtrip: true
+  builder:
+    class: OWNLightingCommand
+    method: status
+    args: ["05"]
+

@@ -98,6 +98,12 @@ authorities:
         date: "2026-09-16"
         gateway: "BTicino MyHomeServer1"
         devices: "Cover/shutter actuator, address 03; WHO 2 command-translation echoes (*2*1000#0/1/2*03##)"
+      - name: "Physical Bus Capture (BTicino MH201 + Lighting WHO 1, idle command-session test)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/378#issuecomment-5704228050"
+        author: "Federico Manzella (@fedem95)"
+        date: "2026-09-16"
+        gateway: "BTicino MH201"
+        devices: "Lighting actuator/point, address 05 (*#1*05## status request)"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 
