@@ -1010,7 +1010,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 await asyncio.sleep(max(0.0, run_duration - (time.monotonic() - anchor)))
                 if generation != self._run_generation:
                     return
-                
+
                 if target_position in (0, 100):
                     # Virtual stop: update the UI state model without sending a STOP frame to the bus.
                     # This allows the physical motor to reach its mechanical limit switch and resync.
