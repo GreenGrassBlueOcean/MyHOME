@@ -63,6 +63,13 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 - **[Bus Monitor Lovelace Card](https://github.com/OpenWebNet-HA/MyHOME/wiki/Bus-Monitor-Lovelace-Card)**: Bus card installation, live frame decoding, diagnostic logging, and syntax injector reference.
 - **[Community Contribution Guide](https://github.com/OpenWebNet-HA/MyHOME/wiki/OpenWebNet-Protocol-&-WHO-Specifications#how-to-contribute-specifications)**: How to cross-check documentation versions and contribute missing WHO PDF specifications.
 
+### In-repo guides (`docs/configuration/`)
+- **[Supported Functions](docs/configuration/supported_functions.md)** — what each WHO subsystem and platform does, read-only or not at all.
+- **[Known Limitations](docs/configuration/known_limitations.md)** — what is not supported, why, and the workaround.
+- **[Troubleshooting](docs/configuration/troubleshooting.md)** — symptoms → log lines / bus frames → fix.
+- **[Use Cases](docs/configuration/use_cases.md)** — end-to-end scenarios with the automations that make them work.
+- **[Services](docs/configuration/services.md)**, **[Gateways](docs/configuration/gateways.md)**, **[Runtime Behaviour](docs/configuration/runtime_behaviour.md)**, **[Bus Monitor](docs/configuration/bus_monitor.md)**, **[Sound System](docs/configuration/media_player.md)**, **[CEN / CEN+](docs/configuration/cen_cenplus.md)**, **[Lovelace Recipes](docs/configuration/lovelace_recipes.md)**.
+
 ---
 
 ## 🏛️ Supported Hardware
@@ -102,6 +109,8 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 ---
 
 ## 📦 Installation & Updating
+
+> **Requires Home Assistant 2026.3 or newer** (Python 3.14 cores). Older cores stay on 2.0.0b12; see [Known Limitations](docs/configuration/known_limitations.md).
 
 > [!CAUTION]
 > **⚠️ Never store backup copies inside `/config/custom_components/` (e.g. `myhome.backup`)!**  
@@ -193,6 +202,8 @@ docker restart homeassistant
 
 ### 🩹 Troubleshooting: "No module named 'custom_components.myhome.backup'"
 
+> More symptoms and fixes: [Troubleshooting guide](docs/configuration/troubleshooting.md).
+
 If Home Assistant fails to load with the log error:
 ```text
 Setup failed for custom integration 'myhome': Unable to import component: No module named 'custom_components.myhome.backup'
@@ -218,6 +229,23 @@ If you ever need to revert to the legacy codebase (`0.9.4`):
   rm myhome_legacy.zip
   ha core restart
   ```
+
+### 🗑️ Removing the Integration
+
+1. Go to **Settings → Devices & services → MyHOME**, open the gateway entry's `⋮` menu and choose **Delete**. Repeat for every configured gateway. This closes the bus sessions, unloads all platforms and removes the gateway's devices and entities from the registries.
+2. Restart Home Assistant if you also want to remove the code:
+   - **HACS:** open **MyHome** in HACS → `⋮` → **Remove**.
+   - **Manual / one-liner installs:** delete the folder:
+     ```bash
+     rm -rf /config/custom_components/myhome
+     ha core restart
+     ```
+3. Optional clean-up the integration does not touch on its own:
+   - `/config/myhome.yaml` — the legacy platform configuration file, if you used one.
+   - **Settings → Dashboards → Resources**: the auto-registered `/myhome_static/myhome-bus-card.js` resource, and any `custom:myhome-openwebnet-bus-monitor` cards on your dashboards.
+   - Automations and blueprints that reference `myhome.*` services or the `myhome_*` events (`myhome_cen_event`, `myhome_cenplus_event`, `myhome_message_event`, `myhome_cover_calibration`, …).
+
+The gateway itself is not modified by installing or removing the integration; nothing needs to be reset on the OpenWebNet side.
 
 ---
 
@@ -280,6 +308,8 @@ f454:
       where: '0'
       name: Central Alarm
 ```
+
+3. **How names work** (Home Assistant's device / entity model): `name` names the **device** on the bus. A light, switch, cover, thermostat, audio zone or alarm panel *is* its device, so its entity carries the device name (`light.living_room_light`, friendly name *Living Room Light*). Sensors and binary sensors are features of their device and are named after their device class — a power meter named `House` gives `sensor.house_power` (*House Power*) and `sensor.house_energy`; a dry contact named `Cancello` with `class: opening` gives `binary_sensor.cancello_opening` (*Cancello Opening*). Use `entity_name` on a sensor or binary sensor to name the feature yourself (`entity_name: Contact` → *Front Door Contact*); an `entity_name` equal to `name` means "the entity is the device". Lock/unlock and calibration buttons are named *Lock*, *Unlock*, *Calibrate travel time* under their device. Entity ids are assigned once by the entity registry: **existing installations keep every entity id and every name you set in the UI**, and deleting the integration by accident is safe — Home Assistant keeps the registry entries for 30 days and restores names, areas and ids when the gateway is added again.
 
 ---
 
@@ -406,7 +436,7 @@ A major CI infrastructure enhancement introduced for beta testing is the **Trace
 │  (F454, MyHomeServer1, MH202, etc.)  │
 └──────────────────┬───────────────────┘
                    │
-                   │ 1-Click "📋 Report Issue / Copy Trace" in Bus Monitor Card
+                   │ 1-Click "📋 Copy Capture" in Bus Monitor Card
                    ▼
 ┌──────────────────────────────────────┐
 │  diagnostic_summary.json             │
@@ -424,7 +454,7 @@ A major CI infrastructure enhancement introduced for beta testing is the **Trace
 ```
 
 #### How it Works:
-1. **Zero Hardware Needed for Bug Triage**: Legrand and BTicino manufacture dozens of gateway models (F454, MyHomeServer1, MH200N, MH202, 3578 USB) and modular DIN actuators with subtle firmware timing variations. When a beta tester reports unexpected behavior, clicking **"📋 Report Issue / Copy Trace"** on the Bus Monitor card (or downloading HA Diagnostics) packages the last 100 on-wire OpenWebNet frames with precise microsecond timestamps.
+1. **Zero Hardware Needed for Bug Triage**: Legrand and BTicino manufacture dozens of gateway models (F454, MyHomeServer1, MH200N, MH202, 3578 USB) and modular DIN actuators with subtle firmware timing variations. When a beta tester reports unexpected behavior, clicking **"📋 Copy Capture"** on the Bus Monitor card (or downloading HA Diagnostics) packages the last 100 on-wire OpenWebNet frames with precise microsecond timestamps.
 2. **Automated Discovery & Plant Setup**: Pytest automatically scans `tests/fixtures/plants/*/` for any directory containing `diagnostic_summary.json` and `myhome.yaml`.
 3. **Sequential On-Wire Replay**: The harness initializes a simulated gateway session and streams the frozen frames sequentially into Home Assistant's internal event dispatcher (`f"myhome_message_{mac}"`), exercising the exact same message routing path as physical hardware.
 4. **End-to-End State Verification**: Verifies that every single frame across Lighting (`WHO=1`), Automation (`WHO=2`), Thermoregulation (`WHO=4`), Audio (`WHO=16`), Energy (`WHO=18`), Dry Contacts (`WHO=25`), and ACK/NACK control signals updates entity states accurately with zero unhandled exceptions.
@@ -525,13 +555,14 @@ automated coverage and physical gateway verification steps.
 ### CI Workflows
 - **`hassfest`**: Official Home Assistant manifest, translation, and metadata validation.
 - **`validate`**: Official HACS compliance checks.
-- **`test-coverage`**: 1294 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
+- **`test-coverage`**: 1443 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
 - **`ha-container-smoke`**: Automated containerized smoke testing against official Home Assistant Docker images (`stable`, `beta`, `dev`) verifying `check_config`, clean platform module imports, and zero asyncio loop-blocking calls.
 - **`ownd-smoke`**: Automated smoke testing of the `OWNd` protocol engine across `pinned`, `latest`, and `upstream-dev` distributions on Python 3.14.
 - **`ha-upstream-compat`**: Continuous integration testing against upstream Home Assistant Stable, Beta, and Dev channels.
 - **`ha_standards`**: Automated architectural standards enforcement (`verify_ha_standards.py` / `test_ha_standards.py`) ensuring user-confirmed discovery flows, complete step translations, no deprecated constants, and no blocking calls in async coroutines.
 - **`pypi_standards`**: Strict wheel hygiene, metadata verification, and packaging checks.
 - **`quality-scale`**: Self-audit of `quality_scale.yaml` against the official Home Assistant Integration Quality Scale (`quality_scale_report.py`); reports the tier reached, refreshes the badge and the table below.
+- **`strict-typing`**: `mypy --strict` over the integration, ratcheted per module (`scripts/typing_ratchet.py`, `mypy_baseline.json`) — a module may only ever get cleaner (Platinum rule `strict-typing`).
 
 ### 🏅 Home Assistant Integration Quality Scale
 
@@ -541,9 +572,9 @@ automated coverage and physical gateway verification steps.
 
 | Tier | Rules satisfied | Status |
 | :--- | :---: | :--- |
-| 🥉 Bronze | 16 / 20 | ⏳ next — blocked by `brands`, `docs-removal-instructions`, `has-entity-name`, `runtime-data` |
+| 🥉 Bronze | 19 / 20 | ⏳ next — blocked by `brands` |
 | 🥈 Silver | 10 / 10 | ✅ all rules satisfied (waiting on lower tier) |
-| 🥇 Gold | 10 / 21 | ⬜ 11 rule(s) open |
+| 🥇 Gold | 21 / 21 | ✅ all rules satisfied (waiting on lower tier) |
 | 🏆 Platinum | 2 / 3 | ⬜ 1 rule(s) open |
 
 _Self-audit of [`quality_scale.yaml`](custom_components/myhome/quality_scale.yaml) against the official [Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/); a tier needs every rule of that tier and all lower tiers `done`/`exempt`. Updated by the [Integration Quality Scale workflow](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/quality-scale.yml); tiers are formally awarded only by Home Assistant core review._
@@ -552,7 +583,7 @@ _Self-audit of [`quality_scale.yaml`](custom_components/myhome/quality_scale.yam
 
 ### 📊 Code Coverage & Quality Assurance
 
-The integration maintains 1294 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
+The integration maintains 1443 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
 
 <!-- START_COVERAGE_TABLE -->
 
@@ -570,6 +601,7 @@ The integration maintains 1294 automated unit tests (100% line coverage across a
 | [`core/transport/serial.py`](custom_components/myhome/core/transport/serial.py) | **100%** | Async Serial/USB transport for Legrand 3578 / OpenZigBee |
 | [`core/transport/tcp.py`](custom_components/myhome/core/transport/tcp.py) | **100%** | Modular TCP/IP socket transport with framed stream parsing |
 | [`cover.py`](custom_components/myhome/cover.py) | **100%** | Motorized shutters, blinds, roll-ups with state tracking |
+| [`data.py`](custom_components/myhome/data.py) | **100%** | Core integration component |
 | [`decoder_pool.py`](custom_components/myhome/decoder_pool.py) | **100%** | Thread-safe streaming proxy audio pool |
 | [`device_trigger.py`](custom_components/myhome/device_trigger.py) | **100%** | Stateless CEN/CEN+ scenario device automation triggers |
 | [`diagnostics.py`](custom_components/myhome/diagnostics.py) | **100%** | Config entry diagnostics with sensitive data redaction |
@@ -577,7 +609,9 @@ The integration maintains 1294 automated unit tests (100% line coverage across a
 | [`light.py`](custom_components/myhome/light.py) | **100%** | Relays, auto-dimmer detection, and brightness transitions |
 | [`media_player.py`](custom_components/myhome/media_player.py) | **100%** | F441/F441M sound system zones, dynamic proxy, gain-staging |
 | [`myhome_device.py`](custom_components/myhome/myhome_device.py) | **100%** | Home Assistant device registry schema compliance |
+| [`repairs.py`](custom_components/myhome/repairs.py) | **100%** | Core integration component |
 | [`sensor.py`](custom_components/myhome/sensor.py) | **100%** | Power meters, energy counters, and pulse sensors |
+| [`services.py`](custom_components/myhome/services.py) | **100%** | Core integration component |
 | [`switch.py`](custom_components/myhome/switch.py) | **100%** | Relay actuators, auxiliary switches, socket controllers |
 | [`validate.py`](custom_components/myhome/validate.py) | **100%** | Device & gateway schemas, custom WHERE validators, sensor injections |
 | [`websocket.py`](custom_components/myhome/websocket.py) | **100%** | WebSocket API for real-time bus streaming, history, and diagnostics |

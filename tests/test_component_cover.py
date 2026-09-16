@@ -32,6 +32,7 @@ from custom_components.myhome.cover import (
     async_setup_entry,
     async_unload_entry,
 )
+from tests.conftest import attach_runtime
 
 
 @pytest.fixture
@@ -96,6 +97,7 @@ async def test_cover_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         def fake_add_entities(entities):
             added_entities.extend(entities)
 
+        attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, fake_add_entities)
 
         # Restored (21, 22#4#01) + Configured from YAML (33, 34#4#02) = 4 covers
@@ -125,6 +127,7 @@ async def test_cover_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert len(added_entities) == 6
 
         # Unload
+        attach_runtime(hass, config_entry)
         assert await async_unload_entry(hass, config_entry) is True
 
 
@@ -147,7 +150,9 @@ class TestMyHOMECoverEntity:
                 model="Shutter",
                 gateway=mock_gateway,
             )
+            cover.entity_id = "cover.cover"  # assigned by the registry in real Home Assistant
             cover.hass = hass
+            cover.entity_id = cover.entity_id or "test.cover"
             cover.async_schedule_update_ha_state = MagicMock()
             return cover
 
@@ -167,7 +172,9 @@ class TestMyHOMECoverEntity:
                 model="Advanced Shutter",
                 gateway=mock_gateway,
             )
+            cover.entity_id = "cover.cover"  # assigned by the registry in real Home Assistant
             cover.hass = hass
+            cover.entity_id = cover.entity_id or "test.cover"
             cover.async_schedule_update_ha_state = MagicMock()
             return cover
 
@@ -417,6 +424,7 @@ class TestMyHOMECoverEntity:
             model="F401",
             gateway=mock_gateway,
         )
+        cover.entity_id = "cover.cover"  # assigned by the registry in real Home Assistant
         await cover.async_update()
         mock_gateway.send_status_request.assert_awaited_once()
         assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#2*21*10##"
@@ -589,6 +597,7 @@ async def test_cover_general_commands_update_all_covers(hass: HomeAssistant, moc
             gateway=mock_gateway,
             travel_time=25,
         )
+        cover1.entity_id = "cover.cover1"  # assigned by the registry in real Home Assistant
         cover2 = MyHOMECover(
             hass=hass,
             name="Cover 22",
@@ -603,9 +612,12 @@ async def test_cover_general_commands_update_all_covers(hass: HomeAssistant, moc
             gateway=mock_gateway,
             travel_time=25,
         )
+        cover2.entity_id = "cover.cover2"  # assigned by the registry in real Home Assistant
 
     cover1.hass = hass
+    cover1.entity_id = cover1.entity_id or "test.cover1"
     cover2.hass = hass
+    cover2.entity_id = cover2.entity_id or "test.cover2"
     cover1.async_schedule_update_ha_state = MagicMock()
     cover2.async_schedule_update_ha_state = MagicMock()
 
@@ -682,6 +694,7 @@ async def test_cover_setup_dispatches_general_messages_from_gateway(hass: HomeAs
 
     with patch("homeassistant.helpers.entity_registry.async_get", return_value=MagicMock()), \
          patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]):
+        attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, lambda entities: None)
 
     dispatched = []
@@ -739,12 +752,15 @@ async def test_cover_gateway_general_message_updates_all_active_entities(hass: H
 
     with patch("homeassistant.helpers.entity_registry.async_get", return_value=MagicMock()), \
          patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]):
+        attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, fake_add_entities)
 
     assert len(added_entities) == 2
     cover1, cover2 = added_entities[0], added_entities[1]
     cover1.hass = hass
+    cover1.entity_id = cover1.entity_id or "test.cover1"
     cover2.hass = hass
+    cover2.entity_id = cover2.entity_id or "test.cover2"
     cover1.async_schedule_update_ha_state = MagicMock()
     cover2.async_schedule_update_ha_state = MagicMock()
 
@@ -800,6 +816,7 @@ async def test_cover_advanced_shutter_key_precedence(hass, mock_gateway):
     added = []
     with patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]), \
          patch("homeassistant.helpers.entity_registry.async_get", return_value=MagicMock()):
+        attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, added.extend)
 
     assert len(added) == 1

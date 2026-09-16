@@ -31,6 +31,7 @@ from custom_components.myhome.climate import (
     async_setup_entry,
     async_unload_entry,
 )
+from tests.conftest import attach_runtime
 
 
 async def test_setup_and_unload_entry(hass):
@@ -65,6 +66,7 @@ async def test_setup_and_unload_entry(hass):
     config_entry.data = {"mac": "mac"}
 
     async_add_entities = MagicMock()
+    attach_runtime(hass, config_entry)
     await async_setup_entry(hass, config_entry, async_add_entities)
 
     async_add_entities.assert_called_once()
@@ -76,6 +78,7 @@ async def test_setup_and_unload_entry(hass):
     assert climate_entity.device_info["name"] == "Zone 1"
 
     # Test unload
+    attach_runtime(hass, config_entry)
     await async_unload_entry(hass, config_entry)
     assert "device_1" not in hass.data["myhome"]["mac"]["platforms"]["climate"]
 
@@ -99,6 +102,7 @@ async def test_climate_properties_and_hvac_modes(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
 
     assert climate.temperature_unit == UnitOfTemperature.CELSIUS
     assert HVACMode.AUTO in climate.hvac_modes
@@ -153,6 +157,7 @@ async def test_climate_set_temperature(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
 
     # Set temperature when in HEAT mode
     climate._attr_hvac_mode = HVACMode.HEAT
@@ -195,6 +200,7 @@ async def test_climate_handle_events(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
     climate.async_schedule_update_ha_state = MagicMock()
 
     # Event: MAIN_TEMPERATURE
@@ -276,6 +282,7 @@ async def test_climate_async_update(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
 
     await climate.async_update()
     gateway.send_status_request.assert_called_once()
@@ -293,7 +300,9 @@ async def test_setup_and_unload_entry_platform_not_configured(hass):
     config_entry = MagicMock()
     config_entry.data = {"mac": "mac"}
 
+    attach_runtime(hass, config_entry)
     assert await async_setup_entry(hass, config_entry, MagicMock()) is True
+    attach_runtime(hass, config_entry)
     assert await async_unload_entry(hass, config_entry) is True
 
 
@@ -317,6 +326,7 @@ async def test_climate_edge_cases_and_properties(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
 
     # target_temperature fallback when _local_target_temperature is None
     climate._local_target_temperature = None
@@ -358,6 +368,7 @@ async def test_climate_handle_events_mode_and_target_transitions(hass):
         model="M",
         gateway=gateway,
     )
+    climate.entity_id = "climate.climate"  # assigned by the registry in real Home Assistant
     climate.async_schedule_update_ha_state = MagicMock()
 
     # MESSAGE_TYPE_LOCAL_OFFSET when _target_temperature is None
@@ -448,6 +459,7 @@ async def test_climate_handle_events_action_variations_and_runtime_error(hass):
         model="M",
         gateway=gateway,
     )
+    climate_dual.entity_id = "climate.climate_dual"  # assigned by the registry in real Home Assistant
     climate_dual.async_schedule_update_ha_state = MagicMock()
 
     event = MagicMock(spec=OWNHeatingEvent)
@@ -485,6 +497,7 @@ async def test_climate_handle_events_action_variations_and_runtime_error(hass):
         model="M",
         gateway=gateway,
     )
+    climate_heat.entity_id = "climate.climate_heat"  # assigned by the registry in real Home Assistant
     climate_heat.async_schedule_update_ha_state = MagicMock()
     event.is_active.return_value = True
     climate_heat.handle_event(event)
@@ -506,6 +519,7 @@ async def test_climate_handle_events_action_variations_and_runtime_error(hass):
         model="M",
         gateway=gateway,
     )
+    climate_cool.entity_id = "climate.climate_cool"  # assigned by the registry in real Home Assistant
     climate_cool.async_schedule_update_ha_state = MagicMock()
     event.is_active.return_value = True
     climate_cool.handle_event(event)
@@ -539,7 +553,9 @@ async def test_climate_fan_mode_and_attributes(hass):
         model="Fancoil Unit",
         gateway=gateway,
     )
+    climate_fancoil.entity_id = "climate.climate_fancoil"  # assigned by the registry in real Home Assistant
     climate_fancoil.hass = hass
+    climate_fancoil.entity_id = climate_fancoil.entity_id or "test.climate_fancoil"
     climate_fancoil.async_schedule_update_ha_state = MagicMock()
 
     assert climate_fancoil.supported_features & ClimateEntityFeature.FAN_MODE

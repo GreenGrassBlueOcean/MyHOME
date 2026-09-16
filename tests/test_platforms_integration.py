@@ -184,7 +184,7 @@ async def test_fast_discovery_reply_during_slow_platform_setup(hass: HomeAssista
 
     async def slow_forward(entry, platforms):
         nonlocal sweep_sent_during_platform_setup, workers_running_during_platform_setup
-        gateway = entry.runtime_data
+        gateway = entry.runtime_data.gateway
         workers_running_during_platform_setup = bool(gateway.sending_workers)
         # Give the listener and the fast gateway every chance to run first.
         for _ in range(20):
