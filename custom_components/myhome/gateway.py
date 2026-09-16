@@ -857,7 +857,25 @@ class MyHOMEGatewayHandler:
                 return
 
             while not self._terminate_sender:
-                task = await self.send_buffer.get()
+                try:
+                    task = await asyncio.wait_for(
+                        self.send_buffer.get(),
+                        timeout=COMMAND_SESSION_IDLE_TIMEOUT,
+                    )
+                except TimeoutError:
+                    # The gateway drops an idle command session on its own timeline
+                    # (observed ~30s on MyHomeServer1/MH200N); close ours first so
+                    # the next send() reconnects instead of writing into a socket
+                    # the gateway has already torn down (issue #378).
+                    if _session_is_open(_command_session):
+                        LOGGER.debug(
+                            "%s Command session idle for %ss; closing socket to release gateway resource.",
+                            self.log_id,
+                            COMMAND_SESSION_IDLE_TIMEOUT,
+                        )
+                        await _command_session.close()
+                    continue
+
                 try:
                     if task is None:
                         break

@@ -761,6 +761,34 @@ async def test_sending_loop_auth_failure_lockout_protection(gateway_handler):
 
 
 @pytest.mark.asyncio
+async def test_sending_loop_idle_timeout_closes_session(gateway_handler, monkeypatch):
+    """Issue #378: an idle command session must be closed proactively so the
+    next send() reconnects, instead of writing into a socket the gateway has
+    already dropped on its own idle timeline."""
+    import custom_components.myhome.gateway as gw_module
+
+    monkeypatch.setattr(gw_module, "COMMAND_SESSION_IDLE_TIMEOUT", 0.01)
+
+    with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
+        mock_cmd_session = MagicMock()
+        mock_cmd_session.connect = AsyncMock(return_value={"Success": True})
+        mock_cmd_session.close = AsyncMock()
+        mock_cmd_session._stream_reader = MagicMock()
+        mock_cmd_session._stream_writer = MagicMock()
+        mock_cmd_class.return_value = mock_cmd_session
+        gateway_handler._event_session_ready.set()
+
+        worker = asyncio.create_task(gateway_handler.sending_loop(0))
+
+        # Let the queue.get() time out at least once while idle.
+        await asyncio.sleep(0.05)
+        mock_cmd_session.close.assert_called()
+
+        await gateway_handler.send_buffer.put(None)
+        await asyncio.wait_for(worker, timeout=1)
+
+
+@pytest.mark.asyncio
 async def test_sending_loop_collected_responses_and_pacing(gateway_handler):
     with patch("custom_components.myhome.gateway.OWNCommandSession") as mock_cmd_class:
         mock_cmd_session = MagicMock()
