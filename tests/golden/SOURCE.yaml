@@ -92,6 +92,12 @@ authorities:
         date: "2026-09-15"
         gateway: "BTicino MyHomeServer1"
         devices: "Thermoregulation 3550 central unit (#0), 6 zones (LN4691), F430R8 actuators"
+      - name: "Physical Bus Capture (BTicino MH200 Physical Plant)"
+        reference: "tests/fixtures/plants/mh200_physical_plant"
+        author: "Laurens (@GreenGrassBlueOcean)"
+        date: "2026-09-16"
+        gateway: "BTicino MH200"
+        devices: "Full installation: 62 lights (dimmers and switches), 11 covers on interface 02, MH200 gateway diagnostics"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 

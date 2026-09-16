@@ -493,21 +493,21 @@ class TestTraceReplayHarness:
         handler._on_event_connection_state_change(True)
 
         # 1. Initialize and add light to HA
-        init_msg = OWNMessage.parse("*1*0*10##")
+        init_msg = OWNMessage.parse("*1*0*11##")
         async_dispatcher_send(hass, f"myhome_message_{mac}", init_msg)
         await hass.async_block_till_done()
 
         # 2. Rapidly toggle light 10 50 times in a burst
         for i in range(50):
             action = "1" if (i % 2 == 0) else "0"
-            msg = OWNMessage.parse(f"*1*{action}*10##")
+            msg = OWNMessage.parse(f"*1*{action}*11##")
             async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
 
         # Await full event loop flush
         await hass.async_block_till_done()
 
         # Entity should be in the final state (i=49 -> action='0' -> 'off')
-        state = hass.states.get("light.light_10")
+        state = hass.states.get("light.light_11")
         assert state is not None
         assert state.state == "off"
 
