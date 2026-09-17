@@ -781,6 +781,26 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.req.status.ptp.05",
+    "frame": "*#1*05##",
+    "direction": "status_request",
+    "who": 1,
+    "what": null,
+    "where": "05",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Query status of light at address '05' (BTicino MH201 physical plant test, issue #378, fedem95)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "status",
+      "args": [
+        "05"
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "light.dim.write.group.brightness",
     "frame": "*#1*#6*#1*150*0##",
     "direction": "dimension_write",
@@ -1109,6 +1129,48 @@
     "mcp_valid": true,
     "mcp_notes": "Automation: Absolute position level 10% report for address 73 (issue #247 reporter plant)",
     "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.translation.stop.03",
+    "frame": "*2*1000#0*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#0",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): STOP movement at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.translation.up.03",
+    "frame": "*2*1000#1*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#1",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): UP (Open shutter) at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.translation.down.03",
+    "frame": "*2*1000#2*03##",
+    "direction": "command",
+    "who": 2,
+    "what": "1000#2",
+    "where": "03",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "[Translation] Automation (Covers & Shutters): DOWN (Close shutter) at address '03' (issue #378 reporter plant, TheDarkWizard)",
+    "roundtrip": true,
+    "is_translation": true,
     "_file": "who02_automation.yaml"
   },
   {
