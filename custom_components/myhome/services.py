@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, ServiceCall

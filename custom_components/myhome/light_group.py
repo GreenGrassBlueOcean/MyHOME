@@ -225,7 +225,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
             self.hass.states.get(entity_id)
             for entity_id in self._member_entity_ids
         ]
-        states_list: list[State] = [s for s in states_list if s is not None]
+        states_list: list[State] = [s for s in states if s is not None]
 
         self._attr_available = any(s.state != "unavailable" for s in states_list)
         if not states_list:

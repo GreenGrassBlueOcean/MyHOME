@@ -1,10 +1,8 @@
 """Code to handle a MyHome Gateway."""
 import asyncio
 import contextlib
-import logging
 import time
-import typing
-from typing import Any, cast, List
+from typing import Any, List, cast
 
 import OWNd.message as _ownd_msg
 from homeassistant.config_entries import ConfigEntry
@@ -536,7 +534,8 @@ class MyHOMEGatewayHandler:
                     message,
                 )
         elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14:
-            if not message.where: return
+            if not message.where:
+                return
             where = message.where[1:] if message.where.startswith("#") else message.where
             LOGGER.debug(
                 "%s Received heating command, sending query to zone %s",

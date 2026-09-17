@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Any
+
 from OWNd.message import OWNCommand
 
 if TYPE_CHECKING:
