@@ -1,8 +1,10 @@
 """Code to handle a MyHome Gateway."""
 import asyncio
 import contextlib
+import logging
 import time
-from typing import Any, List
+import typing
+from typing import Any, cast, List
 
 import OWNd.message as _ownd_msg
 from homeassistant.config_entries import ConfigEntry
@@ -285,10 +287,7 @@ class MyHOMEGatewayHandler:
 
     @property
     def firmware(self) -> str | None:
-        fw = self.gateway.firmware
-        if isinstance(fw, (list, tuple)):
-            return ".".join(str(x) for x in fw) if fw else None
-        return str(fw) if fw else None
+        return self.gateway.firmware
 
     @property
     def profile(self) -> Any:
@@ -477,7 +476,7 @@ class MyHOMEGatewayHandler:
                             },
                         )
                         await asyncio.sleep(0.1)
-                        await self.send_status_request(OWNLightingCommand.status(message.area))
+                        await self.send_status_request(OWNLightingCommand.status(cast(int, message.area)))
                     elif message.is_group:
                         event = "on" if message.is_on else "off"
                         self.hass.bus.async_fire(
@@ -537,6 +536,7 @@ class MyHOMEGatewayHandler:
                     message,
                 )
         elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14:
+            if not message.where: return
             where = message.where[1:] if message.where.startswith("#") else message.where
             LOGGER.debug(
                 "%s Received heating command, sending query to zone %s",
@@ -595,8 +595,8 @@ class MyHOMEGatewayHandler:
             raw_obj = str(message.object)
             self._ensure_cen_device(15, raw_obj)
             cen_payload = {
-                "object": int(message.object),
-                "pushbutton": int(message.push_button),
+                "object": int(cast(str, message.object)),
+                "pushbutton": int(cast(int, message.push_button)),
                 "event": event,
                 "where": raw_obj,
                 "gateway_mac": self.mac,
@@ -993,7 +993,9 @@ class MyHOMEGatewayHandler:
                     self.gateway.model_name,
                 )
                 continue
-            await self.send_status_request(OWNCommand.parse(frame))
+            cmd = OWNCommand.parse(frame)
+            if cmd is not None:
+                await self.send_status_request(cmd)
 
     async def close_listener(self) -> bool:
         LOGGER.info("%s Closing event listener", self.log_id)

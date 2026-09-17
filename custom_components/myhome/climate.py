@@ -428,21 +428,21 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             return
 
         if hvac_mode == HVACMode.OFF:
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_mode(
-                    where=self._where,
-                    mode=CLIMATE_MODE_OFF,
-                    standalone=self._standalone,
-                )
+            cmd = OWNHeatingCommand.set_mode(
+                where=self._where,
+                mode=CLIMATE_MODE_OFF,
+                standalone=self._standalone,
             )
+            if cmd is not None:
+                await self._gateway_handler.send(cmd)
         elif hvac_mode == HVACMode.AUTO:
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_mode(
-                    where=self._where,
-                    mode=CLIMATE_MODE_AUTO,
-                    standalone=self._standalone,
-                )
+            cmd = OWNHeatingCommand.set_mode(
+                where=self._where,
+                mode=CLIMATE_MODE_AUTO,
+                standalone=self._standalone,
             )
+            if cmd is not None:
+                await self._gateway_handler.send(cmd)
         elif hvac_mode == HVACMode.HEAT:
             if self._target_temperature is not None:
                 await self._gateway_handler.send(

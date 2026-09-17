@@ -98,7 +98,7 @@ async def async_setup_entry(
 
     foreign = _ForeignAddresses(hass, config_entry, gateway.mac, mac)
 
-    def build(ctx: DeviceContext):
+    def build(ctx: DeviceContext) -> MyHOMEEntity | None:
         cfg = ctx.cfg
         where = ctx.address.where
 
@@ -877,8 +877,10 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if is_fading and not self._attr_is_on:
             self._cancel_fade_if_active()
 
-        has_hs = isinstance(getattr(message, "hs", None), (tuple, list)) and len(message.hs) == 2
-        has_rgb = isinstance(getattr(message, "rgb", None), (tuple, list)) and len(message.rgb) == 3
+        hs = getattr(message, "hs", None)
+        has_hs = isinstance(hs, (tuple, list)) and len(hs or ()) == 2
+        rgb = getattr(message, "rgb", None)
+        has_rgb = isinstance(rgb, (tuple, list)) and len(rgb or ()) == 3
         has_color_temp = isinstance(getattr(message, "color_temp", None), int)
         has_level = message.brightness is not None or message.brightness_preset is not None
 

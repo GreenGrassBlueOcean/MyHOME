@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Any
+from OWNd.message import OWNCommand
 
 if TYPE_CHECKING:
     from .gateway import MyHOMEGatewayHandler
@@ -307,7 +308,9 @@ class DisableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
 
     async def async_press(self) -> None:
         """Press the button."""
-        await self._gateway_handler.send(f"*14*0*{self._full_where}##")
+        cmd = OWNCommand.parse(f"*14*0*{self._full_where}##")
+        if cmd is not None:
+            await self._gateway_handler.send(cmd)
 
 
 class EnableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
@@ -366,7 +369,9 @@ class EnableCommandButtonEntity(ButtonEntity, MyHOMEEntity):
 
     async def async_press(self) -> None:
         """Press the button."""
-        await self._gateway_handler.send(f"*14*1*{self._full_where}##")
+        cmd = OWNCommand.parse(f"*14*1*{self._full_where}##")
+        if cmd is not None:
+            await self._gateway_handler.send(cmd)
 
 
 class CalibrateCoverButtonEntity(ButtonEntity, MyHOMEEntity):
