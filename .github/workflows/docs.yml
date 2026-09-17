@@ -58,10 +58,10 @@ jobs:
             mike set-default --push stable
           elif [ "${{ github.ref_name }}" = "master" ]; then
             echo "Deploying master branch"
-            mike deploy --push --update-aliases -F mkdocs.yml master latest dev -t "v2 (beta)"
+            mike deploy --push --update-aliases -F mkdocs.yml master latest dev stable -t "v2 (beta)"
             mike set-default --push latest
           else
-            echo "Deploying branch ${{ github.ref_name }} as dev (alias: latest)"
-            mike deploy --push --update-aliases -F mkdocs.yml 2.0 latest dev -t "v2 (beta)"
+            echo "Deploying branch ${{ github.ref_name }} as dev (alias: latest, stable)"
+            mike deploy --push --update-aliases -F mkdocs.yml 2.0 latest dev stable -t "v2 (beta)"
             mike set-default --push latest
           fi
