@@ -8,7 +8,6 @@ from homeassistant.const import CONF_NAME, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import OWNMessage
 from voluptuous.error import Invalid
 
@@ -52,8 +51,8 @@ def _group(hass: HomeAssistant, gateway: MagicMock, *, members: list[str] | None
     return entity
 
 
-def _fire(hass: HomeAssistant, frame: str) -> None:
-    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNMessage.parse(frame))
+def _fire(group: MyHOMELightGroup, frame: str) -> None:
+    group.handle_event(OWNMessage.parse(frame))
 
 
 # ── schema ──────────────────────────────────────────────────────────────
@@ -310,10 +309,10 @@ async def test_bus_frame_on_off(hass: HomeAssistant):
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    _fire(hass, "*1*1*#6##")
+    _fire(group, "*1*1*#6##")
     assert group.is_on is True
 
-    _fire(hass, "*1*0*#6##")
+    _fire(group, "*1*0*#6##")
     assert group.is_on is False
 
 
@@ -322,13 +321,13 @@ async def test_bus_frame_dimension_status(hass: HomeAssistant):
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    _fire(hass, "*#1*#6*1*50*0##")
+    _fire(group, "*#1*#6*1*50*0##")
     assert group.brightness == int(50 / 100 * 255)
 
-    _fire(hass, "*#1*#6*14*153##")
+    _fire(group, "*#1*#6*14*153##")
     assert group.color_temp_kelvin == int(1000000 / 153)
 
-    _fire(hass, "*#1*#6*12*120*50*80##")
+    _fire(group, "*#1*#6*12*120*50*80##")
     assert group.hs_color == (120.0, 50.0)
 
 
@@ -338,7 +337,7 @@ async def test_bus_frame_group_dimension_write_echo(hass: HomeAssistant):
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    _fire(hass, "*#1*#6*#14*153##")
+    _fire(group, "*#1*#6*#14*153##")
     assert group.color_temp_kelvin == int(1000000 / 153)
 
 
@@ -347,7 +346,7 @@ async def test_bus_frame_wrong_group_ignored(hass: HomeAssistant):
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    _fire(hass, "*1*1*#7##")
+    _fire(group, "*1*1*#7##")
     assert group.is_on is None
 
 
@@ -414,7 +413,7 @@ async def test_members_mode_ignores_group_broadcast_frames(hass: HomeAssistant):
     await group.async_added_to_hass()
     assert group.is_on is False
 
-    _fire(hass, "*1*1*#6##")
+    _fire(group, "*1*1*#6##")
     # The broadcast frame must not override the member-derived state.
     assert group.is_on is False
 
@@ -435,7 +434,7 @@ async def test_bus_frame_ignored_for_other_who_and_translation(hass: HomeAssista
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    _fire(hass, "*2*1*11##")  # WHO=2, not lighting
+    _fire(group, "*2*1*11##")  # WHO=2, not lighting
     assert group.is_on is None
 
     msg = MagicMock()
@@ -443,7 +442,7 @@ async def test_bus_frame_ignored_for_other_who_and_translation(hass: HomeAssista
     msg.is_translation = True
     msg.is_group = True
     msg.group = "6"
-    group._handle_bus_message(msg)
+    group.handle_event(msg)
     assert group.is_on is None
 
 
@@ -452,10 +451,10 @@ async def test_bus_frame_updates_icon(hass: HomeAssistant):
     group = _group(hass, gateway, icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on")
     await group.async_added_to_hass()
 
-    _fire(hass, "*1*1*#6##")
+    _fire(group, "*1*1*#6##")
     assert group.icon == "mdi:lightbulb-on"
 
-    _fire(hass, "*1*0*#6##")
+    _fire(group, "*1*0*#6##")
     assert group.icon == "mdi:lightbulb-off"
 
 
