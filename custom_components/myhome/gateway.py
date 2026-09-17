@@ -71,8 +71,8 @@ from .const import (
 from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
-    async_delete_identity_issue,
     async_create_unconfigured_timezone_issue,
+    async_delete_identity_issue,
     async_delete_unconfigured_timezone_issue,
 )
 
