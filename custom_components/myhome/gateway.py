@@ -545,9 +545,8 @@ class MyHOMEGatewayHandler:
                     message,
                 )
         elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14:
-            if not message.where:
-                return
-            where = message.where[1:] if message.where.startswith("#") else message.where
+            where_str = cast(str, message.where)
+            where = where_str[1:] if where_str.startswith("#") else where_str
             LOGGER.debug(
                 "%s Received heating command, sending query to zone %s",
                 self.log_id,

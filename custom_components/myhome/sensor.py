@@ -174,10 +174,7 @@ async def async_setup_entry(
         return Address(where, key_suffix=f"-{measurement}")
 
     def energy_bus_address(message: Any) -> Address | None:
-        msg_type = getattr(message, "message_type", None)
-        if msg_type is None:
-            return None
-        measurement = ENERGY_MEASUREMENTS.get(cast(str, msg_type))
+        measurement = ENERGY_MEASUREMENTS.get(cast(str, getattr(message, "message_type", None)))
         if measurement is None:
             return None
         return Address(_sensor_address("18", message.where)[1], key_suffix=f"-{measurement}")
