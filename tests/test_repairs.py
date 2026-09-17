@@ -100,7 +100,7 @@ async def test_unconfigured_timezone_issues_lifecycle(hass: HomeAssistant) -> No
     issue_registry = ir.async_get(hass)
     entry_id = "entry_tz"
 
-    async_create_unconfigured_timezone_issue(hass, entry_id)
+    async_create_unconfigured_timezone_issue(hass, entry_id, "Mock Gateway")
     issue = issue_registry.async_get_issue(DOMAIN, f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}")
     assert issue is not None
     assert issue.severity == ir.IssueSeverity.WARNING
