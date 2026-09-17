@@ -6,7 +6,7 @@
  */
 
 // Fallback only: the live value comes from the backend (bus_monitor/info -> integration_version).
-const CARD_VERSION = "2.0.0b12";
+const CARD_VERSION = "2.0.0b13";
 
 const WHO_CATALOG = {
   "0": { name: "Scenarios (Basic)", short: "Scenario", class: "who-cen" },
