@@ -76,6 +76,5 @@ f454:
 ### 📜 Protocol Reference
 - **[OpenWebNet & WHO Specifications](protocol/who-specifications.md)**: Official BTicino WHO codes, frame structures, and dimension definitions.
 
-### 🔄 Migration
-- **[Migrating from SDomotica to MyHOME](migration/sdomotica.md)**: Zero-touch migration from SDomotica to MyHOME.
+### 🔄 Migration History
 - **[Pre-v0.9 Legacy Configuration](migration/legacy-pre-v09.md)**: Historical configuration formats prior to v0.9.

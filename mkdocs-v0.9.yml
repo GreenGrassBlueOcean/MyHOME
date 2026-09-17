@@ -89,6 +89,5 @@ nav:
       - Automations & Bus Events: advanced/advanced-uses.md
   - Protocol Reference:
       - OpenWebNet & WHO Specs: protocol/who-specifications.md
-  - Migration:
-      - SDomotica to MyHOME: migration/sdomotica.md
+  - Migration History:
       - Pre-v0.9 Legacy Config: migration/legacy-pre-v09.md
