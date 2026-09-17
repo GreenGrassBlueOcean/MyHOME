@@ -39,6 +39,7 @@ from homeassistant.helpers.entity import Entity
 
 from .const import CONF_BUS_INTERFACE, CONF_WHERE, CONF_WHO, CONF_ZONE, LOGGER
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
+from .myhome_device import MyHOMEEntity
 
 BUS_ROUTING = "#4#"
 
@@ -181,7 +182,7 @@ class DeviceContext:
         return self.address.suffix
 
 
-BuildFn = Callable[[DeviceContext], "Entity | Sequence[Entity] | None"]
+BuildFn = Callable[[DeviceContext], "MyHOMEEntity | Sequence[MyHOMEEntity] | None"]
 
 
 def default_known_keys(ctx: DeviceContext) -> list[str]:
@@ -388,13 +389,13 @@ class PlatformDiscovery:
         built = self.build(ctx)
         if built is None:
             return []
-        created: list[Entity] = list(built) if isinstance(built, (list, tuple)) else [cast(Entity, built)]
+        created: list[MyHOMEEntity] = list(built) if isinstance(built, (list, tuple)) else [cast(MyHOMEEntity, built)]
         if not created:
             return []
         keys = list(self.known_keys(ctx))
         self.known.add(*keys)
         for entity in created:
-            entity.async_on_remove(self.router.subscribe(self.who, keys, entity.handle_event))  # type: ignore[attr-defined]
+            entity.async_on_remove(self.router.subscribe(self.who, keys, entity.handle_event))
         return created
 
     # ── bus ─────────────────────────────────────────────────────────────
