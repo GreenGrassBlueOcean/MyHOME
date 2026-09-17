@@ -414,10 +414,12 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             if generation != self._run_generation:
                 return
             if fut.cancelled() or fut.exception() is not None:
-                # The frame never reached the bus: nothing to echo. Close the
-                # window so the next frame for this cover is handled as what
-                # it is (a wall switch, a scenario, a status).
-                self._end_echo_window()
+                # The frame never reached the bus: abort motion if this was an open/close
+                # command so the entity does not stay stuck in an opening/closing state.
+                if self._pending_cmd in ("open", "close"):
+                    self._abort_motion()
+                else:
+                    self._end_echo_window()
                 return
             write_ts = fut.result()
             self._echo_until = write_ts + ECHO_WINDOW
@@ -475,24 +477,58 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if self._attr_current_cover_position is not None:
             self._attr_is_closed = (self._attr_current_cover_position == 0)
 
+    def _abort_motion(self) -> None:
+        """Abort motion state when a command frame failed to reach the bus."""
+        self._cancel_stop_task()
+        self._end_echo_window()
+        self._move_start_time = None
+        self._run_started_at = None
+        self._motion_started_at = None
+        self._attr_is_opening = False
+        self._attr_is_closing = False
+        if self._attr_current_cover_position is not None:
+            self._start_position = self._attr_current_cover_position
+            self._attr_is_closed = (self._attr_current_cover_position == 0)
+        self._refresh_travel_attributes()
+        self._publish_state()
+
     async def _await_motion_anchor(self, written) -> float:  # type: ignore
         """Wait for our frame to be written and for the motor-start echo.
 
         Returns the monotonic time motion is anchored on: the direction echo
-        if the gateway relayed one inside the window, else the write time,
-        else (no delivery within WRITE_TIMEOUT) now.
+        if the gateway relayed one inside the window, else the write time.
+        Raises HomeAssistantError if the frame was cancelled, failed, or timed out.
         """
         write_ts: float | None = None
         if isinstance(written, asyncio.Future):
             try:
                 write_ts = await asyncio.wait_for(asyncio.shield(written), WRITE_TIMEOUT)
-            except TimeoutError:
-                self._end_echo_window()  # never written within the bound: no echo to expect
+            except TimeoutError as err:
+                self._abort_motion()
+                raise HomeAssistantError(
+                    f"{self._display_name}: direction command was not delivered to the bus within {WRITE_TIMEOUT:.0f} s",
+                    translation_domain=DOMAIN,
+                    translation_key="command_delivery_timeout",
+                    translation_placeholders={"name": self._display_name, "timeout": f"{WRITE_TIMEOUT:.0f}"},
+                ) from err
             except asyncio.CancelledError:
                 if not written.cancelled():
                     raise  # our own task was cancelled (new command, entity removed): stop here
-                # the *delivery* was cancelled (queue flushed): no echo, anchor on "now" below
-                self._end_echo_window()
+                self._abort_motion()
+                raise HomeAssistantError(
+                    f"{self._display_name}: direction command delivery was cancelled before reaching the bus",
+                    translation_domain=DOMAIN,
+                    translation_key="command_delivery_cancelled",
+                    translation_placeholders={"name": self._display_name},
+                )
+            except Exception as err:
+                self._abort_motion()
+                raise HomeAssistantError(
+                    f"{self._display_name}: direction command delivery failed: {err}",
+                    translation_domain=DOMAIN,
+                    translation_key="command_delivery_failed",
+                    translation_placeholders={"name": self._display_name, "error": str(err)},
+                ) from err
         # The window ends ECHO_WINDOW after the write; computed here from the write
         # time itself, as this task may run before the future's callbacks did.
         deadline = (write_ts if write_ts is not None else time.monotonic()) + ECHO_WINDOW
@@ -942,6 +978,25 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             _record_calibration_frame(self._gateway_handler, "tx", str(command), direction_action=direction, entity_id=self.entity_id)
         if not self._advanced:
             self._track_write(written)
+        if isinstance(written, asyncio.Future) and written.done():
+            if written.cancelled():
+                if not self._advanced:
+                    self._abort_motion()
+                raise HomeAssistantError(
+                    f"{self._display_name}: direction command delivery was cancelled before reaching the bus",
+                    translation_domain=DOMAIN,
+                    translation_key="command_delivery_cancelled",
+                    translation_placeholders={"name": self._display_name},
+                )
+            if (exc := written.exception()) is not None:
+                if not self._advanced:
+                    self._abort_motion()
+                raise HomeAssistantError(
+                    f"{self._display_name}: direction command delivery failed: {exc}",
+                    translation_domain=DOMAIN,
+                    translation_key="command_delivery_failed",
+                    translation_placeholders={"name": self._display_name, "error": str(exc)},
+                ) from exc
         if self.hass is not None:
             self.async_write_ha_state()
         return written  # type: ignore
@@ -1002,6 +1057,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 await self.async_stop_cover()
                 if self.hass is not None:
                     self.async_write_ha_state()
+            except HomeAssistantError as err:
+                LOGGER.error("%s Auto-stop aborted for %s: %s", self._gateway_handler.log_id, self._full_where, err)
             except asyncio.CancelledError:
                 pass
 
