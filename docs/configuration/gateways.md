@@ -121,7 +121,7 @@ Once the gateway responds with a valid timezone offset, the repair issue automat
 
 ---
 
-## 🪪 How the gateway model is identified
+## How the gateway model is identified
 
 The model label decides the gateway profile (command sessions, pacing, queue size, which subsystems are queried) and appears in the entry title, the device registry, diagnostics and every bus-monitor export — so it must be right, and it must say *how* it was established.
 

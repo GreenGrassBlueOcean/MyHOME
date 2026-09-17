@@ -1,0 +1,61 @@
+name: Documentation (MkDocs & Mike)
+
+on:
+  push:
+    branches:
+      - master
+      - v2-phase1-architecture
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Build & Deploy Versioned Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository with full git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-docs.txt
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy versioned docs via mike
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.ref_name }}"
+            echo "Deploying release tag: ${VERSION} as stable"
+            mike deploy --push --update-aliases "${VERSION}" stable
+            mike set-default --push stable
+          elif [ "${{ github.ref_name }}" = "master" ]; then
+            echo "Deploying master branch as stable"
+            mike deploy --push --update-aliases master stable
+            mike set-default --push stable
+          else
+            echo "Deploying branch ${{ github.ref_name }} as dev (alias: latest)"
+            mike deploy --push --update-aliases dev latest
+            mike set-default --push latest
+          fi

@@ -158,3 +158,4 @@ pdf_output.txt
 venv/
 .venv/
 quality_scale.json
+site/
