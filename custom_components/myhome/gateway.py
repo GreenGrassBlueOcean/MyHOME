@@ -72,8 +72,10 @@ from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
     async_create_unconfigured_timezone_issue,
+    async_create_unknown_model_issue,
     async_delete_identity_issue,
     async_delete_unconfigured_timezone_issue,
+    async_delete_unknown_model_issue,
 )
 
 _orig_gw_tz = _ownd_msg._gateway_timezone
@@ -722,9 +724,14 @@ class MyHOMEGatewayHandler:
                 "keeping model `%s`. Please attach a trace to an issue so the code can be documented.",
                 self.log_id, raw_code, configured,
             )
+            if entry_id:
+                async_create_unknown_model_issue(self.hass, entry_id, raw_code)
             self._set_conflict(None, entry_id)
             self._sync_device_registry_model(configured)
             return
+
+        if entry_id:
+            async_delete_unknown_model_issue(self.hass, entry_id)
 
         is_ambiguous = raw_code in WHO13_AMBIGUOUS_DEVICE_TYPES
         compatibility = is_who13_code_compatible(raw_code, configured)

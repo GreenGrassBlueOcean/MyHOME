@@ -1183,7 +1183,12 @@ def test_handle_gateway_diagnostics_dimension_15_and_16(gateway_handler, mock_co
 
     mock_dev_reg.async_update_device.side_effect = _track_model
 
-    with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dev_reg),          patch("custom_components.myhome.gateway.async_create_identity_issue") as create_issue,          patch("custom_components.myhome.gateway.async_create_identity_corrected_issue"),          patch("custom_components.myhome.gateway.async_delete_identity_issue"):
+    with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dev_reg), \
+         patch("custom_components.myhome.gateway.async_create_identity_issue") as create_issue, \
+         patch("custom_components.myhome.gateway.async_create_identity_corrected_issue"), \
+         patch("custom_components.myhome.gateway.async_delete_identity_issue"), \
+         patch("custom_components.myhome.gateway.async_create_unknown_model_issue") as create_unknown, \
+         patch("custom_components.myhome.gateway.async_delete_unknown_model_issue") as delete_unknown:
         # 1. Dimension 15: type 2 = MHServer (2006 table) contradicts the announced "MYHOME"
         #    model -> flagged as a conflict, model untouched, entry not rewritten.
         msg_dim15 = OWNEvent.parse("*#13**15*2##")
@@ -1192,6 +1197,7 @@ def test_handle_gateway_diagnostics_dimension_15_and_16(gateway_handler, mock_co
         assert gateway_handler._who13["model"] == "MHServer"
         assert gateway_handler._identity_conflict is not None
         create_issue.assert_called_once()
+        delete_unknown.assert_called_with(gateway_handler.hass, "entry_diag")
         gateway_handler.hass.config_entries.async_update_entry.assert_not_called()
         assert not mock_dev_reg.async_update_device.called
 
@@ -1205,11 +1211,12 @@ def test_handle_gateway_diagnostics_dimension_15_and_16(gateway_handler, mock_co
         gateway_handler._handle_gateway_diagnostics(msg_dim15)
         create_issue.assert_called_once()
 
-        # 4. Unknown type (999): recorded, nothing changes
+        # 4. Unknown type (999): recorded, repair issue created
         mock_dev_reg.reset_mock()
         gateway_handler._handle_gateway_diagnostics(OWNEvent.parse("*#13**15*999##"))
         assert gateway_handler._who13["code"] == "999"
         assert gateway_handler.model == "MYHOME"
+        create_unknown.assert_called_once_with(gateway_handler.hass, "entry_diag", "999")
 
         # 5. Same firmware again (no duplicate update)
         mock_dev_reg.reset_mock()
