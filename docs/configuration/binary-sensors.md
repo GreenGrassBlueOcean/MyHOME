@@ -1,152 +1,48 @@
-There are 3 types of binary sensors that are supported
+# Binary Sensors & Contacts (WHO = 25, WHO = 1, WHO = 9)
 
-# Dry contacts
+The **MyHOME** integration provides monitoring for dry contact interfaces, PIR motion sensors, and security auxiliary contacts across OpenWebNet **WHO = 25**, **WHO = 1**, and **WHO = 9**.
 
-Here are the 3 configuration items you need to pay attention to:
+In v2, setup and management are **100% UI-first**: binary sensors are automatically discovered from SCS bus events, and device presentation (such as choosing between a door sensor, window contact, or motion detector) is configured directly in Home Assistant's UI settings.
 
-* `who` is optional, but if you set it, it must be `25` for the dry contacts. If you don't set it, the configuration validator will set it to 25 by default in the background.
-* `where` for these is one of a few special cases, as per specification, they are always "3" followed by the sensor number assigned "[1-201]".  
-* `class` allows you to specify any supported Home-Assistant binary sensor `device_class`, this will affect the way the device is presented in the interface. It is highly recommended to set it!
+---
 
-## Configuration example
+## 🚀 Supported Binary Sensor Types
 
-```yaml
-  binary_sensor:
-    garage_door:
-      where: '31'
-      name: Garage door
-      class: garage_door
-      manufacturer: BTicino
-      model: 3477
-```
+### 1. Dry Contact Interfaces (WHO = 25)
+* **Hardware**: BTicino `3477` flush-mounted contact interface, magnetic reed switches, mechanical window switches, technical alarm contacts.
+* **Addresses**: `WHERE = 31` through `3201`.
+* **Auto-Discovery**: As soon as a dry contact changes state on the SCS bus, the integration automatically creates the corresponding binary sensor entity.
 
-# Motion sensors
+### 2. Motion / PIR Sensors (WHO = 1)
+* **Hardware**: Legrand `048822`, BTicino `BMSE1001` or standard SCS ceiling/wall motion sensors configured in scenario mode.
+* **Operation**: When movement is detected, the sensor broadcasts an event frame on WHO 1 that sets the binary sensor to `on` (Detected), returning to `off` (Clear) when timeout expires.
 
-The "motion" part of the light and motion sensors on WHO 1 are available if the sensor is configured in "scenario" mode.  
-`who` **must** be "1" for these sensors.  
-`class` **must** be "motion" for these sensors.
+### 3. Auxiliary Alarm Sensors (WHO = 9)
+* **Hardware**: Auxiliary sensors, technical transmitters (water leak, methane gas), or peripheral contacts connected to the burglar alarm central unit.
+* **Addresses**: `WHERE = 0` through `9`.
 
-## Configuration example
+---
 
-```yaml
-  binary_sensor:
-    office_motion:
-      who: '1'
-      where: '0312'
-      name: Office
-      class: motion
-      manufacturer: Legrand
-      model: 048822
-```
+## 🚪 Selecting Device Classes in the UI ("Show As")
 
-# Auxiliary sensors
-Auxiliary sensors from the alarm system can also be added.  
-`where` is the auxiliary sensor number "[0-9]".  
-`who` must be "9" in the case of Auxiliary sensors.  
-`class` allows you to specify any supported Home-Assistant binary sensor `device_class`, this will affect the way the device is presented in the interface.  It is highly recommended to set it!
+In legacy versions, specifying whether a contact was a door, garage door, or window required manual YAML `class:` keys. In v2, this is configured directly in Home Assistant's UI:
 
-## Configuration example
+1. Navigate to **Settings → Devices & Services → Entities**.
+2. Select your binary sensor (e.g. `binary_sensor.garage_entry_door`).
+3. Click the **Settings (gear)** icon.
+4. Under **Show As**, select the appropriate device class:
+   - **Door**: Entry doors, interior doors.
+   - **Window**: Opening windows, skylights.
+   - **Garage Door**: Motorized or monitored garage gates.
+   - **Motion**: PIR motion and occupancy detectors.
+   - **Moisture**: Water leak detectors.
+   - **Gas / Smoke**: Technical safety sensors.
+   - **Lock / Tamper**: Anti-tampering switches on enclosures.
+5. Click **Update**. Home Assistant immediately applies appropriate dynamic icons (e.g. open/closed doors, motion waves) and integrates the sensor into Area security summaries.
 
-```yaml
-  binary_sensor:
-    motion_sensor:
-      where: '1'
-      who: '9'
-      name: Motion living room
-      class: motion
-      manufacturer: BTicino
-      model: L4610
-```
+---
 
-# Device classes
+## 🔄 Legacy YAML Note
 
-Here is the list of device class strings used by Home Assistant for reference:
-
-```python
-class BinarySensorDeviceClass(StrEnum):
-    """Device class for binary sensors."""
-
-    # On means low, Off means normal
-    BATTERY = "battery"
-
-    # On means charging, Off means not charging
-    BATTERY_CHARGING = "battery_charging"
-
-    # On means carbon monoxide detected, Off means no carbon monoxide (clear)
-    CO = "carbon_monoxide"
-
-    # On means cold, Off means normal
-    COLD = "cold"
-
-    # On means connected, Off means disconnected
-    CONNECTIVITY = "connectivity"
-
-    # On means open, Off means closed
-    DOOR = "door"
-
-    # On means open, Off means closed
-    GARAGE_DOOR = "garage_door"
-
-    # On means gas detected, Off means no gas (clear)
-    GAS = "gas"
-
-    # On means hot, Off means normal
-    HEAT = "heat"
-
-    # On means light detected, Off means no light
-    LIGHT = "light"
-
-    # On means open (unlocked), Off means closed (locked)
-    LOCK = "lock"
-
-    # On means wet, Off means dry
-    MOISTURE = "moisture"
-
-    # On means motion detected, Off means no motion (clear)
-    MOTION = "motion"
-
-    # On means moving, Off means not moving (stopped)
-    MOVING = "moving"
-
-    # On means occupied, Off means not occupied (clear)
-    OCCUPANCY = "occupancy"
-
-    # On means open, Off means closed
-    OPENING = "opening"
-
-    # On means plugged in, Off means unplugged
-    PLUG = "plug"
-
-    # On means power detected, Off means no power
-    POWER = "power"
-
-    # On means home, Off means away
-    PRESENCE = "presence"
-
-    # On means problem detected, Off means no problem (OK)
-    PROBLEM = "problem"
-
-    # On means running, Off means not running
-    RUNNING = "running"
-
-    # On means unsafe, Off means safe
-    SAFETY = "safety"
-
-    # On means smoke detected, Off means no smoke (clear)
-    SMOKE = "smoke"
-
-    # On means sound detected, Off means no sound (clear)
-    SOUND = "sound"
-
-    # On means tampering detected, Off means no tampering (clear)
-    TAMPER = "tamper"
-
-    # On means update available, Off means up-to-date
-    UPDATE = "update"
-
-    # On means vibration detected, Off means no vibration
-    VIBRATION = "vibration"
-
-    # On means open, Off means closed
-    WINDOW = "window"
-```
+> [!NOTE]
+> If you are upgrading from legacy v0.9 installations and still have manual `binary_sensor:` blocks in `/config/myhome.yaml`, please refer to the [v0.9.4 Legacy Binary Sensor Documentation](../../0.9.4/configuration/binary-sensors/) or the [Legacy YAML Migration Guide](../migration/legacy-yaml.md). In v2, all binary sensors are discovered dynamically.

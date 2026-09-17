@@ -1,80 +1,59 @@
-There are 3 types of sensors that are available
+# Sensors & Energy (WHO = 18, WHO = 4, WHO = 1)
 
-# Power and energy sensors
+The **MyHOME** integration provides monitoring for electrical energy meters, ambient temperature probes, and light sensors across OpenWebNet **WHO = 18**, **WHO = 4**, and **WHO = 1**.
 
-* `who` is optional but must be `18` should you want to set it.
-* `where` is a special case for those since power meters are always "5" followed by the sensor number assigned "[1-255]" for F520, the address should always be "7" followed by the sensor number assigned "[1-255]" for F522.  
-* `class` is a required item that can be either `power` or `energy`
+In v2, setup and management are **100% UI-first**: sensors are automatically discovered from bus telemetry without manual YAML configuration files.
 
-There is a subtle difference between setting the class to `power` and `energy.  
-Setting it to `power` will create an entity displaying currently used power (in Watts) live as well as 3 entities displaying the energy (in Watt Hours). (one entity for the total energy of the counter, one for daily and one for monthly, the latter 2 are disabled by default)  
-Setting it to `energy` will provide the same energy entities but not the live power (if that is something you're not interested in)
+---
 
-## Configuration example
+## ⚡ Power & Energy Meters (WHO = 18)
 
-```yaml
-  sensor:
-    general_power:
-      where: '51'
-      name: Total power
-      class: power
-      manufacturer: BTicino
-      model: F520
-    water_heater_power:
-      where: '52'
-      name: Water heater
-      class: power
-      manufacturer: BTicino
-      model: F520
-    washing_machine:
-      where: '71'
-      name: Washing machine
-      class: power
-      manufacturer: BTicino
-      model: F522
-```
+The integration natively interfaces with Legrand / BTicino DIN power management actuators:
+* **BTicino F520**: Single-phase power and energy meter (`WHERE = 51` through `5255`).
+* **BTicino F522 / F523**: Multi-circuit energy and power management modules (`WHERE = 71` through `7255`).
 
-# Temperature sensors
+### Auto-Discovered Entities
+When an energy meter is detected on the SCS bus, the integration creates:
+1. **Instantaneous Power Sensor** (`device_class: power`): Real-time active power consumption in Watts (**W**).
+2. **Total Energy Counter** (`device_class: energy`, `state_class: total_increasing`): Cumulative electrical energy consumption in Watt-hours (**Wh**) or kilowatt-hours (**kWh**).
+3. **Periodic Energy Counters**: Daily and monthly energy sub-counters.
 
-* `who` is optional but must be `4` should you want to set it.
-* `where` is the address of the sensor. You can add secondary temperature sensors (with 3 digits as per OpenWebNet documentation, ie `105` is the 1st 'secondary sensor' of the 5th zone) or main temperature sensor (with 1 or 2 digit being the Zone number).
-* `class` must be `temperature`. 
+### Home Assistant Energy Dashboard Integration
+Because energy entities implement standard `state_class: total_increasing` and `device_class: energy`:
+1. Navigate to **Settings → Dashboards → Energy**.
+2. Under **Electricity Grid → Add Consumption**, select your discovered MyHOME total energy sensor (e.g. `sensor.total_power_energy`).
+3. Home Assistant automatically generates hourly, daily, and monthly solar/grid tracking graphs.
 
-> **v2 behaviour for secondary sensors (`where` ≥ 100):** these probes push their readings on the bus (e.g. a 3455 behind an L4577 radio interface reports every few seconds) and reject explicit polls. The entity therefore starts receive-only and only sends a request if no reading arrived within the last 5 minutes. Zone sensors (1- or 2-digit `where`) are polled as before. ([#308](https://github.com/OpenWebNet-HA/MyHOME/issues/308))
-
-## Configuration example
+### Live High-Frequency Power Streaming
+To instruct the gateway to stream high-frequency instantaneous power updates to Home Assistant, call the `myhome.start_sending_instant_power` service action:
 
 ```yaml
-  sensor:
-    bedroom_temperature:
-      where: '1'
-      name: Bedroom temperature
-      class: temperature
-      manufacturer: BTicino
-      model: L4692
-    temperature_sensor:
-      where: '105'
-      name: Secondary sensor
-      class: temperature
-      manufacturer: BTicino
-      model: L4692
+action: myhome.start_sending_instant_power
+data:
+  meter_id: 1    # Meter address (e.g. 1 for F520 address 51)
+  interval: 10   # Push interval in seconds
 ```
 
-# Illuminance sensors
+---
 
-* `who` is optional but must be `1` should you want to set it.
-* `class` must be `illuminance` 
+## 🌡️ Temperature Sensors (WHO = 4)
 
-Illuminance sensors are only available if the sensor itself is configured in "scenario" mode, this is similar to the requirement of the "motion" binary sensor.
+Standalone and secondary temperature probes operating on WHO 4 are automatically exposed as `sensor` entities with `device_class: temperature`:
+* **Main Zone Probes (`WHERE = 1..99`)**: Reports ambient room temperature for individual zones.
+* **Secondary Radio Probes (`WHERE ≥ 100`)**: Reports battery-powered wireless probes (e.g. BTicino `3455` behind `L4577` radio interfaces). The v2 engine utilizes push-driven listening, eliminating unnecessary bus polling.
 
-## Configuration example
+---
 
-```yaml
-  sensor:
-    office_illuminance:
-      where: '0312'
-      name: Office
-      class: illuminance
-      manufacturer: Legrand
-      model: 048822
-```
+## ☀️ Illuminance Lux Sensors (WHO = 1)
+
+Light intensity sensors (e.g. Legrand `048822` ceiling detectors configured in scenario mode) operating on WHO 1 report ambient lux levels:
+* **Entity**: `sensor.<name>_illuminance`
+* **Device Class**: `illuminance` (unit: `lx`)
+* **Use Case**: Drive automated curtain/blind closing when solar glare exceeds threshold, or trigger dusk lighting.
+
+---
+
+## 🔄 Legacy YAML Note
+
+> [!NOTE]
+> If you are upgrading from legacy v0.9 installations and still have manual `sensor:` blocks in `/config/myhome.yaml`, please refer to the [v0.9.4 Legacy Sensor Documentation](../../0.9.4/configuration/sensors/) or the [Legacy YAML Migration Guide](../migration/legacy-yaml.md). In v2, all sensors are discovered dynamically.

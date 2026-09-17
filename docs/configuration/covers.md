@@ -1,48 +1,85 @@
-The configuration remains similar to lights and switches.  
-The specificity is the optional `advanced` boolean (defaulting to `False`), you need to set it to `True` if you have 'advanced' cover modules that keep track of and return position values. (Only "Céliane 67557", "Axolute H4661M2", "Livinglight LN4661M2" and the "F401" DIN module are capable of this)
+# Covers & Shutters (WHO = 2)
 
-# Configuration example
+The **MyHOME** integration provides full control for motorized shutters, blinds, venetian blinds, and curtains operating on OpenWebNet **WHO = 2**.
+
+In v2, setup and management are **100% UI-first**: entities are automatically discovered from the SCS bus, and position calibration is handled natively through Home Assistant buttons and services without requiring manual YAML configuration files.
+
+---
+
+## 🚀 Auto-Discovery
+
+When your gateway connects to Home Assistant:
+1. **Dynamic Bus Discovery**: The integration listens to OpenWebNet `WHO = 2` frames and scans the bus.
+2. **Device Creation**: Each physical shutter actuator (`WHERE = 1..99` or area/point addresses) is registered as a Home Assistant `cover` device linked to your MyHOME Gateway.
+3. **UI Customization**: You can rename the entity, assign it to an Area (e.g. *Living Room*, *Master Bedroom*), or change its icon directly in the Home Assistant UI (**Settings → Devices & Services → Entities**).
+
+---
+
+## 🎛️ Cover Types: Standard vs. Advanced
+
+The integration distinguishes between two types of MyHOME covers:
+
+| Cover Type | Supported Hardware | Position Control (`set_cover_position`) | How Position is Handled |
+| :--- | :--- | :---: | :--- |
+| **Advanced Covers** | Legrand Céliane `67557`, Axolute `H4661M2`, Livinglight `LN4661M2`, BTicino `F401` (advanced mode) | ✅ Native | Actuator hardware reports exact physical position back to the bus (`Dimension = 10`). |
+| **Standard (Timed) Covers** | Standard relay actuators (`F411/2`, `F411U2`, standard `F401`, older flush-mount units) | ✅ Estimated | Actuator has no position feedback. The v2 runtime accurately estimates position from measured **travel time** (`travel_time_down` and `travel_time_up`). |
+
+---
+
+## ⏱️ Timed Cover Position Engine
+
+For standard covers without hardware position feedback, the integration provides a high-precision software estimator enabling full `open_cover`, `close_cover`, `stop_cover`, and slider-based `set_cover_position` support:
+
+* **Direction-Aware Travel Times**: Because gravity and motor friction cause shutters to fall faster than they rise, the v2 engine tracks separate `travel_time_down` and `travel_time_up` durations (default: `25.0s`).
+* **Frame Anchor Timing**: The run timer starts when the direction frame is **written to the gateway**, not when Home Assistant queues it.
+* **Echo Suppression**: The gateway relays a momentary stop status (~0.1 s) followed by translation and the actual motor start (~0.55 s). The v2 engine recognizes these as command echoes, re-anchoring the timer to the true motor start rather than falsely treating them as manual stop commands.
+* **Resynchronization**: Running a cover to its full travel limit (fully open or fully closed) automatically resets any minor timing drift to 0% or 100%.
+
+---
+
+## 📐 Calibrating Travel Time (Zero YAML)
+
+You never need to edit YAML files to calibrate travel times in v2. Choose any of the following UI-native methods:
+
+### Method 1: Stopwatch Button on Device Page
+Every timed cover device in Home Assistant includes a dedicated configuration button entity:
+* **Entity**: `button.<name>_calibrate_travel_time`
+* **Icon**: `mdi:ruler-square-compass`
+
+1. Open the cover's device page in Home Assistant (**Settings → Devices & Services → Devices → [Cover Name]**).
+2. Click **Calibrate Travel Time**:
+   - If the cover is open, it begins closing and starts the internal timer.
+   - When the cover reaches the bottom, click the button again (or call `stop_cover`) to lock in the measured time.
+3. The measured values are persisted automatically to the Home Assistant config entry.
+
+### Method 2: Calibrate All Covers Sequentially
+On your gateway device page, click **Calibrate All Covers** (`button.calibrate_all_covers`). The integration will walk through each timed cover one after another, allowing full plant calibration in a single session.
+
+### Method 3: Lovelace Bus Monitor Card Built-In Stopwatch
+If you use the [Lovelace Bus Monitor Card](bus_monitor.md), open the **Covers** tab. It features a live stopwatch specifically designed for timing and saving shutter runs directly from your dashboard.
+
+### Method 4: Set Explicit Travel Time via Service Action
+If you already know the exact run duration (e.g. from a stopwatch or technical datasheet), you can set it directly using the `myhome.set_cover_travel_time` action in **Developer Tools → Actions**:
 
 ```yaml
-  cover:
-    living_shutter:
-      where: '11'
-      name: Living room shutter
-      advanced: True
-      manufacturer: Legrand
-      model: 67557
-    kitchen_shutter:
-      where: '12'
-      interface: '03'
-      name: Kitchen shutter
-      advanced: True
-      manufacturer: Legrand
-      model: 67557
-    dining_room_shutter:
-      where: '13'
-      name: Dining room shutter
-      advanced: True
-      manufacturer: Legrand
-      model: 67557
+action: myhome.set_cover_travel_time
+target:
+  entity_id: cover.living_room_shutter
+data:
+  travel_time_down: 22.5
+  travel_time_up: 24.0
 ```
 
-# Timed covers (v2)
-
-Covers with `advanced: False` have no position feedback. From v2 the integration estimates position from `travel_time` (seconds for a full run, default `25`) and exposes `set_cover_position` on them.
-
+To clear calibration and return to default values:
 ```yaml
-  cover:
-    bedroom_shutter:
-      where: '21'
-      name: Bedroom shutter
-      travel_time: 18
+action: myhome.reset_cover_travel_time
+target:
+  entity_id: cover.living_room_shutter
 ```
 
-What the estimate is based on (measured on a MyHOMeServer1, [#302](https://github.com/OpenWebNet-HA/MyHOME/issues/302)):
+---
 
-- The clock starts when the direction frame is **written to the gateway**, not when Home Assistant queues it — with several covers commanded together the last frame can leave more than a second later.
-- After the write the gateway relays a stop status (~0.1 s), the translation, and the real direction status when the motor starts (~0.55 s). These are echoes of our own command: the stop does not end the run, and the direction status re-anchors the clock to the actual motor start.
-- `set_cover_position` times its run from that anchor; a stop is applied to the estimate when the stop frame is written.
-- A wall-switch or scenario command in the opposite direction, or any command after the motor has started, is handled normally.
+## 🔄 Legacy YAML Note
 
-Full description: [Runtime Behaviour Notes ↗](https://github.com/OpenWebNet-HA/MyHOME/blob/v2-phase1-architecture/docs/configuration/runtime_behaviour.md#-timed-covers-clock-starts-at-the-write-echoes-are-not-keypad-presses).
+> [!NOTE]
+> If you are upgrading from legacy v0.9 installations and still have manual `cover:` blocks in `/config/myhome.yaml`, please refer to the [v0.9.4 Legacy Cover Documentation](../../0.9.4/configuration/covers/) or the [Legacy YAML Migration Guide](../migration/legacy-yaml.md). In v2, all covers are managed dynamically via Home Assistant's native registry.
