@@ -443,7 +443,7 @@ async def test_bus_frame_ignored_for_other_who_and_translation(hass: HomeAssista
     msg.is_translation = True
     msg.is_group = True
     msg.group = "6"
-    group._handle_bus_message(msg)
+    group.handle_event(msg)
     assert group.is_on is None
 
 

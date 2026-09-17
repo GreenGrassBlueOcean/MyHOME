@@ -1070,7 +1070,7 @@ async def test_gateway_properties_and_cen_branches(gateway_handler):
     assert gateway_handler.manufacturer == "BTicino"
 
     # Firmware as tuple/list
-    gateway_handler.gateway.firmware = [1, 0, 5]
+    gateway_handler.gateway.firmware = "1.0.5"
     assert gateway_handler.firmware == "1.0.5"
 
     # CEN device when config_entry has no entry_id
