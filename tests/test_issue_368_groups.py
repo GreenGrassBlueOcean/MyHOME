@@ -51,7 +51,7 @@ def _group(hass: HomeAssistant, gateway: MagicMock, *, members: list[str] | None
     return entity
 
 
-def _fire(group, frame: str) -> None:
+def _fire(group: MyHOMELightGroup, frame: str) -> None:
     group.handle_event(OWNMessage.parse(frame))
 
 
