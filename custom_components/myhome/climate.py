@@ -534,11 +534,20 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._target_temperature = message.set_temperature
-            self._local_target_temperature = (
-                self._target_temperature + self._local_offset
-                if self._target_temperature is not None
-                else None
+            is_protection_or_off = (
+                self._attr_hvac_mode == HVACMode.OFF
+                or (
+                    hasattr(message, "_dimension_value")
+                    and len(message._dimension_value) > 1
+                    and message._dimension_value[1] == "3"
+                )
             )
+            if not is_protection_or_off:
+                self._local_target_temperature = (
+                    self._target_temperature + self._local_offset
+                    if self._target_temperature is not None
+                    else None
+                )
         elif message.message_type == MESSAGE_TYPE_LOCAL_OFFSET:
             LOGGER.debug(
                 "%s %s",
@@ -560,7 +569,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._knob_pos = "?"
             else:
                 self._knob_pos = "UNKNOWN"
-            if self._target_temperature is not None:
+            if self._target_temperature is not None and self._attr_hvac_mode != HVACMode.OFF:
                 self._local_target_temperature = self._target_temperature + self._local_offset
         elif message.message_type == MESSAGE_TYPE_LOCAL_TARGET_TEMPERATURE:
             LOGGER.debug(
@@ -569,12 +578,22 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._local_target_temperature = message.local_set_temperature
-            self._target_temperature = (
-                self._local_target_temperature - self._local_offset
-                if self._local_target_temperature is not None
-                else None
+            is_protection_or_off = (
+                self._attr_hvac_mode == HVACMode.OFF
+                or (
+                    hasattr(message, "_dimension_value")
+                    and len(message._dimension_value) > 1
+                    and message._dimension_value[1] == "3"
+                )
             )
+            if not is_protection_or_off:
+                self._target_temperature = (
+                    self._local_target_temperature - self._local_offset
+                    if self._local_target_temperature is not None
+                    else None
+                )
         elif message.message_type == MESSAGE_TYPE_MODE:
+            prev_mode = self._attr_hvac_mode
             if message.mode == CLIMATE_MODE_AUTO and HVACMode.AUTO in self._attr_hvac_modes:
                 LOGGER.debug(
                     "%s %s",
@@ -610,6 +629,12 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
+            if (
+                prev_mode == HVACMode.OFF
+                and self._attr_hvac_mode != HVACMode.OFF
+                and self._target_temperature is not None
+            ):
+                self._local_target_temperature = self._target_temperature + self._local_offset
             if self._central and self.hass is not None and self._attr_hvac_mode is not None:
                 async_dispatcher_send(
                     self.hass,
