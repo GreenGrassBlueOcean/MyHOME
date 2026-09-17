@@ -104,6 +104,12 @@ authorities:
         date: "2026-09-16"
         gateway: "BTicino MH201"
         devices: "Lighting actuator/point, address 05 (*#1*05## status request)"
+      - name: "Physical Bus Capture (BTicino MH200 Physical Plant)"
+        reference: "tests/fixtures/plants/mh200_physical_plant"
+        author: "Laurens (@GreenGrassBlueOcean)"
+        date: "2026-09-16"
+        gateway: "BTicino MH200"
+        devices: "Full installation: 62 lights (dimmers and switches), 11 covers on interface 02, MH200 gateway diagnostics"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 

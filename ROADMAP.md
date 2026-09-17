@@ -23,7 +23,8 @@ gantt
     DALI Tunable White & Native HSV Color                           :done, 2026-09-01, 2026-09-11
     WHO 18 Energy Power/Meters & WHO 16 Audio Matrix Proxy          :done, 2026-09-01, 2026-09-11
     section Active Community Consultation
-    RFC - P7 Group Sync, P3 Cover Calibration, WHO 14/24/22 Scope   :active, 2026-09-11, 2026-11-01
+    P7 Implementation - declared groups + debounced resync (#367/#376/#377) :active, 2026-09-16, 2026-10-01
+    RFC - P3 Cover Calibration, WHO 14/24/22 Scope                  :active, 2026-09-11, 2026-11-01
     section Post-Beta Milestones
     Phase 5 - Golden Quality Scale (IQS) & HA Core Alignment         :2026-11-01, 2026-12-15
 ```
@@ -66,9 +67,13 @@ We invite community members, certified installers, and power users to review the
 In OpenWebNet, lighting actuators can be triggered individually (`WHERE=10`), by group (`WHERE=#1` through `#255`), by environment/room (`WHERE=room`), or generally across the whole plant (`WHERE=0`). 
 In ideal installations, actuators broadcast individual status frames (`*1*0*10##`, `*1*0*11##`) after executing a group or general command. However, on older gateways or specific actuator configurations, actuators do **not** emit individual status messages, leaving Home Assistant entities out of sync with the physical lights.
 
-#### Open Questions for the Community:
-1. **Group Mapping Definition**: Should group memberships be defined in `myhome.yaml` / UI Options (e.g. `groups: { 1: ["light.kitchen", "light.dining"] }`), or should Home Assistant trigger an asynchronous status sweep (`*#1*WHERE##`) whenever a group actuation is intercepted on the bus?
-2. **Priority**: For your installation, do you actively use physical MyHOME group/general buttons, and are your entity states desynchronizing today?
+#### Resolved Design (discussion #248, issue #368):
+Community consensus settled on **Approach B (declared groups) scoped narrowly, with Approach C (reactive re-sync) as the fallback, and never an auto-discovered group entity**:
+
+1. **#367** (prerequisite, in review): `myhome_group/area/general_light_event` reports a truthful `event` - only `on`/`off` for a WHAT whose result is knowable, never `off` for a dimension or toggle frame.
+2. **#376** (draft PR, PR B): a group is declared in `myhome.yaml` (`where: '#G'`, optional `members:`), the same place as `lock_features` (#364). It is an `assumed_state` light unless `members` is given, in which case state is derived from those members like `light.group`.
+3. **#377** (draft PR, PR A): a group/area/general frame arms a 250 ms debounce window; the sweep (`*#1*#G##` / `*#1*A##` per known area) only fires if no individual status arrived meanwhile, since the F461/F429G/F454 traces we have all echo members spontaneously.
+4. Still missing: a bus trace from a gateway that does **not** echo member status after a broadcast - the fallback above is unverified there. If your installation desyncs on a group/general command today, a capture on #368 closes this gap.
 
 ---
 
@@ -195,7 +200,8 @@ graph TD
         GW_MH200["🟢 MH200 / MH200N<br/>(107 Frames / Physical Plant)"]
         GW_F461["🟢 F461<br/>(DIN Web Server)"]
         GW_3578["🟡 Legrand 3578<br/>(Serial/ZigBee Loopback)"]
-        GW_MH202["🔴 MH202 / MH201<br/>(Scenario Gateways)"]
+        GW_MH201["🟢 MH201<br/>(100 Frames / Physical Plant)"]
+        GW_MH202["🔴 MH202<br/>(Scenario Gateway)"]
         GW_F455["🔴 F455<br/>(Dual-Bus Routing)"]
     end
 
@@ -203,7 +209,7 @@ graph TD
         SUB_LIGHT["🟢 Lighting / Relays (WHO 1)<br/>(4-digit & on/off covered)"]
         SUB_DALI["🟢 DALI DT8 / RGB (WHO 1)<br/>(Dim 14 Tunable White)"]
         SUB_TIMER["🟡 DIN Bus Timers (WHO 1)<br/>(Synthetic test covered)"]
-        SUB_GRP["🔴 Lighting Groups (P7)<br/>(#group / WHERE=0 sweeps)"]
+        SUB_GRP["🟡 Lighting Groups (P7)<br/>(declared groups + debounced resync, #376/#377)"]
         SUB_COV_V["🟢 Covers Virtual (WHO 2)<br/>(Travel-time positioning)"]
         SUB_COV_H["🟢 Covers Hardware (WHO 2)<br/>(Dim 10 status covered)"]
         SUB_COV_CAL["🔴 Cover Calibration (P3)<br/>(shutterRun=AUTO traces)"]
@@ -223,6 +229,7 @@ graph TD
     GW_MHS1 --> HARNESS
     GW_F454 --> HARNESS
     GW_MH200 --> HARNESS
+    GW_MH201 --> HARNESS
     GW_F461 --> HARNESS
     SUB_LIGHT --> HARNESS
     SUB_DALI --> HARNESS
@@ -237,9 +244,9 @@ graph TD
     classDef partial fill:#f57f17,stroke:#e65100,color:#ffffff;
     classDef needed fill:#c62828,stroke:#b71c1c,color:#ffffff;
 
-    class GW_MHS1,GW_F454,GW_MH200,GW_F461,SUB_LIGHT,SUB_DALI,SUB_COV_V,SUB_COV_H,SUB_CU3550,SUB_ENERGY,SUB_DRY,SUB_ROUTER covered;
-    class GW_3578,SUB_TIMER,SUB_CEN,SUB_ALARM partial;
-    class GW_MH202,GW_F455,SUB_GRP,SUB_COV_CAL,SUB_CU4695 needed;
+    class GW_MHS1,GW_F454,GW_MH200,GW_MH201,GW_F461,SUB_LIGHT,SUB_DALI,SUB_COV_V,SUB_COV_H,SUB_CU3550,SUB_ENERGY,SUB_DRY,SUB_ROUTER covered;
+    class GW_3578,SUB_TIMER,SUB_CEN,SUB_ALARM,SUB_GRP partial;
+    class GW_MH202,GW_F455,SUB_COV_CAL,SUB_CU4695 needed;
 ```
 
 ---
@@ -253,7 +260,8 @@ graph TD
 | **MH200 / MH200N** | 🟢 **Covered** | `tests/fixtures/plants/mh200_physical_plant/` (107 on-wire frames from physical MH200) | *None needed — full physical plant active in CI (62 lights, 7 switches, 11 covers across F422 interfaces).* |
 | **F461 Web Server** | 🟢 **Covered** | Issue #273 capture (@lyubomirtraykov) | *None needed — DALI DT8 ballasts verified.* |
 | **Legrand 3578 USB/Serial** | 🟡 **Partial** | Unit test loopback in `tests/test_gateway.py` | **Real-world USB serial stream**: Raw byte capture from physical OpenZigBee installation (`WHERE=<id>#9`). |
-| **MH202 / MH201** | 🔴 **Needed** | Synthetic gateway profile tests only | **Production plant trace**: General residential traffic through an MH201/MH202 scenario programmer. |
+| **MH201** | 🟢 **Covered** | `tests/fixtures/plants/mh201_physical_plant/` (100 on-wire frames from physical MH201, issue #378; anonymized) | *None needed — physical plant active in CI (23 lights, 1 outlet, 7 advanced covers, CEN+ presses, WHO=13 device type / firmware / datetime replies).* |
+| **MH202** | 🔴 **Needed** | Synthetic gateway profile tests only | **Production plant trace**: General residential traffic through an MH202 scenario programmer. |
 | **F455** | 🔴 **Needed** | Synthetic dual-bus profile tests only | **Dual-bus cross-routing trace**: Simultaneous traffic routing between Bus 1 and Bus 2. |
 | **F452 / F453AV / AM4890** | 🟡 **Synthetic** | Factory golden frames from `openwebnet4j` | **General trace**: Normal residential bus captures welcomed to expand gateway diversity. |
 
@@ -266,7 +274,7 @@ graph TD
 | **Lighting (WHO = 1) — Relays & Dimmers** | 🟢 **Covered** | issue #247 capture (F411U2, F418, 4-digit addressing `1000`, `0910`) + MH200 plant (62 lights) | *Baseline covered.* |
 | **Lighting (WHO = 1) — DALI Tunable White** | 🟢 **Covered** | Lyubomir Traykov capture (Dimension 14, Kelvin 2000K–6535K / mireds) | *Baseline covered.* |
 | **Lighting (WHO = 1) — Native DIN Timers** | 🟡 **Synthetic** | Unit tests in `tests/test_timed_lighting.py` | **Actuator countdown trace**: Capture of physical F411 relay executing Dim 2 (`*#1*WHERE*#2*H*M*S##`) or preset temporization. |
-| **Lighting (WHO = 1) — Groups & General (P7)** | 🔴 **CRITICAL** | None (deferred in RFC #248) | **Group actuation trace**: Capture of physical bus frames when sending `#group` (`*1*1*#1##`) or all-off (`*1*0*0##`), showing whether your gateway emits individual status replies! |
+| **Lighting (WHO = 1) — Groups & General (P7)** | 🟡 **Synthetic** | F461/F429G (#273/#300) and F454 (discussion #248) traces - both echo member status spontaneously; design in #376/#377 | **Non-echoing gateway trace**: Capture of physical bus frames when sending `#group` (`*1*1*#1##`) or all-off (`*1*0*0##`) on a gateway that does **not** reply with individual member status, to confirm the 250 ms debounced sweep fallback is sufficient there. |
 | **Covers (WHO = 2) — Travel-Time Positioning** | 🟢 **Covered** | issue #247 capture (`*2*0*42##`, LN4661M2) | *Baseline covered.* |
 | **Covers (WHO = 2) — Hardware Feedback** | 🟢 **Covered** | issue #247 capture (`*#2*73*10*10*0*001*0##`) | *Baseline covered.* |
 | **Covers (WHO = 2) — Calibration (P3)** | 🔴 **Needed** | Synthetic dimension 10 tests only | **Hardware calibration trace**: Bus recording during physical calibration (`shutterRun=AUTO`) on Legrand 67557, LN4672M2, or F401. |

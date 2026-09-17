@@ -212,3 +212,15 @@
   roundtrip: true
   is_translation: true
 
+- id: cover.evt.stop.routed.interface.02
+  frame: "*2*0*14#4#02##"
+  direction: event
+  who: 2
+  what: 0
+  where: "14"
+  interface: "02"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: STOP event at address '14' routed via private bus interface 02 (MH200 physical plant sweep)"
+  roundtrip: true
+

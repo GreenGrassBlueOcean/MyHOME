@@ -801,6 +801,96 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.dim.write.group.brightness",
+    "frame": "*#1*#6*#1*150*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "#6",
+    "dimension": 1,
+    "dimension_values": [
+      "150",
+      "0"
+    ],
+    "source": "mcp-draft",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Set group #6 brightness to 50% (OWNd encodes exact level as 100+percent) with transition speed 0",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_brightness",
+      "args": [
+        "#6",
+        50
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.write.group.color_temp",
+    "frame": "*#1*#6*#14*153##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "#6",
+    "dimension": 14,
+    "dimension_values": [
+      "153"
+    ],
+    "source": "mcp-draft",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Set group #6 colour temperature to 153 mireds (Dimension 14 is not officially documented for WHO=1; DALI DT8 tunable white, issue #273/#300)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_color_temperature",
+      "args": [
+        "#6",
+        153
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.write.group.hsv",
+    "frame": "*#1*#6*#12*120*50*80##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "#6",
+    "dimension": 12,
+    "dimension_values": [
+      "120",
+      "50",
+      "80"
+    ],
+    "source": "mcp-draft",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Set group #6 HSV colour to (120\u00b0, 50%, 80%) (Dimension 12 is not officially documented for WHO=1)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_hsv_color",
+      "args": [
+        "#6",
+        120,
+        50,
+        80
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level10.ptp.67",
+    "frame": "*1*10*67##",
+    "direction": "event",
+    "who": 1,
+    "what": 10,
+    "where": "67",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Dimming level 10 (100%) event at address '67' (MH200 physical plant sweep)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
@@ -1081,6 +1171,20 @@
     "mcp_notes": "[Translation] Automation (Covers & Shutters): DOWN (Close shutter) at address '03' (issue #378 reporter plant, TheDarkWizard)",
     "roundtrip": true,
     "is_translation": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.evt.stop.routed.interface.02",
+    "frame": "*2*0*14#4#02##",
+    "direction": "event",
+    "who": 2,
+    "what": 0,
+    "where": "14",
+    "interface": "02",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: STOP event at address '14' routed via private bus interface 02 (MH200 physical plant sweep)",
+    "roundtrip": true,
     "_file": "who02_automation.yaml"
   },
   {

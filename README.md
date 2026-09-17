@@ -338,6 +338,31 @@ Without `lock_features` the three flags are only the starting point and auto-det
 GATEWAY light 26#4#02 is locked to ['onoff']; ignoring Dimension 12 frame *#1*26#4#02*12*353*74*80##
 ```
 
+5. **Declared lighting groups (P7, #368)**: a `#G` `WHERE` (`#1` through `#255`) declares a group that **already exists in your plant** (configured with MyHOME_Suite or a physical group-programmed actuator) - it does not configure group membership on the bus, and it is not a second kind of "group" competing with Home Assistant's own `light.group`. Use it when you want a single OpenWebNet frame (`*1*1*#G##`, or `*#1*#G*#14*<mireds>##` for a DALI colour-temperature change) to reach every actuator programmed into that group at once:
+
+```yaml
+  light:
+    living_room_group:
+      where: '#6'
+      name: Living Room Group
+      dimmable: true
+      color_temp: true
+```
+
+Without `members` the entity is `assumed_state`: Home Assistant shows separate On / Off controls instead of a toggle, because the integration has no way to know the group's actual state - only what was last sent to it. Add `members` (the point-to-point `WHERE` of each actuator in the group) to derive real state instead, the same way core's `light.group` averages its members' brightness / colour temperature / HS colour:
+
+```yaml
+  light:
+    living_room_group:
+      where: '#6'
+      name: Living Room Group
+      dimmable: true
+      color_temp: true
+      members: ['12', '13', '0114']   # each member's own light WHERE
+```
+
+`members` never sends a single extra frame - it only tells the integration which existing light entities to watch. A group with `members` still accepts direct control (single-frame `*1*1*#6##`); it also picks up a group dimension write the gateway echoes back (`*#1*#6*#14*153##`, the DALI case from #300). Never an auto-discovered entity for a group, area or general address (#368) - only a declared one.
+
 ---
 
 ### ⚡ Custom Services

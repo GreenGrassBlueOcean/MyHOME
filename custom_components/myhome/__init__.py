@@ -1,11 +1,13 @@
-""" MyHOME integration. """
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import os
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -130,7 +132,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     if not domain_data.get("_frontend_registered"):
         if http is not None and os.path.isfile(card_path):
             frontend_dir = os.path.dirname(card_path)
-            from homeassistant.components.http import StaticPathConfig
+            from homeassistant.components.http.server import StaticPathConfig
 
             try:
                 await http.async_register_static_paths([
@@ -152,13 +154,13 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     if not await _async_register_lovelace_resource(hass, versioned_url):
         if not domain_data.get("_lovelace_listener_registered"):
             if getattr(hass, "is_running", False):
-                async def _delayed_retry():
+                async def _delayed_retry() -> None:
                     await asyncio.sleep(1)
                     await _async_register_lovelace_resource(hass, versioned_url)
 
                 hass.async_create_task(_delayed_retry())
             else:
-                async def _on_ha_started(event):
+                async def _on_ha_started(event: Event) -> None:
                     await _async_register_lovelace_resource(hass, versioned_url)
 
                 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
@@ -171,10 +173,10 @@ async def _async_resolve_ownd_version(hass: HomeAssistant) -> str:
     domain_data = hass.data.setdefault(DOMAIN, {})
     if DATA_OWND_VERSION not in domain_data:
         domain_data[DATA_OWND_VERSION] = await hass.async_add_executor_job(get_ownd_version)
-    return domain_data[DATA_OWND_VERSION]
+    return str(domain_data[DATA_OWND_VERSION])
 
 
-async def async_setup(hass, config):
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the MyHOME component."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -197,7 +199,7 @@ async def async_setup(hass, config):
     return False
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
+async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:
     """Set up a MyHOME gateway from a config entry."""
     LOGGER.info(
         "Setting up MyHOME gateway '%s' (v%s, OWNd v%s)",
@@ -212,8 +214,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
     # below) is reused so its containers stay the live ones; dropped in 2.1.
     _seeded = hass.data[DOMAIN].get(entry.data[CONF_MAC])
     _seeded = _seeded if isinstance(_seeded, dict) else {}
-    configured_platforms: dict[str, dict[str, dict]] = _seeded.setdefault(CONF_PLATFORMS, {})
-    configured_entities: dict[str, dict] = _seeded.setdefault(CONF_ENTITIES, {})
+    configured_platforms: dict[str, dict[str, dict[str, Any]]] = _seeded.setdefault(CONF_PLATFORMS, {})
+    configured_entities: dict[str, dict[str, Any]] = _seeded.setdefault(CONF_ENTITIES, {})
     for _platform in PLATFORMS:
         configured_platforms.setdefault(_platform, {})
         configured_entities.setdefault(_platform, {})
@@ -367,14 +369,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
                         except Exception as err:
                             LOGGER.warning("Could not prune duplicate button entity %s: %s", reg_entry.entity_id, err)
                     else:
-                        update_kwargs = {"new_unique_id": target_unique_id}
-                        if reg_entry.entity_id.endswith("_2"):
-                            base_id = reg_entry.entity_id[:-2]
-                            if not entity_registry.async_get(base_id):
-                                update_kwargs["new_entity_id"] = base_id
                         try:
-                            entity_registry.async_update_entity(reg_entry.entity_id, **update_kwargs)
-                            reg_entry = entity_registry.async_get(reg_entry.entity_id)
+                            if reg_entry.entity_id.endswith("_2") and not entity_registry.async_get(reg_entry.entity_id[:-2]):
+                                entity_registry.async_update_entity(
+                                    reg_entry.entity_id,
+                                    new_unique_id=target_unique_id,
+                                    new_entity_id=reg_entry.entity_id[:-2],
+                                )
+                            else:
+                                entity_registry.async_update_entity(
+                                    reg_entry.entity_id,
+                                    new_unique_id=target_unique_id,
+                                )
+                            reloaded_entry = entity_registry.async_get(reg_entry.entity_id)
+                            if reloaded_entry is not None:
+                                reg_entry = reloaded_entry
                             LOGGER.info("Migrated button entity %s to canonical unique_id %s", reg_entry.entity_id, target_unique_id)
                         except ValueError as err:
                             LOGGER.warning("Could not auto-migrate button entity %s: %s", reg_entry.entity_id, err)
@@ -383,7 +392,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
                     if not entity_registry.async_get_entity_id("button", DOMAIN, target_unique_id):
                         try:
                             entity_registry.async_update_entity(reg_entry.entity_id, new_unique_id=target_unique_id)
-                            reg_entry = entity_registry.async_get(reg_entry.entity_id)
+                            reloaded_entry = entity_registry.async_get(reg_entry.entity_id)
+                            if reloaded_entry is not None:
+                                reg_entry = reloaded_entry
                         except ValueError:
                             pass
             continue
@@ -400,7 +411,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
                         entity_registry.async_update_entity(
                             reg_entry.entity_id, new_unique_id=new_unique_id
                         )
-                        reg_entry = entity_registry.async_get(reg_entry.entity_id) # reload
+                        reloaded_entry = entity_registry.async_get(reg_entry.entity_id) # reload
+                        if reloaded_entry is not None:
+                            reg_entry = reloaded_entry
                         LOGGER.info("Resurrecting orphaned MyHOME entity %s to new unique_id %s", reg_entry.entity_id, new_unique_id)
                     except ValueError as e:
                         LOGGER.warning("Could not auto-migrate entity %s to %s: %s", reg_entry.entity_id, new_unique_id, e)
@@ -427,7 +440,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
                     entity_registry.async_update_entity(
                         reg_entry.entity_id, new_unique_id=new_unique_id
                     )
-                    reg_entry = entity_registry.async_get(reg_entry.entity_id)
+                    reloaded_entry = entity_registry.async_get(reg_entry.entity_id)
+                    if reloaded_entry is not None:
+                        reg_entry = reloaded_entry
                 except ValueError:
                     pass
 
@@ -473,19 +488,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry):
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
 
-    _mfg = gateway.manufacturer
-    if isinstance(_mfg, (list, tuple)):
-        _mfg = _mfg[0] if _mfg else "BTicino S.p.A."
-    elif not _mfg:
-        _mfg = "BTicino S.p.A."
-
+    _mfg = gateway.manufacturer or "BTicino S.p.A."
     _fw = gateway.firmware
-    if isinstance(_fw, (list, tuple)):
-        _fw = ".".join(str(x) for x in _fw) if _fw else None
-    elif _fw is not None:
-        _fw = str(_fw)
-    else:
-        _fw = None
 
     gateway_device_entry = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
@@ -651,6 +655,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> b
 
     gateway_handler = entry.runtime_data.gateway
     hass.data[DOMAIN].pop(entry.data[CONF_MAC], None)
-    entry.runtime_data = None
+    setattr(entry, "runtime_data", None)
 
     return await gateway_handler.close_listener()
