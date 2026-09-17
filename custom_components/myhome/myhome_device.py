@@ -177,7 +177,7 @@ class MyHOMEEntity(RestoreEntity):
     @callback
     def handle_event(self, msg: Any) -> None:
         """Handle a message routed from the gateway bus."""
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     @callback
     def _handle_availability_update(self) -> None:
