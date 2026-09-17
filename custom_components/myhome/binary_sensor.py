@@ -622,10 +622,12 @@ class MyHOMEMotionSensor(MyHOMEEntity, BinarySensorEntity):
         if message.message_type == MESSAGE_TYPE_MOTION and message.motion:
             self._attr_is_on = message.motion != self._inverted
         elif message.message_type == MESSAGE_TYPE_MOTION_TIMEOUT:
-            self._timeout = message.motion_timeout + timedelta(seconds=15)
-            self._attr_extra_state_attributes["Timeout"] = self._timeout.total_seconds()
+            if message.motion_timeout is not None:
+                self._timeout = message.motion_timeout + timedelta(seconds=15)
+                self._attr_extra_state_attributes["Timeout"] = self._timeout.total_seconds()
         elif message.message_type == MESSAGE_TYPE_PIR_SENSITIVITY:
-            self._attr_extra_state_attributes["Sensitivity"] = PIR_SENSITIVITY[message.pir_sensitivity]
+            if message.pir_sensitivity is not None:
+                self._attr_extra_state_attributes["Sensitivity"] = PIR_SENSITIVITY[message.pir_sensitivity]
         self._last_updated = datetime.now(timezone.utc)  # type: ignore
         self._attr_force_update = True
         try:

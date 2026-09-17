@@ -9,16 +9,16 @@ members the way core's ``light.group`` does.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
-from homeassistant.components.light import (
+from homeassistant.components.light import (  # type: ignore[attr-defined]
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
     ColorMode,
     LightEntity,
 )
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
@@ -30,7 +30,7 @@ from .myhome_device import MyHOMEEntity
 LOGGER = logging.getLogger(__name__)
 
 
-def _color_modes_from_flags(dimmable: bool, color_temp: bool, rgb: bool, hs: bool) -> tuple[set[ColorMode], ColorMode]:
+def _color_modes_from_flags(dimmable: bool, color_temp: bool, rgb: bool, hs: bool) -> tuple[set[ColorMode], ColorMode | None]:
     """Derive supported colour modes from the ``dimmable``/``color_temp``/``rgb``/``hs`` flags.
 
     Shared by :class:`~.light.MyHOMELight` and :class:`MyHOMELightGroup` so a group
@@ -192,7 +192,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         self.async_write_ha_state()
 
     @callback
-    def _async_member_changed(self, event: Event) -> None:
+    def _async_member_changed(self, event: Event[Any]) -> None:
         """Update state from members."""
         self._update_from_members()
         if self._on_icon and self._off_icon:
@@ -215,28 +215,28 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
             self.hass.states.get(entity_id)
             for entity_id in self._member_entity_ids
         ]
-        states = [s for s in states if s is not None]
+        states_list: list[State] = [s for s in states if s is not None]
 
-        self._attr_available = any(s.state != "unavailable" for s in states)
-        if not states:
+        self._attr_available = any(s.state != "unavailable" for s in states_list)
+        if not states_list:
             return
 
-        self._attr_is_on = any(s.state == "on" for s in states)
+        self._attr_is_on = any(s.state == "on" for s in states_list)
 
         if self._attr_is_on:
-            brightnesses = [s.attributes.get(ATTR_BRIGHTNESS) for s in states if s.state == "on" and s.attributes.get(ATTR_BRIGHTNESS) is not None]
+            brightnesses: list[float] = [float(s.attributes.get(ATTR_BRIGHTNESS, 0) or 0) for s in states_list if s.state == "on" and s.attributes.get(ATTR_BRIGHTNESS) is not None]
             if brightnesses:
                 self._attr_brightness = round(sum(brightnesses) / len(brightnesses))
             else:
                 self._attr_brightness = None
 
-            color_temps = [s.attributes.get(ATTR_COLOR_TEMP_KELVIN) for s in states if s.state == "on" and s.attributes.get(ATTR_COLOR_TEMP_KELVIN) is not None]
+            color_temps: list[float] = [float(s.attributes.get(ATTR_COLOR_TEMP_KELVIN, 0) or 0) for s in states_list if s.state == "on" and s.attributes.get(ATTR_COLOR_TEMP_KELVIN) is not None]
             if color_temps:
                 self._attr_color_temp_kelvin = round(sum(color_temps) / len(color_temps))
             else:
                 self._attr_color_temp_kelvin = None
 
-            hs_colors = [s.attributes.get(ATTR_HS_COLOR) for s in states if s.state == "on" and s.attributes.get(ATTR_HS_COLOR) is not None]
+            hs_colors: list[tuple[float, float]] = [cast(tuple[float, float], s.attributes.get(ATTR_HS_COLOR)) for s in states_list if s.state == "on" and s.attributes.get(ATTR_HS_COLOR) is not None]
             if hs_colors:
                 # Naive average for hs colors
                 h = sum(c[0] for c in hs_colors) / len(hs_colors)
@@ -316,9 +316,10 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         await self._gateway_handler.send_status_request(OWNLightingCommand.status(self._full_where))
         # A colour mode implies brightness in the HA light model, and the level
         # arrives on Dimension 1 whatever the colour mode (mirrors MyHOMELight).
-        if self.supported_color_modes & {ColorMode.BRIGHTNESS, ColorMode.HS, ColorMode.COLOR_TEMP}:
+        color_modes = self.supported_color_modes or set()
+        if color_modes & {ColorMode.BRIGHTNESS, ColorMode.HS, ColorMode.COLOR_TEMP}:
             await self._gateway_handler.send_status_request(OWNLightingCommand.get_brightness(self._full_where))
-        if ColorMode.COLOR_TEMP in self.supported_color_modes:
+        if ColorMode.COLOR_TEMP in color_modes:
             await self._gateway_handler.send_status_request(OWNLightingCommand.get_color_temperature(self._full_where))
-        if ColorMode.HS in self.supported_color_modes:
+        if ColorMode.HS in color_modes:
             await self._gateway_handler.send_status_request(OWNLightingCommand.get_hsv_color(self._full_where))

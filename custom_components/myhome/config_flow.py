@@ -99,8 +99,8 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
     def __init__(self):  # type: ignore
         """Initialize the MyHome flow."""
         self.gateway_handler: Optional[OWNGateway] = None
-        self.discovered_gateways: Optional[Dict[str, OWNGateway]] = None
-        self._existing_entry: ConfigEntry = None  # type: ignore
+        self.discovered_gateways: Optional[Dict[str, dict[str, typing.Any]]] = None
+        self._existing_entry: ConfigEntry | None = None
 
     async def async_step_user(self, user_input=None):  # type: ignore
         """Handle a flow initialized by the user."""
@@ -114,6 +114,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None and self.discovered_gateways is not None and user_input["serial"] in self.discovered_gateways:
             self.gateway_handler = await OWNGateway.build_from_discovery_info(self.discovered_gateways[user_input["serial"]])
+            assert self.gateway_handler is not None
             await self.async_set_unique_id(
                 dr.format_mac(self.gateway_handler.serial),
                 raise_on_progress=False,
@@ -350,7 +351,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         entry = self.hass.config_entries.async_get_entry(self.context.get("entry_id"))  # type: ignore
         if entry is None and config and CONF_MAC in config:
             entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, config[CONF_MAC])
-        self._existing_entry = entry  # type: ignore
+        self._existing_entry = entry
 
         mac = entry.unique_id if entry else (config.get(CONF_MAC) if config else None)
         if mac:
@@ -392,9 +393,9 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_NAME: gateway.model_name,
                 CONF_MAC: gateway.serial,
                 "title_placeholders": {
-                    CONF_HOST: gateway.host,
-                    CONF_NAME: gateway.model_name,
-                    CONF_MAC: gateway.serial,
+                    CONF_HOST: str(gateway.host or ""),
+                    CONF_NAME: str(gateway.model_name or ""),
+                    CONF_MAC: str(gateway.serial or ""),
                 },
             }
         )
@@ -528,6 +529,8 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         _discovery_info["port"] = 20000
 
         gateway = await OWNGateway.build_from_discovery_info(_discovery_info)
+        if gateway is None:
+            return self.async_abort(reason="unknown")
         await self.async_set_unique_id(dr.format_mac(gateway.unique_id))
         LOGGER.info("Found gateway: %s", gateway.address)
         updatable = {
@@ -549,9 +552,9 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_NAME: gateway.model_name,
                 CONF_MAC: gateway.serial,
                 "title_placeholders": {
-                    CONF_HOST: gateway.address,
-                    CONF_NAME: gateway.model_name,
-                    CONF_MAC: gateway.serial,
+                    CONF_HOST: str(gateway.address or ""),
+                    CONF_NAME: str(gateway.model_name or ""),
+                    CONF_MAC: str(gateway.serial or ""),
                 },
             }
         )

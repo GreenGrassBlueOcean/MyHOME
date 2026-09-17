@@ -655,7 +655,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._stopped_event = asyncio.Event()
         self._calibration_interrupted = None
         self._fire_calibration_event("run", direction=direction)
-        written = await self._async_move(direction)  # type: ignore
+        written = await self._async_move(direction)
         anchor = await self._await_motion_anchor(written)
         if self._calibration_interrupted:
             raise CalibrationInterrupted(self._display_name, self._calibration_interrupted)
@@ -954,7 +954,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         """Close cover."""
         await self._async_move("close")
 
-    async def _async_move(self, direction: str) -> None:
+    async def _async_move(self, direction: str) -> asyncio.Future[typing.Any] | None:
         """Queue a direction command and return its delivery future."""
         self._cancel_stop_task()
         if direction == "open":
@@ -999,7 +999,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 ) from exc
         if self.hass is not None:
             self.async_write_ha_state()
-        return written  # type: ignore
+        return written
 
     async def async_set_cover_position(self, **kwargs: typing.Any) -> None:
         """Move the cover to a specific position."""
@@ -1036,7 +1036,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         travel_fraction = abs(diff) / 100.0
         run_duration = travel_fraction * self._travel_for(diff > 0)
 
-        written = await self._async_move("open" if diff > 0 else "close")  # type: ignore
+        written = await self._async_move("open" if diff > 0 else "close")
         generation = self._run_generation
 
         async def _auto_stop() -> None:

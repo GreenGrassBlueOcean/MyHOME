@@ -11,6 +11,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![Latest Release](https://img.shields.io/github/v/release/OpenWebNet-HA/MyHOME?include_prereleases&label=release&logo=github)](https://github.com/OpenWebNet-HA/MyHOME/releases)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
+[![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy.readthedocs.io/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Wiki Docs](https://img.shields.io/badge/Wiki-OpenWebNet%20Docs-blue.svg)](https://github.com/OpenWebNet-HA/MyHOME/wiki/OpenWebNet-Protocol-&-WHO-Specifications)
 [![Discussions](https://img.shields.io/badge/Discussions-Join-blue?logo=github)](https://github.com/OpenWebNet-HA/MyHOME/discussions)
@@ -620,14 +621,14 @@ automated coverage and physical gateway verification steps.
 
 <!-- START_QUALITY_SCALE -->
 
-**Tier reached: 🥇 Gold**
+**Tier reached: 🏆 Platinum**
 
 | Tier | Rules satisfied | Status |
 | :--- | :---: | :--- |
 | 🥉 Bronze | 20 / 20 | ✅ complete |
 | 🥈 Silver | 10 / 10 | ✅ complete |
 | 🥇 Gold | 21 / 21 | ✅ complete |
-| 🏆 Platinum | 2 / 3 | ⏳ next — blocked by `strict-typing` |
+| 🏆 Platinum | 3 / 3 | ✅ complete |
 
 _Self-audit of [`quality_scale.yaml`](custom_components/myhome/quality_scale.yaml) against the official [Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/); a tier needs every rule of that tier and all lower tiers `done`/`exempt`. Updated by the [Integration Quality Scale workflow](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/quality-scale.yml); tiers are formally awarded only by Home Assistant core review._
 

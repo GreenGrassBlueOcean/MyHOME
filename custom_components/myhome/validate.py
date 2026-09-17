@@ -1,5 +1,6 @@
 """Validator for the MyHome configuration file."""
 import re
+import typing
 
 from homeassistant.components.alarm_control_panel import (  # type: ignore[attr-defined]
     DOMAIN as ALARM_CONTROL_PANEL,
@@ -134,11 +135,11 @@ class Group(object):
         return "Where(%s, msg=%r)" % ("String", self.msg)
 
 
-class PointToPoint(object):
-    def __init__(self, msg=None):  # type: ignore
+class PointToPoint:
+    def __init__(self, msg: str | None = None) -> None:
         self.msg = msg
 
-    def __call__(self, v):  # type: ignore
+    def __call__(self, v: typing.Any) -> typing.Any:
         if isinstance(v, str) and v.isdigit():
             _length = len(v)
             if _length == 2 or _length == 4:
@@ -337,7 +338,7 @@ light_schema = MyHomeDeviceSchema(
     }
 )
 
-def _validate_light_members(data: dict) -> dict:
+def _validate_light_members(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     for device, cfg in data.items():
         if CONF_MEMBERS in cfg:
             where = cfg.get(CONF_WHERE)
@@ -345,7 +346,7 @@ def _validate_light_members(data: dict) -> dict:
                 raise Invalid("Members can only be defined on a group light (where must start with #)")
     return data
 
-light_schema = All(light_schema, _validate_light_members)
+light_schema = All(light_schema, _validate_light_members)  # type: ignore[assignment]
 
 
 switch_schema = MyHomeDeviceSchema(
