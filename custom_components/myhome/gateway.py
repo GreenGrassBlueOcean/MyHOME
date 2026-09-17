@@ -657,9 +657,10 @@ class MyHOMEGatewayHandler:
         dim = getattr(message, "dimension", getattr(message, "_dimension", None))
         dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
 
-        # ── Dimension 0: Time & Timezone ────────────────────────────────────
-        if dim == 0 and dim_val:
-            # Check if timezone is 999. The OWNd < 2.0.0b7 compat shim clears the time_zone property, but leaves dim_val[3] as "999". Check raw dimension values.
+        # ── Dimension 0 & 22: Time & Timezone ────────────────────────────────
+        if dim in (0, 22) and dim_val:
+            # Check if timezone is 999. In both dimension 0 and 22, dim_val[3] carries the timezone.
+            # The OWNd < 2.0.0b7 compat shim clears the time_zone property, but leaves dim_val[3] as "999".
             if len(dim_val) > 3 and str(dim_val[3]) == "999":
                 if self.config_entry:
                     async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id, self.config_entry.title)

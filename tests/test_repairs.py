@@ -106,6 +106,8 @@ async def test_unconfigured_timezone_issues_lifecycle(hass: HomeAssistant) -> No
     assert issue.severity == ir.IssueSeverity.WARNING
     assert issue.translation_key == ISSUE_UNCONFIGURED_TIMEZONE
     assert not issue.is_fixable
+    assert issue.translation_placeholders == {"gateway": "Mock Gateway"}
+    assert issue.learn_more_url == "https://github.com/OpenWebNet-HA/MyHOME/blob/master/docs/configuration/gateways.md#gateway-timezone-configuration"
 
     async_delete_unconfigured_timezone_issue(hass, entry_id)
     assert issue_registry.async_get_issue(DOMAIN, f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}") is None

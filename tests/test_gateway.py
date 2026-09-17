@@ -1249,7 +1249,7 @@ def test_device_type_4_is_mh200_not_mh200n(gateway_handler):
 
 
 def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_entry):
-    """Test WHO=13 dimension 0 (timezone) issues."""
+    """Test WHO=13 dimension 0 and dimension 22 (timezone) issues."""
     from OWNd.message import OWNEvent
 
     gateway_handler.config_entry.entry_id = "entry_diag"
@@ -1257,7 +1257,7 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
     with patch("custom_components.myhome.gateway.async_create_unconfigured_timezone_issue") as create_issue, \
          patch("custom_components.myhome.gateway.async_delete_unconfigured_timezone_issue") as delete_issue:
 
-        # 1. 999 sentinel triggers issue
+        # 1. Dim 0: 999 sentinel triggers issue
         msg = OWNEvent.parse("*#13**0*23*52*03*999##")
         gateway_handler._handle_gateway_diagnostics(msg)
         create_issue.assert_called_once_with(gateway_handler.hass, "entry_diag", gateway_handler.config_entry.title)
@@ -1265,20 +1265,37 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
 
         create_issue.reset_mock()
 
-        # 2. Valid timezone (+1) resolves issue
+        # 2. Dim 0: Valid timezone (+1) resolves issue
         msg_valid = OWNEvent.parse("*#13**0*23*52*03*001##")
         gateway_handler._handle_gateway_diagnostics(msg_valid)
         create_issue.assert_not_called()
         delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
 
         delete_issue.reset_mock()
-        # 3. Short dimension (no timezone field) does nothing
+
+        # 3. Dim 22: 999 sentinel triggers issue
+        msg_dim22_999 = OWNEvent.parse("*#13**22*23*52*03*999*4*17*09*2026##")
+        gateway_handler._handle_gateway_diagnostics(msg_dim22_999)
+        create_issue.assert_called_once_with(gateway_handler.hass, "entry_diag", gateway_handler.config_entry.title)
+        delete_issue.assert_not_called()
+
+        create_issue.reset_mock()
+
+        # 4. Dim 22: Valid timezone (+1) resolves issue
+        msg_dim22_valid = OWNEvent.parse("*#13**22*23*52*03*001*4*17*09*2026##")
+        gateway_handler._handle_gateway_diagnostics(msg_dim22_valid)
+        create_issue.assert_not_called()
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+        delete_issue.reset_mock()
+
+        # 5. Short dimension (no timezone field) does nothing
         msg_short = OWNEvent.parse("*#13**0*23*52*03##")
         gateway_handler._handle_gateway_diagnostics(msg_short)
         create_issue.assert_not_called()
         delete_issue.assert_not_called()
 
-        # 4. Empty timezone field does not trigger create
+        # 6. Empty timezone field does not trigger create
         msg_empty = OWNEvent.parse("*#13**0*23*52*03*##")
         gateway_handler._handle_gateway_diagnostics(msg_empty)
         create_issue.assert_not_called()

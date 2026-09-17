@@ -170,8 +170,8 @@
   },
   "issues": {
     "unconfigured_timezone": {
-      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
-      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
+      "title": "Niet-geconfigureerde tijdzone op MyHOME-gateway ({gateway})",
+      "description": "De MyHOME-gateway {gateway} meldt een niet-geconfigureerde tijdzone (tijdelijke code '999'). Dit kan leiden tot fouten bij het verwerken van datum en tijd of het verliezen van diagnostische gatewayberichten.\n\nLog in op de webinterface van de gateway (of MyHOME_Suite / MyHOME_Up) om een geldige tijdzone in te stellen en herstart vervolgens de gateway."
     }
   }
 }

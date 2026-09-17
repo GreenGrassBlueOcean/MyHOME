@@ -170,8 +170,8 @@
   },
   "issues": {
     "unconfigured_timezone": {
-      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
-      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
+      "title": "Fuseau horaire non configuré sur la passerelle MyHOME ({gateway})",
+      "description": "La passerelle MyHOME {gateway} signale un fuseau horaire non configuré (code réservé '999'). Cela peut entraîner des erreurs d'analyse de date et d'heure ou la perte de messages de diagnostic de la passerelle.\n\nVeuillez vous connecter à l'interface web de la passerelle (ou MyHOME_Suite / MyHOME_Up) pour définir un fuseau horaire valide, puis redémarrez la passerelle."
     }
   }
 }

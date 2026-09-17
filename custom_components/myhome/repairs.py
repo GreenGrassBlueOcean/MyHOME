@@ -32,7 +32,7 @@ def async_create_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str,
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_UNCONFIGURED_TIMEZONE,
         translation_placeholders={"gateway": gateway_name},
-        learn_more_url="https://github.com/OpenWebNet-HA/MyHOME/wiki/Configuration#timezone",
+        learn_more_url="https://github.com/OpenWebNet-HA/MyHOME/blob/master/docs/configuration/gateways.md#gateway-timezone-configuration",
     )
 
 

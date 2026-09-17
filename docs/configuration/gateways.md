@@ -105,6 +105,22 @@ See [Runtime Behaviour Notes](runtime_behaviour.md) for the reasoning behind eac
 
 ---
 
+## 🕒 Gateway Timezone Configuration
+
+OpenWebNet gateways manage an internal real-time clock (RTC) queried via WHO=13 dimension 0 (`*#13**0##`) or dimension 22 (`*#13**22##`). When the timezone has not been configured in the gateway's management interface, the gateway emits a placeholder sentinel value `999` in the timezone field (e.g. `*#13**0*<HH>*<MM>*<SS>*999##` or `*#13**22*...*999*...##`).
+
+This placeholder can cause date and time parsing failures or dropped gateway diagnostic messages. When the integration detects this sentinel, it registers a Home Assistant Repair issue advising that the gateway requires configuration.
+
+### How to resolve:
+1. Log into the gateway's web administration interface, or open **MyHOME_Suite** / **TiMyHome** / **MyHOME_Up**.
+2. Navigate to the **Date & Time** or **Clock** settings.
+3. Configure the correct local time and timezone (or enable NTP synchronization if supported by your gateway).
+4. Save the configuration and reboot or restart the gateway.
+
+Once the gateway responds with a valid timezone offset, the repair issue automatically resolves and clears from your Home Assistant Repairs dashboard.
+
+---
+
 ## 🪪 How the gateway model is identified
 
 The model label decides the gateway profile (command sessions, pacing, queue size, which subsystems are queried) and appears in the entry title, the device registry, diagnostics and every bus-monitor export — so it must be right, and it must say *how* it was established.
