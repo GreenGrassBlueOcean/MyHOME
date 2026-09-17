@@ -36,13 +36,43 @@ This guide provides a step-by-step roadmap for migrating an existing **MyHOME v0
 ### Why Manual ZIP / SSH is Recommended for Beta
 While stable releases (like v0.9.4) are distributed through standard HACS tracks on `master`, v2.0 is currently developed on the `v2-phase1-architecture` branch. HACS often fails to track non-default development branches or rejects pre-release beta builds.
 
-### Installation via ZIP Archive:
-1. Download the `myhome.zip` archive from the latest [v2.0 Beta GitHub Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
-2. On your Home Assistant host (via SSH, Samba, or Studio Code Server):
-   - Navigate to `/config/custom_components/myhome/`.
-   - Replace the directory contents with the extracted files from the v2.0 archive.
-3. Verify that the files reside directly at `/config/custom_components/myhome/__init__.py`.
-4. Restart Home Assistant (**Developer Tools → YAML → Restart**).
+### Installation via ZIP Archive
+
+#### ⚡ 1-Click Terminal Command (Home Assistant Terminal & SSH)
+If you have the **Terminal & SSH** add-on installed (or connect via SSH), paste this command directly into your terminal:
+
+```bash
+# Set target beta release version (check https://github.com/OpenWebNet-HA/MyHOME/releases)
+TAG="2.0.0b12"
+
+# Download, extract cleanly, verify, and restart Home Assistant
+mkdir -p /config/custom_components && cd /config/custom_components && \
+wget -O myhome.zip "https://github.com/OpenWebNet-HA/MyHOME/releases/download/${TAG}/myhome.zip" && \
+rm -rf myhome && \
+unzip -q myhome.zip -d myhome && \
+rm myhome.zip && \
+grep '"version"' myhome/manifest.json && \
+ha core restart
+```
+
+> [!TIP]
+> **What this command does step-by-step**:
+> 1. `mkdir -p /config/custom_components && cd /config/custom_components`: Ensures the directory exists and enters your custom components folder.
+> 2. `wget -O myhome.zip ...`: Downloads the official pre-packaged release zip directly from GitHub.
+> 3. `rm -rf myhome`: Removes previous files to prevent orphaned legacy modules from colliding with v2.
+> 4. `unzip -q myhome.zip -d myhome`: Extracts the integration files directly into `/config/custom_components/myhome/` (avoiding the common nested folder pitfall).
+> 5. `rm myhome.zip`: Cleans up the temporary archive.
+> 6. `grep '"version"' myhome/manifest.json`: Prints the installed version to the terminal for immediate confirmation.
+> 7. `ha core restart`: Issues a core restart command via the Home Assistant supervisor CLI.
+
+#### 📁 Alternative: Manual Download via Samba / Studio Code Server
+If you prefer not using the command line:
+1. Download `myhome.zip` from the latest [v2.0 Beta GitHub Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
+2. Connect to your Home Assistant host via **Samba Share** or the **Studio Code Server** add-on.
+3. Navigate to `/config/custom_components/myhome/` (create the folders if they don't exist).
+4. Extract the contents of `myhome.zip` directly into `/config/custom_components/myhome/`.
+5. Verify that `manifest.json` is located at `/config/custom_components/myhome/manifest.json`.
+6. Restart Home Assistant (**Settings → System → Restart** or **Developer Tools → YAML → Restart**).
 
 ---
 

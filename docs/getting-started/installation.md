@@ -18,7 +18,27 @@ This guide covers installing the **MyHOME** next-generation integration (`v2-pha
 > **Why Manual Installation is Recommended for v2 Beta**:
 > The v2 architecture is currently published as preview/beta releases from the `v2-phase1-architecture` development branch. HACS tracks the default `master` branch by default and often fails to detect or rejects pre-release beta tags on non-default branches. Installing via ZIP ensures you receive the exact, tested beta build.
 
-### Step-by-Step Instructions:
+### ⚡ 1-Click Terminal Command (Home Assistant Terminal & SSH)
+
+If you have the **Terminal & SSH** add-on installed (or connect via SSH), paste this command directly into your terminal:
+
+```bash
+# Set target beta release version (check https://github.com/OpenWebNet-HA/MyHOME/releases)
+TAG="2.0.0b12"
+
+# Download, extract cleanly, verify, and restart Home Assistant
+mkdir -p /config/custom_components && cd /config/custom_components && \
+wget -O myhome.zip "https://github.com/OpenWebNet-HA/MyHOME/releases/download/${TAG}/myhome.zip" && \
+rm -rf myhome && \
+unzip -q myhome.zip -d myhome && \
+rm myhome.zip && \
+grep '"version"' myhome/manifest.json && \
+ha core restart
+```
+
+---
+
+### 📁 Alternative: Manual Download via Samba / Studio Code Server
 
 1. Download the `myhome.zip` archive from the latest [v2.0 Beta Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
 2. Connect to your Home Assistant host using **SSH**, **Samba share**, or the **Studio Code Server** add-on.
