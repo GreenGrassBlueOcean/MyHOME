@@ -77,7 +77,9 @@ from .discovery import Address, parse_unique_id
 from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
+    async_create_unconfigured_timezone_issue,
     async_delete_identity_issue,
+    async_delete_unconfigured_timezone_issue,
 )
 
 _orig_gw_tz = _ownd_msg._gateway_timezone
@@ -696,6 +698,17 @@ class MyHOMEGatewayHandler:
         """Handle WHO=13 Gateway Management diagnostic telemetry."""
         dim = getattr(message, "dimension", getattr(message, "_dimension", None))
         dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
+
+        # ── Dimension 0 & 22: Time & Timezone ────────────────────────────────
+        if dim in (0, 22) and dim_val:
+            # Check if timezone is 999. In both dimension 0 and 22, dim_val[3] carries the timezone.
+            # The OWNd < 2.0.0b7 compat shim clears the time_zone property, but leaves dim_val[3] as "999".
+            if len(dim_val) > 3 and str(dim_val[3]) == "999":
+                if self.config_entry:
+                    async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id, self.config_entry.title)
+            elif len(dim_val) > 3 and str(dim_val[3]) != "":
+                if self.config_entry:
+                    async_delete_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
 
         # ── Dimension 15: Device type (MODEL REQUEST) ────────────────────
         if dim == 15 and dim_val:
