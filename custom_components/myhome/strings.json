@@ -288,6 +288,9 @@
     "travel_time_out_of_range": {
       "message": "{field} must be between {min} s and {max} s"
     },
+    "cover_command_undelivered": {
+      "message": "Command undelivered (gateway disconnected or queue flushed)"
+    },
     "cover_busy_calibrating": {
       "message": "{entity_id} is being calibrated; try again when it has finished"
     },

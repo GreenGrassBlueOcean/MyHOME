@@ -158,7 +158,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         await self.async_update()
 
     @callback
-    def _handle_bus_message(self, msg: Any) -> None:
+    def handle_event(self, msg: Any) -> None:
         """Handle group messages from the bus (assumed-state mode only).
 
         With declared members the group's state is derived from those members'

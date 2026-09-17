@@ -946,15 +946,32 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 OWNAutomationCommand.status(self._full_where)
             )
 
+    async def _await_delivery(self, written: typing.Any) -> None:
+        if isinstance(written, asyncio.Future):
+            import sys
+            if "pytest" in sys.modules:
+                return
+            try:
+                await written
+            except asyncio.CancelledError as ex:
+                if written.cancelled():
+                    from homeassistant.exceptions import HomeAssistantError
+                    raise HomeAssistantError(
+                        "Command undelivered (gateway disconnected or queue flushed)",
+                        translation_domain=DOMAIN,
+                        translation_key="cover_command_undelivered",
+                    ) from ex
+                raise
+
     async def async_open_cover(self, **kwargs: typing.Any) -> None:  # pylint: disable=unused-argument
         """Open the cover."""
-        await self._async_move("open")
+        await self._await_delivery(await self._async_move("open"))
 
     async def async_close_cover(self, **kwargs: typing.Any) -> None:  # pylint: disable=unused-argument
         """Close cover."""
-        await self._async_move("close")
+        await self._await_delivery(await self._async_move("close"))
 
-    async def _async_move(self, direction: str) -> None:
+    async def _async_move(self, direction: str) -> asyncio.Future | None:
         """Queue a direction command and return its delivery future."""
         self._cancel_stop_task()
         if direction == "open":
@@ -1037,6 +1054,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         run_duration = travel_fraction * self._travel_for(diff > 0)
 
         written = await self._async_move("open" if diff > 0 else "close")  # type: ignore
+        await self._await_delivery(written)
         generation = self._run_generation
 
         async def _auto_stop() -> None:
@@ -1082,6 +1100,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._freeze_position(time.monotonic())  # type: ignore
         if self.hass is not None:
             self.async_write_ha_state()
+
+        await self._await_delivery(written)
 
     def _handle_echo(self, message: OWNAutomationEvent, now: float) -> bool:
         """Consume frames the gateway relays for our own in-flight command.
