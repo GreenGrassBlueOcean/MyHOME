@@ -6,7 +6,7 @@ The MyHOME integration monitors gateway health, OpenWebNet frames, and hardware 
 
 ---
 
-## 🕒 Unconfigured Timezone
+## Unconfigured Timezone
 
 **Repair Key**: `unconfigured_timezone`  
 **Severity**: `WARNING`  
@@ -38,7 +38,7 @@ Once the gateway broadcasts an updated WHO=13 frame with a valid timezone offset
 
 ---
 
-## ❓ Unknown Gateway Model
+## Unknown Gateway Model
 
 **Repair Key**: `unknown_gateway_model`  
 **Severity**: `WARNING`  
@@ -52,7 +52,7 @@ Click **Learn More** on the repair issue. This will open a pre-filled GitHub iss
 
 ---
 
-## 🪪 Gateway Model Mismatch
+## Gateway Model Mismatch
 
 **Repair Key**: `gateway_identity_mismatch`  
 **Severity**: `WARNING`  
@@ -68,7 +68,7 @@ The hardware model reported by the gateway over the bus contradicts the model yo
 
 ---
 
-## 🔄 Gateway Model Corrected
+## Gateway Model Corrected
 
 **Repair Key**: `gateway_identity_corrected`  
 **Severity**: `WARNING`  
@@ -82,7 +82,7 @@ No action is required unless the correction was incorrect. If your physical hard
 
 ---
 
-## 🔒 Gateway Authentication Failed
+## Gateway Authentication Failed
 
 **Repair Key**: `gateway_authentication_failed`  
 **Severity**: `ERROR`  
@@ -98,7 +98,7 @@ The gateway rejected the OpenWebNet password or HMAC SHA-negotiation credentials
 
 ---
 
-## ⚡ High SCS Bus Collision Rate
+## High SCS Bus Collision Rate
 
 **Repair Key**: `bus_collision_storm`  
 **Severity**: `WARNING`  
