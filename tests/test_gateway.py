@@ -1254,8 +1254,8 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
 
     gateway_handler.config_entry.entry_id = "entry_diag"
 
-    with patch("custom_components.myhome.repairs.async_create_unconfigured_timezone_issue") as create_issue, \
-         patch("custom_components.myhome.repairs.async_delete_unconfigured_timezone_issue") as delete_issue:
+    with patch("custom_components.myhome.gateway.async_create_unconfigured_timezone_issue") as create_issue, \
+         patch("custom_components.myhome.gateway.async_delete_unconfigured_timezone_issue") as delete_issue:
 
         # 1. 999 sentinel triggers issue
         msg = OWNEvent.parse("*#13**0*23*52*03*999##")
@@ -1271,6 +1271,7 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
         create_issue.assert_not_called()
         delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
 
+        delete_issue.reset_mock()
         # 3. Short dimension (no timezone field) does nothing
         msg_short = OWNEvent.parse("*#13**0*23*52*03##")
         gateway_handler._handle_gateway_diagnostics(msg_short)
