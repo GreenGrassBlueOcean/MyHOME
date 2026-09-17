@@ -1,6 +1,6 @@
 """Support for MyHome lights."""
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.components.light import (
@@ -905,20 +905,21 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 )
             self._promote_color_mode(ColorMode.HS)
             if has_hs:
-                self._attr_hs_color = (float(message.hue), float(message.saturation))
+                self._attr_hs_color = (float(cast(int, message.hue)), float(cast(int, message.saturation)))
                 if has_rgb:
-                    self._attr_rgb_color = tuple(message.rgb)
+                    self._attr_rgb_color = cast("tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb)))
                 else:
                     self._attr_rgb_color = color_hs_to_RGB(*self._attr_hs_color)
             else:
-                self._attr_rgb_color = tuple(message.rgb)
+                self._attr_rgb_color = cast("tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb)))
                 self._attr_hs_color = color_RGB_to_hs(*self._attr_rgb_color)
 
             if isinstance(getattr(message, "value", None), (int, float)):
-                self._attr_brightness_pct = int(message.value)
-                self._attr_brightness = percent_to_eight_bits(int(message.value))
-                if int(message.value) > 0:
-                    self._last_brightness_pct = int(message.value)
+                val = int(cast(int, message.value))
+                self._attr_brightness_pct = val
+                self._attr_brightness = percent_to_eight_bits(val)
+                if val > 0:
+                    self._last_brightness_pct = val
 
         # Auto-promote to tunable white when color temperature data is received
         elif has_color_temp:
@@ -928,8 +929,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     self._where,
                 )
             self._promote_color_mode(ColorMode.COLOR_TEMP)
-            self._attr_color_temp = message.color_temp
-            self._attr_color_temp_kelvin = color_temperature_mired_to_kelvin(message.color_temp)
+            self._attr_color_temp = cast(int, message.color_temp)
+            self._attr_color_temp_kelvin = color_temperature_mired_to_kelvin(cast(int, message.color_temp))
 
         # Auto-promote to dimmable when brightness data is received (always)
         elif has_level:

@@ -258,6 +258,15 @@
     }
   },
   "exceptions": {
+    "command_delivery_cancelled": {
+      "message": "{name}: direction command delivery was cancelled before reaching the bus"
+    },
+    "command_delivery_timeout": {
+      "message": "{name}: direction command was not delivered to the bus within {timeout} s"
+    },
+    "command_delivery_failed": {
+      "message": "{name}: direction command delivery failed: {error}"
+    },
     "calibration_interrupted": {
       "message": "{name}: {cause}"
     },
