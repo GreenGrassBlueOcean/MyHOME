@@ -10,7 +10,7 @@ This integration connects your BTicino / Legrand MyHOME SCS bus systems via Open
 
 The v2.0 architecture represents a complete modernization of the integration, featuring:
 
-- **100% UI-First Configuration**: Zero YAML required. Complete setup, gateway discovery, and device creation via Home Assistant's native Config Flow and Options Flow.
+- **UI-First Configuration**: Streamlined gateway setup, automatic on-wire bus discovery, and device management via Home Assistant's native Config Flow and Options Flow (with backward compatibility for existing `myhome.yaml` files and SCS groups).
 - **Native Automation Device Triggers**: Automate physical CEN (`WHO = 15`) and CEN+ (`WHO = 25`) scenario pushbuttons directly in Home Assistant's automation builder (Short press, Long press, Release, and Rotary Encoder dials).
 - **In-Band Diagnostic Bus Monitor**: Real-time Lovelace card (`custom:myhome-bus-card`) providing live OpenWebNet frame monitoring, filtering, bus sweeping, and 1-click trace export without consuming extra gateway sockets.
 - **Diffusione Sonora Dynamic Proxy**: Stream music from Music Assistant or Spotify into BTicino analog audio matrix amplifier zones (`WHO = 16`) with automatic power management and anti-hiss gain staging.
@@ -75,6 +75,12 @@ The v2.0 architecture represents a complete modernization of the integration, fe
     ---
 
     Comprehensive resolution guide for Home Assistant Repairs and diagnostic telemetry.
+
+-   :material-arrow-up-bold-circle: __[Upgrade from v0.9.4](migration/upgrade-from-094.md)__
+
+    ---
+
+    Step-by-step roadmap to migrate from legacy v0.9.4 YAML plants to the v2 architecture.
 
 </div>
 

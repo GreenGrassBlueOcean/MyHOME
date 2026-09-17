@@ -1,8 +1,12 @@
-# Legacy Configuration & Migration
+# Legacy Configuration History (< v0.9 & v0.9.x)
 
-> [!TIP]
-> **Full v0.9.4 Legacy Documentation Available**:
-> If you are running MyHOME v0.9.x with `/config/myhome.yaml` and need the complete legacy platform guide, schemas, and sample configurations, switch to the **v0.9.4 (legacy)** version using the version selector in the header, or visit the [**v0.9.4 Legacy Documentation**](../0.9.4/).
+> [!WARNING]
+> **You are viewing the v2 (Beta) Documentation.**
+> In v2.0+, setup and device onboarding are **100% UI-first** via Config Flow and Auto-Discovery. Manual YAML files are **not used** for device creation.
+> * To upgrade an existing v0.9.4 installation, see the [**Upgrade from 0.9.4 Guide**](upgrade-from-094.md).
+> * For the complete, dedicated manual for `/config/myhome.yaml`, visit the [**v0.9.4 Legacy Documentation**](../../0.9.4/).
+
+This page is preserved for historical reference and documentation of the deprecated pre-v0.9 and v0.9.x YAML schemas.
 
 Once your gateway is integrated in Home Assistant, you can start adding your different devices.  
 This configuration previously took place in your `configuration.yaml` file (pre-v0.9) or `/config/myhome.yaml` (v0.9.x).

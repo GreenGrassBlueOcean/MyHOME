@@ -58,17 +58,39 @@ data:
 
 In MyHOME systems, lighting actuators can be grouped physically via configurators or MyHOME Suite into **SCS Groups** (`WHERE = #1` through `#255`), which is also the standard mechanism used to group fixtures on DALI gateway interfaces such as the **F429G**.
 
-### Recommended Approach: Home Assistant Native Light Groups
+### Approach 1: Home Assistant Native Light Groups (Recommended)
 For Home Assistant installations, **managing lighting groups software-side using Home Assistant's native Light Group helper (`light.group`) is the officially recommended approach**:
 
 1. **No Protocol Discovery**: The OpenWebNet protocol provides no mechanism to query the gateway for group memberships (there is no command to ask *"which lights belong to Group #1?"*).
 2. **Preventing Desynchronization**: On many physical gateways and area configurations, individual actuators do not emit status updates after executing group commands on the bus. Exposing hardware groups directly would cause individual entity states in Home Assistant to drift out of sync. Home Assistant Light Groups avoid this by maintaining 100% accurate aggregate state tracking across all members.
 3. **Cross-Technology Support**: Home Assistant Light Groups allow combining DALI fixtures, standard F411 relays, F418 dimmers, and third-party smart bulbs (Zigbee, Hue, etc.) into a unified group entity.
 
-### How to Configure in Home Assistant
+#### How to Configure in Home Assistant
 1. In Home Assistant, go to **Settings → Devices & Services → Helpers**.
 2. Click **Create Helper → Group → Light Group**.
 3. Name your group (e.g. *Living Room DALI Lights*) and select all discovered member lights.
+
+---
+
+### Approach 2: Physical SCS Hardware Groups (`where: '#G'`) via `myhome.yaml`
+If your actuators are physically configured into an SCS group (e.g. `WHERE = #1` programmed via physical configurators or MyHOME_Suite) and you prefer Home Assistant to transmit single group frames directly on the bus, you can declare the group in `/config/myhome.yaml`:
+
+```yaml
+# /config/myhome.yaml
+groups:
+  living_room_group:
+    where: '#1'
+    name: Living Room Group
+    members:
+      - '11'
+      - '12'
+      - '13'
+```
+
+* **With `members:` list**: Home Assistant tracks individual member states and calculates an accurate aggregate state (on/off and brightness).
+* **Without `members:` list**: The entity operates in `assumed_state: true`, rendering separate On and Off buttons.
+
+---
 
 ### Synchronizing Physical Wall Switches (SCS Group Buttons)
 If you have physical BTicino wall switches configured to trigger an SCS group (e.g. `WHERE = #1`), the integration automatically dispatches a bus event named `myhome_group_light_event` whenever group frames are intercepted on the SCS bus. You can keep your Home Assistant Light Group perfectly synchronized with a simple automation:

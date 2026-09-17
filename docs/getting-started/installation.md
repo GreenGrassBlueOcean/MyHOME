@@ -1,52 +1,65 @@
-# Installation Guide
+# Installation Guide (v2.0 Beta)
 
-This guide covers installing the **MyHOME** integration in Home Assistant.
+This guide covers installing the **MyHOME** next-generation integration (`v2-phase1-architecture`) in Home Assistant.
 
 ---
 
 ## Prerequisites
 
 - **Home Assistant**: Home Assistant Core 2026.3 or newer.
-- **Physical Connection**: An OpenWebNet gateway connected to your local network (Ethernet IP) or via USB / Serial.
+- **Python Runtime**: Python 3.14+ (or official Home Assistant container).
+- **Physical Gateway**: An OpenWebNet IP gateway (F454, MyHomeServer1, MH200N/201/202, F453AV) connected via local Ethernet, or a 3578 USB/RS232 interface.
 
 ---
 
-## Option 1: Installation via HACS (Recommended)
+## Option 1: Manual ZIP / SSH Installation (Recommended for v2 Beta)
 
-HACS (Home Assistant Community Store) simplifies downloading and updating custom integrations.
+> [!IMPORTANT]
+> **Why Manual Installation is Recommended for v2 Beta**:
+> The v2 architecture is currently published as preview/beta releases from the `v2-phase1-architecture` development branch. HACS tracks the default `master` branch by default and often fails to detect or rejects pre-release beta tags on non-default branches. Installing via ZIP ensures you receive the exact, tested beta build.
 
-1. Open **HACS** in your Home Assistant sidebar.
-2. Click the three dots (⋮) in the top-right corner and select **Custom repositories**.
+### Step-by-Step Instructions:
+
+1. Download the `myhome.zip` archive from the latest [v2.0 Beta Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
+2. Connect to your Home Assistant host using **SSH**, **Samba share**, or the **Studio Code Server** add-on.
+3. Open the Home Assistant configuration folder (the directory containing `configuration.yaml`).
+4. Ensure the `custom_components/` folder exists, and extract the archive so that files are placed at:
+   ```text
+   /config/custom_components/myhome/__init__.py
+   /config/custom_components/myhome/manifest.json
+   /config/custom_components/myhome/config_flow.py
+   ...
+   ```
+
+> [!CAUTION]
+> **Folder Structure Warning**:
+> Always ensure integration files reside in `/config/custom_components/myhome/`. Never extract files directly into `/config/custom_components/` root, and never retain backup directories inside `custom_components/` (e.g. `custom_components/myhome_old/`). In modern Home Assistant cores, extra Python packages or stray `__init__.py` files in `custom_components/` can prevent all custom integrations from loading.
+
+5. Restart Home Assistant:
+   - Go to **Developer Tools → YAML → Restart** (or **Settings → System → Restart**).
+
+---
+
+## Option 2: Installation via HACS (Custom Repository)
+
+If you prefer managing updates through HACS:
+
+1. Open **HACS** in Home Assistant.
+2. Click the three dots (⋮) in the top right and choose **Custom repositories**.
 3. Enter the repository URL:
    ```text
    https://github.com/OpenWebNet-HA/MyHOME
    ```
 4. Select category: **Integration**.
 5. Click **Add**.
-6. Search for **MyHOME** in HACS, click **Download**, and choose the latest version (`v2.0` or beta release).
-7. Restart Home Assistant:
-   - Navigate to **Developer Tools** → **YAML** → **Restart** (or **Settings** → **System** → **Restart**).
-
----
-
-## Option 2: Manual Installation
-
-> [!CAUTION]
-> **Manual Installation Pitfall**: Always extract `myhome` into `custom_components/myhome/`. Never extract into `custom_components/` directly, and never keep backup copies inside `custom_components/` (e.g. `custom_components/myhome_backup/`). In Home Assistant 2026.9+, a stray `__init__.py` in the root of `custom_components/` causes Home Assistant to load *no* custom integrations at all.
-
-1. Download the `myhome.zip` archive from the [Latest Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
-2. On your Home Assistant host, navigate to your configuration folder (where `configuration.yaml` is located).
-3. Create a `custom_components/` directory if one does not already exist.
-4. Extract the contents so that the integration files reside at:
-   ```text
-   /config/custom_components/myhome/__init__.py
-   /config/custom_components/myhome/manifest.json
-   ...
-   ```
-5. Restart Home Assistant.
+6. Search for **MyHOME**. If installing a beta release, toggle **Show beta versions** in the version dropdown, choose the latest `2.0.0bX` release, and click **Download**.
+7. Restart Home Assistant.
 
 ---
 
 ## Next Steps
 
-Once Home Assistant has restarted, proceed to [Gateways & Connection Setup](../configuration/gateways.md) to add your gateway via the UI.
+Once Home Assistant has restarted:
+1. Proceed to [Gateways & Connection Setup](../configuration/gateways.md) to add your gateway via Config Flow.
+2. If you are upgrading from an existing v0.9.4 installation, review the [Upgrade from 0.9.4 Guide](../migration/upgrade-from-094.md).
+3. For uninstallation or clean removal, see the [Removal Guide](removal.md).

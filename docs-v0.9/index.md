@@ -2,7 +2,8 @@
 
 > [!WARNING]
 > **Legacy Documentation (v0.9.4)**: You are viewing documentation for the older **YAML-based configuration (`/config/myhome.yaml`)**.
-> If you are using MyHOME v2 or newer (UI-first setup with auto-discovery and config flow), please switch to the [**v2 (beta) documentation**](../latest/) using the version switcher in the header.
+> If you are using MyHOME v2 or newer (UI-first setup with auto-discovery and config flow), please switch to the [**v2 (beta) documentation**](../beta/) using the version switcher in the header.
+> To upgrade your existing v0.9.4 plant to v2, see the [**Upgrade to v2 Guide**](../beta/migration/upgrade-from-094/).
 
 Welcome to the legacy documentation for the **MyHOME for Home Assistant** integration (v0.9.4).
 
@@ -54,6 +55,10 @@ f454:
 ---
 
 ## 📚 Documentation Sections
+
+### 🚀 Getting Started
+- **[Installation Guide](getting-started/installation.md)**: Installing v0.9.4 production via HACS or manual ZIP.
+- **[Upgrade from v0.9.4 to v2.0 (Beta)](../beta/migration/upgrade-from-094/)**: Ready to migrate to the next-generation v2 architecture? Follow our comprehensive upgrade guide.
 
 ### ⚙️ YAML Configuration Guides
 - **[Configuration Overview](configuration/index.md)**: Top-level gateway hierarchy, MAC address requirement, common device keys (`who`, `where`, `interface`, `name`).

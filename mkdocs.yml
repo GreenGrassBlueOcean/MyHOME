@@ -81,6 +81,7 @@ nav:
       - Overview: configuration/README.md
       - Installation: getting-started/installation.md
       - Hardware Compatibility: getting-started/hardware-compatibility.md
+      - Removal & Clean Uninstall: getting-started/removal.md
   - Device Configuration:
       - Gateways & Connection: configuration/gateways.md
       - Gateway Identification: configuration/gateway-identification.md
@@ -110,6 +111,7 @@ nav:
       - F454 Regression Checks: f454-regression-checks.md
       - Quality Scale Roadmap: quality_scale_plan.md
   - Migration & Legacy:
+      - Upgrade from v0.9.4 to v2.0: migration/upgrade-from-094.md
       - Migrating from SDomotica: migration/sdomotica_to_myhome.md
       - Legacy YAML Configuration (< v0.9): migration/legacy-yaml.md
   - Roadmap: roadmap.md
