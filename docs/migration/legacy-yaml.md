@@ -1,5 +1,11 @@
-Once your gateway is integrated in Home-Assistant, you can start adding your different devices.  
-This configuration needs to take place in your `configuration.yaml` file; split by domains.
+# Legacy Configuration & Migration
+
+> [!TIP]
+> **Full v0.9.4 Legacy Documentation Available**:
+> If you are running MyHOME v0.9.x with `/config/myhome.yaml` and need the complete legacy platform guide, schemas, and sample configurations, switch to the **v0.9.4 (legacy)** version using the version selector in the header, or visit the [**v0.9.4 Legacy Documentation**](../0.9.4/).
+
+Once your gateway is integrated in Home Assistant, you can start adding your different devices.  
+This configuration previously took place in your `configuration.yaml` file (pre-v0.9) or `/config/myhome.yaml` (v0.9.x).
 
 ### Lights
 For clarity, the OpenWebNet elements of WHO 1 have been split in two domains, first and obvious one is lights:

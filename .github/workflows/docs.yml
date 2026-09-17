@@ -7,7 +7,8 @@ on:
       - v2-phase1-architecture
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'docs-v0.9/**'
+      - 'mkdocs*.yml'
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
   release:
@@ -45,17 +46,22 @@ jobs:
 
       - name: Deploy versioned docs via mike
         run: |
+          # 1. Deploy the v0.9.4 legacy documentation
+          echo "Deploying v0.9.4 legacy documentation..."
+          mike deploy --push --update-aliases -F mkdocs-v0.9.yml 0.9.4 legacy v0.9 -t "v0.9.4 (legacy)"
+
+          # 2. Deploy current v2.0 documentation
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.ref_name }}"
             echo "Deploying release tag: ${VERSION} as stable"
-            mike deploy --push --update-aliases "${VERSION}" stable
+            mike deploy --push --update-aliases -F mkdocs.yml "${VERSION}" stable latest -t "${VERSION} (stable)"
             mike set-default --push stable
           elif [ "${{ github.ref_name }}" = "master" ]; then
-            echo "Deploying master branch as stable"
-            mike deploy --push --update-aliases master stable
-            mike set-default --push stable
+            echo "Deploying master branch"
+            mike deploy --push --update-aliases -F mkdocs.yml master latest dev -t "v2 (beta)"
+            mike set-default --push latest
           else
             echo "Deploying branch ${{ github.ref_name }} as dev (alias: latest)"
-            mike deploy --push --update-aliases dev latest
+            mike deploy --push --update-aliases -F mkdocs.yml 2.0 latest dev -t "v2 (beta)"
             mike set-default --push latest
           fi
