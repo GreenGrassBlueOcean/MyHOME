@@ -245,8 +245,8 @@
       "description": "The MyHOME gateway refused the configured OpenWebNet password or HMAC negotiation. Please check your credentials using the reconfigure flow."
     },
     "unconfigured_timezone": {
-      "title": "Unconfigured timezone on MyHOME gateway",
-      "description": "Your BTicino/Legrand gateway reports an unconfigured timezone (placeholder '999'). Please log into the gateway's web interface (or use MyHOME Suite) and configure a valid timezone to ensure accurate scheduling."
+      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
+      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
     },
     "bus_collision_storm": {
       "title": "High SCS bus collision rate detected ({count} NACKs)",

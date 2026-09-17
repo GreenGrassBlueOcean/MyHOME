@@ -1260,7 +1260,7 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
         # 1. 999 sentinel triggers issue
         msg = OWNEvent.parse("*#13**0*23*52*03*999##")
         gateway_handler._handle_gateway_diagnostics(msg)
-        create_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+        create_issue.assert_called_once_with(gateway_handler.hass, "entry_diag", gateway_handler.config_entry.title)
         delete_issue.assert_not_called()
 
         create_issue.reset_mock()
@@ -1270,6 +1270,18 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
         gateway_handler._handle_gateway_diagnostics(msg_valid)
         create_issue.assert_not_called()
         delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+        # 3. Short dimension (no timezone field) does nothing
+        msg_short = OWNEvent.parse("*#13**0*23*52*03##")
+        gateway_handler._handle_gateway_diagnostics(msg_short)
+        create_issue.assert_not_called()
+        delete_issue.assert_not_called()
+
+        # 4. Empty timezone field does not trigger create
+        msg_empty = OWNEvent.parse("*#13**0*23*52*03*##")
+        gateway_handler._handle_gateway_diagnostics(msg_empty)
+        create_issue.assert_not_called()
+
 
 
 def test_compat_gateway_timezone():

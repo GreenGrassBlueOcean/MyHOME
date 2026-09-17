@@ -72,6 +72,8 @@ from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
     async_delete_identity_issue,
+    async_create_unconfigured_timezone_issue,
+    async_delete_unconfigured_timezone_issue,
 )
 
 _orig_gw_tz = _ownd_msg._gateway_timezone
@@ -655,17 +657,12 @@ class MyHOMEGatewayHandler:
         dim = getattr(message, "dimension", getattr(message, "_dimension", None))
         dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
 
-        # ── Dimension 0: Date & Time ─────────────────────────────────────
+        # ── Dimension 0: Time & Timezone ────────────────────────────────────
         if dim == 0 and dim_val:
-            from .repairs import (
-                async_create_unconfigured_timezone_issue,
-                async_delete_unconfigured_timezone_issue,
-            )
-
-            # Check if timezone is 999 (either literally or if our OWNd compatibility shim processed it)
+            # Check if timezone is 999. The OWNd < 2.0.0b7 compat shim clears the time_zone property, but leaves dim_val[3] as "999". Check raw dimension values.
             if len(dim_val) > 3 and str(dim_val[3]) == "999":
                 if self.config_entry:
-                    async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
+                    async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id, self.config_entry.title)
             elif len(dim_val) > 3 and str(dim_val[3]) != "":
                 if self.config_entry:
                     async_delete_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)

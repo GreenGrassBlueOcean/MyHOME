@@ -22,7 +22,7 @@ ISSUE_UNCONFIGURED_TIMEZONE = "unconfigured_timezone"
 ISSUE_GATEWAY_IDENTITY_CORRECTED = "gateway_identity_corrected"
 
 
-def async_create_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str) -> None:
+def async_create_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str, gateway_name: str) -> None:
     """Create a repair issue when the gateway reports an unconfigured timezone (999)."""
     async_create_issue(
         hass,
@@ -31,6 +31,8 @@ def async_create_unconfigured_timezone_issue(hass: HomeAssistant, entry_id: str)
         is_fixable=False,
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_UNCONFIGURED_TIMEZONE,
+        translation_placeholders={"gateway": gateway_name},
+        learn_more_url="https://github.com/OpenWebNet-HA/MyHOME/wiki/Configuration#timezone",
     )
 
 
