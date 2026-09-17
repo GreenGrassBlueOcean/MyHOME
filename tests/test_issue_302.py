@@ -576,3 +576,4 @@ async def test_worker_terminates_when_the_gateway_refuses_the_reconnect(handler)
     assert refused.cancelled()
     assert session.send.await_count == 1
 
+
