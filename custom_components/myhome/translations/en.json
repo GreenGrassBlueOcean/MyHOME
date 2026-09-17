@@ -93,6 +93,7 @@
           "config_file_path": "Configuration file path",
           "command_worker_count": "Number of concurrent command sessions",
           "generate_events": "Generate events in Home Assistant for each message received",
+          "broadcast_resync": "Sweep group/area/general light addresses for status after a debounced silence window",
           "transition_mode": "Brightness transition method",
           "decoder_1_entity": "Decoder 1 — Media player entity (e.g. media_player.cambridge_audio_cxn)",
           "decoder_1_source": "Decoder 1 — BTicino source input number (1–4)",

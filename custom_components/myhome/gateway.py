@@ -1,5 +1,6 @@
 """Code to handle a MyHome Gateway."""
 import asyncio
+import collections
 import contextlib
 import time
 from typing import Any, List, cast
@@ -16,6 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from OWNd.connection import OWNCommandSession, OWNEventSession, OWNGateway, OWNSession
@@ -63,11 +65,15 @@ from .const import (
     IDENTIFICATION_UNKNOWN,
     IDENTIFICATION_WHO13,
     LOGGER,
+    RESYNC_DEBOUNCE_S,
+    RESYNC_LEADING_WINDOW_S,
     WHO13_AMBIGUOUS_DEVICE_TYPES,
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
+    area_of_where,
     is_who13_code_compatible,
 )
+from .discovery import Address, parse_unique_id
 from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
@@ -123,7 +129,13 @@ class MyHOMEGatewayHandler:
     # Device registry id of the gateway device; set once the entry's device exists.
     device_registry_id: str | None = None
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, generate_events: bool = False) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        generate_events: bool = False,
+        broadcast_resync: bool = True,
+    ) -> None:
         build_info = {
             "address": config_entry.data.get(CONF_HOST),
             "port": config_entry.data.get(CONF_PORT, 20000),
@@ -168,6 +180,10 @@ class MyHOMEGatewayHandler:
             "firmware": None, "kernel": None, "distribution": None,
         }
         self._identity_conflict: str | None = None
+        self.broadcast_resync = broadcast_resync
+        self._resync_timers: dict[str, CALLBACK_TYPE] = {}
+        self._resync_group_echoes: dict[str, int] = {}
+        self._recent_ptp: collections.deque[tuple[float, str, str | None]] = collections.deque()
 
     def _ensure_cen_device(self, who: int, object_id: int | str) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
@@ -467,6 +483,23 @@ class MyHOMEGatewayHandler:
             or isinstance(message, OWNHeatingEvent)
         ):
             if not message.is_translation:
+                if isinstance(message, OWNLightingEvent) and not getattr(message, "is_group", False) and not getattr(message, "is_area", False) and not getattr(message, "is_general", False):
+                    now = time.monotonic()
+                    while self._recent_ptp and self._recent_ptp[0][0] < now - RESYNC_LEADING_WINDOW_S:
+                        self._recent_ptp.popleft()
+                    area = area_of_where(message.where)
+                    self._recent_ptp.append((now, str(message.where), area))
+
+                    if area and area in self._resync_timers:
+                        LOGGER.debug("%s area %s echoed point status, cancelling sweep", self.log_id, area)
+                        self._resync_timers.pop(area)()
+                    for g in [k for k in self._resync_timers if k.startswith("#")]:
+                        self._resync_group_echoes[g] = self._resync_group_echoes.get(g, 0) + 1
+                        if self._resync_group_echoes[g] >= 2:
+                            LOGGER.debug("%s group %s saw member echoes, cancelling sweep", self.log_id, g)
+                            self._resync_timers.pop(g)()
+                            self._resync_group_echoes.pop(g, None)
+
                 if isinstance(message, OWNLightingEvent):
                     if message.is_general:
                         event = "on" if message.is_on else "off"
@@ -484,8 +517,6 @@ class MyHOMEGatewayHandler:
                                 "event": event,
                             },
                         )
-                        await asyncio.sleep(0.1)
-                        await self.send_status_request(OWNLightingCommand.status(cast(int, message.area)))
                     elif message.is_group:
                         event = "on" if message.is_on else "off"
                         self.hass.bus.async_fire(
@@ -496,6 +527,8 @@ class MyHOMEGatewayHandler:
                                 "event": event,
                             },
                         )
+                    if getattr(message, "is_general", False) or getattr(message, "is_area", False) or getattr(message, "is_group", False):
+                        self._schedule_resync(message)
                 elif isinstance(message, OWNAutomationEvent):
                     if message.is_general:
                         if message.is_opening and not message.is_closing:
@@ -1031,7 +1064,12 @@ class MyHOMEGatewayHandler:
         self._terminate_listener = True
         if self._unavailable_timer is not None:
             self._unavailable_timer()
-            self._unavailable_timer = None
+        for t in self._resync_timers.values():
+            t()
+        self._resync_timers.clear()
+        self._resync_group_echoes.clear()
+        self._recent_ptp.clear()
+        self._unavailable_timer = None
         self.is_connected = False
         self._available = False
         self._event_session_ready.set()
@@ -1087,3 +1125,78 @@ class MyHOMEGatewayHandler:
             message,
         )
         return written
+
+    def _known_light_areas(self) -> list[str]:
+        areas = set()
+        if not self.config_entry or not hasattr(self.config_entry, "entry_id") or not isinstance(self.config_entry.entry_id, str):
+            return []
+
+        registry = er.async_get(self.hass)
+        entries = er.async_entries_for_config_entry(registry, self.config_entry.entry_id)
+        for entry in entries:
+            if entry.domain in ("light", "switch"):
+                # entry.unique_id is like "00:03:50:00:12:34-1-12"
+                _, key = parse_unique_id(entry.unique_id, self.gateway.mac)
+                if not key:
+                    continue
+                address = Address.from_device_id(key)
+                area = area_of_where(address.where)
+                if area:
+                    areas.add(area)
+        return sorted(list(areas))
+
+    def _schedule_resync(self, message: Any) -> None:
+        if not self.broadcast_resync:
+            return
+
+        now = time.monotonic()
+        while self._recent_ptp and self._recent_ptp[0][0] < now - RESYNC_LEADING_WINDOW_S:
+            self._recent_ptp.popleft()
+
+        targets = []
+        if getattr(message, "is_group", False):
+            # Check leading echoes: gateways like MyHomeServer1 emit member echoes ~0.9s before
+            # the group frame. If several (>= 2) PTP frames arrived in the leading window, skip sweep.
+            recent_count = sum(1 for t, _, _ in self._recent_ptp if t >= now - RESYNC_LEADING_WINDOW_S)
+            if recent_count >= 2:
+                LOGGER.debug("%s group #%s had %d leading member echoes, skipping sweep", self.log_id, message.group, recent_count)
+                return
+            targets.append(f"#{message.group}")
+        elif getattr(message, "is_area", False):
+            raw_where = str(message.where)
+            # Check leading echoes for this area
+            if any(a == raw_where for _, _, a in self._recent_ptp):
+                LOGGER.debug("%s area %s had leading member echoes, skipping sweep", self.log_id, raw_where)
+                return
+            # Use the frame's raw WHERE ("00"/"1".."9"/"100"), not `message.area`
+            # (an int, e.g. 0 for area "00" or 10 for area "100"): re-deriving the
+            # status request from the int would either emit the banned `*#1*0##`
+            # (general) or target the wrong point-to-point address (`*#1*10##`).
+            targets.append(raw_where)
+        elif getattr(message, "is_general", False):
+            for a in self._known_light_areas():
+                # If this area had leading echoes in the leading window, skip it
+                if any(entry_a == a for _, _, entry_a in self._recent_ptp):
+                    LOGGER.debug("%s general sweep skipping area %s (had leading echoes)", self.log_id, a)
+                    continue
+                targets.append(f"{a}")
+
+        for where in targets:
+            if where in self._resync_timers:
+                self._resync_timers.pop(where)()
+            if where.startswith("#"):
+                self._resync_group_echoes[where] = 0
+
+            @callback
+            def _cb(now_cb: Any, w: str = where) -> None:
+                self.hass.async_create_task(self._resync_broadcast(w))
+
+            self._resync_timers[where] = async_call_later(self.hass, RESYNC_DEBOUNCE_S, _cb)
+
+    async def _resync_broadcast(self, where: str) -> None:
+        self._resync_timers.pop(where, None)
+        self._resync_group_echoes.pop(where, None)
+        if self._terminate_listener:
+            return
+
+        await self.send_status_request(OWNLightingCommand.status(where))

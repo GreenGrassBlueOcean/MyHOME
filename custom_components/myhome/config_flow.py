@@ -37,6 +37,7 @@ from voluptuous import (
 
 from .const import (
     CONF_ADDRESS,
+    CONF_BROADCAST_RESYNC,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
@@ -698,6 +699,8 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             self.options[CONF_WORKER_COUNT] = 1  # type: ignore
         if CONF_GENERATE_EVENTS not in self.options:  # type: ignore
             self.options[CONF_GENERATE_EVENTS] = False  # type: ignore
+        if CONF_BROADCAST_RESYNC not in self.options:  # type: ignore
+            self.options[CONF_BROADCAST_RESYNC] = True  # type: ignore
         if CONF_TRANSITION_MODE not in self.options:  # type: ignore
             self.options[CONF_TRANSITION_MODE] = DEFAULT_TRANSITION_MODE  # type: ignore
         return await self.async_step_user()  # type: ignore
@@ -732,6 +735,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             if not errors:
                 self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})  # type: ignore
                 self.options.update({CONF_GENERATE_EVENTS: user_input[CONF_GENERATE_EVENTS]})  # type: ignore
+                self.options.update({CONF_BROADCAST_RESYNC: user_input.get(CONF_BROADCAST_RESYNC, True)})  # type: ignore
                 self.options[CONF_TRANSITION_MODE] = user_input.get(CONF_TRANSITION_MODE, DEFAULT_TRANSITION_MODE)  # type: ignore
 
                 # Persist decoder slots
@@ -799,6 +803,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             Required(
                 CONF_GENERATE_EVENTS,
                 description={"suggested_value": self.options.get(CONF_GENERATE_EVENTS, False)},  # type: ignore
+            ): bool,
+            vol.Optional(
+                CONF_BROADCAST_RESYNC,
+                description={"suggested_value": self.options.get(CONF_BROADCAST_RESYNC, True)},
+                default=True,
             ): bool,
             vol.Optional(
                 CONF_TRANSITION_MODE,

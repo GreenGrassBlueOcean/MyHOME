@@ -14,6 +14,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    CONF_BROADCAST_RESYNC,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
@@ -297,6 +298,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     _generate_events = (
         entry.options.get(CONF_GENERATE_EVENTS, False)
     )
+    _broadcast_resync = entry.options.get(CONF_BROADCAST_RESYNC, True)
 
     # Migrating the config entry's unique_id if it was not formated to the recommended hass standard
     if entry.unique_id != dr.format_mac(entry.unique_id):
@@ -447,7 +449,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
                     pass
 
     gateway = MyHOMEGatewayHandler(
-        hass=hass, config_entry=entry, generate_events=_generate_events
+        hass=hass,
+        config_entry=entry,
+        generate_events=_generate_events,
+        broadcast_resync=_broadcast_resync,
     )
     runtime = MyHOMERuntimeData(
         gateway=gateway, platforms=configured_platforms, entities=configured_entities
