@@ -41,19 +41,24 @@ For standard covers without hardware position feedback, the integration provides
 
 You never need to edit YAML files to calibrate travel times in v2. Choose any of the following UI-native methods:
 
-### Method 1: Stopwatch Button on Device Page
+### Method 1: Automated Calibration Button on Device Page
 Every timed cover device in Home Assistant includes a dedicated configuration button entity:
 * **Entity**: `button.<name>_calibrate_travel_time`
 * **Icon**: `mdi:ruler-square-compass`
 
-1. Open the cover's device page in Home Assistant (**Settings → Devices & Services → Devices → [Cover Name]**).
-2. Click **Calibrate Travel Time**:
-   - If the cover is open, it begins closing and starts the internal timer.
-   - When the cover reaches the bottom, click the button again (or call `stop_cover`) to lock in the measured time.
-3. The measured values are persisted automatically to the Home Assistant config entry.
+When you click **Calibrate Travel Time**, the integration performs a fully automated 3-step calibration sequence on the bus:
+1. **Full Open**: The shutter is driven fully **UP** to reach the mechanical top limit, establishing a reliable reference position.
+2. **Full Close (Timed)**: After a brief settling pause, the shutter is driven fully **DOWN**. The integration monitors the OpenWebNet bus to precisely record `travel_time_down` (from motor start to actuator stop frame).
+3. **Full Open (Timed)**: After another pause, the shutter is driven fully **UP** back to the top limit, recording `travel_time_up`.
+4. **Saved Automatically**: Both measured times are persisted into Home Assistant's config entry (`cover_travel_times`). The shutter ends in the 100% open position.
+
+> [!NOTE]
+> * **Do not press the button a second time**: The sequence is fully automated.
+> * **Aborting**: You can cancel the calibration at any time by pressing a physical wall switch, pressing **Stop** on the cover entity in Home Assistant, or calling `myhome.stop_cover_calibration`.
+> * **60-second Cutoff Protection**: If your actuator was left at the factory 60 s limit instead of being trimmed to your shutter, the integration detects this and safely rejects the calibration rather than saving an inaccurate 60 s travel time. In that scenario, use Method 3 or Method 4 below.
 
 ### Method 2: Calibrate All Covers Sequentially
-On your gateway device page, click **Calibrate All Covers** (`button.calibrate_all_covers`). The integration will walk through each timed cover one after another, allowing full plant calibration in a single session.
+On your gateway device page, click **Calibrate All Covers** (`button.calibrate_all_covers`). The integration will walk through each timed cover one after another (queued safely to avoid overloading the gateway), allowing full plant calibration in a single session.
 
 ### Method 3: Lovelace Bus Monitor Card Built-In Stopwatch
 If you use the [Lovelace Bus Monitor Card](bus_monitor.md), open the **Covers** tab. It features a live stopwatch specifically designed for timing and saving shutter runs directly from your dashboard.
