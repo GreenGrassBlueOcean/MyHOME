@@ -24,7 +24,7 @@ gantt
     WHO 18 Energy Power/Meters & WHO 16 Audio Matrix Proxy          :done, 2026-09-01, 2026-09-11
     P7 Lighting Groups & Debounced Resync (#367/#376/#377/#391)     :done, 2026-09-12, 2026-09-17
     Phase 5 - Platinum Quality Scale (IQS) & Strict Typing          :done, 2026-09-15, 2026-09-17
-    OWNd 2.0.0b7 Engine (PEP 561 py.typed & HMAC Refactor)          :done, 2026-09-16, 2026-09-17
+    OWNd 2.0.0b8 Engine (PEP 561 py.typed & HMAC Refactor)          :done, 2026-09-16, 2026-09-18
     Physical MH201 Plant Trace Replay Fixture (#390)                :done, 2026-09-16, 2026-09-17
     Repairs Framework Expansion (Timezone 999 & Unknown Model #387/#388) :done, 2026-09-16, 2026-09-17
     Versioned Documentation Platform (MkDocs & Mike #399)           :done, 2026-09-17, 2026-09-17
@@ -44,7 +44,7 @@ The following table summarizes the completed architectural features and protocol
 
 | Priority / Feature | Subsystem | Implementation Status | Highlights |
 |---|---|---|---|
-| **Standalone Protocol Engine (P1)** | Core | ✅ **Shipped** (`OWNd 2.0.0b7`) | Extracted into an independent, strongly typed Python library on PyPI; PEP 561 `py.typed` compliance, optimized HMAC-SHA256 handshake ($O(N)$ string generation), shared with CLI tools and MCP servers. |
+| **Standalone Protocol Engine (P1)** | Core | ✅ **Shipped** (`OWNd 2.0.0b8`) | Extracted into an independent, strongly typed Python library on PyPI; PEP 561 `py.typed` compliance, optimized HMAC-SHA256 handshake ($O(N)$ string generation), shared with CLI tools and MCP servers. |
 | **Lighting Groups & General Debounced Resync (P7)** | WHO=1 | ✅ **Shipped** (#367, #376, #377, #391) | Declared groups in `myhome.yaml` (`where: '#G'`, optional `members:`) with aggregate status or `assumed_state`; 250 ms debounced sweep with bidirectional echo window and per-address cancellation; truthful event emission and centralized `FrameRouter` integration. |
 | **Strict Typing & Platinum Quality Seal** | Core / IQS | ✅ **Shipped** (`quality_scale.yaml`) | 100% compliance across all Bronze, Silver, Gold, and Platinum rules; strict `mypy` typing with 0 errors across all 30 integration modules. |
 | **CEN / CEN+ UI Device Triggers (P2)** | WHO=15 / 25 | ✅ **Shipped** | First-class Home Assistant UI device triggers with string-preserved addressing (`"0001"`), gateway MAC isolation, and all 8 press/held/release actions. |
