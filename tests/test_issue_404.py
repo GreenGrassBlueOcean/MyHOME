@@ -105,6 +105,7 @@ async def test_fancoil_fan_sets_hvac_action_cooling_and_idle(hass: HomeAssistant
     )
     climate.entity_id = "climate.zone_1"
     climate.async_schedule_update_ha_state = MagicMock()
+    climate._attr_hvac_action = HVACAction.OFF
 
     # 1. Zone mode set to COOL via *4*0*1##
     climate.handle_event(OWNEvent.parse("*4*0*1##"))

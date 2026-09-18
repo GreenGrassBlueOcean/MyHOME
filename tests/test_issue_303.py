@@ -704,11 +704,6 @@ async def test_dimension_20_and_11_all_speed_branches(hass: HomeAssistant, mock_
     assert climate.extra_state_attributes["running_fan_speed"] == "off"
     assert climate.fan_mode == "auto"
 
-    # In manual mode (!= auto), Dimension 20 updates fan_mode
-    climate._attr_fan_mode = "low"
-    climate.handle_event(OWNEvent.parse("*#4*1#2*20*7##"))
-    assert climate.fan_mode == "medium"
-
     # Dimension 11 fan off frame (*11*4) sets fan_mode to "off"
     climate.handle_event(OWNEvent.parse("*#4*1*11*4##"))
     assert climate.fan_mode == "off"

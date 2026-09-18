@@ -606,22 +606,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.AUTO
-                if any(self._actuator_states.values()):
-                    if (
-                        self._target_temperature is not None
-                        and self._attr_current_temperature is not None
-                    ):
-                        if self._attr_current_temperature > self._target_temperature:
-                            self._attr_hvac_action = HVACAction.COOLING
-                        else:
-                            self._attr_hvac_action = HVACAction.HEATING
-                    elif self._cooling:
-                        self._attr_hvac_action = HVACAction.COOLING
-                    elif self._heating:
-                        self._attr_hvac_action = HVACAction.HEATING
-                    else:
-                        self._attr_hvac_action = HVACAction.IDLE
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_COOL and HVACMode.COOL in self._attr_hvac_modes:
                 LOGGER.debug(
@@ -630,9 +615,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.COOL
-                if any(self._actuator_states.values()):
-                    self._attr_hvac_action = HVACAction.COOLING
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_HEAT and HVACMode.HEAT in self._attr_hvac_modes:
                 LOGGER.debug(
@@ -641,9 +624,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.HEAT
-                if any(self._actuator_states.values()):
-                    self._attr_hvac_action = HVACAction.HEATING
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_OFF:
                 LOGGER.debug(
@@ -674,22 +655,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.AUTO
-                if any(self._actuator_states.values()):
-                    if (
-                        self._target_temperature is not None
-                        and self._attr_current_temperature is not None
-                    ):
-                        if self._attr_current_temperature > self._target_temperature:
-                            self._attr_hvac_action = HVACAction.COOLING
-                        else:
-                            self._attr_hvac_action = HVACAction.HEATING
-                    elif self._cooling:
-                        self._attr_hvac_action = HVACAction.COOLING
-                    elif self._heating:
-                        self._attr_hvac_action = HVACAction.HEATING
-                    else:
-                        self._attr_hvac_action = HVACAction.IDLE
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_COOL and HVACMode.COOL in self._attr_hvac_modes:
                 LOGGER.debug(
@@ -698,9 +664,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.COOL
-                if any(self._actuator_states.values()):
-                    self._attr_hvac_action = HVACAction.COOLING
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_HEAT and HVACMode.HEAT in self._attr_hvac_modes:
                 LOGGER.debug(
@@ -709,9 +673,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     message.human_readable_log,
                 )
                 self._attr_hvac_mode = HVACMode.HEAT
-                if any(self._actuator_states.values()):
-                    self._attr_hvac_action = HVACAction.HEATING
-                elif self._attr_hvac_action in (None, HVACAction.OFF):
+                if self._attr_hvac_action == HVACAction.OFF:
                     self._attr_hvac_action = HVACAction.IDLE
             elif message.mode == CLIMATE_MODE_OFF:
                 LOGGER.debug(
@@ -757,22 +719,6 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._running_fan_speed = "off"
                 else:
                     self._running_fan_speed = None
-
-                if self._attr_fan_mode is None:
-                    self._attr_fan_mode = "auto"
-                elif self._attr_fan_mode != "auto":
-                    if speed == 0:
-                        self._attr_fan_mode = "auto"
-                    elif speed == 1:
-                        self._attr_fan_mode = "low"
-                    elif speed == 2:
-                        self._attr_fan_mode = "medium"
-                    elif speed == 3:
-                        self._attr_fan_mode = "high"
-                    elif getattr(message, "fan_on", None) is False or speed == 4:
-                        self._attr_fan_mode = "off"
-                    elif getattr(message, "fan_on", None) is True:
-                        self._attr_fan_mode = "auto"
 
             actuator_id = str(
                 getattr(message, "actuator", None)
