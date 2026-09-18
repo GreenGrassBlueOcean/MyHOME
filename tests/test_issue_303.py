@@ -92,7 +92,7 @@ async def test_standalone_zone_auto_discovery_exposes_fan_by_default(hass: HomeA
 
     assert zone1._fan is True
     assert zone1.supported_features & ClimateEntityFeature.FAN_MODE
-    assert zone1.fan_modes == ["auto", "low", "medium", "high", "off"]
+    assert zone1.fan_modes == ["auto", "low", "medium", "high"]
     assert zone1.fan_mode == "auto"
     assert zone1.extra_state_attributes["running_fan_speed"] == "high"
 
@@ -197,12 +197,13 @@ async def test_fan_off_frame_after_high_transitions_to_off(hass: HomeAssistant, 
     climate.handle_event(OWNEvent.parse("*#4*1#2*20*5##"))
     assert climate.extra_state_attributes["running_fan_speed"] == "off"
 
-    # Dimension 11: set to high (*11*3), then off (*11*4)
+    # Dimension 11: set to high (*11*3)
     climate.handle_event(OWNEvent.parse("*#4*1*11*3##"))
     assert climate.fan_mode == "high"
 
+    # Dimension 11 frame (*11*4 or fan_on=False) does not overwrite configured fan_mode preset
     climate.handle_event(OWNEvent.parse("*#4*1*11*4##"))
-    assert climate.fan_mode == "off"
+    assert climate.fan_mode == "high"
 
 
 async def test_valve_active_in_auto_or_off_does_not_set_heating(hass: HomeAssistant, mock_gateway):
@@ -312,7 +313,7 @@ async def test_dynamic_fan_mode_activation_on_actuator_event(hass: HomeAssistant
 
     assert climate._fan is True
     assert climate.supported_features & ClimateEntityFeature.FAN_MODE
-    assert climate.fan_modes == ["auto", "low", "medium", "high", "off"]
+    assert climate.fan_modes == ["auto", "low", "medium", "high"]
     assert climate.fan_mode == "auto"
     assert climate.extra_state_attributes["running_fan_speed"] == "low"
     # Actuator fan status without heat/cool mode must not set hvac_action to HEATING
@@ -495,7 +496,7 @@ async def test_issue_303_bus_trace_replay(hass: HomeAssistant, mock_gateway):
     for zone in ("1", "2", "3", "5", "6"):
         assert by_where[zone]._fan is True
         assert by_where[zone].supported_features & ClimateEntityFeature.FAN_MODE
-        assert by_where[zone].fan_modes == ["auto", "low", "medium", "high", "off"]
+        assert by_where[zone].fan_modes == ["auto", "low", "medium", "high"]
 
     # Check resulting fan modes and running speeds:
     for zone in ("1", "2", "3", "5", "6"):
@@ -704,9 +705,9 @@ async def test_dimension_20_and_11_all_speed_branches(hass: HomeAssistant, mock_
     assert climate.extra_state_attributes["running_fan_speed"] == "off"
     assert climate.fan_mode == "auto"
 
-    # Dimension 11 fan off frame (*11*4) sets fan_mode to "off"
+    # Dimension 11 frame (*11*4 or fan_on=False) does not overwrite configured fan_mode preset
     climate.handle_event(OWNEvent.parse("*#4*1*11*4##"))
-    assert climate.fan_mode == "off"
+    assert climate.fan_mode == "auto"
 
     # Dimension 11 mock event with speed None and fan_on True
     mock_d11 = MagicMock()
