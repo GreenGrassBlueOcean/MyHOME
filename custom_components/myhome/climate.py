@@ -338,6 +338,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._target_temperature = float(target_temp)
                 except (ValueError, TypeError):
                     pass
+            if "fan_mode" in last_state.attributes or bool(
+                last_state.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
+            ):
+                self._enable_fan_mode()
+                restored_fan_mode = last_state.attributes.get("fan_mode")
+                if restored_fan_mode in ("auto", "low", "medium", "high", "off"):
+                    self._attr_fan_mode = restored_fan_mode
 
     async def async_update(self) -> None:
         """Request status update from gateway."""
@@ -345,6 +352,10 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             await self._gateway_handler.send_status_request(OWNHeatingCommand.central_status(self._where))
         else:
             await self._gateway_handler.send_status_request(OWNHeatingCommand.status(self._full_where))
+            if self._fan:
+                await self._gateway_handler.send_status_request(
+                    OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
+                )
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""

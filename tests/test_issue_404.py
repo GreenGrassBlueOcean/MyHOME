@@ -10,15 +10,16 @@ Verifies:
 4. Full 42-frame bus trace from Issue #404 replays cleanly through Home Assistant.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.climate.const import (
+    ClimateEntityFeature,
     HVACAction,
     HVACMode,
 )
 from homeassistant.const import CONF_MAC
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import OWNEvent
 
@@ -273,3 +274,231 @@ async def test_issue_404_trace_replay(hass: HomeAssistant, mock_gateway):
     assert z1.extra_state_attributes["running_fan_speed"] == "off"
     assert z1.current_temperature == 25.9
     assert z1.target_temperature == 20.0
+
+
+async def test_golden_sample_lyubomirtraykov_zone6_trace(hass: HomeAssistant, mock_gateway):
+    """Test golden sample real-world trace from @lyubomirtraykov (Zone 6 fancoil).
+
+    Verifies:
+    1. Thermostat Dimension 11 speed changes update fan_mode ('low' -> 'medium' -> 'high' -> 'auto').
+    2. Actuator Dimension 20 frames update running_fan_speed without clobbering fan_mode.
+    3. Multi-actuator (valves/motors #2 and #3) state tracking maintains accurate hvac_action.
+    """
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Zone 6",
+        device_id="4-6",
+        who="4",
+        where="6",
+        heating=True,
+        cooling=True,
+        fan=True,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="F461 Fancoil",
+        gateway=mock_gateway,
+    )
+    climate.entity_id = "climate.zone_6"
+    climate.async_schedule_update_ha_state = MagicMock()
+
+    # Initial mode: Cooling, Idle
+    climate._attr_hvac_mode = HVACMode.COOL
+    climate._attr_hvac_action = HVACAction.IDLE
+
+    # Frame 1: Thermostat sets fan speed to Low (*#4*6*11*1##)
+    climate.handle_event(OWNEvent.parse("*#4*6*11*1##"))
+    assert climate.fan_mode == "low"
+    assert climate.hvac_action == HVACAction.IDLE
+
+    # Frames 2-5: Actuators 2 and 3 spin up at low speed (speed 1, *20*6)
+    climate.handle_event(OWNEvent.parse("*#4*6#2*#20*6##"))
+    climate.handle_event(OWNEvent.parse("*#4*6#2*20*6##"))
+    assert climate.hvac_action == HVACAction.COOLING
+    assert climate.fan_mode == "low"
+    assert climate.extra_state_attributes["running_fan_speed"] == "low"
+
+    climate.handle_event(OWNEvent.parse("*#4*6#3*#20*6##"))
+    climate.handle_event(OWNEvent.parse("*#4*6#3*20*6##"))
+    assert climate.hvac_action == HVACAction.COOLING
+    assert climate.fan_mode == "low"
+    assert climate.extra_state_attributes["running_fan_speed"] == "low"
+
+    # Frame 6: Thermostat increases speed to Medium (*#4*6*11*2##)
+    climate.handle_event(OWNEvent.parse("*#4*6*11*2##"))
+    assert climate.fan_mode == "medium"
+    assert climate.hvac_action == HVACAction.COOLING
+
+    # Frames 7-10: Actuators 2 and 3 report speed 2 (*20*7)
+    climate.handle_event(OWNEvent.parse("*#4*6#2*#20*7##"))
+    climate.handle_event(OWNEvent.parse("*#4*6#2*20*7##"))
+    assert climate.extra_state_attributes["running_fan_speed"] == "medium"
+    assert climate.fan_mode == "medium"
+
+    climate.handle_event(OWNEvent.parse("*#4*6#3*#20*7##"))
+    climate.handle_event(OWNEvent.parse("*#4*6#3*20*7##"))
+    assert climate.extra_state_attributes["running_fan_speed"] == "medium"
+    assert climate.fan_mode == "medium"
+
+    # Frame 11: Thermostat sets speed to High (*#4*6*11*3##)
+    climate.handle_event(OWNEvent.parse("*#4*6*11*3##"))
+    assert climate.fan_mode == "high"
+
+    # Frame 12: Thermostat switches back to Auto (*#4*6*11*0##)
+    climate.handle_event(OWNEvent.parse("*#4*6*11*0##"))
+    assert climate.fan_mode == "auto"
+    # Actuator speed is still medium from previous frames and not overwritten by auto
+    assert climate.extra_state_attributes["running_fan_speed"] == "medium"
+
+
+async def test_fan_mode_restoration_on_ha_restart(hass: HomeAssistant, mock_gateway):
+    """Test that fan_mode and FAN_MODE feature are restored from HA storage on restart."""
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Zone 6",
+        device_id="4-6",
+        who="4",
+        where="6",
+        heating=True,
+        cooling=True,
+        fan=False,  # Initially unconfigured
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Fancoil Zone",
+        gateway=mock_gateway,
+    )
+    climate.entity_id = "climate.zone_6"
+    assert not climate._fan
+    assert not (climate.supported_features & ClimateEntityFeature.FAN_MODE)
+
+    # Simulate HA restoring previous state where fan was active in 'medium' mode
+    last_state = State(
+        entity_id="climate.zone_6",
+        state="cool",
+        attributes={
+            "temperature": 23.5,
+            "fan_mode": "medium",
+            "supported_features": int(
+                ClimateEntityFeature.FAN_MODE | ClimateEntityFeature.TARGET_TEMPERATURE
+            ),
+        },
+    )
+    await climate.async_restore_last_state(last_state)
+
+    assert climate.hvac_mode == HVACMode.COOL
+    assert climate.target_temperature == 23.5
+    assert climate._fan is True
+    assert climate.fan_mode == "medium"
+    assert climate.supported_features & ClimateEntityFeature.FAN_MODE
+
+
+async def test_fan_mode_restoration_edge_cases(hass: HomeAssistant, mock_gateway):
+    """Test edge cases in async_restore_last_state for fan mode."""
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Zone 6",
+        device_id="4-6",
+        who="4",
+        where="6",
+        heating=True,
+        cooling=True,
+        fan=False,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Fancoil Zone",
+        gateway=mock_gateway,
+    )
+    # 1. None state
+    await climate.async_restore_last_state(None)
+    assert not climate._fan
+
+    # 2. State without fan_mode but with supported_features bit
+    last_state_feat_only = State(
+        entity_id="climate.zone_6",
+        state="heat",
+        attributes={
+            "temperature": "invalid_temp",
+            "supported_features": int(ClimateEntityFeature.FAN_MODE),
+        },
+    )
+    await climate.async_restore_last_state(last_state_feat_only)
+    assert climate._fan is True
+    assert climate.fan_mode == "auto"  # Default from _enable_fan_mode()
+
+    # 3. State with invalid fan_mode string
+    climate2 = MyHOMEClimate(
+        hass=hass,
+        name="Zone 2",
+        device_id="4-2",
+        who="4",
+        where="2",
+        heating=True,
+        cooling=True,
+        fan=False,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Fancoil Zone",
+        gateway=mock_gateway,
+    )
+    last_state_invalid_fan = State(
+        entity_id="climate.zone_2",
+        state="heat",
+        attributes={
+            "fan_mode": "turbo_ultra",
+        },
+    )
+    await climate2.async_restore_last_state(last_state_invalid_fan)
+    assert climate2._fan is True
+    assert climate2.fan_mode == "auto"
+
+
+async def test_async_update_queries_dimension_11_when_fan_enabled(hass: HomeAssistant, mock_gateway):
+    """Test that async_update queries Dimension 11 when fan is supported, and omits when not."""
+    mock_gateway.send_status_request = AsyncMock()
+
+    # Fan enabled
+    climate = MyHOMEClimate(
+        hass=hass,
+        name="Zone 6",
+        device_id="4-6",
+        who="4",
+        where="6",
+        heating=True,
+        cooling=True,
+        fan=True,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Fancoil Zone",
+        gateway=mock_gateway,
+    )
+    await climate.async_update()
+    assert mock_gateway.send_status_request.call_count == 2
+    calls = [str(call[0][0]) for call in mock_gateway.send_status_request.call_args_list]
+    assert "*#4*6##" in calls
+    assert "*#4*6*11##" in calls
+
+    # Fan disabled
+    mock_gateway.send_status_request.reset_mock()
+    climate_no_fan = MyHOMEClimate(
+        hass=hass,
+        name="Zone 1",
+        device_id="4-1",
+        who="4",
+        where="1",
+        heating=True,
+        cooling=True,
+        fan=False,
+        standalone=True,
+        central=False,
+        manufacturer="BTicino",
+        model="Radiator Zone",
+        gateway=mock_gateway,
+    )
+    await climate_no_fan.async_update()
+    assert mock_gateway.send_status_request.call_count == 1
+    assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#4*1##"
+
