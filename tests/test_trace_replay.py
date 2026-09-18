@@ -1021,7 +1021,8 @@ class TestTraceReplayHarness:
         assert z1 is not None, f"Available states: {[s.entity_id for s in hass.states.async_all()]}"
         assert z1.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
         assert z1.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
-        assert z1.attributes.get("fan_mode") == "high"
+        assert z1.attributes.get("fan_mode") == "auto"
+        assert z1.attributes.get("running_fan_speed") == "high"
         assert z1.attributes.get("current_temperature") == 23.4
         assert z1.attributes.get("temperature") == 20.0
         assert z1.attributes.get("current_humidity") == 55
@@ -1032,7 +1033,8 @@ class TestTraceReplayHarness:
         assert z2 is not None
         assert z2.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
         assert z2.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
-        assert z2.attributes.get("fan_mode") == "off"
+        assert z2.attributes.get("fan_mode") == "auto"
+        assert z2.attributes.get("running_fan_speed") == "off"
         assert z2.attributes.get("current_temperature") == 23.1
         assert z2.attributes.get("temperature") == 26.5
         assert z2.attributes.get("current_humidity") == 54
@@ -1041,7 +1043,9 @@ class TestTraceReplayHarness:
         z3 = hass.states.get("climate.climate_zone_3")
         assert z3 is not None
         assert z3.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z3.attributes.get("fan_mode") == "low"
+        assert z3.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
+        assert z3.attributes.get("fan_mode") == "auto"
+        assert z3.attributes.get("running_fan_speed") == "low"
         assert z3.attributes.get("current_temperature") == 23.0
         assert z3.attributes.get("current_humidity") == 59
 
@@ -1049,7 +1053,9 @@ class TestTraceReplayHarness:
         z5 = hass.states.get("climate.climate_zone_5")
         assert z5 is not None
         assert z5.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z5.attributes.get("fan_mode") == "low"
+        assert z5.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
+        assert z5.attributes.get("fan_mode") == "auto"
+        assert z5.attributes.get("running_fan_speed") == "low"
         assert z5.attributes.get("current_temperature") == 23.0
         assert z5.attributes.get("current_humidity") == 61
 
@@ -1057,7 +1063,9 @@ class TestTraceReplayHarness:
         z6 = hass.states.get("climate.climate_zone_6")
         assert z6 is not None
         assert z6.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
-        assert z6.attributes.get("fan_mode") == "off"
+        assert z6.attributes.get("fan_modes") == ["auto", "low", "medium", "high", "off"]
+        assert z6.attributes.get("fan_mode") == "auto"
+        assert z6.attributes.get("running_fan_speed") == "off"
         assert z6.attributes.get("current_temperature") == 22.8
         assert z6.attributes.get("current_humidity") == 59
 
