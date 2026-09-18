@@ -317,6 +317,18 @@ class TestMockGatewayHarness:
                 if str(status_cmd) in str(call)
             ]
             assert len(status_warnings) == 0
+
+            # OWNd >= 2.0.0b9 logs status request NACK retries at DEBUG;
+            # on OWNd <= 2.0.0b8 from PyPI, the retry was logged at ERROR before
+            # being downgraded by MyHOME's _StatusRequestLogFilter in gateway.py.
+            import OWNd
+            from packaging.version import Version
+            if Version(getattr(OWNd, "__version__", "0.0.0")) >= Version("2.0.0b9"):
+                status_errors = [
+                    call for call in mock_logger.error.call_args_list
+                    if str(status_cmd) in str(call)
+                ]
+                assert len(status_errors) == 0
         finally:
             await session.close()
             await harness.stop()
