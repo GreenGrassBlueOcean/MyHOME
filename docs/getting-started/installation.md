@@ -80,6 +80,7 @@ If you prefer managing updates through HACS:
 ## Next Steps
 
 Once Home Assistant has restarted:
+
 1. Proceed to [Gateways & Connection Setup](../configuration/gateways.md) to add your gateway via Config Flow.
 2. If you are upgrading from an existing v0.9.4 installation, review the [Upgrade from 0.9.4 Guide](../migration/upgrade-from-094.md).
 3. For uninstallation or clean removal, see the [Removal Guide](removal.md).

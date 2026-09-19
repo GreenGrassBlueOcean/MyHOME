@@ -21,6 +21,7 @@ This guide provides a step-by-step roadmap for migrating an existing **MyHOME v0
 
 > [!IMPORTANT]
 > **Always take a full Home Assistant backup before upgrading any custom integration.**
+>
 > 1. Go to **Settings → System → Backups**.
 > 2. Click **Create Backup**, select **Full backup**, and wait for completion.
 > 3. Download the backup file to your local computer.
@@ -57,6 +58,7 @@ ha core restart
 
 > [!TIP]
 > **What this command does step-by-step**:
+>
 > 1. `mkdir -p /config/custom_components && cd /config/custom_components`: Ensures the directory exists and enters your custom components folder.
 > 2. `wget -O myhome.zip ...`: Downloads the official pre-packaged release zip directly from GitHub.
 > 3. `rm -rf myhome`: Removes previous files to prevent orphaned legacy modules from colliding with v2.
@@ -67,6 +69,7 @@ ha core restart
 
 #### 📁 Alternative: Manual Download via Samba / Studio Code Server
 If you prefer not using the command line:
+
 1. Download `myhome.zip` from the latest [v2.0 Beta GitHub Release](https://github.com/OpenWebNet-HA/MyHOME/releases).
 2. Connect to your Home Assistant host via **Samba Share** or the **Studio Code Server** add-on.
 3. Navigate to `/config/custom_components/myhome/` (create the folders if they don't exist).
@@ -117,5 +120,6 @@ Before upgrading, review these key architectural changes:
 ## ⏪ Rollback Procedure
 
 If you encounter an unexpected issue during beta testing and wish to revert to v0.9.4:
+
 1. Restore your pre-upgrade Home Assistant backup via **Settings → System → Backups**.
 2. Alternatively, re-download the [v0.9.4 Release Archive](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4), extract it into `/config/custom_components/myhome/`, and restart Home Assistant.
