@@ -26,8 +26,8 @@ Things the integration does not do, or does with a caveat, and the reason. Where
 
 | Limitation | Why | Workaround |
 | :--- | :--- | :--- |
-| **Timed covers report a calculated position.** It drifts if the motor runs at a different speed than assumed, or after a manual stop mid-travel. | The actuator has no encoder; only position-reporting actuators (dimension 10) know where the shutter is. | Calibrate with `myhome.calibrate_cover` (or the card's stopwatch); a full open or close resynchronises the estimate. |
-| **Calibration on an MH200 / MH200N can fail** with *no stop status from the actuator*. | The single-session gateway delays or drops the actuator's stop status; some actuators also enforce a 60 s safety cut-off that ends the run early. | Use `myhome.set_cover_travel_time` with a stopwatch value. The card's Covers panel preselects manual mode on those gateways. |
+| **Timed covers report a calculated position.** It drifts if the motor runs at a different speed than assumed, or after a manual stop mid-travel. | The actuator has no encoder; only position-reporting actuators (dimension 10) know where the shutter is. | Calibrate with `myhome.calibrate_cover` (or `myhome.set_cover_travel_time`); a full open or close resynchronises the estimate. |
+| **Calibration on an MH200 / MH200N can fail** with *no stop status from the actuator*. | The single-session gateway delays or drops the actuator's stop status; some actuators also enforce a 60 s safety cut-off that ends the run early. | Measure the run with a stopwatch and store the timings via `myhome.set_cover_travel_time`. |
 | **One calibration at a time per gateway.** | Two motors on one paced session make the timings meaningless. | Queue is automatic; `myhome.stop_cover_calibration` cancels it. |
 | **No slat / tilt control.** | Not implemented; the frames exist in OWNd. | `myhome.send_message` with the tilt frame. |
 
