@@ -60,10 +60,8 @@ When you click **Calibrate Travel Time**, the integration performs a fully autom
 
 > [!NOTE]
 > * **Do not press the button a second time**: The sequence is fully automated. Pressing the button again while running will raise a `calibration_in_progress` error.
-> * **Do NOT press the cover's standard Stop button in Home Assistant**: Pressing **Stop** on the cover entity halts the motor, but the integration interprets the resulting stop frame as completion of the run and saves the partial elapsed time (e.g. 5–6 seconds) as the calibrated travel time.
-> * **How to Abort Safely**: To cancel calibration without saving partial measurements:
->   - Press a physical MyHOME wall switch associated with the cover, or
->   - Call the `myhome.stop_cover_calibration` action in **Developer Tools → Actions**.
+> * **Do NOT stop the shutter during calibration — neither from the cover entity nor from the wall**: A stop press from either place puts a plain stop frame (`*2*0*<WHERE>##`) on the bus, which is the very same frame the actuator emits when the shutter reaches its end stop. The integration cannot tell them apart, so it treats the stop as the end of the run and stores the partial elapsed time (e.g. 5–6 seconds) as the calibrated travel time.
+> * **How to Abort Safely**: The one safe way out is the `myhome.stop_cover_calibration` action in **Developer Tools → Actions**: it marks the run as interrupted and stores nothing. (Driving the shutter in the *opposite* direction from the wall is also recognised as an interruption, because it arrives as an explicit open/close command rather than a stop — but prefer the action.)
 
 ### Method 2: Calibrate All Covers Sequentially
 On your gateway device page, click **Calibrate All Covers** (`button.calibrate_all_covers`). The integration will walk through each timed cover one after another (queued safely via a gateway lock to avoid bus congestion), allowing full plant calibration in a single session.
