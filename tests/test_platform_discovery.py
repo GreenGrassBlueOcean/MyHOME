@@ -60,6 +60,7 @@ def test_config_lookup_and_known_devices():
     assert config_for(multibus_configured, Address("13"))["name"] == "Bus 0 Light"
     assert config_for(multibus_configured, Address("13", "03"))["name"] == "Bus 3 Light"
     assert config_for(multibus_configured, Address("13", "3"))["name"] == "Bus 3 Light"
+    assert config_for(multibus_configured, Address("1-13", "3"))["name"] == "Bus 3 Light"
     assert config_for(multibus_configured, Address("13", "04")) == {}  # must not fall back to Bus 0
     known = KnownDevices()
     known.add("12", None, "13")
