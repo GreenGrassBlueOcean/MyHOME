@@ -10,7 +10,7 @@ This guide provides a step-by-step roadmap for migrating an existing **MyHOME v0
 | :--- | :--- | :--- |
 | **Setup Model** | Manual YAML (`/config/myhome.yaml`) | **100% UI-First** (Config Flow & Auto-Discovery) |
 | **Entity Discovery** | Strict YAML parsing at startup | Dynamic on-wire SCS bus discovery (`WHO = 1, 2, 4, 13, 15, 18, 25`) |
-| **Cover Calibration** | Manual `travel_time` integers in YAML | Direction-aware stopwatch calibration buttons & service actions |
+| **Cover Calibration** | Manual `travel_time` integers in YAML | Automated on-bus calibration (button & service action), direction-aware up/down times |
 | **Light Capabilities** | Manual `dimmable: true` YAML flags | Dynamically learned from bus telemetry (dimming, HSV, color temp, DALI DT8) |
 | **Entity Naming** | Configured exclusively in `myhome.yaml` | Managed natively in Home Assistant Device & Entity Registry |
 | **Diagnostics** | Basic logs | Lovelace Bus Monitor Card, Home Assistant Repairs, and telemetry downloads |
