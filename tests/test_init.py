@@ -774,6 +774,40 @@ async def test_setup_entry_myhome_yaml_loading(hass: HomeAssistant):
             assert await hass.config_entries.async_unload(entry_fuzzy_mac.entry_id)
             await hass.async_block_till_done()
 
+        # Test secondary bus devices with interface in myhome.yaml (#408)
+        entry_multibus = MockConfigEntry(
+            domain=DOMAIN,
+            data={"host": "192.168.0.35", "port": 20000, "password": "pass", "mac": "00:03:50:00:12:34"},
+            options={"file_path": tmp_path},
+            unique_id="00:03:50:00:12:34",
+        )
+        entry_multibus.add_to_hass(hass)
+        mock_val_multibus = {
+            "00:03:50:00:12:34": {
+                CONF_PLATFORMS: {
+                    "light": {
+                        "1-13": {"where": "13", "name": "Bus 0 Light"},
+                        "1-13#4#03": {"where": "13", "interface": "03", "name": "Bus 3 Light"},
+                    }
+                }
+            }
+        }
+        with patch("custom_components.myhome.gateway.OWNSession.test_connection", return_value={"Success": True, "Message": None}), \
+             patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"), \
+             patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"), \
+             patch("custom_components.myhome.validate.config_schema", return_value=mock_val_multibus):
+            assert await hass.config_entries.async_setup(entry_multibus.entry_id)
+            await hass.async_block_till_done()
+
+            plats = entry_multibus.runtime_data.platforms["light"]
+            assert plats["13"]["name"] == "Bus 0 Light"
+            assert plats["13#4#03"]["name"] == "Bus 3 Light"
+            assert plats["13#4#3"]["name"] == "Bus 3 Light"
+            assert plats["1-13#4#03"]["name"] == "Bus 3 Light"
+
+            assert await hass.config_entries.async_unload(entry_multibus.entry_id)
+            await hass.async_block_till_done()
+
 
         # Test fallback to /config/myhome.yaml (line 112)
         config_entry_fallback = MockConfigEntry(

@@ -638,6 +638,26 @@ class TestFullConfigSchema:
         with pytest.raises(Invalid, match="Invalid MAC address"):
             config_schema(bad_config)
 
+    def test_format_mac_single_digit_octets(self):
+        """Test format_mac normalizes single-digit octets and accepts non-standard formats (#408)."""
+        # User scenario from #408: second octet '3' instead of '03'
+        assert format_mac("00:3:50:CA:32:B6") == "00:03:50:ca:32:b6"
+        assert format_mac("0:3:50:ca:32:b6") == "00:03:50:ca:32:b6"
+        assert format_mac("00-3-50-ca-32-b6") == "00:03:50:ca:32:b6"
+        assert format_mac("00.3.50.ca.32.b6") == "00:03:50:ca:32:b6"
+        assert format_mac("000350ca32b6") == "00:03:50:ca:32:b6"
+        assert format_mac(None) is None  # type: ignore
+        assert format_mac(12345) is None  # type: ignore
+
+        # Ensure config_schema parses gateway with single-digit octet MAC
+        cfg = {
+            "gateway_1": {
+                CONF_MAC: "00:3:50:CA:32:B6",
+            }
+        }
+        res = config_schema(cfg)
+        assert "00:03:50:ca:32:b6" in res
+
     def test_device_class_remapping_and_defaults(self):
         """Test string device_class remapping to CONF_DEVICE_CLASS and defaults in schemas."""
         # Switch with string device_class

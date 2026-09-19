@@ -15,6 +15,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_BROADCAST_RESYNC,
+    CONF_BUS_INTERFACE,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
@@ -283,8 +284,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
                             for d_id, d_cfg in devices.items():
                                 configured_platforms[plat][d_id] = d_cfg
                                 if isinstance(d_cfg, dict):
+                                    clean_id = d_id.split("-", 1)[-1]
+                                    if clean_id != d_id:
+                                        configured_platforms[plat][clean_id] = d_cfg
+                                    iface = (
+                                        d_cfg.get(CONF_BUS_INTERFACE)
+                                        or d_cfg.get("bus_interface")
+                                        or d_cfg.get("interface")
+                                    )
                                     if "where" in d_cfg:
-                                        configured_platforms[plat][str(d_cfg["where"])] = d_cfg
+                                        where_str = str(d_cfg["where"])
+                                        if iface is not None:
+                                            iface_str = str(iface)
+                                            configured_platforms[plat][f"{where_str}#4#{iface_str}"] = d_cfg
+                                            if iface_str.isdigit():
+                                                iface_int = int(iface_str)
+                                                configured_platforms[plat][f"{where_str}#4#{iface_int}"] = d_cfg
+                                                configured_platforms[plat][f"{where_str}#4#{iface_int:02d}"] = d_cfg
+                                        else:
+                                            configured_platforms[plat][where_str] = d_cfg
                                     if CONF_ZONE in d_cfg or "zone" in d_cfg:
                                         z_val = str(d_cfg.get(CONF_ZONE) or d_cfg.get("zone"))
                                         configured_platforms[plat][z_val] = d_cfg

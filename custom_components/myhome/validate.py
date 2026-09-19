@@ -72,8 +72,17 @@ from .const import (
 
 
 def format_mac(address: str) -> str:
-    mac = re.sub("[.:-]", "", address).upper()
-    mac = "".join(mac.split())
+    if isinstance(address, str):
+        for sep in (":", "-", "."):
+            if sep in address:
+                parts = address.split(sep)
+                if len(parts) == 6 and all(1 <= len(p) <= 2 for p in parts):
+                    address = "".join(p.zfill(2) for p in parts)
+                break
+        mac = re.sub("[.:-]", "", address).upper()
+        mac = "".join(mac.split())
+    else:
+        mac = ""
     if len(mac) != 12 or not mac.isalnum() or re.search("[G-Z]", mac) is not None:
         return None  # type: ignore
     return ha_format_mac(mac)

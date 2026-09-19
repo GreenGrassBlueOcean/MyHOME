@@ -116,6 +116,23 @@ def parse_unique_id(unique_id: str, mac: str, entry_mac: str | None = None) -> t
 
 def config_for(configured: dict[str, Any], address: Address, *extra_keys: str) -> dict[str, Any]:
     """The ``myhome.yaml`` entry for an address, tried by key, WHERE, clean WHERE, then extras."""
+    if address.interface is not None:
+        candidates: list[str] = [address.key, address.clean_key]
+        if str(address.interface).isdigit():
+            iface_int = int(address.interface)
+            candidates.extend([
+                f"{address.where}{BUS_ROUTING}{iface_int}",
+                f"{address.where}{BUS_ROUTING}{iface_int:02d}",
+                f"{address.clean_where}{BUS_ROUTING}{iface_int}",
+                f"{address.clean_where}{BUS_ROUTING}{iface_int:02d}",
+            ])
+        candidates.extend(extra_keys)
+        for key in candidates:
+            cfg = configured.get(key)
+            if cfg:
+                return dict(cfg)
+        return {}
+
     for key in (address.key, address.where, address.clean_where, *extra_keys):
         cfg = configured.get(key)
         if cfg:
