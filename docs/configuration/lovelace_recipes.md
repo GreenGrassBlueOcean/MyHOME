@@ -287,6 +287,7 @@ entities:
 Every MyHOME installation is unique! Do you have a custom card layout, Mushroom card setup, floorplan SVG, or automation dashboard that you are proud of?
 
 **We invite all community members to share their setups:**
+
 - 💬 **GitHub Discussions**: Post your screenshot and YAML in the [Discussions Forum](https://github.com/OpenWebNet-HA/MyHOME/discussions)!
 - 📝 **Contribute a Recipe**: Open a Pull Request adding your recipe to this page in `docs/configuration/lovelace_recipes.md`.
 - 🏷️ **Tag Your Setup**: Share what gateway (F454, MH200N, MyHOMEServer1, USB/Serial 3578) and actuator models you are using.
