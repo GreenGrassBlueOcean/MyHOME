@@ -309,7 +309,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         if not self._fan:
             self._fan = True
             self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
-            self._attr_fan_modes = ["auto", "low", "medium", "high", "off"]
+            self._attr_fan_modes = ["auto", "low", "medium", "high"]
             if self._attr_fan_mode is None:
                 self._attr_fan_mode = "auto"
 
@@ -351,7 +351,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             ):
                 self._enable_fan_mode()
                 restored_fan_mode = last_state.attributes.get("fan_mode")
-                if restored_fan_mode in ("auto", "low", "medium", "high", "off"):
+                if restored_fan_mode in ("auto", "low", "medium", "high"):
                     self._attr_fan_mode = restored_fan_mode
 
     async def async_update(self) -> None:
@@ -402,7 +402,6 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             "low": 1,
             "medium": 2,
             "high": 3,
-            "off": 4,
         }
         speed_code = fan_mode_map.get(str(fan_mode).lower())
         if speed_code is not None:
@@ -796,8 +795,6 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_fan_mode = "medium"
             elif speed == 3:
                 self._attr_fan_mode = "high"
-            elif getattr(message, "fan_on", None) is False or speed == 4:
-                self._attr_fan_mode = "off"
             elif getattr(message, "fan_on", None) is True:
                 self._attr_fan_mode = "auto"
 
