@@ -110,6 +110,12 @@ authorities:
         date: "2026-09-16"
         gateway: "BTicino MH200"
         devices: "Full installation: 62 lights (dimmers and switches), 11 covers on interface 02, MH200 gateway diagnostics"
+      - name: "Physical Bus Capture (BTicino MH201 + WHO=2 Automation Plant)"
+        reference: "tests/fixtures/plants/issue_304_mh201"
+        author: "Marco B. (@marcob79)"
+        date: "2026-09-20"
+        gateway: "BTicino MH201 Scenario Programmer"
+        devices: "WHO=2 Automation (Covers & Shutters) with leading-zero (01, 02) and two-digit (11..18) addresses"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 
