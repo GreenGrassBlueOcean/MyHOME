@@ -478,7 +478,7 @@ def test_who1013_ssdp_conflict(dev_reg, issues):
     _who1013(h, "4") # 4 is MH200
     assert h.gateway.model_name == "F454" # Does not update
     assert "identifies MH200 per diagnostic catalogue" in h._identity_conflict
-    
+
 def test_who1013_ssdp_compatible(dev_reg, issues):
     h = _handler({"name": "MH200", "ssdp_location": "http://192.168.1.1/"}, title="MH200 Gateway")
     h.gateway.model_name = "MH200"
@@ -503,14 +503,26 @@ def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
     import asyncio
     h = _handler({"name": "Generic"}, title="Generic Gateway")
     h.gateway.model_name = "Generic"
-    
+
     # Fill the queue (maxsize is 0 by default, let us replace it with maxsize 1 and fill it)
     h.send_buffer = asyncio.Queue(maxsize=1)
     h.send_buffer.put_nowait({"message": "filler"})
-    
+
     # This will attempt to queue *#1013*0*1## but fail with QueueFull
     _who13(h, "200")
-    
+
     # It should still remain Generic and not crash
     assert h.gateway.model_name == "Generic"
     assert h.send_buffer.qsize() == 1
+
+def test_who1013_invalid_dimension_value(dev_reg, issues):
+    """Cover the early return when dimension value is missing."""
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    
+    # Create an OWNEvent with no dimension values
+    msg = OWNEvent.parse("*#1013**1##")
+    h._handle_gateway_identity_diagnostics(msg)
+    
+    # Should safely return without changes
+    assert h.gateway.model_name == "Generic"
