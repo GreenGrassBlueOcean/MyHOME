@@ -451,3 +451,37 @@ def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev
     h._sync_device_registry_model("MH200")
     dev_reg.async_update_device.assert_not_called()
 
+
+def _who1013(h, code):
+    h._handle_gateway_identity_diagnostics(OWNEvent.parse(f"*#1013**1*{code}##"))
+
+def test_who1013_unknown_code_does_nothing(dev_reg, issues):
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    _who1013(h, "999")
+    assert h.gateway.model_name == "Generic"
+
+def test_who1013_updates_manual_model(dev_reg, issues):
+    h = _handler({"name": "Generic", "model_source": "manual"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    _who1013(h, "5") # 5 is MH202
+    assert h.gateway.model_name == "MH202"
+    h.hass.config_entries.async_update_entry.assert_called_once()
+    kwargs = h.hass.config_entries.async_update_entry.call_args.kwargs
+    assert kwargs["data"]["name"] == "MH202"
+    assert kwargs["title"] == "MH202 Gateway"
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MH202")
+
+def test_who1013_ssdp_conflict(dev_reg, issues):
+    h = _handler({"name": "F454", "ssdp_location": "http://192.168.1.1/"}, title="F454 Gateway")
+    h.gateway.model_name = "F454"
+    _who1013(h, "4") # 4 is MH200
+    assert h.gateway.model_name == "F454" # Does not update
+    assert "identifies MH200 per diagnostic catalogue" in h._identity_conflict
+    
+def test_who1013_ssdp_compatible(dev_reg, issues):
+    h = _handler({"name": "MH200", "ssdp_location": "http://192.168.1.1/"}, title="MH200 Gateway")
+    h.gateway.model_name = "MH200"
+    _who1013(h, "4") # 4 is MH200 (same family)
+    assert h.gateway.model_name == "MH200"
+    assert h._identity_conflict is None
