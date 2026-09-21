@@ -71,7 +71,9 @@ from .const import (
     WHO13_AMBIGUOUS_DEVICE_TYPES,
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
+    WHO1013_OBJECT_MODELS,
     area_of_where,
+    gateway_model_family,
     is_who13_code_compatible,
 )
 from .discovery import Address, parse_unique_id
@@ -702,6 +704,15 @@ class MyHOMEGatewayHandler:
             )
             if isinstance(message, OWNGatewayEvent):
                 self._handle_gateway_diagnostics(message)
+        elif getattr(message, "who", None) == 1013:
+            if getattr(message, "dimension", getattr(message, "_dimension", None)) == 1:
+                self._handle_gateway_identity_diagnostics(message)
+            else:
+                LOGGER.debug(
+                    "%s Unhandled WHO=1013 diagnostic message: `%s`",
+                    self.log_id,
+                    message,
+                )
         elif (
             getattr(message, "who", None) == 18
             or isinstance(message, (OWNEnergyEvent, OWNEnergyCommand))
@@ -858,6 +869,63 @@ class MyHOMEGatewayHandler:
                 async_create_identity_corrected_issue(self.hass, entry_id, corrected_from, who13_model, raw_code)
         self._set_conflict(None, entry_id)
         self._sync_device_registry_model(who13_model)
+
+    def _handle_gateway_identity_diagnostics(self, message: Any) -> None:
+        """Handle WHO=1013 dimension-1 Gateway Diagnostic (OBJECT_MODEL) replies."""
+        dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
+        if not dim_val or not isinstance(dim_val, list):
+            return
+        object_model = str(dim_val[0])
+        resolved_model = WHO1013_OBJECT_MODELS.get(object_model)
+
+        LOGGER.debug(
+            "%s WHO=1013 dimension 1 reports OBJECT_MODEL %s (resolved to %s)",
+            self.log_id, object_model, resolved_model or "Unknown",
+        )
+
+        if not resolved_model:
+            return
+
+        configured = str(self.gateway.model_name or "")
+        source = self.identification_source
+        entry_id = getattr(self.config_entry, "entry_id", None)
+        entry_id = entry_id if isinstance(entry_id, str) else None
+
+        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL):
+            if gateway_model_family(resolved_model) != gateway_model_family(configured):
+                conflict = (
+                    f"configured as {configured} ({source}) but WHO=1013 OBJECT_MODEL {object_model} "
+                    f"identifies {resolved_model} per diagnostic catalogue"
+                )
+                LOGGER.warning("%s Gateway identity mismatch: %s.", self.log_id, conflict)
+                self._set_conflict(conflict, entry_id, who13_model=resolved_model, raw_code=f"1013-1-{object_model}", source=source, official=True)
+            else:
+                self._set_conflict(None, entry_id)
+            return
+
+        corrected_from = configured if source == IDENTIFICATION_MANUAL else None
+        if resolved_model.lower() != configured.lower():
+            LOGGER.info(
+                "%s Gateway model `%s` set from WHO=1013 diagnostic %s (was `%s`, source %s).",
+                self.log_id, resolved_model, object_model, configured, source,
+            )
+            self.gateway.model_name = resolved_model
+            self.gateway.model = resolved_model
+            self.gateway.profile = get_gateway_profile(resolved_model)
+            self.gateway._log_id = f"[{resolved_model} gateway - {self.gateway.host}]"
+            if self.config_entry is not None:
+                new_data = dict(self.config_entry.data)
+                if new_data.get(CONF_NAME) != resolved_model:
+                    new_data[CONF_NAME] = resolved_model
+                    new_data["model_source"] = IDENTIFICATION_WHO13
+                    update_kwargs: dict[str, Any] = {"data": new_data}
+                    if str(getattr(self.config_entry, "title", "")).endswith("Gateway"):
+                        update_kwargs["title"] = f"{resolved_model} Gateway"
+                    self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)
+            if corrected_from and entry_id:
+                async_create_identity_corrected_issue(self.hass, entry_id, corrected_from, resolved_model, f"1013-1-{object_model}")
+        self._set_conflict(None, entry_id)
+        self._sync_device_registry_model(resolved_model)
 
     def _set_conflict(self, conflict: str | None, entry_id: str | None, **issue: Any) -> None:
         """Track the identity conflict and keep the repair issue in step with it."""
@@ -1087,8 +1155,8 @@ class MyHOMEGatewayHandler:
         # Active Discovery (WHO=1 general status request *#1*0## is invalid in OpenWebNet and omitted).
         # Only query subsystems the gateway profile advertises: an MH200N NACKs *#16*0##
         # (no audio) and logs a retry error on every boot otherwise.
-        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0##")):
-            if not self._profile_supports_who(who):
+        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0##"), (1013, "*#1013**1##")):
+            if who != 1013 and not self._profile_supports_who(who):
                 LOGGER.debug(
                     "%s Skipping WHO=%s discovery: not supported by %s profile.",
                     self.log_id,

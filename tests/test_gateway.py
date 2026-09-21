@@ -237,7 +237,7 @@ async def test_gateway_initial_discovery_queues_sweep(gateway_handler):
         item = gateway_handler.send_buffer.get_nowait()
         assert item["is_status_request"] is True
         queued.append(str(item["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#16*0##"]
+    assert queued == ["*#2*0##", "*#4*0##", "*#16*0##", "*#1013**1##"]
 
 
 @pytest.mark.asyncio

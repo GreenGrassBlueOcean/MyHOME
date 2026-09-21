@@ -247,18 +247,39 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 }
 # Codes seen on real hardware but absent from the official document, with the
 # evidence.
-#   200: Observed on both F454 (issue #370, confirmed physical device + SSDP)
-#        and MyHOMEServer1 (issue #292/#297). Because it is shared across multiple
+#   200: Observed on both F454 (issue #370, confirmed physical device + SSDP),
+#        MyHOMEServer1 (issue #292/#297), and MH202. Because it is shared across multiple
 #        modern Linux-based gateway families, it cannot uniquely identify either
-#        model or overrule an authoritative announcement. It corroborates both
-#        F454 and MyHOMEServer1, but contradicts legacy gateways (e.g. MH200/F452).
+#        model or overrule an authoritative announcement. It corroborates F454,
+#        MyHOMEServer1, and MH202, but contradicts legacy gateways (e.g. MH200/F452).
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, str] = {
-    "200": "F454 / MyHomeServer1",
+    "200": "F454 / MyHomeServer1 / MH202",
 }
 # Codes known to be shared across multiple model families.
 # Maps code -> tuple of compatible family names (normalized via gateway_model_family).
 WHO13_AMBIGUOUS_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MYHOMESERVER1"),
+    "200": ("F454", "MYHOMESERVER1", "MH202"),
+}
+
+# Known WHO=1013 dimension 1 (OBJECT_MODEL) responses that disambiguate modern gateways.
+WHO1013_OBJECT_MODELS: dict[str, str] = {
+    "4": "MH200",
+    "5": "MH202",
+    "8": "F455",
+    "12": "F453AV",
+    "29": "H4684",
+    "30": "AM4890",
+    "35": "BMNE500",
+    "38": "573992",
+    "42": "F453",
+    "44": "MH200N",
+    "51": "F454",
+    "54": "MH4892",
+    "55": "MH4892C",
+    "65": "F459",
+    "67": "MyHomeServer1",
+    "105": "F458",
+    "134": "F461",
 }
 GATEWAY_DEVICE_TYPE_MAP = {**WHO13_OBSERVED_DEVICE_TYPES, **WHO13_OFFICIAL_DEVICE_TYPES}
 

@@ -80,7 +80,7 @@ def test_official_table_is_the_2006_document_verbatim():
     assert GATEWAY_DEVICE_TYPE_MAP["4"] == "MH200"
     assert "MH200N" not in GATEWAY_DEVICE_TYPE_MAP.values()
     # code 200: observed on both F454 (#370) and MyHOMEServer1 (#292 / #297)
-    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": "F454 / MyHomeServer1"}
+    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": "F454 / MyHomeServer1 / MH202"}
     assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1")}
 
 
@@ -192,7 +192,7 @@ def test_ssdp_model_never_relabelled_and_conflict_raises_repair(dev_reg, issues)
     ident = h.identification()
     assert ident["who13_code"] == "200"
     assert ident["who13_model_official"] is None
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
     assert ident["conflict"] is None
 
     # a code outside both tables: conflict cleared, issue deleted, model kept
@@ -219,7 +219,7 @@ def test_f454_and_mhs1_with_code_200_have_no_conflict(dev_reg, issues):
         corrected.assert_not_called()
         ident = h.identification()
         assert ident["who13_code"] == "200"
-        assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
         assert ident["conflict"] is None
 
 
@@ -254,7 +254,7 @@ def test_manual_model_with_unverified_observed_code_keeps_model_without_conflict
     create.assert_not_called()
     assert h._identity_conflict is None
     ident = h.identification()
-    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1"
+    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
     assert ident["conflict"] is None
 
 
@@ -271,7 +271,7 @@ def test_ssdp_model_with_unverified_observed_code_keeps_model_without_conflict(d
     create.assert_not_called()
     corrected.assert_not_called()
     ident = h.identification()
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
     assert ident["conflict"] is None
 
 

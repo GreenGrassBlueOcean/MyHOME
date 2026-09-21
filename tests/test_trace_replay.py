@@ -784,7 +784,7 @@ class TestTraceReplayHarness:
         ident = handler.identification()
         assert ident["source"] == "manual"
         assert ident["who13_code"] == "200"
-        assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
         assert ident["who13_model_official"] is None
         assert ident["conflict"] is None
         issue = ir.async_get(hass).async_get_issue(DOMAIN, f"gateway_identity_mismatch_{entry.entry_id}")
