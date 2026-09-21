@@ -519,10 +519,10 @@ def test_who1013_invalid_dimension_value(dev_reg, issues):
     """Cover the early return when dimension value is missing."""
     h = _handler({"name": "Generic"}, title="Generic Gateway")
     h.gateway.model_name = "Generic"
-    
+
     # Create an OWNEvent with no dimension values
     msg = OWNEvent.parse("*#1013**1##")
     h._handle_gateway_identity_diagnostics(msg)
-    
+
     # Should safely return without changes
     assert h.gateway.model_name == "Generic"
