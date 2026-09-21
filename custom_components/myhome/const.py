@@ -247,21 +247,36 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 }
 # Codes seen on real hardware but absent from the official document, with the
 # evidence.
-#   200: Observed on both F454 (issue #370, confirmed physical device + SSDP),
-#        MyHOMEServer1 (issue #292/#297), and MH202. Because it is shared across multiple
-#        modern Linux-based gateway families, it cannot uniquely identify either
-#        model or overrule an authoritative announcement. It corroborates F454,
-#        MyHOMEServer1, and MH202, but contradicts legacy gateways (e.g. MH200/F452).
+#   51:  F454 running a 1.x firmware (reported by @anotherjulien in PR #420 from the
+#        OpenWebNet device database; no trace captured yet). Newer F454 firmware
+#        answers 200 instead.
+#   200: Observed on F454 (issue #370, confirmed physical device + SSDP),
+#        MyHOMEServer1 (issue #292/#297), MH202, and reported for F461 (issue #370,
+#        no diagnostics yet). Because it is shared across multiple modern Linux-based
+#        gateway families, it cannot uniquely identify any of them or overrule an
+#        authoritative announcement: it is the cue to ask WHO=1013 dimension 1
+#        (WHO1013_OBJECT_MODELS). It contradicts legacy gateways (e.g. MH200/F452).
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, str] = {
-    "200": "F454 / MyHomeServer1 / MH202",
+    "51": "F454",
+    "200": "F454 / MyHomeServer1 / MH202 / F461",
 }
 # Codes known to be shared across multiple model families.
 # Maps code -> tuple of compatible family names (normalized via gateway_model_family).
+# The key is what matters at run time: any reply with one of these codes triggers a
+# WHO=1013 dimension-1 request, and that reply settles the model. The tuple is only
+# the fallback for a gateway that never answers WHO=1013 - a family listed here keeps
+# its configured model without a repair issue, one not listed is merely "unverified".
 WHO13_AMBIGUOUS_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MYHOMESERVER1", "MH202"),
+    "200": ("F454", "MYHOMESERVER1", "MH202", "F461"),
 }
 
-# Known WHO=1013 dimension 1 (OBJECT_MODEL) responses that disambiguate modern gateways.
+# WHO=1013 (Gateway Diagnostic) dimension 1, OBJECT_MODEL: one code per model, as
+# listed by @anotherjulien in issue #370 from the OpenWebNet device database. The
+# same SKU does not necessarily answer matching codes here and in WHO=13 dimension
+# 15 (an F454 is 51 here but 200 or 51 there), so the two tables are never merged;
+# this one is consulted only after WHO=13 returned a shared code. Where the
+# database lists several SKUs for a code (rebrands and order numbers), the
+# BTicino model name is kept.
 WHO1013_OBJECT_MODELS: dict[str, str] = {
     "4": "MH200",
     "5": "MH202",
