@@ -2,7 +2,7 @@
 
 How MyHOME decides **which gateway model you have**, why that matters, what evidence it uses, and how to check the result in your own traces.
 
-> **TL;DR** — The model label comes from the gateway's own UPnP/SSDP announcement or from your choice in the config flow. The in-band `WHO=13` "model request" reply can only *confirm* or *question* that label, because its official code table dates from 2006 and does not know any gateway sold since. Every diagnostics download and bus-monitor export carries an `identification` block that shows exactly how the label was established.
+> **TL;DR** — The model label comes from the gateway's own UPnP/SSDP announcement or from your choice in the config flow. The in-band `WHO=13` "model request" reply can only *confirm* or *question* that label, because its official code table dates from 2006 and does not know any gateway sold since. When that reply is a code shared by several modern gateways (`200`), the integration asks a second question, `WHO=1013` dimension 1 (OBJECT_MODEL), whose catalogue is one code per model, and lets that answer settle it. Every diagnostics download and bus-monitor export carries an `identification` block that shows exactly how the label was established.
 
 ---
 
@@ -52,9 +52,29 @@ That is the whole list. **F454, F455, MH200N, MH201, MH202, MyHOMEServer1, F461 
 
 | code | seen on | evidence |
 | :---: | :--- | :--- |
-| `200` | MyHOMEServer1 / F454 | Diagnostics in [#297](https://github.com/OpenWebNet-HA/MyHOME/issues/297) from an owner who identified the hardware in [#292](https://github.com/OpenWebNet-HA/MyHOME/issues/292); also reported by F454 installations (#370). Corroborates modern gateways. |
+| `51` | F454 (firmware 1.x) | Reported from the OpenWebNet device database in [#420](https://github.com/OpenWebNet-HA/MyHOME/pull/420); no trace captured yet. Newer F454 firmware answers `200`. |
+| `200` | F454 / MyHOMEServer1 / MH202 / F461 | Diagnostics in [#297](https://github.com/OpenWebNet-HA/MyHOME/issues/297) from an owner who identified the hardware in [#292](https://github.com/OpenWebNet-HA/MyHOME/issues/292); F454 confirmed on a physical device with SSDP in [#370](https://github.com/OpenWebNet-HA/MyHOME/issues/370); F461 reported in #370 without diagnostics. **Shared** by every modern Linux-based gateway, so it identifies none of them — it is the cue for the WHO=1013 question below. |
 
 If your gateway reports a code that is in neither table, the integration logs it, keeps your configured model, and surfaces an `unknown_gateway_model` repair issue asking for a diagnostic trace.
+
+### Step 2 — `WHO=1013` dimension 1 (OBJECT_MODEL) settles a shared code
+
+A shared code such as `200` cannot label an unconfigured gateway, and it cannot check an SSDP or manual label either. So whenever `WHO=13` answers a shared code — **whatever the source of the configured model** — the integration sends one status request on the command session:
+
+```text
+*#1013*0*1##            → *#1013**1*<OBJECT_MODEL>##
+```
+
+`WHO=1013` is the *Gateway Diagnostic* family; dimension 1 is the model code, and its catalogue has one code per model (`4` MH200, `5` MH202, `44` MH200N, `51` F454, `67` MyHOMEServer1, `134` F461, … — the full list is `WHO1013_OBJECT_MODELS` in `const.py`, taken from the OpenWebNet device database as listed in #370). Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
+
+Two safeguards keep this off legacy hardware and out of your logs:
+
+- **A legacy gateway never gets the question.** An MH200 answers `4` on `WHO=13`, which is unambiguous, so the `WHO=1013` request is never queued (verified on a physical MH200; there is a regression test for it). Only gateways that answer a shared code are asked, and those are all modern Linux gateways that implement `WHO=1013`.
+- **A gateway that does not answer costs nothing visible.** The request goes out as a *status request*: if the gateway NACKs it, OWNd retries once and logs both attempts at DEBUG. The request is repeated on each later broadcast of the shared code until an answer has been recorded, after which it is never sent again for the lifetime of the connection.
+
+What the answer does depends on the configured source, exactly mirroring the `WHO=13` rule below: it **labels** an unconfigured gateway, **corrects** a manual choice (with a *Gateway model corrected* issue), and **cross-checks** an SSDP or serial identity — which is never overruled, but a *Gateway model mismatch* issue asks you to confirm when the two disagree. That mismatch is owned by the `WHO=1013` verdict: the periodic re-broadcast of the shared `WHO=13` code that started the check does not clear it; only a later `WHO=1013` reply that agrees does. An OBJECT_MODEL outside the catalogue raises the same `unknown_gateway_model` issue as an unknown `WHO=13` code, with the code written as `1013-1-<value>`.
+
+> **Status of the evidence.** The MH200 side of this (code `4`, no `WHO=1013` request) is verified on real hardware. No capture of a real `WHO=1013` exchange with an F454, MyHOMEServer1, MH202 or F461 exists in the test fixtures yet; the replies in the tests are synthetic, built from the catalogue. If you own one of these, the `who1013_code` field in your diagnostics download (below) is the evidence we are missing — please attach it to an issue.
 
 ---
 
@@ -62,16 +82,16 @@ If your gateway reports a code that is in neither table, the integration logs it
 
 When a dimension-15 reply arrives, the handler compares the reported model with the configured one **by family** (`MH200N` → `MH200`, `F452V` → `F452`; a variant suffix is never downgraded) and then:
 
-| configured `source` | code agrees (same family) | code contradicts — **official** 2006 code | code contradicts — **observed-only** code | code unknown |
-| :--- | :--- | :--- | :--- | :--- |
-| `ssdp` / `serial` | nothing | model kept; repair issue **asks** you to confirm | model kept; repair issue asks | recorded; repair issue created |
-| `manual` | nothing | model, profile and device registry **corrected**; repair issue tells you | model kept; repair issue asks | recorded; repair issue created |
-| none / `who13` | — | labelled from the code | labelled from the code | recorded; repair issue created |
+| configured `source` | code agrees (same family) | code contradicts — **official** 2006 code | code contradicts — **observed-only** code | code **shared** (`200`) | code unknown |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `ssdp` / `serial` | nothing | model kept; repair issue **asks** you to confirm | model kept; repair issue asks | model kept; `WHO=1013` asked and its answer cross-checks (mismatch → repair issue asks) | recorded; repair issue created |
+| `manual` | nothing | model, profile and device registry **corrected**; repair issue tells you | model kept; repair issue asks | model kept; `WHO=1013` asked and its answer corrects if it differs | recorded; repair issue created |
+| none / `who13` | — | labelled from the code | labelled from the code | `WHO=1013` asked and its answer labels | recorded; repair issue created |
 
 Two repair issues exist for this:
 
 - **Gateway model mismatch for …** (`gateway_identity_mismatch`) — the reported and configured models disagree and the integration is *not* sure enough to act. It names the code, what the specification or field evidence says it means, and how to fix it (reconfigure flow) if the reported model is what you own.
-- **Gateway model corrected to …** (`gateway_identity_corrected`) — a manually chosen model was contradicted by an official 2006 code and was corrected; reconfigure if that is wrong.
+- **Gateway model corrected to …** (`gateway_identity_corrected`) — a manually chosen model was contradicted by an official 2006 code or by a `WHO=1013` OBJECT_MODEL and was corrected; reconfigure if that is wrong.
 
 Neither issue is raised twice for the same finding, and a mismatch issue is withdrawn automatically if the gateway later reports a code that no longer contradicts.
 
@@ -94,6 +114,8 @@ Every diagnostics download (*Settings → Devices & services → MyHOME → ⋮ 
   "who13_firmware": null,
   "who13_kernel": null,
   "who13_distribution": null,
+  "who1013_code": null,
+  "who1013_model": null,
   "profile": "MH200NProfile",
   "conflict": null
 }
@@ -104,6 +126,7 @@ Reading it:
 - `source` — which of the three sources produced the label.
 - `who13_code` — the raw code your gateway reported; `who13_model_official` / `who13_model_observed` — what the 2006 specification and the field evidence say it means (either may be `null`).
 - `who13_firmware`, `who13_kernel`, `who13_distribution` — dimensions 16 / 23 / 24, corroborating evidence when the gateway sends them.
+- `who1013_code` / `who1013_model` — the `WHO=1013` OBJECT_MODEL reply and what the catalogue says it means; both `null` unless `who13_code` was a shared code (the question is not asked otherwise) and the gateway answered. On an MH200 they are always `null`.
 - `profile` — the OWNd profile actually in use (MH200 and MH200N share `MH200NProfile`; that is expected).
 - `conflict` — non-null exactly when a *Gateway model mismatch* repair issue is open, with the reason.
 
