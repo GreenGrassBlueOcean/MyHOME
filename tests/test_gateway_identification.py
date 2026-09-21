@@ -19,6 +19,7 @@ from custom_components.myhome.const import (
     WHO13_AMBIGUOUS_DEVICE_TYPES,
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
+    WHO1013_OBJECT_MODELS,
     gateway_model_family,
     is_who13_code_compatible,
 )
@@ -79,9 +80,14 @@ def test_official_table_is_the_2006_document_verbatim():
     assert not set(WHO13_OBSERVED_DEVICE_TYPES) & set(WHO13_OFFICIAL_DEVICE_TYPES)
     assert GATEWAY_DEVICE_TYPE_MAP["4"] == "MH200"
     assert "MH200N" not in GATEWAY_DEVICE_TYPE_MAP.values()
-    # code 200: observed on both F454 (#370) and MyHOMEServer1 (#292 / #297)
-    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": "F454 / MyHomeServer1 / MH202"}
-    assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1", "MH202")}
+    # code 200: observed on F454 (#370), MyHOMEServer1 (#292 / #297), MH202; reported for F461 (#370)
+    # code 51: F454 on a 1.x firmware (reported in PR #420)
+    assert WHO13_OBSERVED_DEVICE_TYPES == {"51": "F454", "200": "F454 / MyHomeServer1 / MH202 / F461"}
+    assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1", "MH202", "F461")}
+    # every model a shared WHO=13 code may stand for has a WHO=1013 code that settles it
+    for code, families in WHO13_AMBIGUOUS_DEVICE_TYPES.items():
+        for family in families:
+            assert family in {gateway_model_family(m) for m in WHO1013_OBJECT_MODELS.values()}, (code, family)
 
 
 def test_is_who13_code_compatible():
@@ -90,6 +96,9 @@ def test_is_who13_code_compatible():
     assert is_who13_code_compatible("4", "F454") is False
     assert is_who13_code_compatible("200", "F454") is True
     assert is_who13_code_compatible("200", "MyHomeServer1") is True
+    assert is_who13_code_compatible("200", "F461") is True
+    assert is_who13_code_compatible("51", "F454") is True
+    assert is_who13_code_compatible("51", "MH200") is None
     assert is_who13_code_compatible("200", "MH200") is None
     assert is_who13_code_compatible("200", "F452") is None
     assert is_who13_code_compatible("999", "F454") is None
@@ -192,8 +201,10 @@ def test_ssdp_model_never_relabelled_and_conflict_raises_repair(dev_reg, issues)
     ident = h.identification()
     assert ident["who13_code"] == "200"
     assert ident["who13_model_official"] is None
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
     assert ident["conflict"] is None
+    # ...and, the code being shared, WHO=1013 is asked to cross-check the announcement
+    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
 
     # a code outside both tables: conflict cleared, issue deleted, model kept
     delete.reset_mock()
@@ -219,7 +230,7 @@ def test_f454_and_mhs1_with_code_200_have_no_conflict(dev_reg, issues):
         corrected.assert_not_called()
         ident = h.identification()
         assert ident["who13_code"] == "200"
-        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
+        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
         assert ident["conflict"] is None
 
 
@@ -254,8 +265,51 @@ def test_manual_model_with_unverified_observed_code_keeps_model_without_conflict
     create.assert_not_called()
     assert h._identity_conflict is None
     ident = h.identification()
-    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
+    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
     assert ident["conflict"] is None
+    assert ident["who1013_code"] is None and ident["who1013_model"] is None
+    # the shared code is the cue to ask WHO=1013, whatever the source
+    queued = h.send_buffer.get_nowait()
+    assert str(queued["message"]) == "*#1013*0*1##" and queued["is_status_request"] is True
+
+
+def test_manual_model_confirmed_by_who1013_is_kept(dev_reg, issues):
+    """Manual F461, WHO=13 says 200, WHO=1013 says 134 (F461): nothing to fix, nothing to add to any table."""
+    create, delete, corrected = issues
+    h = _handler({"name": "F461"}, title="F461 Gateway")
+    h.gateway.model_name = "F461"
+    dev_reg.async_get.return_value = MagicMock(model="F461")
+    _who13(h, "200")
+    _who1013(h, "134")
+    assert h.gateway.model_name == "F461"
+    h.hass.config_entries.async_update_entry.assert_not_called()
+    corrected.assert_not_called()
+    create.assert_not_called()
+    ident = h.identification()
+    assert ident["who1013_code"] == "134" and ident["who1013_model"] == "F461"
+    assert ident["conflict"] is None
+    # answered: a repeat of the shared code does not ask again
+    _who13(h, "200")
+    assert h.send_buffer.qsize() == 1
+
+
+def test_manual_model_contradicted_by_who1013_is_corrected(dev_reg, issues):
+    """Manual F454 (the old flow default), WHO=13 says 200, WHO=1013 says 67: it is a MyHomeServer1 (#292/#297)."""
+    create, delete, corrected = issues
+    h = _handler({"name": "F454"}, title="F454 Gateway")
+    h.gateway.model_name = "F454"
+    dev_reg.async_get.return_value = MagicMock(model="F454")
+    _who13(h, "200")
+    assert h.gateway.model_name == "F454"
+    _who1013(h, "67")
+    assert h.gateway.model_name == "MyHomeServer1"
+    kwargs = h.hass.config_entries.async_update_entry.call_args.kwargs
+    assert kwargs["data"]["name"] == "MyHomeServer1" and kwargs["data"]["model_source"] == IDENTIFICATION_WHO13
+    assert kwargs["title"] == "MyHomeServer1 Gateway"
+    corrected.assert_called_once_with(h.hass, "entry_ident", "F454", "MyHomeServer1", "1013-1-67")
+    create.assert_not_called()
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MyHomeServer1")
+    assert h.identification()["who1013_model"] == "MyHomeServer1"
 
 
 def test_ssdp_model_with_unverified_observed_code_keeps_model_without_conflict(dev_reg, issues):
@@ -271,8 +325,73 @@ def test_ssdp_model_with_unverified_observed_code_keeps_model_without_conflict(d
     create.assert_not_called()
     corrected.assert_not_called()
     ident = h.identification()
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
     assert ident["conflict"] is None
+    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
+
+
+def test_ssdp_model_cross_checked_by_who1013(dev_reg, issues):
+    """SSDP MH202 answering 200: WHO=1013 confirms (5) or contradicts (67); the announcement is never overruled.
+
+    The contradiction survives the periodic re-broadcast of the shared code that
+    triggered the check, and is cleared only by a WHO=1013 reply that agrees.
+    """
+    create, delete, corrected = issues
+    h = _handler({"name": "MH202", "ssdp_location": "http://192.0.2.40:49153/desc.xml"})
+    h.gateway.model_name = "MH202"
+    dev_reg.async_get.return_value = MagicMock(model="MH202")
+
+    _who13(h, "200")
+    _who1013(h, "5")  # MH202: agrees
+    assert h._identity_conflict is None
+    create.assert_not_called()
+    assert h.gateway.model_name == "MH202"
+
+    _who1013(h, "67")  # MyHomeServer1: the device announced MH202 - keep it, ask the owner
+    assert h.gateway.model_name == "MH202"
+    assert h._identity_conflict == (
+        "configured as MH202 (ssdp) but WHO=1013 OBJECT_MODEL 67 identifies MyHomeServer1 per diagnostic catalogue"
+    )
+    create.assert_called_once()
+    assert create.call_args.args[1:] == ("entry_ident", "MH202", "MyHomeServer1", "1013-1-67", "ssdp", True)
+    corrected.assert_not_called()
+    h.hass.config_entries.async_update_entry.assert_not_called()
+
+    # the gateway broadcasts 200 again: no new request (answered), conflict untouched, no flapping issue
+    delete.reset_mock()
+    while not h.send_buffer.empty():
+        h.send_buffer.get_nowait()
+    _who13(h, "200")
+    assert h.send_buffer.empty()
+    assert h._identity_conflict is not None
+    delete.assert_not_called()
+    create.assert_called_once()
+
+    # an agreeing WHO=1013 reply clears it
+    _who1013(h, "5")
+    assert h._identity_conflict is None
+    delete.assert_called_once_with(h.hass, "entry_ident")
+
+    # an unrelated official code arriving later still goes through the WHO=13 rules
+    _who13(h, "4")
+    assert "WHO=13 device type 4" in h._identity_conflict
+
+
+def test_serial_model_cross_checked_by_who1013(dev_reg, issues):
+    """A serial-fixed identity is treated like SSDP: cross-checked, never relabelled."""
+    create, delete, corrected = issues
+    h = _handler({"transport_type": "serial", "name": "MH200"})
+    h.gateway.model_name = "MH200"
+    dev_reg.async_get.return_value = MagicMock(model="MH200")
+    _who13(h, "200")  # no serial gateway is known to answer this; the path must still be sound
+    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
+    _who1013(h, "44")  # MH200N: same family
+    assert h._identity_conflict is None
+    _who1013(h, "51")  # F454
+    assert h.gateway.model_name == "MH200"
+    assert "configured as MH200 (serial)" in h._identity_conflict
+    assert create.call_args.args[1:] == ("entry_ident", "MH200", "F454", "1013-1-51", "serial", True)
+    corrected.assert_not_called()
 
 
 def test_unknown_code_on_configured_gateway_is_recorded_not_applied(dev_reg, issues):
@@ -325,6 +444,19 @@ def test_unknown_entry_with_ambiguous_code_stays_generic(dev_reg, issues):
     queued = h.send_buffer.get_nowait()
     assert str(queued["message"]) == "*#1013*0*1##"
     assert queued["is_status_request"] is True
+    # unanswered, a re-broadcast asks again (a NACK costs two DEBUG lines in OWNd)
+    _who13(h, "200")
+    assert h.send_buffer.qsize() == 1
+    h.send_buffer.get_nowait()
+    # answered: labelled from the catalogue, and no further request
+    _who1013(h, "51")
+    assert h.gateway.model_name == "F454"
+    kwargs = h.hass.config_entries.async_update_entry.call_args.kwargs
+    assert kwargs["data"]["name"] == "F454" and kwargs["data"]["model_source"] == IDENTIFICATION_WHO13
+    assert kwargs["title"] == "F454 Gateway"
+    corrected.assert_not_called()  # nothing was corrected: there was no model
+    _who13(h, "200")
+    assert h.send_buffer.empty()
 
 def test_mh200_unambiguous_who13_skips_who1013(dev_reg, issues):
     """Anonymous golden sample: a physical MH200 correctly returning WHO=13 DIM=15 value 4
@@ -426,9 +558,13 @@ def test_websocket_gateway_info_carries_identification_without_location():
 
     h = _handler({"ssdp_location": "http://192.0.2.40:49153/desc.xml"})
     h._who13["code"] = "4"
+    h._who1013["code"] = "44"
+    h._who1013["model"] = "MH200N"
     info = _extract_gateway_info(h, "2.0.0b6")
     assert info["identification"]["source"] == IDENTIFICATION_SSDP
     assert info["identification"]["who13_code"] == "4"
+    assert info["identification"]["who1013_code"] == "44"
+    assert info["identification"]["who1013_model"] == "MH200N"
     assert "ssdp_location" not in info["identification"]
 
 
@@ -455,11 +591,26 @@ def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev
 def _who1013(h, code):
     h._handle_gateway_identity_diagnostics(OWNEvent.parse(f"*#1013**1*{code}##"))
 
-def test_who1013_unknown_code_does_nothing(dev_reg, issues):
+def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, issues):
+    """A code outside the catalogue keeps the model and raises the same unknown-model repair as WHO=13 does."""
     h = _handler({"name": "Generic"}, title="Generic Gateway")
     h.gateway.model_name = "Generic"
-    _who1013(h, "999")
-    assert h.gateway.model_name == "Generic"
+    with patch("custom_components.myhome.gateway.async_create_unknown_model_issue") as unknown, \
+         patch("custom_components.myhome.gateway.async_delete_unknown_model_issue") as known:
+        _who1013(h, "999")
+        assert h.gateway.model_name == "Generic"
+        unknown.assert_called_once_with(h.hass, "entry_ident", "1013-1-999")
+        known.assert_not_called()
+        ident = h.identification()
+        assert ident["who1013_code"] == "999" and ident["who1013_model"] is None
+        # the shared WHO=13 code that keeps being broadcast neither re-asks nor withdraws the request
+        _who13(h, "200")
+        assert h.send_buffer.empty()
+        known.assert_not_called()
+        # a recognised reply afterwards clears the request for a trace
+        _who1013(h, "5")
+        known.assert_called_once_with(h.hass, "entry_ident")
+        assert h.gateway.model_name == "MH202"
 
 def test_who1013_updates_manual_model(dev_reg, issues):
     h = _handler({"name": "Generic", "model_source": "manual"}, title="Generic Gateway")
@@ -473,14 +624,14 @@ def test_who1013_updates_manual_model(dev_reg, issues):
     dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MH202")
 
 def test_who1013_ssdp_conflict(dev_reg, issues):
-    h = _handler({"name": "F454", "ssdp_location": "http://192.168.1.1/"}, title="F454 Gateway")
+    h = _handler({"name": "F454", "ssdp_location": "http://192.0.2.40:49153/desc.xml"}, title="F454 Gateway")
     h.gateway.model_name = "F454"
     _who1013(h, "4") # 4 is MH200
     assert h.gateway.model_name == "F454" # Does not update
     assert "identifies MH200 per diagnostic catalogue" in h._identity_conflict
 
 def test_who1013_ssdp_compatible(dev_reg, issues):
-    h = _handler({"name": "MH200", "ssdp_location": "http://192.168.1.1/"}, title="MH200 Gateway")
+    h = _handler({"name": "MH200", "ssdp_location": "http://192.0.2.40:49153/desc.xml"}, title="MH200 Gateway")
     h.gateway.model_name = "MH200"
     _who1013(h, "4") # 4 is MH200 (same family)
     assert h.gateway.model_name == "MH200"
@@ -510,6 +661,13 @@ def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
 
     # This will attempt to queue *#1013*0*1## but fail with QueueFull
     _who13(h, "200")
+    # and the parse guard: a request that cannot be built is skipped, not queued
+    h.send_buffer = asyncio.Queue()
+    with patch("custom_components.myhome.gateway.OWNCommand.parse", return_value=None):
+        h._request_object_model()
+    assert h.send_buffer.empty()
+    h.send_buffer = asyncio.Queue(maxsize=1)
+    h.send_buffer.put_nowait({"message": "filler"})
 
     # It should still remain Generic and not crash
     assert h.gateway.model_name == "Generic"
