@@ -485,3 +485,32 @@ def test_who1013_ssdp_compatible(dev_reg, issues):
     _who1013(h, "4") # 4 is MH200 (same family)
     assert h.gateway.model_name == "MH200"
     assert h._identity_conflict is None
+
+async def test_who1013_is_dispatched(dev_reg, issues):
+    """Cover the async _process_message dispatch for WHO=1013 DIM=1."""
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    # Valid dimension 1
+    await h._process_message(OWNEvent.parse("*#1013**1*5##"))
+    assert h.gateway.model_name == "MH202"
+    # Unhandled dimension
+    await h._process_message(OWNEvent.parse("*#1013**2*5##"))
+    # Unsupported who fallback (covered elsewhere typically, but good to ensure no crash)
+    await h._process_message(OWNEvent.parse("*#9999**1*5##"))
+
+def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
+    """Cover the QueueFull exception when dispatching the WHO=1013 diagnostic."""
+    import asyncio
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    
+    # Fill the queue (maxsize is 0 by default, let us replace it with maxsize 1 and fill it)
+    h.send_buffer = asyncio.Queue(maxsize=1)
+    h.send_buffer.put_nowait({"message": "filler"})
+    
+    # This will attempt to queue *#1013*0*1## but fail with QueueFull
+    _who13(h, "200")
+    
+    # It should still remain Generic and not crash
+    assert h.gateway.model_name == "Generic"
+    assert h.send_buffer.qsize() == 1
