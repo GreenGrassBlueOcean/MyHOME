@@ -257,7 +257,7 @@ async def test_discovery_skips_unsupported_who(gateway_handler):
     queued = []
     while not gateway_handler.send_buffer.empty():
         queued.append(str(gateway_handler.send_buffer.get_nowait()["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#1013**1##"]
+    assert queued == ["*#2*0##", "*#4*0##"]
 
 
 def test_profile_supports_who_defaults_to_true_without_profile(gateway_handler):

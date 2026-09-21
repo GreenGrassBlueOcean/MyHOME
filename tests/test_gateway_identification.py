@@ -81,7 +81,7 @@ def test_official_table_is_the_2006_document_verbatim():
     assert "MH200N" not in GATEWAY_DEVICE_TYPE_MAP.values()
     # code 200: observed on both F454 (#370) and MyHOMEServer1 (#292 / #297)
     assert WHO13_OBSERVED_DEVICE_TYPES == {"200": "F454 / MyHomeServer1 / MH202"}
-    assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1")}
+    assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1", "MH202")}
 
 
 def test_is_who13_code_compatible():

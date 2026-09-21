@@ -840,6 +840,24 @@ class MyHOMEGatewayHandler:
                 "keeping model `%s` without auto-labelling.",
                 self.log_id, raw_code, who13_model, configured,
             )
+
+            LOGGER.debug(
+                "%s Dispatching WHO=1013 DIM=1 diagnostic request to disambiguate the gateway.",
+                self.log_id,
+            )
+            cmd = OWNCommand.parse("*#1013*0*1##")
+            if cmd is not None:
+                try:
+                    self.send_buffer.put_nowait(
+                        {
+                            "message": cmd,
+                            "written": self.hass.loop.create_future(),
+                            "is_status_request": True,
+                        }
+                    )
+                except asyncio.QueueFull:
+                    LOGGER.warning("%s Cannot queue WHO=1013 diagnostics: send buffer full.", self.log_id)
+
             self._set_conflict(None, entry_id)
             self._sync_device_registry_model(configured)
             return
@@ -1155,8 +1173,8 @@ class MyHOMEGatewayHandler:
         # Active Discovery (WHO=1 general status request *#1*0## is invalid in OpenWebNet and omitted).
         # Only query subsystems the gateway profile advertises: an MH200N NACKs *#16*0##
         # (no audio) and logs a retry error on every boot otherwise.
-        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0##"), (1013, "*#1013**1##")):
-            if who != 1013 and not self._profile_supports_who(who):
+        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0##")):
+            if not self._profile_supports_who(who):
                 LOGGER.debug(
                     "%s Skipping WHO=%s discovery: not supported by %s profile.",
                     self.log_id,
