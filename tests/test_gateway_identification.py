@@ -321,6 +321,26 @@ def test_unknown_entry_with_ambiguous_code_stays_generic(dev_reg, issues):
     dev_reg.async_update_device.assert_not_called()
     corrected.assert_not_called()
     assert h._identity_conflict is None
+    # Verify the diagnostic request is queued to disambiguate the gateway.
+    queued = h.send_buffer.get_nowait()
+    assert str(queued["message"]) == "*#1013*0*1##"
+    assert queued["is_status_request"] is True
+
+def test_mh200_unambiguous_who13_skips_who1013(dev_reg, issues):
+    """Anonymous golden sample: a physical MH200 correctly returning WHO=13 DIM=15 value 4
+    is correctly labelled as an MH200, and does not incorrectly trigger the WHO=1013 diagnostic frame
+    (validating @anotherjulien's approach).
+    """
+    _, _, corrected = issues
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    dev_reg.async_get.return_value = MagicMock(model="Generic")
+    _who13(h, "4")
+    assert h.gateway.model_name == "MH200"
+    
+    # Verify we did NOT query WHO=1013 DIM=1.
+    assert h.send_buffer.empty()
+
 
 
 def test_unknown_entry_with_unknown_code_stays_generic(dev_reg, issues):
