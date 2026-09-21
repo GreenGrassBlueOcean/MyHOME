@@ -337,7 +337,7 @@ def test_mh200_unambiguous_who13_skips_who1013(dev_reg, issues):
     dev_reg.async_get.return_value = MagicMock(model="Generic")
     _who13(h, "4")
     assert h.gateway.model_name == "MH200"
-    
+
     # Verify we did NOT query WHO=1013 DIM=1.
     assert h.send_buffer.empty()
 
