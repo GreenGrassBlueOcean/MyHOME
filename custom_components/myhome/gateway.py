@@ -68,6 +68,8 @@ from .const import (
     LOGGER,
     RESYNC_DEBOUNCE_S,
     RESYNC_LEADING_WINDOW_S,
+    WHO1013_BRANDS,
+    WHO1013_LINES,
     area_of_where,
 )
 from .discovery import Address, parse_unique_id
@@ -209,9 +211,14 @@ class MyHOMEGatewayHandler:
             "code": None, "model": None, "model_official": None, "model_observed": None,
             "firmware": None, "kernel": None, "distribution": None,
         }
-        # WHO=1013 dimension 1 (OBJECT_MODEL): asked once when WHO=13 answered a code
-        # shared by several models; `pending` until it answers or the session reconnects.
-        self._who1013: dict[str, Any] = {"code": None, "model": None, "pending": False}
+        # WHO=1013 dimension 1: asked once when WHO=13 answered a code shared by
+        # several models; `pending` until it answers or the session reconnects. A reply
+        # is OBJECT_MODEL * N_CONF * BRAND * LINE - only the first decides the identity,
+        # the rest is recorded for diagnostics.
+        self._who1013: dict[str, Any] = {
+            "code": None, "model": None, "names": (), "pending": False,
+            "n_conf": None, "brand": None, "line": None,
+        }
         self._identity_conflict: str | None = None
         self._identity_resolution: GatewayIdentityResolution | None = None
         self.broadcast_resync = broadcast_resync
@@ -299,9 +306,27 @@ class MyHOMEGatewayHandler:
             "who13_distribution": self._who13["distribution"],
             "who1013_code": self._who1013["code"],
             "who1013_model": self._who1013["model"],
+            # The same product under another brand (Legrand's 003598 for a BTicino
+            # F454), never an order code: the owner's box may carry this name.
+            "who1013_other_names": list(self._who1013["names"]),
+            "who1013_n_conf": self._who1013["n_conf"],
+            "who1013_brand": self._describe_who1013("brand", WHO1013_BRANDS),
+            "who1013_line": self._describe_who1013("line", WHO1013_LINES),
             "profile": type(self.profile).__name__ if self.profile is not None else None,
             "conflict": self._identity_conflict,
         }
+
+    def _describe_who1013(self, field: str, table: dict[str, str]) -> str | None:
+        """Render a WHO=1013 metadata value as ``code (meaning)``, or the bare code.
+
+        Only values actually observed are in the tables, so an unseen one still
+        reaches diagnostics instead of being dropped as unrecognised.
+        """
+        value = self._who1013[field]
+        if value is None:
+            return None
+        meaning = table.get(str(value))
+        return f"{value} ({meaning})" if meaning else str(value)
 
     @property
     def mac(self) -> str:
@@ -800,6 +825,11 @@ class MyHOMEGatewayHandler:
         reading = read_who1013(str(dim_val[0]))
         self._who1013["code"] = reading.code
         self._who1013["model"] = reading.canonical if reading.known else None
+        self._who1013["names"] = reading.alternative_names if reading.known else ()
+        # OBJECT_MODEL * N_CONF * BRAND * LINE; a shorter reply simply leaves the
+        # missing fields unset rather than shifting the ones that did arrive.
+        for index, field in enumerate(("n_conf", "brand", "line"), start=1):
+            self._who1013[field] = str(dim_val[index]) if len(dim_val) > index else None
         self._who1013["pending"] = False
         self._resolve_identity()
 
@@ -939,13 +969,28 @@ class MyHOMEGatewayHandler:
         async_delete_identity_issue(self.hass, entry_id)
 
     def _sync_device_registry_model(self, model: str) -> None:
-        """Keep the device registry model in step (repairs entries mislabelled by earlier releases)."""
+        """Keep the device registry in step with the resolved identity.
+
+        ``model`` is the name shown on the device page; ``model_id`` is the number the
+        gateway gave for itself in WHO=1013 dimension 1, which is the only model
+        identifier it ever states. The Legrand name of the same product (003598 for an
+        F454) is deliberately not used here - it is a brand variant, not an identifier
+        (#420) - and travels in diagnostics instead.
+        """
         if not model or not self.device_registry_id:
             return
         dev_reg = dr.async_get(self.hass)
         device = dev_reg.async_get(self.device_registry_id)
-        if device is not None and getattr(device, "model", None) != model:
-            dev_reg.async_update_device(self.device_registry_id, model=model)
+        if device is None:
+            return
+        updates: dict[str, Any] = {}
+        if getattr(device, "model", None) != model:
+            updates["model"] = model
+        model_id = self._who1013["code"]
+        if model_id is not None and getattr(device, "model_id", None) != model_id:
+            updates["model_id"] = model_id
+        if updates:
+            dev_reg.async_update_device(self.device_registry_id, **updates)
 
     async def sending_loop(self, worker_id: int) -> None:
         self._terminate_sender = False

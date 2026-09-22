@@ -513,6 +513,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         name=gateway.name,
         model=gateway.model,
         sw_version=_fw,
+        serial_number=gateway.mac or None,
     )
 
     gateway.device_registry_id = gateway_device_entry.id
