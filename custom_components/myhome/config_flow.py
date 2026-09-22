@@ -806,7 +806,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             ): bool,
             vol.Optional(
                 CONF_BROADCAST_RESYNC,
-                description={"suggested_value": self.options.get(CONF_BROADCAST_RESYNC, True)},
+                description={"suggested_value": self.options.get(CONF_BROADCAST_RESYNC, True)},  # type: ignore
                 default=True,
             ): bool,
             vol.Optional(

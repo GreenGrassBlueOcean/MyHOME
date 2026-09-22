@@ -72,7 +72,7 @@ from .const import (
 )
 
 
-def format_mac(address: str) -> str:
+def format_mac(address: object) -> str:
     if isinstance(address, str):
         mac = "".join(address.split())
         for sep in (":", "-", "."):

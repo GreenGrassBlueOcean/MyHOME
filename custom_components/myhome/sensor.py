@@ -179,7 +179,7 @@ async def async_setup_entry(
             return None
         return Address(_sensor_address("18", message.where)[1], key_suffix=f"-{measurement}")
 
-    def build_energy(ctx: DeviceContext) -> list[SensorEntity] | SensorEntity:
+    def build_energy(ctx: DeviceContext) -> list[MyHOMEEntity] | MyHOMEEntity:
         if ctx.source == "yaml":
             cfg = ctx.cfg
             dev_class = cfg.get(CONF_DEVICE_CLASS) or cfg.get("device_class")
@@ -189,7 +189,7 @@ async def async_setup_entry(
                 manufacturer=cfg[CONF_MANUFACTURER], model=cfg[CONF_DEVICE_MODEL], gateway=gateway,
             )
             measurements = list(cfg[CONF_ENTITIES].keys())
-            sensors: list[SensorEntity] = []
+            sensors: list[MyHOMEEntity] = []
             if dev_class == SensorDeviceClass.POWER:
                 _migrate_power_unique_id(hass, device_id)
                 sensors.append(MyHOMEPowerSensor(device_class=dev_class, **common))
@@ -204,7 +204,7 @@ async def async_setup_entry(
             return sensors
         # Restored or discovered: only the measurements the meter actually reported
         where, measurement = ctx.address.where, ctx.address.key_suffix[1:]
-        sensor: SensorEntity
+        sensor: MyHOMEEntity
         if measurement == "power":
             sensor = MyHOMEPowerSensor(
                 hass=hass, device_id=f"18-{where}", who="18", where=where, name=f"Meter {where}",
@@ -448,10 +448,10 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
         # await self.start_sending_instant_power(255)
 
     @callback
-    def handle_event(self, message: OWNEnergyEvent) -> bool | None:
+    def handle_event(self, message: OWNEnergyEvent) -> None:
         """Handle an event message."""
         if message.message_type not in [MESSAGE_TYPE_ACTIVE_POWER]:
-            return True
+            return True  # type: ignore
 
         LOGGER.debug(
             "%s %s",
@@ -552,14 +552,14 @@ class MyHOMEEnergySensor(MyHOMEEntity, SensorEntity):
             )
 
     @callback
-    def handle_event(self, message: OWNEnergyEvent) -> bool | None:
+    def handle_event(self, message: OWNEnergyEvent) -> None:
         """Handle an event message."""
         if message.message_type not in [
             MESSAGE_TYPE_ENERGY_TOTALIZER,
             MESSAGE_TYPE_CURRENT_MONTH_CONSUMPTION,
             MESSAGE_TYPE_CURRENT_DAY_CONSUMPTION,
         ]:
-            return True
+            return True  # type: ignore
 
         norm_id = self._entity_specific_id.replace("_", "-")
         if (
@@ -680,7 +680,7 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
         await self._gateway_handler.send_status_request(cmd)
 
     @callback
-    def handle_event(self, message: OWNHeatingEvent) -> bool | None:
+    def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
         val = None
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
@@ -716,7 +716,7 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
                 except (ValueError, TypeError):
                     pass
         else:
-            return True
+            return True  # type: ignore
 
         if val is not None:
             if hasattr(message, "human_readable_log") and message.human_readable_log:
@@ -790,14 +790,14 @@ class MyHOMEIlluminanceSensor(MyHOMEEntity, SensorEntity):
         )
 
     @callback
-    def handle_event(self, message: OWNLightingEvent) -> bool | None:
+    def handle_event(self, message: OWNLightingEvent) -> None:
         """Handle an event message."""
         if (
             getattr(message, "message_type", None) != MESSAGE_TYPE_ILLUMINANCE
             and getattr(message, "dimension", None) != 6
             and not isinstance(getattr(message, "illuminance", None), (int, float))
         ):
-            return True
+            return True  # type: ignore
 
         LOGGER.debug(
             "%s %s",

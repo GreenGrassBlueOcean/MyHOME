@@ -337,7 +337,7 @@ class MyHOMEGatewayHandler:
 
     @property
     def firmware(self) -> str | None:
-        return self.gateway.firmware
+        return cast(str | None, self.gateway.firmware)
 
     @property
     def profile(self) -> Any:
