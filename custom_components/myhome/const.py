@@ -307,10 +307,19 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # SSDP is corroborated, not contradicted.
 #
 # Three codes are confirmed on physical hardware (PR #420, fixtures under
-# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. All three
-# answered `*#1013*0*1##` with the OBJECT_MODEL followed by three further values,
-# `*15*5*0`, identical on all three and of unknown meaning; only the first value
-# is read. The rest of the table is from the database, untraced.
+# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. The rest of
+# the table is from the database, untraced.
+#
+# A dimension-1 reply is four values, not one (@anotherjulien in #420, from the
+# OpenWebNet Encyclopedia's work on MHCatalogue.db):
+#
+#     *#1013**1*OBJECT_MODEL*N_CONF*BRAND*LINE##
+#
+# All three traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
+# BTicino), LINE 0 (undefined). N_CONF 15 sits outside the ordinary 0..12 physical
+# configurator range and looks like the 0xF sentinel, so its gateway-specific
+# meaning stays unresolved. None of it identifies the model, so only OBJECT_MODEL
+# is read; BRAND and LINE would be a separate piece of work.
 WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
     "4": ("MH200",),
     "5": ("MH202", "003535"),

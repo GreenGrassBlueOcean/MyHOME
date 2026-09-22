@@ -809,8 +809,8 @@ def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, fi
     """Replay the identification frames of a physical gateway, in the order the bus produced them.
 
     All three announced themselves over SSDP, answer the shared WHO=13 device type 200,
-    and answer ``*#1013*0*1##`` with their catalogue OBJECT_MODEL followed by three values
-    of unknown meaning (``*15*5*0`` on all three). The handler must queue exactly the
+    and answer ``*#1013*0*1##`` with their catalogue OBJECT_MODEL followed by N_CONF,
+    BRAND and LINE (``*15*5*0`` on all three). The handler must queue exactly the
     request the reporter's installation sent, and end corroborated, not in conflict.
     """
     create, delete, corrected = issues
@@ -859,15 +859,41 @@ def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, fi
     assert (verdict.model, verdict.conflict, verdict.request_who1013) == (model, None, False)
 
 
-def test_real_who1013_reply_carries_trailing_values(dev_reg, issues):
-    """``*#1013**1*67*15*5*0##`` as a MyHomeServer1 really answers it: OBJECT_MODEL is the first value."""
+def test_real_who1013_reply_is_object_model_n_conf_brand_line(dev_reg, issues):
+    """``*#1013**1*67*15*5*0##`` as a MyHomeServer1 really answers it.
+
+    The reply is ``OBJECT_MODEL * N_CONF * BRAND * LINE`` (#420, from the OpenWebNet
+    Encyclopedia's work on MHCatalogue.db). Only OBJECT_MODEL identifies the model;
+    the rest is metadata this integration does not read yet, so the point of this
+    test is that it is parsed and then ignored, not silently taken for model data.
+    """
+    def dimension_values(message):
+        """OWNd exposes this as a private attribute on some message classes."""
+        return getattr(message, "dimension_value", getattr(message, "_dimension_value", None))
+
     msg = OWNEvent.parse("*#1013**1*67*15*5*0##")
-    assert getattr(msg, "dimension_value", getattr(msg, "_dimension_value", None)) == ["67", "15", "5", "0"]
+    values = dimension_values(msg)
+    assert values is not None
+    object_model, n_conf, brand, line = values
+    assert (object_model, n_conf, brand, line) == ("67", "15", "5", "0")
+
     h = _handler({"name": "Generic"}, title="Generic Gateway")
     h.gateway.model_name = "Generic"
     h._handle_gateway_identity_diagnostics(msg)
-    assert h.gateway.model_name == "MyHomeServer1"
-    assert h.identification()["who1013_code"] == "67"
+    assert h.gateway.model_name == "MyHomeServer1"  # from OBJECT_MODEL alone
+    ident = h.identification()
+    assert ident["who1013_code"] == "67"
+    # N_CONF / BRAND / LINE are not mistaken for the model or recorded as evidence
+    assert ident["who1013_model"] == "MyHomeServer1"
+    assert n_conf not in (ident["who1013_code"], ident["who13_code"])
+
+    # every traced gateway answers the same trailing metadata
+    for plant in ("pr_420_f454", "pr_420_mh202", "pr_420_myhomeserver1"):
+        diag = json.loads((FIXTURES_PLANTS_DIR / plant / "diagnostic_summary.json").read_text(encoding="utf-8"))
+        replies = [f["raw"] for f in diag["data"]["bus_monitor"]["recent_frames"] if f["raw"].startswith("*#1013**1*")]
+        assert replies, plant
+        for raw in replies:
+            assert dimension_values(OWNEvent.parse(raw))[1:] == ["15", "5", "0"], (plant, raw)
 
 def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, issues):
     """A code outside the catalogue keeps the model and raises the same unknown-model repair as WHO=13 does."""

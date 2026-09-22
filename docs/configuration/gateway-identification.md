@@ -84,13 +84,19 @@ A shared code such as `200` cannot label an unconfigured gateway, and it cannot 
 *#1013*0*1##            → *#1013**1*<OBJECT_MODEL>##
 ```
 
-`WHO=1013` is the *Gateway Diagnostic* family (Nmap's table of WHO values calls it *Device Diagnostic*); dimension 1 is the model code, and its catalogue has one code per model (`4` MH200, `5` MH202, `44` MH200N, `51` F454, `67` MyHOMEServer1, `134` F461, … — the full list is `WHO1013_OBJECT_MODELS` in `const.py`, taken from the OpenWebNet device database as listed in #370). A real reply carries the model code first and three further values, `*15*5*0` on every gateway traced so far, whose meaning is unknown; only the first is read:
+`WHO=1013` is the *Gateway Diagnostic* family (Nmap's table of WHO values calls it *Device Diagnostic*); dimension 1 is the model code, and its catalogue has one code per model (`4` MH200, `5` MH202, `44` MH200N, `51` F454, `67` MyHOMEServer1, `134` F461, … — the full list is `WHO1013_OBJECT_MODELS` in `const.py`, taken from the OpenWebNet device database as listed in #370). A real reply is four values, not one — `OBJECT_MODEL`, `N_CONF`, `BRAND`, `LINE` (per the OpenWebNet Encyclopedia's work on `MHCatalogue.db`, via @anotherjulien in [#420](https://github.com/OpenWebNet-HA/MyHOME/pull/420)):
 
 ```text
 *#1013**1*67*15*5*0##   ← MyHomeServer1 (firmware 2.87.13)
 *#1013**1*51*15*5*0##   ← F454 (firmware 2.0.51)
 *#1013**1*5*15*5*0##    ← MH202 (firmware 1.0.21)
-``` Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
+         │   │  │ └── LINE  = 0, "Undefined"
+         │   │  └──── BRAND = 5, "Legrand BTicino"
+         │   └─────── N_CONF = 15
+         └─────────── OBJECT_MODEL
+```
+
+Every gateway traced so far answers the same `*15*5*0`. `N_CONF` 15 lies outside the ordinary `0..12` physical-configurator range and looks like the `0xF` sentinel, so its gateway-specific meaning stays unresolved. None of the three trailing values identifies the model, so only `OBJECT_MODEL` is read; `BRAND` and `LINE` are metadata a later change could surface. Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
 
 Two safeguards keep this off legacy hardware and out of your logs:
 
