@@ -206,6 +206,7 @@ class TestMediaPlayerEntity:
             p.async_schedule_update_ha_state = MagicMock()
             p.hass = mock_hass
             p.platform = MagicMock()  # added by an EntityPlatform
+            p.platform.config_entry.options = {}
             p.entity_id = "media_player.audio_zone_1"
             return p
 
@@ -214,8 +215,8 @@ class TestMediaPlayerEntity:
         assert player._attr_state == MediaPlayerState.OFF
 
     def test_source_list(self, player):
-        assert len(player._attr_source_list) == 5
-        assert "Source 1" in player._attr_source_list
+        """Without configured source names the legacy labels are offered."""
+        assert player.source_list == ["Source 1", "Source 2", "Source 3", "Source 4"]
 
     def test_handle_event_on(self, player):
         from homeassistant.components.media_player import MediaPlayerState
@@ -230,15 +231,13 @@ class TestMediaPlayerEntity:
         player.handle_event(msg)
         assert player._attr_state == MediaPlayerState.OFF
 
-    def test_handle_event_source_0_routing(self, player):
-        """Routing events update the source label but do NOT force state to ON."""
+    def test_handle_event_source_device_is_ignored(self, player):
+        """A source device switching on says nothing about this zone."""
         from homeassistant.components.media_player import MediaPlayerState
         msg = OWNEvent.parse("*16*3*101##")
         player.handle_event(msg)
-        # Routing events only update the source label, NOT the state
         assert player._attr_state == MediaPlayerState.OFF
-        assert player._attr_source == "Source 0"
-        player.async_schedule_update_ha_state.assert_called()
+        assert player._attr_source is None
 
     def test_handle_event_source_1_routing(self, player):
         """Routing events update the source label but do NOT force state to ON."""
@@ -296,14 +295,18 @@ class TestMediaPlayerEntity:
 
     @pytest.mark.asyncio
     async def test_select_source(self, player):
-        """Source selection is a no-op (MH200 startup scenario handles routing)."""
+        """Selecting a source activates it and routes this zone's environment."""
         await player.async_select_source("Source 3")
-        player._gateway_handler.send.assert_not_called()
+        sent = [str(call.args[0]) for call in player._gateway_handler.send.call_args_list]
+        assert sent == ["*16*3*103##", "*16*3*113##"]
 
     @pytest.mark.asyncio
     async def test_select_source_invalid(self, player):
-        """Invalid source should also be a no-op."""
-        await player.async_select_source("Invalid Source")
+        """An unresolvable source is refused instead of sending a bogus frame."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source("Invalid Source")
         player._gateway_handler.send.assert_not_called()
 
     def test_handle_event_volume(self, player):

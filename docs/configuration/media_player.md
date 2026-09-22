@@ -48,8 +48,48 @@ To bridge modern streaming platforms (such as **Music Assistant**, **Spotify Con
                └─────────────────┘
 ```
 
+### Source switching
+
+Selecting a source sends the same two frames a wall panel puts on the bus:
+
+| Frame | Meaning |
+| :--- | :--- |
+| `*16*3*10S##` | Activate source device `S` |
+| `*16*3*1ES##` | Route environment `E` to source `S` |
+
+The routing address carries the **environment** digit of the amplifier
+address, not the amplifier digit. Amplifier addresses are `EA` — environment
+followed by amplifier — so zone `23` lives in environment 2 and is routed with
+`121` (source 1) or `122` (source 2). The F441M switches per output and an
+output serves a whole environment, so **every amplifier in that environment
+follows the switch**. Zones 22 and 23 cannot play different sources; that is
+matrix hardware, not an integration limitation.
+
+> Earlier releases refused to send these frames, on the assumption that they
+> caused relay clicks on MH200-class gateways. Bus captures on an MH200 show
+> clean switching. The real problem was a routing address built from the wrong
+> digit, which addressed an environment that did not exist.
+
+### Naming your sources
+
+Each F441M input (S1–S4) has a name field in the integration Options. Fill in
+what is physically wired to it and **leave the rest blank**.
+
+- Only named sources are offered in the Home Assistant source list.
+- A zone routed to a blank input — typically by someone pressing a stale
+  button on a wall panel — is labelled `Source N (not configured)` and logged
+  once, so amplified silence or tuner hiss has a visible cause.
+- The integration never re-routes the zone by itself. The choice was made at
+  the panel, and silently overriding it would be its own surprise. Select a
+  configured source to recover.
+
+If no names are configured the legacy `Source 1`–`Source 4` list is used and
+nothing is flagged, so existing installations are unaffected.
+
 ### The "Hardware Routing First" Model
-Switching matrix sources dynamically via OpenWebNet IP commands (`*16*100*WHERE##` to `*16*103*WHERE##`) on MH200/MH201/F454 gateways causes mechanical relay clicks and momentary bus noise.
+
+For streaming, routing is still best left alone: `play_media` never changes
+the source by itself.
 
 **Recommended Practice**:
 
@@ -101,7 +141,7 @@ If you do not configure any streaming decoders in the Options Flow, the room amp
 
 - **On / Off**: Toggles the physical amplifier power.
 - **Volume**: Controls the hardware volume step (0 to 30) via dimension 1.
-- **Source Selection**: Allows switching between physical sources 1–4.
+- **Source Selection**: Switches the zone's environment between the configured physical sources.
 - **Track Controls**: Sends OpenWebNet Next/Previous track commands (`WHAT = 20` / `WHAT = 21`) to compatible Legrand FM/DAB tuners.
 
 ---
@@ -115,7 +155,7 @@ If you do not configure any streaming decoders in the Options Flow, the room amp
 | **Volume UP** | `*16*10*<WHERE>##` | Steps amplifier volume UP. |
 | **Volume DOWN** | `*16*11*<WHERE>##` | Steps amplifier volume DOWN. |
 | **Set Exact Volume** | `*#16*<WHERE>*#1*<LEVEL>##` | Sets exact volume level (where `<LEVEL>` is 0 to 30). |
-| **Select Source 1** | `*16*100*<WHERE>##` | Routes input Source 1 to room `<WHERE>`. |
-| **Select Source 2** | `*16*101*<WHERE>##` | Routes input Source 2 to room `<WHERE>`. |
+| **Activate Source `S`** | `*16*3*10S##` | Switches source device `S` on (`101`–`109`). |
+| **Route Environment to Source** | `*16*3*1ES##` | Routes every amplifier of environment `E` to source `S`. |
 | **Next Track / Station** | `*16*20*<WHERE>##` | Skips to next preset/track on active source. |
 | **Prev Track / Station** | `*16*21*<WHERE>##` | Skips to previous preset/track on active source. |

@@ -22,6 +22,7 @@ from custom_components.myhome.const import (
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SOURCE,
     CONF_ENTITY,
+    CONF_SOURCE_NAME,
     DOMAIN,
 )
 from custom_components.myhome.data import MyHOMERuntimeData
@@ -158,7 +159,7 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
     mac = mock_config_entry.data[CONF_MAC]
 
     # Test filtering out message without zone
-    no_zone_msg = MagicMock(spec=OWNSoundEvent, zone=None)
+    no_zone_msg = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone=None)
     async_dispatcher_send(hass, f"myhome_message_{mac}", "RAW_STRING")
     async_dispatcher_send(hass, f"myhome_message_{mac}", no_zone_msg)
 
@@ -406,11 +407,87 @@ async def test_volume_controls_and_gain_staging(hass, player, mock_gateway):
         assert player._attr_is_volume_muted is False
 
 
+def _name_sources(player, **names):
+    """Give the entry configured matrix source names, e.g. ``_name_sources(p, s2="Cambridge")``."""
+    options = dict(player.platform.config_entry.options or {})
+    for key, value in names.items():
+        options[CONF_SOURCE_NAME.format(int(key[1:]))] = value
+    player.platform.config_entry.options = options
+
+
 @pytest.mark.asyncio
-async def test_source_selection_ignored(hass, player, mock_gateway):
-    """Test source selection via HA is ignored to prevent audible relay hiss."""
+async def test_select_source_routes_environment(hass, player, mock_gateway):
+    """Selecting a source activates it and routes the zone's environment to it.
+
+    A wall panel sends ``*16*3*102##`` + ``*16*3*122##`` for zone 23; the
+    routing address carries the environment digit, not the amplifier digit.
+    """
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    await player.async_select_source("Cambridge")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*3*102##", "*16*3*122##"]
+    assert player.source == "Cambridge"
+
+
+@pytest.mark.asyncio
+async def test_select_source_legacy_labels_without_configuration(hass, player, mock_gateway):
+    """Without configured names the legacy ``Source N`` labels still work."""
+    assert player.source_list == ["Source 1", "Source 2", "Source 3", "Source 4"]
+
     await player.async_select_source("Source 2")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*3*102##", "*16*3*112##"]
+
+
+@pytest.mark.asyncio
+async def test_select_source_rejects_unknown_source(hass, player, mock_gateway):
+    """An unknown label is refused rather than silently sending a bogus frame."""
+    _name_sources(player, s2="Cambridge")
+
+    assert player.source_list == ["Cambridge"]
+    with pytest.raises(HomeAssistantError):
+        await player.async_select_source("Radio")
     mock_gateway.send.assert_not_called()
+
+
+def test_unconfigured_source_is_visible_and_logged(hass, player, mock_gateway, caplog):
+    """A zone routed to an empty matrix input says so, and warns once.
+
+    The integration never corrects the routing: the user chose it at the wall
+    panel, and silently overriding that would be its own surprise.
+    """
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    # Wall panel routes environment 2 to source 1, which has nothing wired to it
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+
+    assert player.source == "Source 1 (not configured)"
+    assert "not configured" in caplog.text
+    mock_gateway.send.assert_not_called()
+
+    # The warning is logged once per source, not on every re-broadcast
+    caplog.clear()
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+    assert "not configured" not in caplog.text
+
+
+def test_routing_event_targets_the_environment(hass, player, mock_gateway):
+    """Routing is announced per environment: zone 23 follows 12S, not 13S."""
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="132", is_on=False, is_off=False, volume=None))
+    assert player.source is None
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="122", is_on=False, is_off=False, volume=None))
+    assert player.source == "Cambridge"
 
 
 def test_metadata_and_state_mirroring(hass, player, mock_gateway):
@@ -488,13 +565,13 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     await player.async_update()
     mock_gateway.send_status_request.assert_called_once()
 
-    # Matrix routing event (e.g. zone 121 -> Route source 2 to zone x1)
-    msg_routing = MagicMock(spec=OWNSoundEvent, zone="121", is_on=False, is_off=False, volume=None)
+    # Matrix routing event (112 -> route the amplifiers of environment 1 to source 2)
+    msg_routing = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="112", is_on=False, is_off=False, volume=None)
     player.handle_event(msg_routing)
     assert player.source == "Source 2"
 
     # Turn on event
-    msg_on = MagicMock(spec=OWNSoundEvent, zone="1", is_on=True, is_off=False, volume=None)
+    msg_on = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=True, is_off=False, volume=None)
     player.handle_event(msg_on)
     assert player.state == MediaPlayerState.ON
 
@@ -504,18 +581,18 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     _set_pool(player, mock_pool)
     player._active_decoder = "media_player.squeezelite_1"
 
-    msg_off = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=True, volume=None)
+    msg_off = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=True, volume=None)
     player.handle_event(msg_off)
     assert player.state == MediaPlayerState.OFF
     assert player._active_decoder is None
 
     # Volume update with mute / unmute detection
-    msg_vol_0 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=0)
+    msg_vol_0 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=0)
     player.handle_event(msg_vol_0)
     assert player._attr_volume_level == 0.0
     assert player.is_volume_muted is True
 
-    msg_vol_15 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=15)
+    msg_vol_15 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=15)
     player.handle_event(msg_vol_15)
     assert pytest.approx(player._attr_volume_level, 0.01) == 15 / 31.0
     assert player.is_volume_muted is False

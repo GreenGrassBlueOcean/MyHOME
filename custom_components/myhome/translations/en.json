@@ -88,6 +88,10 @@
         "title": "MyHome options",
         "description": "Advanced system settings and streaming decoder mapping",
         "data": {
+          "source_1_name": "Source 1 — name of what is wired to matrix input S1 (leave blank if nothing is connected)",
+          "source_2_name": "Source 2 — name of what is wired to matrix input S2 (leave blank if nothing is connected)",
+          "source_3_name": "Source 3 — name of what is wired to matrix input S3 (leave blank if nothing is connected)",
+          "source_4_name": "Source 4 — name of what is wired to matrix input S4 (leave blank if nothing is connected)",
           "address": "IP address",
           "password": "Password",
           "config_file_path": "Configuration file path",
@@ -314,6 +318,9 @@
     },
     "group_no_timer": {
       "message": "{name}: timed on/off is not supported for a lighting group"
+    },
+    "unknown_source": {
+      "message": "{entity_id}: unknown source '{source}'"
     }
   },
   "entity": {

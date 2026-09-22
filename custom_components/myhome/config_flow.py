@@ -48,6 +48,8 @@ from .const import (
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
     CONF_OWN_PASSWORD,
+    CONF_SOURCE_NAME,
+    CONF_SOURCE_SLOTS,
     CONF_SSDP_LOCATION,
     CONF_SSDP_ST,
     CONF_TRANSITION_MODE,
@@ -738,6 +740,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 self.options.update({CONF_BROADCAST_RESYNC: user_input.get(CONF_BROADCAST_RESYNC, True)})  # type: ignore
                 self.options[CONF_TRANSITION_MODE] = user_input.get(CONF_TRANSITION_MODE, DEFAULT_TRANSITION_MODE)  # type: ignore
 
+                # Persist matrix source names (blank = nothing wired to that input)
+                for i in range(1, CONF_SOURCE_SLOTS + 1):
+                    name_key = CONF_SOURCE_NAME.format(i)
+                    self.options[name_key] = str(user_input.get(name_key, "") or "").strip()  # type: ignore
+
                 # Persist decoder slots
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
@@ -825,6 +832,14 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 )
             ),
         }
+
+        # Matrix source names 1–4 (F441M inputs S1–S4)
+        for i in range(1, CONF_SOURCE_SLOTS + 1):
+            name_key = CONF_SOURCE_NAME.format(i)
+            schema_dict[vol.Optional(
+                name_key,
+                description={"suggested_value": self.options.get(name_key, "")},  # type: ignore
+            )] = str
 
         # Decoder slots 1–4
         for i in range(1, CONF_DECODER_SLOTS + 1):

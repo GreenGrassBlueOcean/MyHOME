@@ -72,6 +72,10 @@
         "title": "Options MyHome",
         "description": "Parametres système avancés",
         "data": {
+          "source_1_name": "Source 1 — nom de l'appareil raccordé à l'entrée S1 de la matrice (laisser vide si rien n'est connecté)",
+          "source_2_name": "Source 2 — nom de l'appareil raccordé à l'entrée S2 de la matrice (laisser vide si rien n'est connecté)",
+          "source_3_name": "Source 3 — nom de l'appareil raccordé à l'entrée S3 de la matrice (laisser vide si rien n'est connecté)",
+          "source_4_name": "Source 4 — nom de l'appareil raccordé à l'entrée S4 de la matrice (laisser vide si rien n'est connecté)",
           "address": "Adresse IP",
           "password": "Mot de passe",
           "config_file_path": "Chemin du fichier de configuration",

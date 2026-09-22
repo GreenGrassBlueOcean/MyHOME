@@ -72,6 +72,10 @@
         "title": "MyHome opties",
         "description": "Gevorderde systeem settings",
         "data": {
+          "source_1_name": "Bron 1 — naam van wat op matrix-ingang S1 is aangesloten (leeg laten als er niets op zit)",
+          "source_2_name": "Bron 2 — naam van wat op matrix-ingang S2 is aangesloten (leeg laten als er niets op zit)",
+          "source_3_name": "Bron 3 — naam van wat op matrix-ingang S3 is aangesloten (leeg laten als er niets op zit)",
+          "source_4_name": "Bron 4 — naam van wat op matrix-ingang S4 is aangesloten (leeg laten als er niets op zit)",
           "address": "IP address",
           "password": "Wachtwoord",
           "config_file_path": "Path onfiguratie bestand",
