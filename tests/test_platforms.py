@@ -230,14 +230,19 @@ class TestMediaPlayerEntity:
         player.handle_event(msg)
         assert player._attr_state == MediaPlayerState.OFF
 
-    def test_handle_event_source_0_routing(self, player):
-        """Routing events update the source label but do NOT force state to ON."""
+    def test_handle_event_source_activation_is_not_routing(self, player):
+        """``101`` is source device 1 turning on, not a routing address.
+
+        Routing addresses are ``1ES`` with environment numbered from 1; a
+        ``0`` in the environment position means this is actually a ``10S``
+        source-activation frame and must not be decoded as routing to a
+        nonexistent "environment 0" (see ``_parse_routing_address``).
+        """
         from homeassistant.components.media_player import MediaPlayerState
         msg = OWNEvent.parse("*16*3*101##")
         player.handle_event(msg)
-        # Routing events only update the source label, NOT the state
         assert player._attr_state == MediaPlayerState.OFF
-        assert player._attr_source == "Source 0"
+        assert player._attr_source is None
         player.async_schedule_update_ha_state.assert_called()
 
     def test_handle_event_source_1_routing(self, player):
@@ -296,14 +301,23 @@ class TestMediaPlayerEntity:
 
     @pytest.mark.asyncio
     async def test_select_source(self, player):
-        """Source selection is a no-op (MH200 startup scenario handles routing)."""
+        """Source selection sends the activation and routing frame pair.
+
+        Earlier versions withheld these frames, believing they caused relay
+        hiss on MH200-class gateways. Bus captures on an MH200 showed clean
+        switching; the real bug was a routing address built from the wrong
+        digit, not the act of sending (see ``_parse_routing_address``).
+        """
         await player.async_select_source("Source 3")
-        player._gateway_handler.send.assert_not_called()
+        assert player._gateway_handler.send.call_count == 2
 
     @pytest.mark.asyncio
     async def test_select_source_invalid(self, player):
-        """Invalid source should also be a no-op."""
-        await player.async_select_source("Invalid Source")
+        """An unknown source name raises instead of silently doing nothing."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source("Invalid Source")
         player._gateway_handler.send.assert_not_called()
 
     def test_handle_event_volume(self, player):

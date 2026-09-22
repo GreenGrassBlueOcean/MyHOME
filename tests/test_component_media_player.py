@@ -407,10 +407,21 @@ async def test_volume_controls_and_gain_staging(hass, player, mock_gateway):
 
 
 @pytest.mark.asyncio
-async def test_source_selection_ignored(hass, player, mock_gateway):
-    """Test source selection via HA is ignored to prevent audible relay hiss."""
+async def test_source_selection_sends_activation_and_routing_frames(hass, player, mock_gateway):
+    """Selecting a source sends the same pair of frames a wall panel puts on the bus.
+
+    Earlier versions withheld these frames, believing they caused relay hiss
+    on MH200-class gateways. Bus captures on an MH200 showed clean switching;
+    the real bug was a routing address built from the wrong digit (see
+    ``_parse_routing_address``), not the act of sending.
+    """
+    player._where = "1"
+
     await player.async_select_source("Source 2")
-    mock_gateway.send.assert_not_called()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*3*102##", "*16*3*112##"]
+    assert player.source == "Source 2"
 
 
 def test_metadata_and_state_mirroring(hass, player, mock_gateway):
@@ -488,13 +499,15 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     await player.async_update()
     mock_gateway.send_status_request.assert_called_once()
 
-    # Matrix routing event (e.g. zone 121 -> Route source 2 to zone x1)
-    msg_routing = MagicMock(spec=OWNSoundEvent, zone="121", is_on=False, is_off=False, volume=None)
+    # Matrix routing event: environment 1 (this player) routed to source 2.
+    # The pseudo address is "1" + environment + source, confirmed against the
+    # WHO=22 mirror frames (tests/golden/frames/who22_sound_diffusion.yaml).
+    msg_routing = MagicMock(spec=OWNSoundEvent, zone="112", is_source_event=False, is_on=False, is_off=False, volume=None)
     player.handle_event(msg_routing)
     assert player.source == "Source 2"
 
     # Turn on event
-    msg_on = MagicMock(spec=OWNSoundEvent, zone="1", is_on=True, is_off=False, volume=None)
+    msg_on = MagicMock(spec=OWNSoundEvent, zone="1", is_source_event=False, is_on=True, is_off=False, volume=None)
     player.handle_event(msg_on)
     assert player.state == MediaPlayerState.ON
 
@@ -504,18 +517,18 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     _set_pool(player, mock_pool)
     player._active_decoder = "media_player.squeezelite_1"
 
-    msg_off = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=True, volume=None)
+    msg_off = MagicMock(spec=OWNSoundEvent, zone="1", is_source_event=False, is_on=False, is_off=True, volume=None)
     player.handle_event(msg_off)
     assert player.state == MediaPlayerState.OFF
     assert player._active_decoder is None
 
     # Volume update with mute / unmute detection
-    msg_vol_0 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=0)
+    msg_vol_0 = MagicMock(spec=OWNSoundEvent, zone="1", is_source_event=False, is_on=False, is_off=False, volume=0)
     player.handle_event(msg_vol_0)
     assert player._attr_volume_level == 0.0
     assert player.is_volume_muted is True
 
-    msg_vol_15 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=15)
+    msg_vol_15 = MagicMock(spec=OWNSoundEvent, zone="1", is_source_event=False, is_on=False, is_off=False, volume=15)
     player.handle_event(msg_vol_15)
     assert pytest.approx(player._attr_volume_level, 0.01) == 15 / 31.0
     assert player.is_volume_muted is False

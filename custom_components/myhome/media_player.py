@@ -18,7 +18,8 @@ and other sources to the matrix by implementing a *Dynamic Proxy* pattern:
    b. Wakes the decoder if it is in standby.
    c. Activates the BTicino zone amplifier with a simple OFF → ON sequence.
       The matrix is trusted to already be (or to stay) routed to the decoder's
-      physical source input. No explicit source-selection commands are sent.
+      physical source input; ``play_media`` never changes the routing by
+      itself.  Use ``select_source`` to switch inputs deliberately.
    d. Forwards the stream URL to the backend decoder via the HA service bus.
 5. State, metadata (title, artist, album art), and volume are mirrored from
    the backend decoder back to the BTicino zone entity.
@@ -26,11 +27,37 @@ and other sources to the matrix by implementing a *Dynamic Proxy* pattern:
    zone_volume + pre_gain) to keep the analog signal level high and reduce bus noise.
 7. When the zone is turned off, the decoder is released back to the pool.
 
-Why we avoid sending routing commands
--------------------------------------
-The F441M matrix cannot be source-switched hiss-free via IP on MH200-class
-gateways. Direct `*16*3*1XY##` (and similar) commands produce relay clicks.
-Native wall-panel commands on the bus do not have this problem.
+Source selection
+----------------
+Selecting a source sends the same two frames a wall panel puts on the bus:
+``*16*3*10S##`` activates source ``S`` and ``*16*3*1ES##`` routes environment
+``E`` to it.  The routing address carries the *environment* digit of the
+amplifier address before the source digit (zone ``23`` lives in environment
+``2``, so routing it to source 2 is ``122``), because the F441M switches per
+output and an output serves a whole environment.  Every amplifier in that
+environment therefore follows the switch; that is matrix hardware behaviour.
+
+Confirmed against the WHO=22 mirror an MH200N emits for the same event
+(``tests/golden/frames/who22_sound_diffusion.yaml``): WHO=22 writes the
+environment and the source into separate fields, and pairing those frames
+with their WHO=16 twin shows the environment digit comes first, not the
+source digit — e.g. ``*16*3*112##`` is environment 1 routed to source 2
+(``*22*2#4#1*5#2#2##``), and ``*16*3*181##`` is environment 8 routed to
+source 1 (``*22*2#4#8*5#2#1##``); sources only go up to 4, so an address
+with an 8 in the second position can only be an environment.
+
+Earlier versions refused to send these frames, believing they caused relay
+hiss on MH200-class gateways.  Bus captures on an MH200 show clean switching;
+the real problem was a routing address built from the wrong digit, which
+addressed an environment that did not exist.
+
+Unconfigured sources
+--------------------
+A wall panel can route a room to a matrix input that has nothing wired to it,
+which sounds like silence or amplifier noise.  When the user has named their
+sources in the options, the entity labels such a zone as unconfigured and logs
+it once, but never overrides the choice: silently re-routing a room the user
+just switched by hand would be its own kind of surprise.
 
 Backward compatibility
 ----------------------
@@ -65,8 +92,11 @@ from .const import (
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
     CONF_DECODER_SOURCE,
+    CONF_SOURCE_NAME,
+    CONF_SOURCE_SLOTS,
     DOMAIN,
     LOGGER,
+    SOURCE_UNCONFIGURED_SUFFIX,
 )
 from .data import MyHOMEConfigEntry, get_runtime_data
 from .decoder_pool import DecoderPool
@@ -158,21 +188,69 @@ def _zone_address(message: Any) -> Address | None:
     return Address(str(zone), key_suffix="#16")
 
 
+def _zone_environment(zone: str) -> str:
+    """Return the environment (room) an amplifier address belongs to.
+
+    Amplifier addresses are ``EA`` — environment digit followed by the
+    amplifier number within that environment (``23`` = environment 2,
+    amplifier 3).  The F441M ties environments to its outputs one to one
+    (OUT n serves environment n), which is why matrix routing is announced
+    per environment, not per amplifier.
+    """
+    return zone[0] if len(zone) > 1 else zone
+
+
+def _routing_address(zone: str, source: int) -> str:
+    """Return the pseudo address that routes ``zone``'s environment to ``source``.
+
+    Example: zone ``23`` (environment 2) and source 2 give ``122``, exactly
+    what a wall panel puts on the bus when it switches that room's source.
+    """
+    return f"1{_zone_environment(zone)}{source}"
+
+
+def _parse_routing_address(pseudo: str) -> tuple[int, str] | None:
+    """Split a ``1ES`` matrix routing address into ``(source, environment)``.
+
+    The environment digit comes before the source digit — see the WHO=22
+    mirror frames in ``tests/golden/frames/who22_sound_diffusion.yaml`` for
+    independent confirmation. Environment ``0`` is rejected: environments are
+    numbered from 1, so a ``0`` in that position means this is actually a
+    ``10S`` source-activation address (source device ``S`` turned on), a
+    different event that must not be decoded as routing.
+
+    Returns ``None`` when ``pseudo`` is not a routing address.
+    """
+    if (
+        len(pseudo) == 3
+        and pseudo[0] == "1"
+        and pseudo.isdigit()
+        and pseudo[1] != "0"
+        and pseudo[2] in "01234"
+    ):
+        return int(pseudo[2]), pseudo[1]
+    return None
+
+
 def _route_pseudo_zones(
     router: Any
 ) -> Callable[[Any, Address, KnownDevices], bool]:
-    """Stereo-module pseudo zones (10x-14x) select the source for amplifier x."""
+    """Stereo-module pseudo zones (10x-14x) select the source for an environment."""
 
     @callback
     def handler(message: Any, address: Address, known: KnownDevices) -> bool:
-        zone = address.where
-        if len(zone) == 3 and zone[:2] in ("10", "11", "12", "13", "14"):
-            point = zone[-1]
-            zones = [player_id for player_id in known if player_id.split("#")[0].endswith(point)]
-            if zones:
-                router.publish("16", zones, message)
-            return True
-        return False
+        parsed = _parse_routing_address(address.where)
+        if parsed is None:
+            return False
+        _source, environment = parsed
+        zones = [
+            player_id
+            for player_id in known
+            if _zone_environment(player_id.split("#")[0]) == environment
+        ]
+        if zones:
+            router.publish("16", zones, message)
+        return True
 
     return handler
 
@@ -225,8 +303,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         # ── Base hardware state ────────────────────────────────────────────
         self._attr_state: MediaPlayerState | None = MediaPlayerState.OFF
-        self._attr_source_list: list[str] = ["Source 0", "Source 1", "Source 2", "Source 3", "Source 4"]
         self._attr_source: str | None = None
+        self._warned_sources: set[int] = set()
         self._attr_volume_level: float | None = None
         self._attr_is_volume_muted: bool = False
 
@@ -244,6 +322,79 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             | MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
+
+    # ── Source configuration ──────────────────────────────────────────────────
+
+    def _options(self) -> dict[str, Any]:
+        """Return the config entry options, or an empty mapping when unavailable."""
+        entry = getattr(getattr(self, "platform", None), "config_entry", None)
+        return dict(getattr(entry, "options", None) or {})
+
+    def _source_names(self) -> dict[int, str]:
+        """Return ``{source_number: name}`` for every source the user configured.
+
+        An empty mapping means the installation has not been described yet; the
+        entity then falls back to the legacy ``Source N`` labels and assumes
+        nothing about which matrix inputs are wired.
+        """
+        options = self._options()
+        names: dict[int, str] = {}
+        for i in range(1, CONF_SOURCE_SLOTS + 1):
+            name = str(options.get(CONF_SOURCE_NAME.format(i), "") or "").strip()
+            if name:
+                names[i] = name
+        return names
+
+    def _source_label(self, source_num: int) -> str:
+        """Return the label to show for ``source_num``.
+
+        Once the user has named their sources, a zone routed to an input that
+        was left blank is labelled as unconfigured rather than as a plausible
+        looking "Source N" — a wall panel can route a room to an input that has
+        nothing wired to it, and the resulting silence or hiss should be
+        visible in Home Assistant instead of unexplained.
+        """
+        names = self._source_names()
+        if source_num in names:
+            return names[source_num]
+        if names:
+            return f"Source {source_num}{SOURCE_UNCONFIGURED_SUFFIX}"
+        return f"Source {source_num}"
+
+    def _warn_unconfigured_source(self, source_num: int) -> None:
+        """Log once when this zone is routed to an input that has no source.
+
+        A wall panel can route a room to a matrix input that nothing is wired
+        to; the room then plays silence or amplified noise with no indication
+        of why.  The integration deliberately does not "fix" this — the user
+        made that choice at the panel — but it does say so, once per source,
+        so the cause is findable.
+        """
+        if not self._source_names() or source_num in self._source_names():
+            return
+        if source_num in self._warned_sources:
+            return
+        self._warned_sources.add(source_num)
+        LOGGER.warning(
+            "%s: routed to matrix source %d, which is not configured in the "
+            "MyHOME options. If nothing is wired to that input the zone will "
+            "play silence or noise. Select a configured source, or name this "
+            "input in the integration options if it does exist.",
+            self.entity_id,
+            source_num,
+        )
+
+    def _source_number(self, source: str) -> int | None:
+        """Resolve a source label back to its BTicino source number."""
+        for number, name in self._source_names().items():
+            if name == source:
+                return number
+        prefix = "Source "
+        if source.startswith(prefix):
+            candidate = source[len(prefix):].split(" ")[0]
+            if candidate.isdigit():
+                return int(candidate)
+        return None
 
     # ── Pool helpers ──────────────────────────────────────────────────────────
 
@@ -597,32 +748,48 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
     # ── Source selection ──────────────────────────────────────────────────────
 
-    async def async_select_source(self, source: str) -> None:
-        """Source selection is intentionally ignored.
+    @property
+    def source_list(self) -> list[str]:
+        """Return the sources that can be selected.
 
-        The recommended model is "Hardware Routing First":
-
-        - Wire your streaming decoder(s) to the desired physical source input(s).
-        - Use physical wall panels (or a gateway power-on/startup scenario) to
-          set the default routing for zones to that source.
-        - The integration only activates zones with a simple OFF→ON. It never
-          sends matrix source-routing commands over IP because they produce
-          audible hiss on MH200-class gateways.
-
-        Changing the active source from Home Assistant is not supported for
-        the same reason. Use the physical controls or reconfigure your
-        power-on scenario instead.
-
-        The source attribute is still updated when the bus reports routing
-        changes (e.g. from wall panels).
+        Once sources are named in the options only those are offered: an input
+        with nothing wired to it is not a valid destination, and offering it
+        would let the user route a room to silence or tuner hiss.  Without any
+        configuration the legacy ``Source 1..4`` list is returned unchanged.
         """
-        LOGGER.info(
-            "%s: Source selection via HA is ignored (Hardware Routing First model). "
-            "Use wall panels or a gateway power-on scenario instead. "
-            "Ignoring select_source('%s').",
-            self.entity_id,
-            source,
+        names = self._source_names()
+        if names:
+            return [names[number] for number in sorted(names)]
+        return [f"Source {number}" for number in range(1, CONF_SOURCE_SLOTS + 1)]
+
+    async def async_select_source(self, source: str) -> None:
+        """Route this zone's environment to ``source``.
+
+        Two frames are sent, the same pair a wall panel puts on the bus:
+        ``*16*3*10S##`` activates the source device, ``*16*3*1ES##`` routes
+        environment ``E`` to it.  The F441M switches per output, so every
+        amplifier sharing this zone's environment follows along — that is
+        matrix hardware behaviour, not a limitation of this integration.
+        """
+        source_num = self._source_number(source)
+        if source_num is None:
+            raise HomeAssistantError(
+                f"{self.entity_id}: unknown source '{source}'",
+                translation_domain=DOMAIN,
+                translation_key="unknown_source",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id), "source": str(source),
+                },
+            )
+
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*3*{100 + source_num}##")
         )
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*3*{_routing_address(self._where, source_num)}##")
+        )
+        self._attr_source = self._source_label(source_num)
+        self.async_schedule_update_ha_state()
 
     # ── State and metadata mirroring ──────────────────────────────────────────
 
@@ -737,17 +904,26 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Handle incoming state updates directly from the bus."""
         zone_str = str(message.zone)
-        # Parse matrix routing events (e.g. 111 -> Route Source 1 to Zone x1,
-        # or 121 -> Source 2). These come from wall panels or scenarios.
+        # Parse matrix routing events (e.g. 121 -> route source 2 to the
+        # amplifiers of environment 1). These come from wall panels or
+        # scenarios.
         # NOTE: Only update the source label here, NOT the state. The F441M
         # matrix re-broadcasts routing info for ALL zones whenever ANY zone
         # changes source. If we unconditionally set state=ON here, a zone
         # that was just turned OFF would be resurrected as a ghost "On" entity
         # whenever a different zone turns on.
-        if len(zone_str) == 3 and zone_str[:2] in ("10", "11", "12", "13", "14"):
-            if self._where.endswith(zone_str[-1]):
-                source_num = int(zone_str[1])
-                self._attr_source = f"Source {source_num}"
+        routing = _parse_routing_address(zone_str)
+        if routing is not None:
+            source_num, environment = routing
+            if _zone_environment(self._where) == environment:
+                self._attr_source = self._source_label(source_num)
+                self._warn_unconfigured_source(source_num)
+        elif getattr(message, "is_source_event", False):
+            # A source device (e.g. "Audio Source 1 is switched ON") is not
+            # this zone's amplifier. OWNd's generic is_on/is_off still report
+            # True/False for these frames, so they must be excluded here too,
+            # not just in _zone_address's upstream routing.
+            pass
         elif message.is_on:
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:
