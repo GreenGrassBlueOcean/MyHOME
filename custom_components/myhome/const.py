@@ -246,57 +246,67 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
     "13": "H4684",
 }
 # Codes seen on real hardware but absent from the official document, with the
-# evidence.
+# evidence. A value is the tuple of every model / SKU the code has been seen on;
+# the first entry is the name a gateway gets labelled with.
 #   51:  F454 running a 1.x firmware (reported by @anotherjulien in PR #420 from the
-#        OpenWebNet device database; no trace captured yet). Newer F454 firmware
-#        answers 200 instead.
-#   200: Observed on F454 (issue #370, confirmed physical device + SSDP),
-#        MyHOMEServer1 (issue #292/#297), MH202, and reported for F461 (issue #370,
-#        no diagnostics yet). Because it is shared across multiple modern Linux-based
-#        gateway families, it cannot uniquely identify any of them or overrule an
-#        authoritative announcement: it is the cue to ask WHO=1013 dimension 1
-#        (WHO1013_OBJECT_MODELS). It contradicts legacy gateways (e.g. MH200/F452).
-WHO13_OBSERVED_DEVICE_TYPES: dict[str, str] = {
-    "51": "F454",
-    "200": "F454 / MyHomeServer1 / MH202 / F461",
+#        OpenWebNet device database). Unconfirmed: his own spare F454 shipped with
+#        2.x and cannot be downgraded, and no 1.x unit has been traced. Newer F454
+#        firmware answers 200 - the 2.0.51 unit in tests/fixtures/plants/pr_420_f454
+#        does.
+#   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
+#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21)
+#        and MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
+#        #292/#297); reported for F461 in issue #370, no diagnostics yet. Shared
+#        across modern Linux-based gateway families, so it identifies none of them
+#        (see WHO13_SHARED_DEVICE_TYPES). It contradicts legacy gateways (e.g.
+#        MH200/F452), but only as field evidence.
+WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
+    "51": ("F454",),
+    "200": ("F454", "MyHomeServer1", "MH202", "F461"),
 }
-# Codes known to be shared across multiple model families.
-# Maps code -> tuple of compatible family names (normalized via gateway_model_family).
-# The key is what matters at run time: any reply with one of these codes triggers a
-# WHO=1013 dimension-1 request, and that reply settles the model. The tuple is only
-# the fallback for a gateway that never answers WHO=1013 - a family listed here keeps
-# its configured model without a repair issue, one not listed is merely "unverified".
-WHO13_AMBIGUOUS_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MYHOMESERVER1", "MH202", "F461"),
-}
+# Codes answered by several distinct models. Such a code is not evidence of any
+# model; it is the cue to ask WHO=1013 dimension 1, whose reply settles it
+# (identity.py). Every family the code is seen on must have a WHO=1013 code.
+WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 
 # WHO=1013 (Gateway Diagnostic) dimension 1, OBJECT_MODEL: one code per model, as
 # listed by @anotherjulien in issue #370 from the OpenWebNet device database. The
 # same SKU does not necessarily answer matching codes here and in WHO=13 dimension
-# 15 (an F454 is 51 here but 200 or 51 there), so the two tables are never merged;
-# this one is consulted only after WHO=13 returned a shared code. Where the
-# database lists several SKUs for a code (rebrands and order numbers), the
-# BTicino model name is kept.
-WHO1013_OBJECT_MODELS: dict[str, str] = {
-    "4": "MH200",
-    "5": "MH202",
-    "8": "F455",
-    "12": "F453AV",
-    "29": "H4684",
-    "30": "AM4890",
-    "35": "BMNE500",
-    "38": "573992",
-    "42": "F453",
-    "44": "MH200N",
-    "51": "F454",
-    "54": "MH4892",
-    "55": "MH4892C",
-    "65": "F459",
-    "67": "MyHomeServer1",
-    "105": "F458",
-    "134": "F461",
+# 15 (an F454 is 51 here but 200 there), so the two tables are never merged; this
+# one is consulted only after WHO=13 returned a shared code, and outranks it.
+# Where the database lists several SKUs for a code (rebrands and order numbers) all
+# are kept, the BTicino model name first: a gateway announcing any of them over
+# SSDP is corroborated, not contradicted.
+#
+# Three codes are confirmed on physical hardware (PR #420, fixtures under
+# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. All three
+# answered `*#1013*0*1##` with the OBJECT_MODEL followed by three further values,
+# `*15*5*0`, identical on all three and of unknown meaning; only the first value
+# is read. The rest of the table is from the database, untraced.
+WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
+    "4": ("MH200",),
+    "5": ("MH202", "003535"),
+    "8": ("F455", "003594"),
+    "12": ("F453AV",),
+    "29": ("H4684", "L4684"),
+    "30": ("AM4890", "H4890", "573958", "067292", "078479", "HW4890", "LN4890", "LN4890A"),
+    "35": ("BMNE500",),
+    "38": ("573992",),
+    "42": ("F453",),
+    "44": ("MH200N", "003565"),
+    "51": ("F454", "003598"),
+    "54": ("MH4892", "MH4893", "067267", "067268"),
+    "55": ("MH4892C", "MH4893C", "067228", "067219"),
+    "65": ("F459",),
+    "67": ("MyHomeServer1",),
+    "105": ("F458", "003599"),
+    "134": ("F461",),
 }
-GATEWAY_DEVICE_TYPE_MAP = {**WHO13_OBSERVED_DEVICE_TYPES, **WHO13_OFFICIAL_DEVICE_TYPES}
+# Code -> the model a WHO=13 reply labels a gateway with (official codes win).
+GATEWAY_DEVICE_TYPE_MAP: dict[str, str] = {
+    **{code: models[0] for code, models in WHO13_OBSERVED_DEVICE_TYPES.items()},
+    **WHO13_OFFICIAL_DEVICE_TYPES,
+}
 
 # How the configured gateway model was established.
 IDENTIFICATION_SSDP = "ssdp"        # the gateway announced its modelName over UPnP/SSDP
@@ -317,36 +327,6 @@ def gateway_model_family(model: str | None) -> str:
     name = str(model).strip().upper().replace(" ", "").replace("-", "").replace("_", "")
     m = re.match(r"^([A-Z]+\d+)[A-Z]*$", name)
     return m.group(1) if m else name
-
-
-def is_who13_code_compatible(raw_code: str, model: str | None) -> bool | None:
-    """Check if a WHO=13 dimension 15 code is compatible with a gateway model.
-
-    Returns:
-        True: Confirmed compatible (matches official spec or known empirical family).
-        False: Confirmed contradiction (contradicts official 2006 OpenWebNet spec).
-        None: Compatibility unknown (observed/empirical code on an unverified model,
-              or unknown code; cannot prove contradiction).
-    """
-    if not model or not raw_code:
-        return False
-    family = gateway_model_family(model)
-    official = WHO13_OFFICIAL_DEVICE_TYPES.get(raw_code)
-    if official:
-        return family == gateway_model_family(official)
-    allowed_families = WHO13_AMBIGUOUS_DEVICE_TYPES.get(raw_code)
-    if allowed_families:
-        if family in allowed_families:
-            return True
-        return None
-    observed = WHO13_OBSERVED_DEVICE_TYPES.get(raw_code)
-    if observed:
-        if family == gateway_model_family(observed):
-            return True
-        return None
-    return None
-
-
 
 
 def build_timed_turn_on_command(

@@ -4,6 +4,8 @@ The only official device-type table (BTicino OpenWebNet_Community_2_device v1.0.
 2006-06-13, WHO=13 section 1.2.6) is: 2 MHServer, 4 MH200, 6 F452, 7 F452V,
 11 MHServer2, 13 H4684. Every gateway sold after 2006 is absent from it.
 """
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,14 +18,16 @@ from custom_components.myhome.const import (
     IDENTIFICATION_SSDP,
     IDENTIFICATION_UNKNOWN,
     IDENTIFICATION_WHO13,
-    WHO13_AMBIGUOUS_DEVICE_TYPES,
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
+    WHO13_SHARED_DEVICE_TYPES,
     WHO1013_OBJECT_MODELS,
     gateway_model_family,
-    is_who13_code_compatible,
 )
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
+from custom_components.myhome.identity import GatewayIdentityEvidence as Evidence
+from custom_components.myhome.identity import read_who13, read_who1013
+from custom_components.myhome.identity import resolve_gateway_identity as resolve
 
 OFFICIAL_2006_TABLE = {"2": "MHServer", "4": "MH200", "6": "F452", "7": "F452V", "11": "MHServer2", "13": "H4684"}
 
@@ -82,32 +86,156 @@ def test_official_table_is_the_2006_document_verbatim():
     assert "MH200N" not in GATEWAY_DEVICE_TYPE_MAP.values()
     # code 200: observed on F454 (#370), MyHOMEServer1 (#292 / #297), MH202; reported for F461 (#370)
     # code 51: F454 on a 1.x firmware (reported in PR #420)
-    assert WHO13_OBSERVED_DEVICE_TYPES == {"51": "F454", "200": "F454 / MyHomeServer1 / MH202 / F461"}
-    assert WHO13_AMBIGUOUS_DEVICE_TYPES == {"200": ("F454", "MYHOMESERVER1", "MH202", "F461")}
+    assert WHO13_OBSERVED_DEVICE_TYPES == {"51": ("F454",), "200": ("F454", "MyHomeServer1", "MH202", "F461")}
+    assert WHO13_SHARED_DEVICE_TYPES == {"200"}
+    assert WHO13_SHARED_DEVICE_TYPES <= set(WHO13_OBSERVED_DEVICE_TYPES)
     # every model a shared WHO=13 code may stand for has a WHO=1013 code that settles it
-    for code, families in WHO13_AMBIGUOUS_DEVICE_TYPES.items():
-        for family in families:
-            assert family in {gateway_model_family(m) for m in WHO1013_OBJECT_MODELS.values()}, (code, family)
+    who1013_families = {gateway_model_family(m) for models in WHO1013_OBJECT_MODELS.values() for m in models}
+    for code in WHO13_SHARED_DEVICE_TYPES:
+        for model in WHO13_OBSERVED_DEVICE_TYPES[code]:
+            assert gateway_model_family(model) in who1013_families, (code, model)
+    # WHO=1013 codes are unique per model: no model appears under two codes
+    seen: dict[str, str] = {}
+    for code, models in WHO1013_OBJECT_MODELS.items():
+        for model in models:
+            assert model not in seen, (model, seen.get(model), code)
+            seen[model] = code
 
 
-def test_is_who13_code_compatible():
-    assert is_who13_code_compatible("4", "MH200") is True
-    assert is_who13_code_compatible("4", "MH200N") is True
-    assert is_who13_code_compatible("4", "F454") is False
-    assert is_who13_code_compatible("200", "F454") is True
-    assert is_who13_code_compatible("200", "MyHomeServer1") is True
-    assert is_who13_code_compatible("200", "F461") is True
-    assert is_who13_code_compatible("51", "F454") is True
-    assert is_who13_code_compatible("51", "MH200") is None
-    assert is_who13_code_compatible("200", "MH200") is None
-    assert is_who13_code_compatible("200", "F452") is None
-    assert is_who13_code_compatible("999", "F454") is None
-    assert is_who13_code_compatible("", "F454") is False
-    assert is_who13_code_compatible("200", None) is False
+# ── reading a code ───────────────────────────────────────────────────────
 
-    with patch.dict(WHO13_OBSERVED_DEVICE_TYPES, {"300": "MH200"}, clear=False):
-        assert is_who13_code_compatible("300", "MH200") is True
-        assert is_who13_code_compatible("300", "F454") is None
+
+def test_read_who13():
+    official = read_who13("4")
+    assert (official.models, official.certain, official.shared, official.raw) == (("MH200",), True, False, "4")
+    assert official.compatible_with("MH200") is True
+    assert official.compatible_with("MH200N") is True  # variant suffix, same family
+    assert official.compatible_with("F454") is False  # a certain contradiction
+    assert official.compatible_with(None) is False and official.compatible_with("") is False
+
+    observed = read_who13("51")
+    assert (observed.models, observed.certain, observed.shared) == (("F454",), False, False)
+    assert observed.compatible_with("F454") is True
+    assert observed.compatible_with("MH200") is None  # field evidence cannot contradict
+
+    shared = read_who13("200")
+    assert shared.shared and shared.known and shared.canonical == "F454"
+    assert shared.compatible_with("F461") is True and shared.compatible_with("MH200") is None
+
+    unknown = read_who13("999")
+    assert not unknown.known and unknown.models == ()
+    assert unknown.compatible_with("F454") is None
+    assert read_who13("4").describe() == "WHO=13 device type 4"
+
+
+def test_read_who1013():
+    r = read_who1013("51")
+    assert (r.models, r.certain, r.shared, r.raw, r.canonical) == (("F454", "003598"), True, False, "1013-1-51", "F454")
+    # a catalogue SKU for the same OBJECT_MODEL is corroborated, not contradicted
+    assert r.compatible_with("003598") is True
+    assert r.compatible_with("F454") is True
+    assert r.compatible_with("MyHomeServer1") is False
+    assert read_who1013("999").known is False
+    assert read_who1013("67").describe() == "WHO=1013 OBJECT_MODEL 67"
+
+
+# ── the resolver: evidence in, verdict out ───────────────────────────────
+
+
+def test_resolver_nothing_known():
+    r = resolve(Evidence())
+    assert (r.model, r.source, r.conflict, r.request_who1013, r.unknown_code) == (None, IDENTIFICATION_UNKNOWN, None, False, None)
+    r = resolve(Evidence(manual="MH200"))
+    assert (r.model, r.source) == ("MH200", IDENTIFICATION_MANUAL)
+    r = resolve(Evidence(technical="F454", technical_source=IDENTIFICATION_SSDP))
+    assert (r.model, r.source) == ("F454", IDENTIFICATION_SSDP)
+    r = resolve(Evidence(technical="MH200"))  # source defaults to ssdp
+    assert r.source == IDENTIFICATION_SSDP
+    r = resolve(Evidence(prior_label="F452"))
+    assert (r.model, r.source) == ("F452", IDENTIFICATION_WHO13)
+
+
+def test_resolver_shared_who13_code_is_a_question_not_an_answer():
+    for ev in (
+        Evidence(who13_code="200"),
+        Evidence(manual="MH200", who13_code="200"),
+        Evidence(technical="F454", technical_source=IDENTIFICATION_SSDP, who13_code="200"),
+        Evidence(technical="MH200", technical_source=IDENTIFICATION_SERIAL, who13_code="200"),
+        Evidence(prior_label="F452", who13_code="200"),
+    ):
+        r = resolve(ev)
+        assert r.request_who1013 and r.who13_shared and r.conflict is None and r.corrected_from is None, ev
+        assert r.model == (ev.manual or ev.technical or ev.prior_label), ev
+    # answered: no further request, whatever the answer
+    assert resolve(Evidence(who13_code="200", who1013_code="51")).request_who1013 is False
+    assert resolve(Evidence(who13_code="200", who1013_code="999")).request_who1013 is False
+
+
+def test_resolver_labels_an_untrusted_model_from_in_band_evidence():
+    assert resolve(Evidence(who13_code="6")).model == "F452"
+    assert resolve(Evidence(prior_label="F452", who13_code="4")).model == "MH200"  # our own label: relabel freely
+    assert resolve(Evidence(who13_code="51")).model == "F454"  # observed-only code still labels
+    r = resolve(Evidence(who13_code="200", who1013_code="67"))
+    assert (r.model, r.source, r.corrected_from) == ("MyHomeServer1", IDENTIFICATION_WHO13, None)
+
+
+def test_resolver_manual_choice():
+    # compatible, or questioned by field evidence only: kept
+    assert resolve(Evidence(manual="MH200N", who13_code="4")).model == "MH200N"
+    r = resolve(Evidence(manual="MH200", who13_code="51"))
+    assert (r.model, r.conflict, r.corrected_from) == ("MH200", None, None)
+    # a certain contradiction corrects it and says from what
+    r = resolve(Evidence(manual="F454", who13_code="6"))
+    assert (r.model, r.source, r.corrected_from, r.corrected_reading.raw) == ("F452", IDENTIFICATION_WHO13, "F454", "6")
+    r = resolve(Evidence(manual="F454", who13_code="200", who1013_code="67"))
+    assert (r.model, r.corrected_from, r.corrected_reading.raw) == ("MyHomeServer1", "F454", "1013-1-67")
+    # confirmed by WHO=1013 with no table change needed for the model itself
+    r = resolve(Evidence(manual="F461", who13_code="200", who1013_code="134"))
+    assert (r.model, r.conflict, r.corrected_from) == ("F461", None, None)
+    # a manual catalogue SKU is corroborated
+    assert resolve(Evidence(manual="003598", who13_code="200", who1013_code="51")).corrected_from is None
+
+
+def test_resolver_technical_identity_is_never_overruled():
+    for source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL):
+        r = resolve(Evidence(technical="F454", technical_source=source, who13_code="4"))
+        assert r.model == "F454" and r.source == source
+        assert r.conflict == f"configured as F454 ({source}) but WHO=13 device type 4 identifies MH200 per the OpenWebNet specification"
+        assert (r.conflict_reading.raw, r.conflict_reading.certain) == ("4", True)
+        r = resolve(Evidence(technical="MH202", technical_source=source, who13_code="200", who1013_code="67"))
+        assert r.model == "MH202"
+        assert r.conflict == f"configured as MH202 ({source}) but WHO=1013 OBJECT_MODEL 67 identifies MyHomeServer1 per diagnostic catalogue"
+        # field evidence only: unverified, no conflict
+        assert resolve(Evidence(technical="MH200", technical_source=source, who13_code="51")).conflict is None
+        # corroborated
+        assert resolve(Evidence(technical="MH202", technical_source=source, who13_code="200", who1013_code="5")).conflict is None
+        assert resolve(Evidence(technical="003598", technical_source=source, who13_code="200", who1013_code="51")).conflict is None
+
+
+def test_resolver_who1013_outranks_who13():
+    """The catalogue is one code per model and the two families disagree for the same SKU."""
+    r = resolve(Evidence(technical="F454", technical_source=IDENTIFICATION_SSDP, who13_code="4", who1013_code="51"))
+    assert r.conflict is None
+    r = resolve(Evidence(manual="MH200", who13_code="4", who1013_code="51"))
+    assert (r.model, r.corrected_from) == ("F454", "MH200")
+    # an unknown WHO=1013 code does not outrank a known WHO=13 one
+    r = resolve(Evidence(who13_code="4", who1013_code="999"))
+    assert (r.model, r.unknown_code) == ("MH200", "1013-1-999")
+
+
+def test_resolver_unknown_codes():
+    r = resolve(Evidence(manual="MH200", who13_code="999"))
+    assert (r.model, r.conflict, r.unknown_code) == ("MH200", None, "999")
+    r = resolve(Evidence(who13_code="200", who1013_code="999"))
+    assert (r.model, r.unknown_code, r.request_who1013) == (None, "1013-1-999", False)
+    r = resolve(Evidence(who13_code="998", who1013_code="999"))
+    assert [u.raw for u in r.unknown_readings] == ["998", "1013-1-999"]
+    assert r.unknown_code == "1013-1-999"
+
+
+def test_resolver_is_idempotent():
+    ev = Evidence(technical="MH202", technical_source=IDENTIFICATION_SSDP, who13_code="200", who1013_code="67")
+    assert resolve(ev) == resolve(ev)
 
 
 def test_official_table_matches_ownd_decoder():
@@ -372,9 +500,9 @@ def test_ssdp_model_cross_checked_by_who1013(dev_reg, issues):
     assert h._identity_conflict is None
     delete.assert_called_once_with(h.hass, "entry_ident")
 
-    # an unrelated official code arriving later still goes through the WHO=13 rules
+    # WHO=1013 outranks WHO=13: an official code arriving later does not reopen the question
     _who13(h, "4")
-    assert "WHO=13 device type 4" in h._identity_conflict
+    assert h._identity_conflict is None
 
 
 def test_serial_model_cross_checked_by_who1013(dev_reg, issues):
@@ -444,7 +572,11 @@ def test_unknown_entry_with_ambiguous_code_stays_generic(dev_reg, issues):
     queued = h.send_buffer.get_nowait()
     assert str(queued["message"]) == "*#1013*0*1##"
     assert queued["is_status_request"] is True
-    # unanswered, a re-broadcast asks again (a NACK costs two DEBUG lines in OWNd)
+    # unanswered: the request is pending, a re-broadcast does not repeat it
+    _who13(h, "200")
+    assert h.send_buffer.empty()
+    # ...until the event session reconnects
+    h._on_event_connection_state_change(True)
     _who13(h, "200")
     assert h.send_buffer.qsize() == 1
     h.send_buffer.get_nowait()
@@ -575,6 +707,14 @@ def test_websocket_gateway_info_tolerates_gateway_without_identification():
     assert _extract_gateway_info(gw)["identification"] == {}
 
 
+def test_apply_model_does_not_rewrite_an_entry_that_already_carries_it(dev_reg):
+    h = _handler()
+    h.config_entry.data["name"] = "F452"
+    h._apply_model("F452")
+    assert h.gateway.model_name == "F452" and h.profile is not None
+    h.hass.config_entries.async_update_entry.assert_not_called()
+
+
 def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev_reg):
     """Defensive paths: no config entry id (no issue registry access) and no device registry id."""
     h = _handler()
@@ -607,6 +747,7 @@ def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, is
         _who13(h, "200")
         assert h.send_buffer.empty()
         known.assert_not_called()
+        unknown.assert_called_with(h.hass, "entry_ident", "1013-1-999")
         # a recognised reply afterwards clears the request for a trace
         _who1013(h, "5")
         known.assert_called_once_with(h.hass, "entry_ident")
@@ -661,11 +802,12 @@ def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
 
     # This will attempt to queue *#1013*0*1## but fail with QueueFull
     _who13(h, "200")
+    assert h._who1013["pending"] is False  # nothing left the handler: the next broadcast retries
     # and the parse guard: a request that cannot be built is skipped, not queued
     h.send_buffer = asyncio.Queue()
     with patch("custom_components.myhome.gateway.OWNCommand.parse", return_value=None):
         h._request_object_model()
-    assert h.send_buffer.empty()
+    assert h.send_buffer.empty() and h._who1013["pending"] is False
     h.send_buffer = asyncio.Queue(maxsize=1)
     h.send_buffer.put_nowait({"message": "filler"})
 
