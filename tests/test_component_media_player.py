@@ -755,3 +755,60 @@ async def test_pool_claim_prefers_the_default_source(hass, player, mock_gateway)
         await player.async_play_media("music", "http://stream")
 
     assert pool.claim.call_args.kwargs["preferred_source"] == 2
+
+
+# ── Golden corpus: our addressing against frames captured on real hardware ────
+
+def _golden_sound_fixtures():
+    """Load the WHO=16 fixtures captured on real F441M installations."""
+    import json
+    from pathlib import Path
+
+    corpus = Path(__file__).resolve().parent / "golden" / "corpus.json"
+    return [f for f in json.loads(corpus.read_text(encoding="utf-8"))
+            if f.get("who") == 16]
+
+
+@pytest.mark.parametrize(
+    ("environment", "source", "frame"),
+    [
+        ("1", 1, "*16*3*111##"),
+        ("1", 2, "*16*3*112##"),
+        ("2", 1, "*16*3*121##"),
+        ("2", 2, "*16*3*122##"),
+        ("3", 1, "*16*3*131##"),
+        ("8", 1, "*16*3*181##"),
+    ],
+)
+def test_routing_address_matches_captured_frames(environment, source, frame):
+    """Our routing address reproduces frames captured on two installations.
+
+    Plant B pins the digit order on its own: amplifier 11 is routed to source 2
+    with 112 and to source 1 with 111, and a general power-on sweeps 111..181.
+    """
+    from custom_components.myhome.media_player import _parse_routing_address, _routing_address
+
+    # A two-digit amplifier address in that environment, e.g. environment 2 -> "23"
+    zone = f"{environment}3"
+    assert _routing_address(zone, source) == frame.removeprefix("*16*3*").removesuffix("##")
+    assert _parse_routing_address(frame.removeprefix("*16*3*").removesuffix("##")) == (source, environment)
+
+
+def test_source_addresses_are_not_routing_addresses():
+    """101-109 are source devices; decoding them as routing invents a source 0."""
+    from custom_components.myhome.media_player import _parse_routing_address
+
+    for fixture in _golden_sound_fixtures():
+        where = str(fixture.get("where"))
+        if where.startswith("10") and len(where) == 3:
+            assert _parse_routing_address(where) is None, where
+
+
+def test_captured_amplifier_addresses_resolve_to_their_environment():
+    """Amplifier addresses are EA: the environment is the first digit."""
+    from custom_components.myhome.media_player import _zone_environment
+
+    assert _zone_environment("23") == "2"   # plant A, eetkamer
+    assert _zone_environment("11") == "1"   # plant B
+    assert _zone_environment("36") == "3"   # plant A, badkamer
+    assert _zone_environment("7") == "7"    # single-digit address is its own environment
