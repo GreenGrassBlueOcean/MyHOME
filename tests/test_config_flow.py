@@ -1179,3 +1179,95 @@ async def test_reconfigure_flow_missing_entry(hass: HomeAssistant) -> None:
 
 
 
+
+
+async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssistant) -> None:
+    """Audio zones discovered from the registry get one default-source field each.
+
+    Defaults are offered per environment rather than per zone: the F441M routes
+    per output and an output serves a whole environment, so two amplifiers in
+    one room cannot sit on different inputs.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.config_flow import MyhomeOptionsFlowHandler
+    from custom_components.myhome.const import (
+        CONF_SOURCE_DEFAULT_FIELD,
+        CONF_SOURCE_DEFAULTS,
+        CONF_SOURCE_NAME,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"mac": "00:03:50:00:12:34", "host": "192.168.1.50", "port": 20000},
+        options={CONF_SOURCE_NAME.format(2): "Cambridge"},
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+    # Two amplifiers in environment 2, one in environment 3, plus a non-audio
+    # entity and an audio entity with a non-numeric zone that must be ignored.
+    for zone in ("22", "23", "36"):
+        registry.async_get_or_create(
+            "media_player", DOMAIN, f"00:03:50:00:12:34-16-{zone}#16",
+            config_entry=entry, suggested_object_id=f"audio_zone_{zone}",
+        )
+    registry.async_get_or_create(
+        "light", DOMAIN, "00:03:50:00:12:34-1-11",
+        config_entry=entry, suggested_object_id="light_11",
+    )
+    registry.async_get_or_create(
+        "media_player", DOMAIN, "00:03:50:00:12:34-16-gen#16",
+        config_entry=entry, suggested_object_id="audio_zone_gen",
+    )
+
+    flow = MyhomeOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    assert flow._audio_environments() == ["2", "3"]
+
+    form = await flow.async_step_init()
+    assert form["type"] == FlowResultType.FORM
+    keys = {str(k) for k in form["data_schema"].schema}
+    assert CONF_SOURCE_NAME.format(2) in keys
+    assert CONF_SOURCE_DEFAULT_FIELD.format(2) in keys
+    assert CONF_SOURCE_DEFAULT_FIELD.format(3) in keys
+    # Environment 1 has no zones, so it is not offered
+    assert CONF_SOURCE_DEFAULT_FIELD.format(1) not in keys
+
+    result = await flow.async_step_user({
+        "address": "192.168.1.50",
+        "password": "12345",
+        "command_worker_count": 1,
+        "generate_events": False,
+        CONF_SOURCE_NAME.format(2): "  Cambridge  ",
+        CONF_SOURCE_DEFAULT_FIELD.format(2): "2",
+        CONF_SOURCE_DEFAULT_FIELD.format(3): "none",
+    })
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    options = result["data"]
+    assert options[CONF_SOURCE_NAME.format(2)] == "Cambridge"
+    # "none" means leave the routing alone, so environment 3 is not stored
+    assert options[CONF_SOURCE_DEFAULTS] == {"2": 2}
+
+
+async def test_options_flow_environments_without_registry(hass: HomeAssistant) -> None:
+    """A registry lookup that fails leaves the form without default-source fields."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.config_flow import MyhomeOptionsFlowHandler
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"mac": "00:03:50:00:12:34", "host": "192.168.1.50", "port": 20000},
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    flow = MyhomeOptionsFlowHandler(entry)
+    flow.hass = None  # entity_registry.async_get raises without a hass
+
+    assert flow._audio_environments() == []

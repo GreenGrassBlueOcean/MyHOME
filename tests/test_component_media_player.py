@@ -855,3 +855,31 @@ def test_amplifier_address_agrees_with_the_who22_speaker_form(amplifier, area, p
 
     assert _zone_environment(amplifier) == area
     assert amplifier == f"{area}{point}"
+
+
+def test_default_source_ignores_malformed_options(hass, player):
+    """A malformed default-source option is ignored rather than acted on."""
+    player._where = "23"
+
+    def _set(value):
+        options = dict(player.platform.config_entry.options or {})
+        options[CONF_SOURCE_DEFAULTS] = value
+        player.platform.config_entry.options = options
+
+    _set("not-a-mapping")
+    assert player._default_source() is None
+
+    _set({"2": "radio"})
+    assert player._default_source() is None
+
+    _set({"2": 0})          # 0 is not a source; 101-109 start at 1
+    assert player._default_source() is None
+
+    _set({"2": 99})
+    assert player._default_source() is None
+
+    _set({"3": 2})          # another environment's default does not apply here
+    assert player._default_source() is None
+
+    _set({"2": 2})
+    assert player._default_source() == 2
