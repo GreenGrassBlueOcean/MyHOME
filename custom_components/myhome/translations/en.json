@@ -320,7 +320,7 @@
       "message": "{name}: timed on/off is not supported for a lighting group"
     },
     "unknown_source": {
-      "message": "{entity_id}: unknown source '{source}'"
+      "message": "{entity_id}: unknown source \"{source}\""
     }
   },
   "entity": {

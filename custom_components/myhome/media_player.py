@@ -760,7 +760,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         source_num = self._source_number(source)
         if source_num is None:
             raise HomeAssistantError(
-                f"{self.entity_id}: unknown source '{source}'",
+                f'{self.entity_id}: unknown source "{source}"',
                 translation_domain=DOMAIN,
                 translation_key="unknown_source",
                 translation_placeholders={
