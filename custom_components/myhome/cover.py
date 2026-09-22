@@ -1124,8 +1124,23 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if getattr(message, "_family", None) == "REQUEST" or getattr(message, "_message_type", None) == "STATUS_REQUEST":
             return
 
+        # shutterLevel 255 means "unknown position", never a level. OWNd releases
+        # after 2.0.0b8 report it as is_position_unknown; older ones pass 255 through.
+        position = message.current_position
+        position_unknown = getattr(message, "is_position_unknown", False) is True or (
+            isinstance(position, int) and not 0 <= position <= 100
+        )
+        if position_unknown:
+            position = None
+
         # Ignore frames with no what and no movement/position (e.g. unknown queries)
-        if getattr(message, "_what", None) is None and message.current_position is None and not message.is_opening and not message.is_closing:
+        if (
+            getattr(message, "_what", None) is None
+            and position is None
+            and not position_unknown
+            and not message.is_opening
+            and not message.is_closing
+        ):
             return
 
         # Ignore general commands (WHERE=0) and groups/areas during active calibration
@@ -1151,14 +1166,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             message.human_readable_log,
         )
         now = time.monotonic()
-        if message.current_position is None and self._handle_echo(message, now):
+        if position is None and self._handle_echo(message, now):
             self._publish_state()
             return
-        if message.current_position is not None:
+        if position is not None:
             self._cancel_stop_task()
-            self._attr_current_cover_position = message.current_position
+            self._attr_current_cover_position = position
             if not self._advanced:
-                self._start_position = message.current_position
+                self._start_position = position
             self._move_start_time = None
             self._attr_is_opening = False
             self._attr_is_closing = False
@@ -1203,5 +1218,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._attr_is_closed = message.is_closed
             elif self._attr_current_cover_position is not None:
                 self._attr_is_closed = (self._attr_current_cover_position == 0)
+
+        if position_unknown and self._advanced:
+            # The actuator itself does not know where it is: stop showing a stale level.
+            self._attr_current_cover_position = None
+            if not (self._attr_is_opening or self._attr_is_closing):
+                self._attr_is_closed = None
 
         self._publish_state()

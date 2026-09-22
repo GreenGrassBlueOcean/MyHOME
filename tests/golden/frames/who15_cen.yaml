@@ -1,47 +1,46 @@
-- id: cen.event.short_press.btn2.11
-  frame: "*15*1*11#2##"
+- id: cen.event.press.btn2.11
+  frame: "*15*02*11##"
   direction: event
   who: 15
-  what: 1
+  what: "02"
   where: "11"
   source: legrand-spec
   mcp_valid: true
-  mcp_notes: "CEN: Short press on button 2 of interface 11"
+  mcp_notes: "CEN: Pressure on button 2 of source 11 (Encyclopedia functional/who-15-cen/README.md @3052786, Action connection table)"
   roundtrip: true
-  builder:
-    class: OWNCenCommand
-    method: press
-    args: ["11", 2]
+
+- id: cen.event.release_short.btn2.11
+  frame: "*15*02#1*11##"
+  direction: event
+  who: 15
+  what: "02#1"
+  where: "11"
+  source: legrand-spec
+  mcp_valid: true
+  mcp_notes: "CEN: Release after short pressure on button 2 of source 11 (Encyclopedia functional/who-15-cen/README.md @3052786, Action connection table)"
+  roundtrip: true
 
 - id: cen.event.start_long_press.btn2.11
-  frame: "*15*0*11#2##"
+  frame: "*15*02#3*11##"
   direction: event
   who: 15
-  what: 0
+  what: "02#3"
   where: "11"
   source: legrand-spec
   mcp_valid: true
-  mcp_notes: "CEN: Start of long press on button 2 of interface 11"
+  mcp_notes: "CEN: Extended pressure on button 2 of source 11 (Encyclopedia functional/who-15-cen/README.md @3052786, Action connection table)"
   roundtrip: true
-  builder:
-    class: OWNCenCommand
-    method: start_long_press
-    args: ["11", 2]
 
-- id: cen.event.release.btn2.11
-  frame: "*15*2*11#2##"
+- id: cen.event.release_long.btn2.11
+  frame: "*15*02#2*11##"
   direction: event
   who: 15
-  what: 2
+  what: "02#2"
   where: "11"
   source: legrand-spec
   mcp_valid: true
-  mcp_notes: "CEN: Release button 2 of interface 11"
+  mcp_notes: "CEN: Release after extended pressure on button 2 of source 11 (Encyclopedia functional/who-15-cen/README.md @3052786, Action connection table)"
   roundtrip: true
-  builder:
-    class: OWNCenCommand
-    method: release
-    args: ["11", 2]
 
 - id: cen.event.extended_press.btn1.0001
   frame: "*15*01#3*0001##"

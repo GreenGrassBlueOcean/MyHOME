@@ -44,6 +44,19 @@ TRIGGER_TYPES = {
 
 TRIGGER_SUBTYPES = [f"button_{i}" for i in range(0, 32)]
 
+# Triggers a family can never fire, so they are not offered for its devices.
+# CEN (WHO 15) has no rotary events; CEN+ (WHO 25) has no short-release frame.
+_ROTARY_TRIGGER_TYPES = {
+    CONF_ROTARY_CW_SLOW,
+    CONF_ROTARY_CW_FAST,
+    CONF_ROTARY_CCW_SLOW,
+    CONF_ROTARY_CCW_FAST,
+}
+_UNSUPPORTED_TRIGGER_TYPES = {
+    "15": _ROTARY_TRIGGER_TYPES,
+    "25": {CONF_SHORT_RELEASE},
+}
+
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
@@ -123,6 +136,24 @@ def _get_cen_info_from_device(device: dr.BaseDeviceEntry) -> tuple[bool, int | N
     return True, None
 
 
+def _get_cen_family_from_device(device: dr.BaseDeviceEntry) -> str | None:
+    """Return "15" for a CEN device, "25" for a CEN+ device, else None."""
+    for identifier in device.identifiers:
+        if identifier[0] != DOMAIN:
+            continue
+        ident = str(identifier[1])
+        parts = ident.split("-")
+        if len(parts) >= 3 and parts[-2] in ("15", "cen"):
+            return "15"
+        if len(parts) >= 3 and parts[-2] in ("25", "cenplus"):
+            return "25"
+        if ident.startswith("cen_"):
+            return "15"
+        if ident.startswith("cenplus_"):
+            return "25"
+    return None
+
+
 async def async_get_triggers(
     hass: HomeAssistant, device_id: str
 ) -> list[dict[str, Any]]:
@@ -137,8 +168,11 @@ async def async_get_triggers(
     if not is_valid:
         return []
 
+    unsupported = _UNSUPPORTED_TRIGGER_TYPES.get(
+        _get_cen_family_from_device(device) or "", set()
+    )
     triggers = []
-    for trigger_type in TRIGGER_TYPES:
+    for trigger_type in TRIGGER_TYPES - unsupported:
         for subtype in TRIGGER_SUBTYPES:
             trigger: dict[str, Any] = {
                 CONF_PLATFORM: "device",

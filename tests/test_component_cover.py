@@ -410,6 +410,58 @@ class TestMyHOMECoverEntity:
         basic_cover.handle_event(msg_stopped_with_closed)
         assert basic_cover.is_closed is True
 
+    @staticmethod
+    def _unknown_level_events():
+        """shutterLevel 255 as OWNd <= 2.0.0b8 reports it, and as later releases do."""
+        passthrough = MagicMock(spec=OWNAutomationEvent)
+        passthrough.current_position = 255
+        passthrough.is_opening = False
+        passthrough.is_closing = False
+        passthrough.is_closed = False
+        passthrough.human_readable_log = "opened at 255%"
+
+        flagged = MagicMock(spec=OWNAutomationEvent)
+        flagged.current_position = None
+        flagged.is_position_unknown = True
+        flagged.is_opening = False
+        flagged.is_closing = False
+        flagged.is_closed = None
+        flagged._what = None
+        flagged.human_readable_log = "stopped at an unknown position"
+        return passthrough, flagged
+
+    @pytest.mark.parametrize("style", [0, 1], ids=["ownd_b8_255", "ownd_flag"])
+    def test_advanced_cover_level_255_is_unknown_position(self, advanced_cover, style):
+        # Encyclopedia who-2-automation/dimensions.md: 255 = "Unknown position".
+        advanced_cover.handle_event(OWNEvent.parse("*#2*22#4#02*10*10*40*0*0##"))
+        assert advanced_cover.current_cover_position == 40
+
+        advanced_cover.handle_event(self._unknown_level_events()[style])
+
+        assert advanced_cover.current_cover_position is None
+        assert advanced_cover.is_closed is None
+        assert advanced_cover.is_opening is False
+        assert advanced_cover.is_closing is False
+
+    def test_advanced_cover_moving_from_unknown_position(self, advanced_cover):
+        advanced_cover.handle_event(OWNEvent.parse("*#2*22#4#02*10*10*40*0*0##"))
+        moving = self._unknown_level_events()[0]
+        moving.is_opening = True
+        advanced_cover.handle_event(moving)
+
+        assert advanced_cover.current_cover_position is None
+        assert advanced_cover.is_opening is True
+        assert advanced_cover.is_closed is False
+
+    def test_basic_cover_ignores_level_255(self, basic_cover):
+        basic_cover.handle_event(OWNEvent.parse("*#2*21*10*10*30*0*0##"))
+        assert basic_cover.current_cover_position == 30
+
+        basic_cover.handle_event(self._unknown_level_events()[0])
+
+        # A timed cover keeps its own estimate; 255 never becomes a level.
+        assert basic_cover.current_cover_position == 30
+
     @pytest.mark.asyncio
     async def test_advanced_cover_async_update(self, hass: HomeAssistant, mock_gateway):
         cover = MyHOMECover(

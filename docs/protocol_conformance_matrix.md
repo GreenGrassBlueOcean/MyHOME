@@ -32,7 +32,7 @@ To prevent divergence and eliminate guesswork, every protocol frame and capabili
 | **5** | **Burglar Alarm** | Zone status, CU status, Silent alarms, System arm/disarm | `*5*1*1##`, `*#5*1##`, `*5*2*2##` | Valid | Matched | **VERIFIED (100%)** |
 | **9** | **Auxiliary** | Relay ON/OFF commands across auxiliary channels | `*9*1*1##`, `*9*0*1##` | Valid | Matched | **VERIFIED (100%)** |
 | **13** | **Gateway Mgmt** | Firmware version, Gateway internal datetime requests | `*#13*0*0##`, `*#13*0*22##` | Valid | Matched | **VERIFIED (100%)** |
-| **15** | **CEN Scenarios** | Short press, start long press, release, extended hold | `*15*1*01##`, `*15*2*01##`, `*15*3*01##` | Valid | Matched | **VERIFIED (100%)** |
+| **15** | **CEN Scenarios** | Press, short release, long release, extended hold | `*15*01*0001##`, `*15*01#1*0001##`, `*15*01#2*0001##`, `*15*01#3*0001##` | Valid | Matched | **VERIFIED (100%)** |
 | **18** | **Energy Mgmt** | Instantaneous active power (W), Cumulative energy (kWh) | `*#18*51*113##`, `*#18*51*51##`, `*#18*51*52##` | Valid | Matched | **VERIFIED (100%)** |
 | **25** | **CEN+ / Dry Contacts**| Short/Long press, release, 5-digit module addresses | `*25*21*0001##`, `*25*23*0001##`, `*25*22*0001##` | Valid | Matched | **VERIFIED (100%)** |
 
