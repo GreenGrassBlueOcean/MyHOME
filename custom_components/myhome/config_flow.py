@@ -715,7 +715,8 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         Amplifier addresses are ``EA`` (environment, amplifier), and the F441M
         routes per environment, so defaults are offered per environment rather
         than per zone: two amplifiers in one room physically cannot sit on
-        different inputs.
+        different inputs.  Environment 0 is left out: its routing address would
+        be ``10S``, which is the source device itself, so it cannot be routed.
         """
         from homeassistant.helpers import entity_registry as er
 
@@ -733,6 +734,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             zone = (entry.unique_id or "").rsplit("-", 1)[-1].split("#")[0]
             if zone.isdigit():
                 environments.add(zone[0] if len(zone) > 1 else zone)
+        environments.discard("0")
         return sorted(environments)
 
     async def async_step_user(self, user_input=None, errors=None):  # type: ignore

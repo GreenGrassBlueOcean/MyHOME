@@ -82,7 +82,6 @@
           "command_worker_count": "Numero di sessioni di comando simultanee",
           "generate_events": "Genera eventi in Home Assistant per ogni messaggio ricevuto",
           "broadcast_resync": "Interroga gli indirizzi di gruppo/area/generale dopo una finestra di silenzio",
-          "default_source_env_0": "Sorgente predefinita per l'ambiente 0 — usata quando una zona di quella stanza viene accesa da Home Assistant",
           "default_source_env_1": "Sorgente predefinita per l'ambiente 1 — usata quando una zona di quella stanza viene accesa da Home Assistant",
           "default_source_env_2": "Sorgente predefinita per l'ambiente 2 — usata quando una zona di quella stanza viene accesa da Home Assistant",
           "default_source_env_3": "Sorgente predefinita per l'ambiente 3 — usata quando una zona di quella stanza viene accesa da Home Assistant",

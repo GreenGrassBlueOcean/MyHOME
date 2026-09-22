@@ -82,7 +82,6 @@
           "command_worker_count": "Nombre de session de commande simultanées",
           "generate_events": "Générer des événements dans Home Assistant pour chaque message reçu",
           "broadcast_resync": "Interroger les adresses de groupe/zone/générale après une fenêtre de silence",
-          "default_source_env_0": "Source par défaut pour l'environnement 0 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
           "default_source_env_1": "Source par défaut pour l'environnement 1 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
           "default_source_env_2": "Source par défaut pour l'environnement 2 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
           "default_source_env_3": "Source par défaut pour l'environnement 3 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",

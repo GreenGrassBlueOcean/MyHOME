@@ -1209,7 +1209,9 @@ async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssi
     registry = er.async_get(hass)
     # Two amplifiers in environment 2, one in environment 3, plus a non-audio
     # entity and an audio entity with a non-numeric zone that must be ignored.
-    for zone in ("22", "23", "36"):
+    # Amplifier 05 sits in environment 0, which has no routing address (10S is
+    # a source device), so no default can be offered for it.
+    for zone in ("22", "23", "36", "05"):
         registry.async_get_or_create(
             "media_player", DOMAIN, f"00:03:50:00:12:34-16-{zone}#16",
             config_entry=entry, suggested_object_id=f"audio_zone_{zone}",

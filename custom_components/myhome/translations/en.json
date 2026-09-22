@@ -111,7 +111,6 @@
           "decoder_4_entity": "Decoder 4 — Media player entity",
           "decoder_4_source": "Decoder 4 — BTicino source input number (1–4)",
           "decoder_4_pre_gain": "Decoder 4 — Pre-gain offset %",
-          "default_source_env_0": "Default source for environment 0 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_1": "Default source for environment 1 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_2": "Default source for environment 2 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_3": "Default source for environment 3 — used when a zone in that room is turned on from Home Assistant",
@@ -331,6 +330,12 @@
     },
     "unknown_source": {
       "message": "{entity_id}: unknown source \"{source}\""
+    },
+    "environment_busy": {
+      "message": "{entity_id}: {owner} is already streaming in environment {environment}; zones in one environment share a matrix input"
+    },
+    "routing_unsupported": {
+      "message": "{entity_id}: environment 0 has no matrix routing address; switch its source at a wall panel"
     }
   },
   "entity": {

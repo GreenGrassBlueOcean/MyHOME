@@ -38,6 +38,21 @@ from homeassistant.core import HomeAssistant
 from .const import LOGGER
 
 
+class EnvironmentBusyError(Exception):
+    """Another zone in the same environment already streams from a decoder.
+
+    The F441M routes per output and an output serves a whole environment, so
+    one environment can only ever listen to one matrix input.  Handing a second
+    decoder to a zone in that environment would re-route the first zone onto
+    the new stream while Home Assistant still shows it playing the old one.
+    """
+
+    def __init__(self, environment: str, owner: str) -> None:
+        super().__init__(f"environment {environment} is already streaming to {owner}")
+        self.environment = environment
+        self.owner = owner
+
+
 class DecoderPool:
     """Thread-safe pool of streaming decoders mapped to BTicino source inputs.
 
@@ -100,6 +115,7 @@ class DecoderPool:
         self._assignments: dict[str, str | None] = {             # entity_id → zone_entity_id or None
             entity_id: None for entity_id in decoder_map
         }
+        self._environments: dict[str, str] = {}                   # zone_entity_id → environment
         self._lock = asyncio.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -110,7 +126,10 @@ class DecoderPool:
         return len(self._decoder_map) > 0
 
     async def claim(
-        self, zone_entity_id: str, preferred_source: int | None = None
+        self,
+        zone_entity_id: str,
+        preferred_source: int | None = None,
+        environment: str | None = None,
     ) -> tuple[str, int] | None:
         """Claim an idle decoder for *zone_entity_id*.
 
@@ -126,10 +145,18 @@ class DecoderPool:
             preferred_source: Matrix input this zone would rather use. A
                 decoder wired to it is claimed first when it is idle;
                 otherwise the usual slot order applies.
+            environment: Environment digit of the zone's amplifier address.
+                When given, the claim is refused while another zone in the
+                same environment holds a decoder: the matrix can route an
+                environment to one input only.
 
         Returns:
             ``(decoder_entity_id, source_num: int)`` if an idle decoder was
             found and claimed, or ``None`` if all decoders are busy.
+
+        Raises:
+            EnvironmentBusyError: If another zone in ``environment`` already
+                holds a decoder.
 
         Example::
 
@@ -144,6 +171,11 @@ class DecoderPool:
                 if owner == zone_entity_id:
                     LOGGER.debug("Decoder %s already claimed by %s", dec_id, zone_entity_id)
                     return (dec_id, self._decoder_map[dec_id])
+
+            if environment is not None:
+                owner = self.environment_owner(environment, exclude=zone_entity_id)
+                if owner is not None:
+                    raise EnvironmentBusyError(environment, owner)
 
             # Candidates in slot order, but a decoder wired to the caller's
             # preferred source comes first: routing the matrix to the input
@@ -165,6 +197,8 @@ class DecoderPool:
 
                 if state_val in self._IDLE_STATES:
                     self._assignments[dec_id] = zone_entity_id
+                    if environment is not None:
+                        self._environments[zone_entity_id] = environment
                     LOGGER.info(
                         "DecoderPool: %s claimed by zone %s (source %s)",
                         dec_id,
@@ -198,6 +232,7 @@ class DecoderPool:
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
                     self._assignments[dec_id] = None
+                    self._environments.pop(zone_entity_id, None)
                     LOGGER.info(
                         "DecoderPool: %s released by zone %s",
                         dec_id,
@@ -220,6 +255,7 @@ class DecoderPool:
         async with self._lock:
             for dec_id in self._assignments:
                 self._assignments[dec_id] = None
+            self._environments.clear()
             LOGGER.info("DecoderPool: all assignments released (options reload)")
 
     def get_assignment(self, zone_entity_id: str) -> str | None:
@@ -238,6 +274,26 @@ class DecoderPool:
         for dec_id, owner in self._assignments.items():
             if owner == zone_entity_id:
                 return dec_id
+        return None
+
+    def environment_owner(self, environment: str, exclude: str | None = None) -> str | None:
+        """Return the zone that streams from a decoder in ``environment``.
+
+        Lock-free read, like :meth:`get_assignment`.  Used to keep automatic
+        routing (a zone's default source) from switching an environment away
+        from a stream another zone in it is playing.
+
+        Args:
+            environment: Environment digit of an amplifier address.
+            exclude: Zone to ignore, normally the caller itself.
+
+        Returns:
+            The ``entity_id`` of that zone, or ``None`` when the environment
+            has no active stream.
+        """
+        for zone, zone_environment in self._environments.items():
+            if zone != exclude and zone_environment == environment:
+                return zone
         return None
 
     def get_pre_gain(self, decoder_entity_id: str) -> int:

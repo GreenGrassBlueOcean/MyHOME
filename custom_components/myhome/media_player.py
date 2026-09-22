@@ -17,9 +17,10 @@ and other sources to the matrix by implementing a *Dynamic Proxy* pattern:
    a. Claims an idle backend decoder from the shared :class:`~.decoder_pool.DecoderPool`.
    b. Wakes the decoder if it is in standby.
    c. Activates the BTicino zone amplifier with a simple OFF → ON sequence.
-      The matrix is trusted to already be (or to stay) routed to the decoder's
-      physical source input; ``play_media`` never changes the routing by
-      itself.  Use ``select_source`` to switch inputs deliberately.
+      Once the matrix is described in the options (a source name or an
+      environment default), the zone's environment is also routed to the
+      decoder's input.  Without that the routing set at the wall panels is
+      trusted, as in earlier releases.
    d. Forwards the stream URL to the backend decoder via the HA service bus.
 5. State, metadata (title, artist, album art), and volume are mirrored from
    the backend decoder back to the BTicino zone entity.
@@ -36,6 +37,14 @@ amplifier address, not the amplifier digit: zone ``23`` lives in environment
 ``2``, so source 1 is ``121`` and source 2 is ``122``.  The F441M switches per
 output and an output serves a whole environment, so every amplifier in that
 environment follows the switch; that is matrix hardware behaviour.
+
+Two consequences are enforced here rather than left to chance:
+
+- One environment carries one stream.  A zone cannot claim a decoder while
+  another zone of its environment holds one, and a default source is not
+  applied over an environment that is streaming.
+- Environment 0 (amplifiers ``01``-``09``) has no routing address: ``10S`` is
+  the source device itself.  Selecting a source there is refused.
 
 Earlier versions refused to send these frames, believing they caused relay
 hiss on MH200-class gateways.  Bus captures on an MH200 show clean switching;
@@ -91,7 +100,7 @@ from .const import (
     SOURCE_UNCONFIGURED_SUFFIX,
 )
 from .data import MyHOMEConfigEntry, get_runtime_data
-from .decoder_pool import DecoderPool
+from .decoder_pool import DecoderPool, EnvironmentBusyError
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery
 from .myhome_device import MyHOMEEntity
 
@@ -192,14 +201,21 @@ def _zone_environment(zone: str) -> str:
     return zone[0] if len(zone) > 1 else zone
 
 
-def _routing_address(zone: str, source: int) -> str:
+def _routing_address(zone: str, source: int) -> str | None:
     """Return the pseudo address that routes ``zone``'s environment to ``source``.
 
     The address is ``1`` + environment + source: zone ``23`` (environment 2)
     on source 2 gives ``122``, and on source 1 ``121`` — exactly what a wall
     panel puts on the bus when it switches that room's source.
+
+    Returns ``None`` for environment 0 (amplifiers ``01``-``09``): ``10S`` is
+    the source device address itself, so that environment has no routing
+    address of this form and cannot be switched over IP.
     """
-    return f"1{_zone_environment(zone)}{source}"
+    environment = _zone_environment(zone)
+    if environment == "0":
+        return None
+    return f"1{environment}{source}"
 
 
 def _parse_routing_address(pseudo: str) -> tuple[int, str] | None:
@@ -369,14 +385,22 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         )
 
     def _source_number(self, source: str) -> int | None:
-        """Resolve a source label back to its BTicino source number."""
-        for number, name in self._source_names().items():
-            if name == source:
-                return number
+        """Resolve a source label back to its BTicino source number.
+
+        Once sources are named only those names resolve, so an input left
+        blank — nothing wired to it — cannot be selected under its legacy
+        ``Source N`` label either.
+        """
+        names = self._source_names()
+        if names:
+            for number, name in names.items():
+                if name == source:
+                    return number
+            return None
         prefix = "Source "
         if source.startswith(prefix):
-            candidate = source[len(prefix):].split(" ")[0]
-            if candidate.isdigit():
+            candidate = source[len(prefix):]
+            if candidate.isdigit() and 1 <= int(candidate) <= CONF_SOURCE_SLOTS:
                 return int(candidate)
         return None
 
@@ -398,21 +422,76 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return None
         return source if 1 <= source <= CONF_SOURCE_SLOTS else None
 
-    async def _apply_default_source(self, source_num: int | None = None) -> None:
+    def _routing_configured(self) -> bool:
+        """Return ``True`` once the user has described the matrix in the options.
+
+        Naming a source or setting an environment default is the opt-in for
+        automatic routing.  Until then the integration keeps its original
+        behaviour and trusts the routing set at the wall panels, so upgrading
+        does not start switching rooms on decoder slot numbers nobody checked.
+        """
+        return bool(self._source_names()) or self._default_source() is not None
+
+    def _routing_frames(self, source_num: int) -> list[str] | None:
+        """Return the activate + route frames for ``source_num``.
+
+        ``None`` when no valid pair exists: the source is outside S1-S4 (for
+        instance a decoder slot saved as ``0`` by an older options form), or
+        the zone sits in environment 0, which has no routing address.
+        """
+        if not 1 <= source_num <= CONF_SOURCE_SLOTS:
+            return None
+        route = _routing_address(self._where, source_num)
+        if route is None:
+            return None
+        return [f"*16*3*{100 + source_num}##", f"*16*3*{route}##"]
+
+    async def _route_to(self, source_num: int) -> bool:
+        """Send the routing frames for ``source_num``; ``False`` if impossible."""
+        frames = self._routing_frames(source_num)
+        if frames is None:
+            LOGGER.warning(
+                "%s: cannot route environment %s to matrix source %s; "
+                "leaving the routing unchanged",
+                self.entity_id,
+                _zone_environment(self._where),
+                source_num,
+            )
+            return False
+        for frame in frames:
+            await self._gateway_handler.send(OWNSoundCommand(frame))
+        self._attr_source = self._source_label(source_num)
+        return True
+
+    def _environment_streamer(self) -> str | None:
+        """Return another zone that streams from a decoder in this environment."""
+        pool = self._get_pool()
+        if pool is None:
+            return None
+        return pool.environment_owner(_zone_environment(self._where), exclude=self.entity_id)
+
+    async def _apply_default_source(self) -> None:
         """Route this zone's environment to its default source, if one is set.
 
-        Only ever called from actions the user started in Home Assistant
-        (turning the zone on, starting playback). Routing announced by a wall
-        panel is left untouched — see :func:`_warn_unconfigured_source`.
+        Only called when the zone is switched on from Home Assistant. Routing
+        announced by a wall panel is left untouched — see
+        :func:`_warn_unconfigured_source` — and so is an environment where
+        another zone is streaming: the route is shared, and switching it would
+        take that zone off its stream.
         """
-        target = source_num if source_num is not None else self._default_source()
+        target = self._default_source()
         if target is None:
             return
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*3*{100 + target}##"))
-        await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*3*{_routing_address(self._where, target)}##")
-        )
-        self._attr_source = self._source_label(target)
+        streamer = self._environment_streamer()
+        if streamer is not None:
+            LOGGER.info(
+                "%s: not applying default source %d, %s is streaming in the same environment",
+                self.entity_id,
+                target,
+                streamer,
+            )
+            return
+        await self._route_to(target)
 
     # ── Pool helpers ──────────────────────────────────────────────────────────
 
@@ -515,8 +594,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
             return
 
-        # 1. Claim an idle decoder (thread-safe via asyncio.Lock)
-        result = await pool.claim(self.entity_id, preferred_source=self._default_source())
+        # 1. Claim an idle decoder (thread-safe via asyncio.Lock). With routing
+        #    configured the claim is per environment: the zones of one
+        #    environment share a matrix output, so they cannot play two streams.
+        route = self._routing_configured()
+        try:
+            result = await pool.claim(
+                self.entity_id,
+                preferred_source=self._default_source(),
+                environment=_zone_environment(self._where) if route else None,
+            )
+        except EnvironmentBusyError as err:
+            raise HomeAssistantError(
+                f"{self.entity_id}: {err.owner} is already streaming in environment "
+                f"{err.environment}, and zones in one environment share a matrix input",
+                translation_domain=DOMAIN,
+                translation_key="environment_busy",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id),
+                    "owner": err.owner,
+                    "environment": err.environment,
+                },
+            ) from err
         if result is None:
             raise HomeAssistantError(
                 f"{self.entity_id}: All audio matrix inputs are currently in use by other rooms!",
@@ -550,6 +649,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         #
         # The zone has to listen to the input this decoder is wired to,
         # otherwise the stream plays into a room that is listening elsewhere.
+        # Unconfigured installations keep trusting the wall-panel routing.
         if self._attr_state != MediaPlayerState.ON:
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
@@ -557,7 +657,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             await asyncio.sleep(0.5)
             self._attr_state = MediaPlayerState.ON
             self.async_write_ha_state()
-        await self._apply_default_source(source_num)
+        if route:
+            await self._route_to(source_num)
 
         # 4. Forward the stream URL to the backend decoder
         service_data: dict[str, Any] = {
@@ -632,16 +733,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Turn the zone amplifier on.
 
         Uses a simple OFF → ON sequence.  When a default source is configured
-        for this zone's environment the matrix is routed there first, so a room
-        left on a stale input by a wall panel comes back on the right source.
-        Without that setting the existing routing is kept untouched.
+        for this zone's environment the matrix is routed there as well, so a
+        room left on a stale input by a wall panel comes back on the right
+        source.  Without that setting the existing routing is kept untouched,
+        and a zone that is already on is never re-routed: the route is shared
+        by the whole environment and may be carrying a stream.
         """
         if self._attr_state != MediaPlayerState.ON:
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
             await asyncio.sleep(0.5)
-        await self._apply_default_source()
+            await self._apply_default_source()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the zone amplifier off and release any claimed decoder.
@@ -787,7 +890,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         matrix hardware behaviour, not a limitation of this integration.
 
         Raises:
-            HomeAssistantError: If ``source`` is not a known source label.
+            HomeAssistantError: If ``source`` is not a known source label, or
+                the zone is in environment 0, which has no routing address.
         """
         source_num = self._source_number(source)
         if source_num is None:
@@ -799,14 +903,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     "entity_id": str(self.entity_id), "source": str(source),
                 },
             )
+        if self._routing_frames(source_num) is None:
+            raise HomeAssistantError(
+                f"{self.entity_id}: environment 0 cannot be routed over IP",
+                translation_domain=DOMAIN,
+                translation_key="routing_unsupported",
+                translation_placeholders={"entity_id": str(self.entity_id)},
+            )
 
-        await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*3*{100 + source_num}##")
-        )
-        await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*3*{_routing_address(self._where, source_num)}##")
-        )
-        self._attr_source = self._source_label(source_num)
+        await self._route_to(source_num)
         self.async_schedule_update_ha_state()
 
     # ── State and metadata mirroring ──────────────────────────────────────────

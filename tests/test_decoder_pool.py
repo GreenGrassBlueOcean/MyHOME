@@ -24,7 +24,7 @@ if platform.system() == "Windows":
 
 from homeassistant.components.media_player import MediaPlayerState
 
-from custom_components.myhome.decoder_pool import DecoderPool
+from custom_components.myhome.decoder_pool import DecoderPool, EnvironmentBusyError
 
 # -- Overrides ----------------------------------------------------------------
 
@@ -326,3 +326,47 @@ async def test_claim_falls_back_when_the_preferred_decoder_is_busy(hass):
         "media_player.slot_one",
         1,
     )
+
+
+@pytest.mark.asyncio
+async def test_claim_is_refused_while_the_environment_streams(hass):
+    """One environment listens to one matrix input, so it holds one decoder.
+
+    Releasing the first zone frees the environment again, and a zone in a
+    different environment is never affected.
+    """
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "idle")
+
+    assert await pool.claim("media_player.zone_22", environment="2") is not None
+    # Re-claiming by the same zone stays idempotent
+    assert await pool.claim("media_player.zone_22", environment="2") == ("media_player.slot_one", 1)
+    assert pool.environment_owner("2") == "media_player.zone_22"
+    assert pool.environment_owner("2", exclude="media_player.zone_22") is None
+
+    with pytest.raises(EnvironmentBusyError) as err:
+        await pool.claim("media_player.zone_23", environment="2")
+    assert err.value.owner == "media_player.zone_22"
+    assert err.value.environment == "2"
+    assert pool.get_assignment("media_player.zone_23") is None
+
+    assert await pool.claim("media_player.zone_31", environment="3") == ("media_player.slot_two", 2)
+
+    await pool.release("media_player.zone_22")
+    assert pool.environment_owner("2") is None
+
+    await pool.release_all()
+    assert pool.environment_owner("3") is None
+
+
+@pytest.mark.asyncio
+async def test_claim_without_environment_keeps_the_old_behaviour(hass):
+    """Callers that do not pass an environment are never refused for one."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "idle")
+
+    assert await pool.claim("media_player.zone_22") is not None
+    assert await pool.claim("media_player.zone_23") is not None
+    assert pool.environment_owner("2") is None

@@ -726,6 +726,7 @@ def test_wall_panel_routing_is_not_corrected(hass, player, mock_gateway):
 async def test_play_media_routes_to_the_claimed_decoder(hass, player, mock_gateway):
     """Streaming routes the zone to the input its decoder is wired to."""
     player._where = "23"
+    _name_sources(player, s1="Streamer")
     pool = MagicMock()
     pool.is_configured = True
     pool.claim = AsyncMock(return_value=("media_player.squeezelite_1", 1))
@@ -755,6 +756,153 @@ async def test_pool_claim_prefers_the_default_source(hass, player, mock_gateway)
         await player.async_play_media("music", "http://stream")
 
     assert pool.claim.call_args.kwargs["preferred_source"] == 2
+
+
+def _streaming_pool(decoder="media_player.squeezelite_1", source=1):
+    """A mock pool that hands out one decoder."""
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=(decoder, source))
+    pool.get_pre_gain = MagicMock(return_value=0)
+    pool.environment_owner = MagicMock(return_value=None)
+    return pool
+
+
+def _sent(mock_gateway):
+    return [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+
+
+@pytest.mark.asyncio
+async def test_play_media_without_configuration_trusts_the_wall_panels(hass, player, mock_gateway):
+    """An installation that never described its matrix is not routed on upgrade.
+
+    The decoder slot numbers of such an entry were never used before, so
+    nobody checked them; routing on them would switch rooms to wrong inputs.
+    """
+    player._where = "23"
+    pool = _streaming_pool()
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        await player.async_play_media("music", "http://stream")
+
+    assert not any(frame.startswith("*16*3*1") for frame in _sent(mock_gateway))
+    # Without configuration the environment is not claimed either
+    assert pool.claim.call_args.kwargs["environment"] is None
+
+
+@pytest.mark.asyncio
+async def test_play_media_never_routes_to_an_invalid_decoder_source(hass, player, mock_gateway, caplog):
+    """A decoder slot saved as 0 by the old options form sends no frame."""
+    player._where = "23"
+    _name_sources(player, s1="Streamer")
+    _set_pool(player, _streaming_pool(source=0))
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        await player.async_play_media("music", "http://stream")
+
+    assert "*16*3*100##" not in _sent(mock_gateway)
+    assert "*16*3*120##" not in _sent(mock_gateway)
+    assert "cannot route" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_play_media_is_refused_while_the_environment_streams(hass, player, mock_gateway):
+    """Zones of one environment share a matrix output, so one stream at a time.
+
+    Handing zone 23 a second decoder would re-route zone 22 onto the new stream
+    while Home Assistant still showed zone 22 playing its own.
+    """
+    player._where = "23"
+    _name_sources(player, s1="Streamer", s2="Cambridge")
+    pool = DecoderPool(hass, {"media_player.dec_a": 1, "media_player.dec_b": 2})
+    hass.states.async_set("media_player.dec_a", MediaPlayerState.IDLE)
+    hass.states.async_set("media_player.dec_b", MediaPlayerState.IDLE)
+    await pool.claim("media_player.audio_zone_22", environment="2")
+    _set_pool(player, pool)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_play_media("music", "http://stream")
+
+    assert err.value.translation_key == "environment_busy"
+    assert err.value.translation_placeholders["owner"] == "media_player.audio_zone_22"
+    mock_gateway.send.assert_not_called()
+    assert pool.get_assignment(player.entity_id) is None
+
+
+@pytest.mark.asyncio
+async def test_turn_on_does_not_reroute_a_zone_that_is_already_on(hass, player, mock_gateway):
+    """Turning an ON zone on again sends nothing: the route may carry a stream."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+    player._attr_state = MediaPlayerState.ON
+
+    await player.async_turn_on()
+
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_on_keeps_the_route_of_a_streaming_environment(hass, player, mock_gateway):
+    """A default source is not applied over another zone's stream."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+    pool = _streaming_pool()
+    pool.environment_owner = MagicMock(return_value="media_player.audio_zone_22")
+    _set_pool(player, pool)
+
+    with patch("asyncio.sleep", return_value=None):
+        await player.async_turn_on()
+
+    assert not any(frame.startswith("*16*3*1") for frame in _sent(mock_gateway))
+    pool.environment_owner.assert_called_once_with("2", exclude=player.entity_id)
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_environment_zero(hass, player, mock_gateway):
+    """Amplifiers 01-09 would be routed with 10S, the source device address."""
+    player._where = "05"
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "routing_unsupported"
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_unnamed_inputs_once_sources_are_named(hass, player, mock_gateway):
+    """Neither the legacy label nor the "not configured" label selects a blank input."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    for label in ("Source 3", "Source 3 (not configured)"):
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source(label)
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_source_legacy_label_outside_the_matrix_is_refused(hass, player, mock_gateway):
+    """``Source 0`` or ``Source 9`` is not a matrix input, configured or not."""
+    for label in ("Source 0", "Source 9"):
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source(label)
+    mock_gateway.send.assert_not_called()
+
+
+def test_environment_zero_has_no_routing_address():
+    """``10S`` is a source device; environment 0 has no ``1ES`` form."""
+    from custom_components.myhome.media_player import _routing_address
+
+    assert _routing_address("05", 2) is None
+    assert _routing_address("15", 2) == "112"
 
 
 # ── Golden corpus: our addressing against frames captured on real hardware ────

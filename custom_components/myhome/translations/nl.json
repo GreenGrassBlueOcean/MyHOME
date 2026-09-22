@@ -82,7 +82,6 @@
           "command_worker_count": "Aantal open command sessies",
           "generate_events": "Genereer gebeurtenissen in Home Assistant voor elk ontvangen bericht",
           "broadcast_resync": "Bevraag groep-/gebied-/algemene adressen na een stille periode",
-          "default_source_env_0": "Standaardbron voor omgeving 0 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_1": "Standaardbron voor omgeving 1 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_2": "Standaardbron voor omgeving 2 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_3": "Standaardbron voor omgeving 3 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",

@@ -63,7 +63,14 @@ followed by amplifier — so zone `23` lives in environment 2 and is routed with
 `121` (source 1) or `122` (source 2). The F441M switches per output and an
 output serves a whole environment, so **every amplifier in that environment
 follows the switch**. Zones 22 and 23 cannot play different sources; that is
-matrix hardware, not an integration limitation.
+matrix hardware, not an integration limitation. The integration holds to it:
+
+- **One stream per environment.** While zone 22 streams from a decoder,
+  `play_media` on zone 23 is refused with an error naming zone 22, instead of
+  silently switching zone 22 onto the new stream.
+- **Environment 0 cannot be switched.** Amplifiers `01`–`09` would be routed
+  with `10S`, which is the source device address itself. Source selection is
+  refused there and no default can be set for it; use a wall panel.
 
 > Earlier releases refused to send these frames, on the assumption that they
 > caused relay clicks on MH200-class gateways. Bus captures on an MH200 show
@@ -86,10 +93,21 @@ what is physically wired to it and **leave the rest blank**.
 If no names are configured the legacy `Source 1`–`Source 4` list is used and
 nothing is flagged, so existing installations are unaffected.
 
+### Routing when streaming
+
+Once sources are named, or a default source is set for an environment,
+`play_media` routes the zone's environment to the input its decoder is wired
+to, and turning a zone on routes it to its environment default. A zone that is
+already on is not re-routed when it is turned on again, and a default is not
+applied while another zone in the environment is streaming.
+
+Without either setting the integration does not route while streaming and
+relies on the "Hardware Routing First" model below, as earlier releases did.
+
 ### The "Hardware Routing First" Model
 
-For streaming, routing is still best left alone: `play_media` never changes
-the source by itself.
+For installations that have not named their sources, `play_media` leaves the
+matrix routing to the wall panels.
 
 **Recommended Practice**:
 
