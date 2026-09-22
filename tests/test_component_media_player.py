@@ -588,3 +588,45 @@ async def test_mute_volume_decoder_error_handled(hass, player, mock_gateway):
 
     assert player._attr_is_volume_muted is True
 
+
+# ── WHO=22 mirrors: the other dialect spells the addressing out ──────────────
+
+@pytest.mark.parametrize(
+    ("who16", "environment", "source", "who22"),
+    [
+        ("*16*3*111##", "1", 1, "*22*2#4#1*5#2#1##"),
+        ("*16*3*112##", "1", 2, "*22*2#4#1*5#2#2##"),
+        ("*16*3*121##", "2", 1, "*22*2#4#2*5#2#1##"),
+        ("*16*3*181##", "8", 1, "*22*2#4#8*5#2#1##"),
+    ],
+)
+def test_routing_agrees_with_the_who22_mirror(who16, environment, source, who22):
+    """Our decoding of a routing frame matches its WHO=22 twin.
+
+    An MH200N announces every sound event in both dialects. WHO=22 writes the
+    environment and the source into separate, separator-delimited fields, so
+    the pair is independent evidence for how the WHO=16 pseudo address packs
+    them - this is not our inference, it is the protocol restating itself.
+    WHAT is ``2#MULTIMEDIA_TYPE#AREA`` and WHERE ``5#2#SOURCE_ID``.
+    """
+    from custom_components.myhome.media_player import _parse_routing_address
+
+    pseudo = who16.removeprefix("*16*3*").removesuffix("##")
+    assert _parse_routing_address(pseudo) == (source, environment)
+
+    what_param = who22.split("*")[2].split("#")      # ["2", "4", AREA]
+    where_param = who22.split("*")[3].split("#")     # ["5", "2", SOURCE]
+    assert what_param[2] == environment
+    assert int(where_param[2]) == source
+
+
+@pytest.mark.parametrize(
+    ("amplifier", "area", "point"),
+    [("11", "1", "1"), ("12", "1", "2"), ("31", "3", "1")],
+)
+def test_amplifier_address_agrees_with_the_who22_speaker_form(amplifier, area, point):
+    """Amplifier ``EA`` is area then point, as WHO=22 writes it as ``3#AREA#POINT``."""
+    from custom_components.myhome.media_player import _zone_environment
+
+    assert _zone_environment(amplifier) == area
+    assert amplifier == f"{area}{point}"

@@ -22,6 +22,7 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 - **WHO=13 Gateway Management (`who13_gateway.yaml`)**: Firmware versions and gateway internal datetime responses.
 - **WHO=15 CEN Pushbuttons (`who15_cen.yaml`)**: Short press, start long press, release, and extended hold events.
 - **WHO=18 Energy Management (`who18_energy.yaml`)**: Instantaneous active power and cumulative energy totalizers.
+- **WHO=22 Sound Diffusion (`who22_sound_diffusion.yaml`)**: The mirror frames an MH200N emits alongside every WHO=16 sound event. Kept as structural evidence for the WHO=16 addressing: this dialect writes the environment and the source into separate fields (`*22*2#4#AREA*5#2#SOURCE##`) where WHO=16 packs them into one pseudo address. Judged against the Encyclopedia's WHO=22 reference, since `openwebnet-mcp`'s catalog for this family is still a stub.
 - **WHO=25 CEN+ / Dry Contacts (`who25_cen_plus.yaml`)**: CEN+ press events and physical dry contact inputs.
 
 ## Directory Structure
@@ -42,6 +43,7 @@ tests/golden/
     who13_gateway.yaml          # WHO=13 Gateway Management
     who15_cen.yaml              # WHO=15 CEN Scenario Buttons
     who18_energy.yaml           # WHO=18 Energy Management
+    who22_sound_diffusion.yaml  # WHO=22 Sound Diffusion (mirror frames)
     who25_cen_plus.yaml         # WHO=25 CEN+ & Dry Contacts
 tools/golden/
   MCP_NOTES.md                  # MCP tool capabilities & verification log
