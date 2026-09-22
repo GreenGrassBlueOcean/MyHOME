@@ -37,6 +37,7 @@ from .const import (
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
     WHO13_SHARED_DEVICE_TYPES,
+    WHO13_THIRD_PARTY_DEVICE_TYPES,
     WHO1013_OBJECT_MODELS,
     gateway_model_family,
 )
@@ -79,16 +80,29 @@ class CodeReading:
 
 
 def read_who13(code: str) -> CodeReading:
-    """Interpret a WHO=13 dimension-15 device type."""
+    """Interpret a WHO=13 dimension-15 device type.
+
+    Three sources, in descending order of authority: the 2006 specification, what
+    this project has observed on real hardware, and a third-party implementation
+    (Nmap). Only the specification is certain - the other two can label a gateway
+    that has no model and corroborate one that has, but never contradict it.
+    """
     official = WHO13_OFFICIAL_DEVICE_TYPES.get(code)
-    observed = WHO13_OBSERVED_DEVICE_TYPES.get(code, ())
-    models = (official,) if official else tuple(observed)
+    if official:
+        models: tuple[str, ...] = (official,)
+        basis = "the OpenWebNet specification"
+    elif code in WHO13_OBSERVED_DEVICE_TYPES:
+        models = WHO13_OBSERVED_DEVICE_TYPES[code]
+        basis = "field evidence"
+    else:
+        models = WHO13_THIRD_PARTY_DEVICE_TYPES.get(code, ())
+        basis = "an independent implementation"
     return CodeReading(
         label="WHO=13 device type",
         code=code,
         raw=code,
         models=models,
-        basis="the OpenWebNet specification" if official else "field evidence",
+        basis=basis,
         certain=bool(official),
         shared=code in WHO13_SHARED_DEVICE_TYPES,
     )

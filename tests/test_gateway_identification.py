@@ -21,10 +21,11 @@ from custom_components.myhome.const import (
     WHO13_OBSERVED_DEVICE_TYPES,
     WHO13_OFFICIAL_DEVICE_TYPES,
     WHO13_SHARED_DEVICE_TYPES,
+    WHO13_THIRD_PARTY_DEVICE_TYPES,
     WHO1013_OBJECT_MODELS,
     gateway_model_family,
 )
-from custom_components.myhome.gateway import MyHOMEGatewayHandler
+from custom_components.myhome.gateway import MyHOMEGatewayHandler, get_gateway_profile
 from custom_components.myhome.identity import GatewayIdentityEvidence as Evidence
 from custom_components.myhome.identity import read_who13, read_who1013
 from custom_components.myhome.identity import resolve_gateway_identity as resolve
@@ -83,10 +84,13 @@ def test_official_table_is_the_2006_document_verbatim():
     # observed codes never shadow official ones
     assert not set(WHO13_OBSERVED_DEVICE_TYPES) & set(WHO13_OFFICIAL_DEVICE_TYPES)
     assert GATEWAY_DEVICE_TYPE_MAP["4"] == "MH200"
-    assert "MH200N" not in GATEWAY_DEVICE_TYPE_MAP.values()
-    # code 200: observed on F454 (#370), MyHOMEServer1 (#292 / #297), MH202; reported for F461 (#370)
-    # code 51: F454 on a 1.x firmware (reported in PR #420)
-    assert WHO13_OBSERVED_DEVICE_TYPES == {"51": ("F454",), "200": ("F454", "MyHomeServer1", "MH202", "F461")}
+    # code 4 is the 2006 MH200, never its successor: an MH200N answering 4 is
+    # consistent, not a contradiction. MH200N has a code of its own (44, Nmap).
+    assert "MH200N" not in {GATEWAY_DEVICE_TYPE_MAP[c] for c in WHO13_OFFICIAL_DEVICE_TYPES}
+    assert GATEWAY_DEVICE_TYPE_MAP["44"] == "MH200N"
+    # code 200: observed on F454 (#370, #420), MyHOMEServer1 (#292 / #297, #420), MH202 (#420);
+    # reported for F461 (#370)
+    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": ("F454", "MyHomeServer1", "MH202", "F461")}
     assert WHO13_SHARED_DEVICE_TYPES == {"200"}
     assert WHO13_SHARED_DEVICE_TYPES <= set(WHO13_OBSERVED_DEVICE_TYPES)
     # every model a shared WHO=13 code may stand for has a WHO=1013 code that settles it
@@ -105,6 +109,62 @@ def test_official_table_is_the_2006_document_verbatim():
 # ── reading a code ───────────────────────────────────────────────────────
 
 
+def test_third_party_table_is_the_nmap_device_table():
+    """Nmap's openwebnet-discovery.nse `device` table, whose dimension is this same WHO=13 15.
+
+    Carried since the script was first committed (2017-07-18), so it predates this
+    project and is independent of the OpenWebNet device database: two unrelated
+    sources agree that an F454 can answer 51. The six 2006 codes it repeats are not
+    duplicated here, and 200 is left to the field evidence that outranks Nmap's
+    tentative "F454 (new?)".
+    """
+    assert WHO13_THIRD_PARTY_DEVICE_TYPES == {
+        "12": ("F453AV",),
+        "15": ("F427",),
+        "16": ("F453",),
+        "23": ("H4684",),
+        "27": ("L4686SDK",),
+        "44": ("MH200N",),
+        "51": ("F454",),
+    }
+    # the three tables never fight over a code
+    assert not set(WHO13_THIRD_PARTY_DEVICE_TYPES) & set(WHO13_OFFICIAL_DEVICE_TYPES)
+    assert not set(WHO13_THIRD_PARTY_DEVICE_TYPES) & set(WHO13_OBSERVED_DEVICE_TYPES)
+    # a code from it labels an unconfigured gateway but never contradicts a configured one
+    r = read_who13("16")
+    assert (r.canonical, r.certain, r.basis) == ("F453", False, "an independent implementation")
+    assert r.compatible_with("F453") is True
+    assert r.compatible_with("MH200") is None
+    assert resolve(Evidence(who13_code="16")).model == "F453"
+    assert resolve(Evidence(manual="MH200", who13_code="16")).corrected_from is None
+    assert resolve(Evidence(technical="MH200", technical_source=IDENTIFICATION_SSDP, who13_code="16")).conflict is None
+    # ...and it is no longer reported as an unknown code asking for a trace
+    assert resolve(Evidence(who13_code="16")).unknown_code is None
+    # a model OWNd does not know still resolves to a profile
+    assert get_gateway_profile("L4686SDK") is not None
+
+
+def test_who13_and_who1013_are_separate_identifier_spaces():
+    """The same model has different numbers in the two families, so the tables stay apart (#420).
+
+    F453 is 42 for WHO=1013 but 16 for Nmap's WHO=13 table; H4684 is 29 for
+    WHO=1013 but 13 (2006) or 23 (Nmap) for WHO=13. Some values do coincide - 4,
+    12, 44, 51 - which is exactly why this is pinned: agreeing on a few codes is
+    not a reason to treat one table as the other.
+    """
+    who13_all = {**WHO13_OFFICIAL_DEVICE_TYPES, **{c: m[0] for c, m in WHO13_THIRD_PARTY_DEVICE_TYPES.items()}}
+    by_model_who13 = {model: code for code, model in who13_all.items()}
+    by_model_who1013 = {models[0]: code for code, models in WHO1013_OBJECT_MODELS.items()}
+
+    differ = {m: (by_model_who13[m], by_model_who1013[m]) for m in by_model_who13.keys() & by_model_who1013.keys()
+              if by_model_who13[m] != by_model_who1013[m]}
+    agree = {m for m in by_model_who13.keys() & by_model_who1013.keys() if by_model_who13[m] == by_model_who1013[m]}
+    assert differ == {"F453": ("16", "42"), "H4684": ("23", "29")}
+    assert agree == {"MH200", "F453AV", "MH200N", "F454"}
+    # and the shared WHO=13 code has no counterpart at all in the WHO=1013 space
+    assert "200" not in WHO1013_OBJECT_MODELS
+
+
 def test_read_who13():
     official = read_who13("4")
     assert (official.models, official.certain, official.shared, official.raw) == (("MH200",), True, False, "4")
@@ -113,10 +173,10 @@ def test_read_who13():
     assert official.compatible_with("F454") is False  # a certain contradiction
     assert official.compatible_with(None) is False and official.compatible_with("") is False
 
-    observed = read_who13("51")
-    assert (observed.models, observed.certain, observed.shared) == (("F454",), False, False)
-    assert observed.compatible_with("F454") is True
-    assert observed.compatible_with("MH200") is None  # field evidence cannot contradict
+    third_party = read_who13("51")
+    assert (third_party.models, third_party.certain, third_party.shared) == (("F454",), False, False)
+    assert third_party.compatible_with("F454") is True
+    assert third_party.compatible_with("MH200") is None  # a third-party table cannot contradict
 
     shared = read_who13("200")
     assert shared.shared and shared.known and shared.canonical == "F454"
@@ -174,7 +234,7 @@ def test_resolver_shared_who13_code_is_a_question_not_an_answer():
 def test_resolver_labels_an_untrusted_model_from_in_band_evidence():
     assert resolve(Evidence(who13_code="6")).model == "F452"
     assert resolve(Evidence(prior_label="F452", who13_code="4")).model == "MH200"  # our own label: relabel freely
-    assert resolve(Evidence(who13_code="51")).model == "F454"  # observed-only code still labels
+    assert resolve(Evidence(who13_code="51")).model == "F454"  # a third-party code still labels
     r = resolve(Evidence(who13_code="200", who1013_code="67"))
     assert (r.model, r.source, r.corrected_from) == ("MyHomeServer1", IDENTIFICATION_WHO13, None)
 
