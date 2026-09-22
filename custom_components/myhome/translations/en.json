@@ -251,7 +251,7 @@
     },
     "unknown_gateway_model": {
       "title": "Unknown gateway device type code ({code})",
-      "description": "The gateway reported a hardware device type code ({code}) that is unknown to the MyHOME integration. Please click 'Learn More' to open a GitHub issue and attach a diagnostic trace so we can add support for this model."
+      "description": "The gateway reported a hardware model code ({code}) that is unknown to the MyHOME integration (WHO=13 device type, or WHO=1013 OBJECT_MODEL when prefixed 1013-1-). Please click 'Learn More' to open a GitHub issue and attach a diagnostic trace so we can add support for this model."
     },
     "bus_collision_storm": {
       "title": "High SCS bus collision rate detected ({count} NACKs)",
@@ -263,7 +263,7 @@
     },
     "gateway_identity_corrected": {
       "title": "Gateway model corrected to {corrected}",
-      "description": "The gateway was configured as {previous} but reports OpenWebNet device type {code}, which the BTicino specification defines as {corrected}. The model, gateway profile and device registry were updated to {corrected}. If that is wrong, open the integration's options (Configure) and set the model explicitly."
+      "description": "The gateway was configured as {previous} but reports model code {code}, which the OpenWebNet device-type table (WHO=13) or the gateway diagnostic catalogue (WHO=1013, codes prefixed 1013-1-) identifies as {corrected}. The model, gateway profile and device registry were updated to {corrected}. If that is wrong, open the integration's options (Configure) and set the model explicitly."
     }
   },
   "exceptions": {

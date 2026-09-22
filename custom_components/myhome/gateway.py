@@ -68,13 +68,16 @@ from .const import (
     LOGGER,
     RESYNC_DEBOUNCE_S,
     RESYNC_LEADING_WINDOW_S,
-    WHO13_AMBIGUOUS_DEVICE_TYPES,
-    WHO13_OBSERVED_DEVICE_TYPES,
-    WHO13_OFFICIAL_DEVICE_TYPES,
     area_of_where,
-    is_who13_code_compatible,
 )
 from .discovery import Address, parse_unique_id
+from .identity import (
+    GatewayIdentityEvidence,
+    GatewayIdentityResolution,
+    read_who13,
+    read_who1013,
+    resolve_gateway_identity,
+)
 from .repairs import (
     async_create_identity_corrected_issue,
     async_create_identity_issue,
@@ -199,13 +202,18 @@ class MyHOMEGatewayHandler:
         self.bus_monitor = BusMonitor()
         self.device_registry_id = None
         self._cen_devices: set[tuple[int, Any]] = set()
-        # Everything we know about how this gateway was identified; exported in
-        # diagnostics, the WebSocket info payload and every trace (see identification()).
+        # Identity evidence, recorded as observed and exported in diagnostics, the
+        # WebSocket info payload and every trace (see identification()). What the
+        # integration believes is decided in one place from all of it: _resolve_identity.
         self._who13: dict[str, Any] = {
             "code": None, "model": None, "model_official": None, "model_observed": None,
             "firmware": None, "kernel": None, "distribution": None,
         }
+        # WHO=1013 dimension 1 (OBJECT_MODEL): asked once when WHO=13 answered a code
+        # shared by several models; `pending` until it answers or the session reconnects.
+        self._who1013: dict[str, Any] = {"code": None, "model": None, "pending": False}
         self._identity_conflict: str | None = None
+        self._identity_resolution: GatewayIdentityResolution | None = None
         self.broadcast_resync = broadcast_resync
         self._resync_timers: dict[str, CALLBACK_TYPE] = {}
         self._resync_group_echoes: dict[str, int] = {}
@@ -289,6 +297,8 @@ class MyHOMEGatewayHandler:
             "who13_firmware": self._who13["firmware"],
             "who13_kernel": self._who13["kernel"],
             "who13_distribution": self._who13["distribution"],
+            "who1013_code": self._who1013["code"],
+            "who1013_model": self._who1013["model"],
             "profile": type(self.profile).__name__ if self.profile is not None else None,
             "conflict": self._identity_conflict,
         }
@@ -327,7 +337,7 @@ class MyHOMEGatewayHandler:
 
     @property
     def firmware(self) -> str | None:
-        return self.gateway.firmware
+        return cast(str | None, self.gateway.firmware)
 
     @property
     def profile(self) -> Any:
@@ -364,6 +374,7 @@ class MyHOMEGatewayHandler:
         self.is_connected = connected
         if connected:
             self._event_session_ready.set()
+            self._who1013["pending"] = False
             if self._unavailable_timer is not None:
                 self._unavailable_timer()
                 self._unavailable_timer = None
@@ -702,6 +713,15 @@ class MyHOMEGatewayHandler:
             )
             if isinstance(message, OWNGatewayEvent):
                 self._handle_gateway_diagnostics(message)
+        elif getattr(message, "who", None) == 1013:
+            if getattr(message, "dimension", getattr(message, "_dimension", None)) == 1:
+                self._handle_gateway_identity_diagnostics(message)
+            else:
+                LOGGER.debug(
+                    "%s Unhandled WHO=1013 diagnostic message: `%s`",
+                    self.log_id,
+                    message,
+                )
         elif (
             getattr(message, "who", None) == 18
             or isinstance(message, (OWNEnergyEvent, OWNEnergyCommand))
@@ -764,100 +784,141 @@ class MyHOMEGatewayHandler:
                     dev_reg.async_update_device(self.device_registry_id, sw_version=fw)
 
     def _handle_device_type(self, raw_code: str) -> None:
-        """Apply the identification precedence to a WHO=13 dimension-15 reply.
-
-        The gateway's own SSDP announcement and the user's explicit choice are
-        authoritative; the 2006 code table can only corroborate them. It labels
-        an entry only when no model is configured at all.
-        """
-        official = WHO13_OFFICIAL_DEVICE_TYPES.get(raw_code)
-        observed = WHO13_OBSERVED_DEVICE_TYPES.get(raw_code)
-        who13_model = official or observed
+        """Record a WHO=13 dimension-15 reply and let the resolver decide what it means."""
+        reading = read_who13(raw_code)
         self._who13["code"] = raw_code
-        self._who13["model"] = who13_model
-        self._who13["model_official"] = official
-        self._who13["model_observed"] = observed
+        self._who13["model"] = reading.canonical if reading.known else None
+        self._who13["model_official"] = reading.canonical if reading.certain else None
+        self._who13["model_observed"] = " / ".join(reading.models) if reading.known and not reading.certain else None
+        self._resolve_identity()
+
+    def _handle_gateway_identity_diagnostics(self, message: Any) -> None:
+        """Record a WHO=1013 dimension-1 (OBJECT_MODEL) reply and let the resolver decide."""
+        dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
+        if not dim_val or not isinstance(dim_val, list):
+            return
+        reading = read_who1013(str(dim_val[0]))
+        self._who1013["code"] = reading.code
+        self._who1013["model"] = reading.canonical if reading.known else None
+        self._who1013["pending"] = False
+        self._resolve_identity()
+
+    def _identity_evidence(self) -> GatewayIdentityEvidence:
+        """Everything observed so far, each source kept apart."""
         source = self.identification_source
+        configured = str(self.gateway.model_name or "") or None
+        return GatewayIdentityEvidence(
+            manual=configured if source == IDENTIFICATION_MANUAL else None,
+            technical=configured if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) else None,
+            technical_source=source if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) else None,
+            prior_label=configured if source == IDENTIFICATION_WHO13 else None,
+            who13_code=self._who13["code"],
+            who1013_code=self._who1013["code"],
+        )
+
+    def _resolve_identity(self) -> None:
+        """Decide the effective model from the evidence and bring everything in step with it.
+
+        Idempotent: the same evidence yields the same verdict, so a re-broadcast of a
+        WHO=13 reply neither repeats a correction nor flaps a repair issue.
+        """
         configured = str(self.gateway.model_name or "")
+        resolution = resolve_gateway_identity(self._identity_evidence())
         entry_id = getattr(self.config_entry, "entry_id", None)
         entry_id = entry_id if isinstance(entry_id, str) else None
+        changed = resolution != self._identity_resolution
+        self._identity_resolution = resolution
 
-        if not who13_model:
-            LOGGER.info(
-                "%s WHO=13 reports device type %s, unknown to the 2006 OpenWebNet table and to field evidence; "
-                "keeping model `%s`. Please attach a trace to an issue so the code can be documented.",
-                self.log_id, raw_code, configured,
-            )
+        # A shared WHO=13 code is the cue to ask WHO=1013 - once per answer.
+        if resolution.request_who1013:
+            if changed:
+                LOGGER.info(
+                    "%s WHO=13 reports device type %s (seen on multiple modern gateways); "
+                    "keeping model `%s` until WHO=1013 answers.",
+                    self.log_id, self._who13["code"], configured,
+                )
+            self._request_object_model()
+
+        # Codes in no table: keep the model, ask for a trace. Withdrawn once every
+        # code the gateway answered is known.
+        unknown = resolution.unknown_code
+        if unknown:
+            if changed:
+                LOGGER.info(
+                    "%s The gateway reports model code %s, unknown to the OpenWebNet tables and to field "
+                    "evidence; keeping model `%s`. Please attach a trace to an issue so it can be documented.",
+                    self.log_id, unknown, configured,
+                )
             if entry_id:
-                async_create_unknown_model_issue(self.hass, entry_id, raw_code)
-            self._set_conflict(None, entry_id)
-            self._sync_device_registry_model(configured)
-            return
-
-        if entry_id:
+                async_create_unknown_model_issue(self.hass, entry_id, unknown)
+        elif entry_id:
             async_delete_unknown_model_issue(self.hass, entry_id)
 
-        is_ambiguous = raw_code in WHO13_AMBIGUOUS_DEVICE_TYPES
-        compatibility = is_who13_code_compatible(raw_code, configured)
-
-        if source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL) or (source == IDENTIFICATION_MANUAL and (not official or compatibility is not False)):
-            # The announced (or serial-fixed) model wins outright; a manual model is kept
-            # if compatible with the reply or only questioned by unverified field evidence.
-            conflict = None
-            if compatibility is False:
-                basis = "the OpenWebNet specification" if official else "field evidence"
-                conflict = (
-                    f"configured as {configured} ({source}) but WHO=13 device type {raw_code} "
-                    f"identifies {who13_model} per {basis}"
-                )
-                LOGGER.warning("%s Gateway identity mismatch: %s.", self.log_id, conflict)
-            elif compatibility is None:
-                LOGGER.info(
-                    "%s WHO=13 reports device type %s (%s per field evidence); "
-                    "compatibility with `%s` is unverified, keeping configured model.",
-                    self.log_id, raw_code, who13_model, configured,
-                )
-            self._set_conflict(conflict, entry_id, who13_model=who13_model, raw_code=raw_code, source=source, official=bool(official))
-            self._sync_device_registry_model(configured)
-            return
-
-        if is_ambiguous:
-            # An ambiguous code (e.g. 200 seen on both F454 and MyHOMEServer1) cannot
-            # uniquely label an unconfigured gateway.
-            LOGGER.info(
-                "%s WHO=13 reports device type %s (seen on multiple modern gateways: %s); "
-                "keeping model `%s` without auto-labelling.",
-                self.log_id, raw_code, who13_model, configured,
-            )
-            self._set_conflict(None, entry_id)
-            self._sync_device_registry_model(configured)
-            return
-
-        # Either no trustworthy model (unknown / earlier WHO=13 label) or a manual choice
-        # contradicted by an official code: apply the WHO=13 model.
-        corrected_from = configured if source == IDENTIFICATION_MANUAL else None
-        if who13_model.lower() != configured.lower():
+        # The effective model.
+        model = resolution.model or configured
+        if model and model.lower() != configured.lower():
+            reading = resolution.corrected_reading
             LOGGER.warning(
-                "%s Gateway model `%s` set from WHO=13 device type %s (was `%s`, source %s).",
-                self.log_id, who13_model, raw_code, configured, source,
+                "%s Gateway model `%s` set from %s (was `%s`, source %s).",
+                self.log_id, model, reading.describe() if reading else "in-band evidence", configured,
+                self.identification_source,
             )
-            self.gateway.model_name = who13_model
-            self.gateway.model = who13_model
-            self.gateway.profile = get_gateway_profile(who13_model)
-            self.gateway._log_id = f"[{who13_model} gateway - {self.gateway.host}]"
-            if self.config_entry is not None:
-                new_data = dict(self.config_entry.data)
-                if new_data.get(CONF_NAME) != who13_model:
-                    new_data[CONF_NAME] = who13_model
-                    new_data["model_source"] = IDENTIFICATION_WHO13
-                    update_kwargs: dict[str, Any] = {"data": new_data}
-                    if str(getattr(self.config_entry, "title", "")).endswith("Gateway"):
-                        update_kwargs["title"] = f"{who13_model} Gateway"
-                    self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)
-            if corrected_from and entry_id:
-                async_create_identity_corrected_issue(self.hass, entry_id, corrected_from, who13_model, raw_code)
-        self._set_conflict(None, entry_id)
-        self._sync_device_registry_model(who13_model)
+            self._apply_model(model)
+            if resolution.corrected_from and reading is not None and entry_id:
+                async_create_identity_corrected_issue(
+                    self.hass, entry_id, resolution.corrected_from, model, reading.raw
+                )
+
+        # A certain contradiction of an SSDP / serial identity: kept, but the owner is asked.
+        reading = resolution.conflict_reading
+        if resolution.conflict and reading is not None:
+            if changed:
+                LOGGER.warning("%s Gateway identity mismatch: %s.", self.log_id, resolution.conflict)
+            self._set_conflict(
+                resolution.conflict, entry_id,
+                who13_model=reading.canonical, raw_code=reading.raw, source=resolution.source, official=reading.certain,
+            )
+        else:
+            self._set_conflict(None, entry_id)
+        self._sync_device_registry_model(model)
+
+    def _apply_model(self, model: str) -> None:
+        """Make ``model`` the entry's model: handler, profile, log id, config entry and title."""
+        self.gateway.model_name = model
+        self.gateway.model = model
+        self.gateway.profile = get_gateway_profile(model)
+        self.gateway._log_id = f"[{model} gateway - {self.gateway.host}]"
+        new_data = dict(self.config_entry.data)
+        if new_data.get(CONF_NAME) == model:
+            return
+        new_data[CONF_NAME] = model
+        new_data["model_source"] = IDENTIFICATION_WHO13
+        update_kwargs: dict[str, Any] = {"data": new_data}
+        if str(getattr(self.config_entry, "title", "")).endswith("Gateway"):
+            update_kwargs["title"] = f"{model} Gateway"
+        self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)
+
+    def _request_object_model(self) -> None:
+        """Queue ``*#1013*0*1##`` (Gateway Diagnostic, dimension 1 OBJECT_MODEL) once.
+
+        Sent as a status request: OWNd retries a NACK once and logs both attempts at
+        DEBUG, and the delivery future is cancelled, which nobody awaits. Not repeated
+        while an answer is pending; a reconnect of the event session clears that.
+        """
+        if self._who1013["pending"]:
+            return
+        cmd = OWNCommand.parse("*#1013*0*1##")
+        if cmd is None:
+            return
+        LOGGER.debug("%s Requesting WHO=1013 dimension 1 (OBJECT_MODEL) to settle the model.", self.log_id)
+        try:
+            self.send_buffer.put_nowait(
+                {"message": cmd, "written": self.hass.loop.create_future(), "is_status_request": True}
+            )
+        except asyncio.QueueFull:
+            LOGGER.warning("%s Cannot queue the WHO=1013 request: send buffer full.", self.log_id)
+            return
+        self._who1013["pending"] = True
 
     def _set_conflict(self, conflict: str | None, entry_id: str | None, **issue: Any) -> None:
         """Track the identity conflict and keep the repair issue in step with it."""

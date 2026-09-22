@@ -245,22 +245,108 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
     "11": "MHServer2",
     "13": "H4684",
 }
-# Codes seen on real hardware but absent from the official document, with the
-# evidence.
-#   200: Observed on both F454 (issue #370, confirmed physical device + SSDP)
-#        and MyHOMEServer1 (issue #292/#297). Because it is shared across multiple
-#        modern Linux-based gateway families, it cannot uniquely identify either
-#        model or overrule an authoritative announcement. It corroborates both
-#        F454 and MyHOMEServer1, but contradicts legacy gateways (e.g. MH200/F452).
-WHO13_OBSERVED_DEVICE_TYPES: dict[str, str] = {
-    "200": "F454 / MyHomeServer1",
+# Codes seen on real hardware in this project, with the evidence. A value is the
+# tuple of every model / SKU the code has been seen on; the first entry is the
+# name a gateway gets labelled with.
+#   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
+#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21)
+#        and MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
+#        #292/#297); reported for F461 in issue #370, no diagnostics yet. Shared
+#        across modern Linux-based gateway families, so it identifies none of them
+#        (see WHO13_SHARED_DEVICE_TYPES). It contradicts legacy gateways (e.g.
+#        MH200/F452), but only as field evidence.
+WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
+    "200": ("F454", "MyHomeServer1", "MH202", "F461"),
 }
-# Codes known to be shared across multiple model families.
-# Maps code -> tuple of compatible family names (normalized via gateway_model_family).
-WHO13_AMBIGUOUS_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MYHOMESERVER1"),
+# Codes from an independent implementation: the `device` table of Nmap's
+# openwebnet-discovery.nse, whose `device_dimension["Device Type"] = "15"` is this
+# same WHO=13 dimension. It has carried these since the script was first committed
+# (2017-07-18), predating this project, and nobody here has seen them on a bus:
+# they can label a gateway that has no model at all and corroborate one that has,
+# but - like field evidence - they never contradict a configured model.
+# https://github.com/nmap/nmap/blob/master/scripts/openwebnet-discovery.nse
+#
+# Its table also carries the six official 2006 codes unchanged, plus `51 -> F454`
+# and `200 -> "F454 (new?)"`. That `51` is the entry that matters here: it is
+# independent of the OpenWebNet device database @anotherjulien quoted in #420, so
+# two unrelated sources agree an F454 can answer 51, even though no capture of
+# `*#13**15*51##` exists and no firmware version has ever been tied to it.
+#
+# A theory, explicitly unproven (#420): the F454 may straddle two identification
+# schemes - early/1.x firmware answering the concrete `51`, later/2.x firmware
+# answering the generic `200` and leaving the specific identity to WHO=1013
+# OBJECT_MODEL 51. Nmap labelling 200 "F454 (new?)" in 2017 fits, but only a dated
+# capture tying each value to a firmware version would settle it. Nothing in the
+# code depends on the theory being true.
+WHO13_THIRD_PARTY_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
+    "12": ("F453AV",),
+    "15": ("F427",),  # Nmap: "F427 (Gateway Open-KNX)"
+    "16": ("F453",),
+    "23": ("H4684",),  # a second code for the model the 2006 table gives as 13
+    "27": ("L4686SDK",),
+    "44": ("MH200N",),
+    "51": ("F454",),
 }
-GATEWAY_DEVICE_TYPE_MAP = {**WHO13_OBSERVED_DEVICE_TYPES, **WHO13_OFFICIAL_DEVICE_TYPES}
+# Codes answered by several distinct models. Such a code is not evidence of any
+# model; it is the cue to ask WHO=1013 dimension 1, whose reply settles it
+# (identity.py). Every family the code is seen on must have a WHO=1013 code.
+WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
+
+# WHO=1013 (Gateway Diagnostic) dimension 1, OBJECT_MODEL: one code per model, as
+# listed by @anotherjulien in issue #370 from the OpenWebNet device database.
+#
+# This is a different identifier space from WHO=13 dimension 15, not a newer
+# spelling of it, and the two disagree for the same model: an F453 is 42 here but
+# 16 for Nmap, an H4684 is 29 here but 13 (2006) or 23 (Nmap) there, and no
+# WHO=13 code means what 200 means. Some values do coincide (4, 12, 44, 51 ...),
+# which is why the tables are kept apart rather than merged on the ones that
+# match. This one is consulted only after WHO=13 returned a shared code, and
+# outranks it.
+# Where the database lists several SKUs for a code (rebrands and order numbers) all
+# are kept, the BTicino model name first: a gateway announcing any of them over
+# SSDP is corroborated, not contradicted.
+#
+# Three codes are confirmed on physical hardware (PR #420, fixtures under
+# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. The rest of
+# the table is from the database, untraced.
+#
+# A dimension-1 reply is four values, not one (@anotherjulien in #420, from the
+# OpenWebNet Encyclopedia's work on MHCatalogue.db):
+#
+#     *#1013**1*OBJECT_MODEL*N_CONF*BRAND*LINE##
+#
+# All three traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
+# BTicino), LINE 0 (undefined). N_CONF 15 sits outside the ordinary 0..12 physical
+# configurator range and looks like the 0xF sentinel, so its gateway-specific
+# meaning stays unresolved. None of it identifies the model, so only OBJECT_MODEL
+# is read; BRAND and LINE would be a separate piece of work.
+WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
+    "4": ("MH200",),
+    "5": ("MH202", "003535"),
+    "8": ("F455", "003594"),
+    "12": ("F453AV",),
+    "29": ("H4684", "L4684"),
+    "30": ("AM4890", "H4890", "573958", "067292", "078479", "HW4890", "LN4890", "LN4890A"),
+    "35": ("BMNE500",),
+    "38": ("573992",),
+    "42": ("F453",),
+    "44": ("MH200N", "003565"),
+    "51": ("F454", "003598"),
+    "54": ("MH4892", "MH4893", "067267", "067268"),
+    "55": ("MH4892C", "MH4893C", "067228", "067219"),
+    "65": ("F459",),
+    "67": ("MyHomeServer1",),
+    "105": ("F458", "003599"),
+    "134": ("F461",),
+}
+# Code -> the model a WHO=13 reply labels a gateway with. Precedence matches
+# read_who13() in identity.py: the 2006 specification, then what this project has
+# observed, then the third-party table.
+GATEWAY_DEVICE_TYPE_MAP: dict[str, str] = {
+    **{code: models[0] for code, models in WHO13_THIRD_PARTY_DEVICE_TYPES.items()},
+    **{code: models[0] for code, models in WHO13_OBSERVED_DEVICE_TYPES.items()},
+    **WHO13_OFFICIAL_DEVICE_TYPES,
+}
 
 # How the configured gateway model was established.
 IDENTIFICATION_SSDP = "ssdp"        # the gateway announced its modelName over UPnP/SSDP
@@ -281,36 +367,6 @@ def gateway_model_family(model: str | None) -> str:
     name = str(model).strip().upper().replace(" ", "").replace("-", "").replace("_", "")
     m = re.match(r"^([A-Z]+\d+)[A-Z]*$", name)
     return m.group(1) if m else name
-
-
-def is_who13_code_compatible(raw_code: str, model: str | None) -> bool | None:
-    """Check if a WHO=13 dimension 15 code is compatible with a gateway model.
-
-    Returns:
-        True: Confirmed compatible (matches official spec or known empirical family).
-        False: Confirmed contradiction (contradicts official 2006 OpenWebNet spec).
-        None: Compatibility unknown (observed/empirical code on an unverified model,
-              or unknown code; cannot prove contradiction).
-    """
-    if not model or not raw_code:
-        return False
-    family = gateway_model_family(model)
-    official = WHO13_OFFICIAL_DEVICE_TYPES.get(raw_code)
-    if official:
-        return family == gateway_model_family(official)
-    allowed_families = WHO13_AMBIGUOUS_DEVICE_TYPES.get(raw_code)
-    if allowed_families:
-        if family in allowed_families:
-            return True
-        return None
-    observed = WHO13_OBSERVED_DEVICE_TYPES.get(raw_code)
-    if observed:
-        if family == gateway_model_family(observed):
-            return True
-        return None
-    return None
-
-
 
 
 def build_timed_turn_on_command(

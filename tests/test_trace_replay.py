@@ -785,11 +785,33 @@ class TestTraceReplayHarness:
         ident = handler.identification()
         assert ident["source"] == "manual"
         assert ident["who13_code"] == "200"
-        assert ident["who13_model_observed"] == "F454 / MyHomeServer1"
+        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
         assert ident["who13_model_official"] is None
         assert ident["conflict"] is None
         issue = ir.async_get(hass).async_get_issue(DOMAIN, f"gateway_identity_mismatch_{entry.entry_id}")
         assert issue is None
+
+        # 4b. The shared code queued a WHO=1013 dimension-1 request (the sending loop is
+        #     patched out, so it sits in the buffer). The owner of #292 identified the
+        #     hardware as a MyHomeServer1; its reply *#1013**1*67## is SYNTHETIC - no
+        #     capture of a real WHO=1013 exchange exists yet - and corrects the manual
+        #     F454 label, with a repair issue saying so.
+        queued = []
+        while not handler.send_buffer.empty():
+            queued.append(handler.send_buffer.get_nowait())
+        requests = [q for q in queued if str(q["message"]) == "*#1013*0*1##"]
+        assert len(requests) == 1 and requests[0]["is_status_request"] is True
+        await handler._process_message(OWNMessage.parse("*#1013**1*67##"))
+        await hass.async_block_till_done()
+        assert handler.model == "MyHomeServer1"
+        assert entry.data[CONF_NAME] == "MyHomeServer1"
+        assert entry.data["model_source"] == "who13"
+        ident = handler.identification()
+        assert ident["who1013_code"] == "67" and ident["who1013_model"] == "MyHomeServer1"
+        assert ident["conflict"] is None
+        corrected = ir.async_get(hass).async_get_issue(DOMAIN, f"gateway_identity_corrected_{entry.entry_id}")
+        assert corrected is not None
+        assert corrected.translation_placeholders == {"previous": "F454", "corrected": "MyHomeServer1", "code": "1013-1-67"}
 
         # 5. Verify WHO=13 Dimension 16 firmware auto-detection:
         who13_dim16 = OWNMessage.parse("*#13**16*2*40*12##")
