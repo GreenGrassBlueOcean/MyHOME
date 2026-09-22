@@ -113,6 +113,12 @@ authorities:
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 
+  encyclopedia:
+    name: "OpenWebNet Encyclopedia"
+    repository: "https://github.com/OpenWebNet-HA/OpenWebNet-Encyclopedia"
+    verified_commit: "305278651b593a785271c7c4df15d9e802a41ffb"
+    role: "Frames taken from the Encyclopedia's published examples and tables. Documentation-derived, not a bus capture: replace with a community-plant-capture fixture when one exists."
+
   sut:
     name: "OWNd / MyHOME Integration v2"
     repository: "https://github.com/anotherjulien/MyHOME"

@@ -67,6 +67,7 @@
       "enum": [
         "public-readme",
         "legrand-spec",
+        "encyclopedia",
         "openwebnet4j",
         "mcp-draft",
         "conflict",
@@ -76,7 +77,7 @@
     },
     "mcp_valid": {
       "type": "boolean",
-      "description": "Whether openwebnet-mcp confirmed this frame as legal."
+      "description": "Whether openwebnet-mcp accepted this frame's grammar. Not evidence of its meaning; see Provenance in README.md."
     },
     "mcp_notes": {
       "type": "string",

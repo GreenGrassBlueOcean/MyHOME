@@ -6,9 +6,19 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 
 | Layer | Source | Role |
 |---|---|---|
-| **Judge** | Official Legrand PDFs via `openwebnet-mcp` | Validates whether a frame is syntactically and semantically legal |
+| **Judge** | Official Legrand PDFs via `openwebnet-mcp` | Validates whether a frame is syntactically legal (its semantics are not authoritative; see Provenance below) |
 | **Oracle** | `openwebnet4j` & openHAB binding (by Massimo Valla) | Provides mature reference factory outputs and empirical test vectors |
 | **SUT** | `OWNd` / `custom_components/myhome` | System Under Test: verified against judge and oracle |
+
+## Provenance: which fixtures may change
+
+Only `community-plant-capture` fixtures were recorded from a real bus. They are facts: never edit their frame, `what`, `where` or dimension values. If OWNd disagrees with a capture, OWNd is wrong.
+
+Every other source (`legrand-spec`, `encyclopedia`, `openwebnet4j`, `public-readme`, `mcp-draft`) is a reading of a document or of another implementation, and can be wrong. Such a fixture may be corrected, but only in a commit that names the source it now follows (page and commit) and explains what was wrong.
+
+- `mcp_valid: true` means openwebnet-mcp accepted the **grammar**. It is not evidence of meaning: the judge's WHO 15 catalog described `*15*1*11#2##` as "short press on button 2", which is how three wrong CEN fixtures entered this corpus (corrected in OpenWebNet-HA/OWNd#49).
+- A `builder:` block proves the builder matches the fixture, not that either is right. When both are written in the same change from the same reading, the test only compares the code with itself. Prefer builder parity against a capture or an independent source such as `openwebnet4j`.
+- When a capture arrives for a frame that so far exists only as a spec-derived fixture, add the capture and keep the spec entry only if it agrees.
 
 ## Supported Subsystems Catalog (58 Fixtures)
 
@@ -20,7 +30,7 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 - **WHO=5 Burglar Alarm (`who05_alarm.yaml`)**: Status requests and silent alarm events across zones and central units.
 - **WHO=9 Auxiliary (`who09_auxiliary.yaml`)**: Activation and deactivation of AUX relay channels.
 - **WHO=13 Gateway Management (`who13_gateway.yaml`)**: Firmware versions and gateway internal datetime responses.
-- **WHO=15 CEN Pushbuttons (`who15_cen.yaml`)**: Short press, start long press, release, and extended hold events.
+- **WHO=15 CEN Pushbuttons (`who15_cen.yaml`)**: Pressure, short release, long release and extended pressure (`*15*BUTTON[#1|#2|#3]*WHERE##`).
 - **WHO=18 Energy Management (`who18_energy.yaml`)**: Instantaneous active power and cumulative energy totalizers.
 - **WHO=25 CEN+ / Dry Contacts (`who25_cen_plus.yaml`)**: CEN+ press events and physical dry contact inputs.
 
