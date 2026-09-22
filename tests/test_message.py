@@ -151,12 +151,13 @@ def test_own_sound_command_generation():
 
     # Select Source — returns TWO commands:
     #   1. Activate the source device on the bus (WHERE = 100 + source)
-    #   2. Route the amplifier output to that source (compound 1XY address)
+    #   2. Route the matrix to that source (compound 1ES address, where E is
+    #      the environment: the FIRST digit of the EA amplifier address)
     source_cmds = OWNSoundCommand.select_source("22", "3")
     assert isinstance(source_cmds, list)
     assert len(source_cmds) == 2
     assert str(source_cmds[0]) == "*16*3*103##"  # activate source 3 device
-    assert str(source_cmds[1]) == "*16*3*132##"  # route zone 2 to source 3
+    assert str(source_cmds[1]) == "*16*3*123##"  # route environment 2 to source 3
 
     # Volume Up
     vol_up_msg = OWNSoundCommand.volume_up("0") # All zones
