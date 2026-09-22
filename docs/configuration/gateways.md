@@ -145,7 +145,7 @@ Rules applied when the reply arrives:
 - **No model configured**: labelled from an official code; ambiguous codes (such as `200`) do not auto-label and keep the gateway as generic.
 - **Unknown code**: recorded, nothing changes — please attach a trace to an issue so the code can be documented.
 
-Every diagnostics download and bus-monitor export carries an `identification` block: the model, its `source`, the raw `who13_code`, what the specification (`who13_model_official`) and field evidence (`who13_model_observed`) say it means, firmware / kernel / distribution from dimensions 16 / 23 / 24, the active profile, and any `conflict`. A trace can therefore never hide a mislabelled gateway.
+Every diagnostics download and bus-monitor export carries an `identification` block: the model, its `source`, the raw `who13_code`, what the specification (`who13_model_official`) and field evidence (`who13_model_observed`) say it means, the `WHO=1013` reply when one was needed (`who1013_code`, `who1013_model`, and the `who1013_n_conf` / `who1013_brand` / `who1013_line` metadata that comes with it), firmware / kernel / distribution from dimensions 16 / 23 / 24, the active profile, and any `conflict`. A trace can therefore never hide a mislabelled gateway.
 
 ## 📦 Manual Installation Pitfalls
 

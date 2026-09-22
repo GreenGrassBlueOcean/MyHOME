@@ -22,6 +22,8 @@ from custom_components.myhome.const import (
     WHO13_OFFICIAL_DEVICE_TYPES,
     WHO13_SHARED_DEVICE_TYPES,
     WHO13_THIRD_PARTY_DEVICE_TYPES,
+    WHO1013_BRANDS,
+    WHO1013_LINES,
     WHO1013_OBJECT_MODELS,
     gateway_model_family,
 )
@@ -191,7 +193,7 @@ def test_read_who13():
 def test_read_who1013():
     r = read_who1013("51")
     assert (r.models, r.certain, r.shared, r.raw, r.canonical) == (("F454", "003598"), True, False, "1013-1-51", "F454")
-    # a catalogue SKU for the same OBJECT_MODEL is corroborated, not contradicted
+    # the same product under its Legrand name is corroborated, not contradicted
     assert r.compatible_with("003598") is True
     assert r.compatible_with("F454") is True
     assert r.compatible_with("MyHomeServer1") is False
@@ -252,7 +254,7 @@ def test_resolver_manual_choice():
     # confirmed by WHO=1013 with no table change needed for the model itself
     r = resolve(Evidence(manual="F461", who13_code="200", who1013_code="134"))
     assert (r.model, r.conflict, r.corrected_from) == ("F461", None, None)
-    # a manual catalogue SKU is corroborated
+    # a manual entry naming the Legrand variant is corroborated
     assert resolve(Evidence(manual="003598", who13_code="200", who1013_code="51")).corrected_from is None
 
 
@@ -273,7 +275,7 @@ def test_resolver_technical_identity_is_never_overruled():
 
 
 def test_resolver_who1013_outranks_who13():
-    """The catalogue is one code per model and the two families disagree for the same SKU."""
+    """The catalogue is one code per model and the two families disagree for the same product."""
     r = resolve(Evidence(technical="F454", technical_source=IDENTIFICATION_SSDP, who13_code="4", who1013_code="51"))
     assert r.conflict is None
     r = resolve(Evidence(manual="MH200", who13_code="4", who1013_code="51"))
@@ -496,7 +498,7 @@ def test_manual_model_contradicted_by_who1013_is_corrected(dev_reg, issues):
     assert kwargs["title"] == "MyHomeServer1 Gateway"
     corrected.assert_called_once_with(h.hass, "entry_ident", "F454", "MyHomeServer1", "1013-1-67")
     create.assert_not_called()
-    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MyHomeServer1")
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MyHomeServer1", model_id="67")
     assert h.identification()["who1013_model"] == "MyHomeServer1"
 
 
@@ -786,6 +788,11 @@ def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev
     h.device_registry_id = None
     h._sync_device_registry_model("MH200")
     dev_reg.async_update_device.assert_not_called()
+    # the id is set but the registry no longer holds that device (removed under us)
+    h.device_registry_id = "dev_gw"
+    dev_reg.async_get.return_value = None
+    h._sync_device_registry_model("MH200")
+    dev_reg.async_update_device.assert_not_called()
 
 
 def _who1013(h, code):
@@ -895,6 +902,87 @@ def test_real_who1013_reply_is_object_model_n_conf_brand_line(dev_reg, issues):
         for raw in replies:
             assert dimension_values(OWNEvent.parse(raw))[1:] == ["15", "5", "0"], (plant, raw)
 
+def test_alternative_names_are_brand_variants_not_order_codes():
+    """003598 is what Legrand calls a BTicino F454 - one product, two houses (#420).
+
+    They are therefore kept as names the gateway may legitimately announce, never
+    treated as a separate model or used as an identifier.
+    """
+    reading = read_who1013("51")
+    assert reading.canonical == "F454"
+    assert reading.alternative_names == ("003598",)
+    assert reading.compatible_with("003598") is True
+    # a code with a single name has no variants
+    assert read_who1013("67").alternative_names == ()
+    assert read_who1013("999").alternative_names == ()
+
+
+def test_who1013_metadata_is_recorded_and_described(dev_reg, issues):
+    """N_CONF / BRAND / LINE are kept and rendered, without ever touching the identity."""
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    h._handle_gateway_identity_diagnostics(OWNEvent.parse("*#1013**1*51*15*5*0##"))
+
+    ident = h.identification()
+    assert ident["who1013_code"] == "51"
+    assert ident["who1013_model"] == "F454"
+    assert ident["who1013_other_names"] == ["003598"]
+    assert ident["who1013_n_conf"] == "15"
+    assert ident["who1013_brand"] == "5 (Legrand BTicino)"
+    assert ident["who1013_line"] == "0 (Undefined)"
+    # the model came from OBJECT_MODEL alone
+    assert h.gateway.model_name == "F454"
+
+
+def test_who1013_metadata_tolerates_unknown_and_missing_values(dev_reg, issues):
+    """An unseen brand or line still reaches diagnostics; a short reply leaves fields unset."""
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    h._handle_gateway_identity_diagnostics(OWNEvent.parse("*#1013**1*67*3*9*7##"))
+    ident = h.identification()
+    assert ident["who1013_n_conf"] == "3"
+    assert ident["who1013_brand"] == "9"  # not in WHO1013_BRANDS: reported raw, not dropped
+    assert ident["who1013_line"] == "7"
+
+    short = _handler({"name": "Generic"}, title="Generic Gateway")
+    short.gateway.model_name = "Generic"
+    short._handle_gateway_identity_diagnostics(OWNEvent.parse("*#1013**1*67##"))
+    ident = short.identification()
+    assert ident["who1013_code"] == "67" and ident["who1013_model"] == "MyHomeServer1"
+    assert ident["who1013_n_conf"] is None
+    assert ident["who1013_brand"] is None and ident["who1013_line"] is None
+
+
+def test_brand_and_line_tables_hold_only_observed_values():
+    assert WHO1013_BRANDS == {"5": "Legrand BTicino"}
+    assert WHO1013_LINES == {"0": "Undefined"}
+
+
+def test_device_registry_carries_model_and_model_id(dev_reg, issues):
+    """The card shows the model name; model_id is the number the gateway gave for itself."""
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    dev_reg.async_get.return_value = MagicMock(model="Generic", model_id=None)
+
+    _who13(h, "200")
+    _who1013(h, "51")
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="F454", model_id="51")
+
+    # already in step: nothing is rewritten
+    dev_reg.async_update_device.reset_mock()
+    dev_reg.async_get.return_value = MagicMock(model="F454", model_id="51")
+    _who1013(h, "51")
+    dev_reg.async_update_device.assert_not_called()
+
+    # a WHO=13-only identification sets the model and leaves model_id alone
+    other = _handler({"name": "Generic"}, title="Generic Gateway")
+    other.gateway.model_name = "Generic"
+    dev_reg.async_update_device.reset_mock()
+    dev_reg.async_get.return_value = MagicMock(model="Generic", model_id=None)
+    _who13(other, "6")
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="F452")
+
+
 def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, issues):
     """A code outside the catalogue keeps the model and raises the same unknown-model repair as WHO=13 does."""
     h = _handler({"name": "Generic"}, title="Generic Gateway")
@@ -926,7 +1014,7 @@ def test_who1013_updates_manual_model(dev_reg, issues):
     kwargs = h.hass.config_entries.async_update_entry.call_args.kwargs
     assert kwargs["data"]["name"] == "MH202"
     assert kwargs["title"] == "MH202 Gateway"
-    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MH202")
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MH202", model_id="5")
 
 def test_who1013_ssdp_conflict(dev_reg, issues):
     h = _handler({"name": "F454", "ssdp_location": "http://192.0.2.40:49153/desc.xml"}, title="F454 Gateway")

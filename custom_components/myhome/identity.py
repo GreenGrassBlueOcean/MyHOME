@@ -18,7 +18,7 @@ Precedence, unchanged from the handler-side rules it replaces:
   wrote), the in-band evidence labels the gateway;
 - WHO=1013 outranks WHO=13 when both are present: its catalogue is one code per
   model, while a WHO=13 code may be shared by several modern gateways, and the
-  two do not necessarily agree for the same SKU;
+  two do not necessarily agree for the same product;
 - a shared WHO=13 code is not evidence of any model; it is the cue to ask WHO=1013.
 
 "Certain" means the 2006 specification (official WHO=13 codes) or the WHO=1013
@@ -50,7 +50,7 @@ class CodeReading:
     label: str  # "WHO=13 device type" / "WHO=1013 OBJECT_MODEL"
     code: str  # the value on the wire
     raw: str  # the form repair issues carry: "4", "1013-1-67"
-    models: tuple[str, ...]  # every SKU / model the code stands for; () = unknown
+    models: tuple[str, ...]  # every name the code stands for (brand variants); () = unknown
     basis: str  # what the models rest on, for issue text
     certain: bool  # a contradiction is proof, not a hint
     shared: bool  # answered by several distinct models: identifies none
@@ -63,6 +63,17 @@ class CodeReading:
     def canonical(self) -> str:
         """The model name to label a gateway with (the first in the table)."""
         return self.models[0]
+
+    @property
+    def alternative_names(self) -> tuple[str, ...]:
+        """The same product under another brand, e.g. Legrand's 003598 for a BTicino F454.
+
+        Not order codes or model numbers: one piece of hardware, two houses selling
+        it (#420). They are recorded so a gateway announcing the Legrand name over
+        SSDP is corroborated, and so diagnostics can show the owner the name on
+        their box even though the BTicino one is displayed.
+        """
+        return self.models[1:]
 
     def compatible_with(self, model: str | None) -> bool | None:
         """Does ``model`` belong to the family set this code stands for?

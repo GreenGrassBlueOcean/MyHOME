@@ -246,8 +246,8 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
     "13": "H4684",
 }
 # Codes seen on real hardware in this project, with the evidence. A value is the
-# tuple of every model / SKU the code has been seen on; the first entry is the
-# name a gateway gets labelled with.
+# tuple of every name the code has been seen answering to; the first entry is
+# the name a gateway gets labelled with.
 #   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
 #        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21)
 #        and MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
@@ -302,9 +302,14 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # which is why the tables are kept apart rather than merged on the ones that
 # match. This one is consulted only after WHO=13 returned a shared code, and
 # outranks it.
-# Where the database lists several SKUs for a code (rebrands and order numbers) all
-# are kept, the BTicino model name first: a gateway announcing any of them over
-# SSDP is corroborated, not contradicted.
+# Where the database lists several names for a code, all are kept with the
+# BTicino one first, so a gateway announcing any of them over SSDP is
+# corroborated rather than contradicted. They are *brand variants of one
+# product*, not model numbers or order codes (@anotherjulien in #420): BTicino
+# sold the device as F454, Legrand sold the same hardware as 003598. Which name
+# to show could in principle follow the BRAND field of a WHO=1013 reply, but the
+# only brand value ever traced is 5, "Legrand BTicino", which does not
+# discriminate - so the BTicino name is always the one displayed.
 #
 # Three codes are confirmed on physical hardware (PR #420, fixtures under
 # tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. The rest of
@@ -318,8 +323,9 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # All three traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
 # BTicino), LINE 0 (undefined). N_CONF 15 sits outside the ordinary 0..12 physical
 # configurator range and looks like the 0xF sentinel, so its gateway-specific
-# meaning stays unresolved. None of it identifies the model, so only OBJECT_MODEL
-# is read; BRAND and LINE would be a separate piece of work.
+# meaning stays unresolved. None of the three identifies the model, so only
+# OBJECT_MODEL decides the identity; all four are recorded and exported in
+# diagnostics (see WHO1013_BRANDS / WHO1013_LINES).
 WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
     "4": ("MH200",),
     "5": ("MH202", "003535"),
@@ -342,6 +348,19 @@ WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
 # Code -> the model a WHO=13 reply labels a gateway with. Precedence matches
 # read_who13() in identity.py: the 2006 specification, then what this project has
 # observed, then the third-party table.
+# WHO=1013 dimension 1, third value: BRAND. Only the one value every traced
+# gateway answers is listed; the rest of MHCatalogue.db's brand space is not
+# reproduced here because nothing has been seen to use it. Note that 5 covers
+# both houses, so it cannot tell a BTicino-branded unit from a Legrand one.
+WHO1013_BRANDS: dict[str, str] = {
+    "5": "Legrand BTicino",
+}
+# WHO=1013 dimension 1, fourth value: LINE (product line). Same rule: only what
+# has actually been observed.
+WHO1013_LINES: dict[str, str] = {
+    "0": "Undefined",
+}
+
 GATEWAY_DEVICE_TYPE_MAP: dict[str, str] = {
     **{code: models[0] for code, models in WHO13_THIRD_PARTY_DEVICE_TYPES.items()},
     **{code: models[0] for code, models in WHO13_OBSERVED_DEVICE_TYPES.items()},

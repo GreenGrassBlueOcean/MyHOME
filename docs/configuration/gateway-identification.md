@@ -96,7 +96,17 @@ A shared code such as `200` cannot label an unconfigured gateway, and it cannot 
          └─────────── OBJECT_MODEL
 ```
 
-Every gateway traced so far answers the same `*15*5*0`. `N_CONF` 15 lies outside the ordinary `0..12` physical-configurator range and looks like the `0xF` sentinel, so its gateway-specific meaning stays unresolved. None of the three trailing values identifies the model, so only `OBJECT_MODEL` is read; `BRAND` and `LINE` are metadata a later change could surface. Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
+Every gateway traced so far answers the same `*15*5*0`. `N_CONF` 15 lies outside the ordinary `0..12` physical-configurator range and looks like the `0xF` sentinel, so its gateway-specific meaning stays unresolved. Only `OBJECT_MODEL` decides the identity; `N_CONF`, `BRAND` and `LINE` are recorded and travel in diagnostics. Note that the same product does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
+
+#### One product, two brand names
+
+Some catalogue entries carry more than one name — `51` is `F454` *and* `003598`. These are **not** order codes or sub-models: BTicino sold the device as F454, Legrand sold the same hardware as 003598, and nowadays Legrand mostly uses the BTicino names ([@anotherjulien](https://github.com/OpenWebNet-HA/MyHOME/pull/420)). The integration therefore:
+
+- always **displays** the BTicino name, and never treats the other as a separate model;
+- still **accepts** the other name, so a gateway announcing `003598` over SSDP is corroborated by OBJECT_MODEL `51` rather than flagged as a mismatch;
+- lists the alternatives in diagnostics as `who1013_other_names`, so an owner whose box says `003598` can see why their device page says `F454`.
+
+In principle the `BRAND` field could choose which name to show. It cannot today: the only value ever traced is `5`, *"Legrand BTicino"*, which covers both houses.
 
 Two safeguards keep this off legacy hardware and out of your logs:
 
@@ -108,6 +118,8 @@ What the answer does depends on the configured source, exactly mirroring the `WH
 ### How the verdict is reached
 
 Each source is recorded separately — what you picked, what the gateway announced, the `WHO=13` code, the `WHO=1013` code — and one pure function (`resolve_gateway_identity` in `identity.py`) turns all of it into the effective model plus its corroboration or conflict state. The handlers only answer *"what did I observe?"*; a single resolver answers *"what should the integration believe?"*. Because the same evidence always yields the same verdict, a repeated broadcast can neither repeat a correction nor flap a repair issue.
+
+> **Hardware version is deliberately not requested.** Nmap's table calls `WHO=13` dimension 17 "Hardware Version", and it is documented as such for the **Zigbee** part of OpenWebNet, with the same three-digit `V.r.b` shape as the firmware version. It has never been canonically described for non-Zigbee OpenWebNet ([@anotherjulien](https://github.com/OpenWebNet-HA/MyHOME/pull/420)) — it is probably the same thing, but "probably" is not evidence, so the integration neither asks for it nor fills the device page's `hw_version` from it.
 
 > **The two families are separate number spaces.** They are not two spellings of the same identifier, and the same model carries different numbers in each: an F453 is `42` for `WHO=1013` but `16` for Nmap's `WHO=13` table, and an H4684 is `29` against `13` (2006) or `23` (Nmap). Several values *do* coincide — `4`, `12`, `44`, `51` — which is precisely why the tables are kept apart instead of merged on the ones that agree; a test pins both the overlaps and the clashes.
 
@@ -136,6 +148,20 @@ Neither issue is raised twice for the same finding, and a mismatch issue is with
 
 ---
 
+## What the device page shows
+
+*Settings → Devices & services → MyHOME → the gateway device:*
+
+| field | where it comes from |
+| :--- | :--- |
+| **Model** | the resolved identity — SSDP or your choice, corrected or labelled by `WHO=13` / `WHO=1013` as described above. Always the BTicino name. |
+| **Model ID** | the `OBJECT_MODEL` number from `WHO=1013` (`51` for an F454). The only model identifier the gateway ever states about itself; absent until the gateway answers, which only happens when `WHO=13` returned a shared code. |
+| **Firmware** | `WHO=13` dimension 16. |
+| **Serial number** | the gateway's serial as reported by the connection (the MAC for TCP gateways). |
+| **Manufacturer** | the entry's manufacturer, normally `BTicino S.p.A.`. Not taken from the `BRAND` field, which does not distinguish the two houses. |
+
+`N_CONF`, `BRAND`, `LINE` and the alternative brand name are **not** on the device page — none of them identifies the hardware, and brand only repeats the manufacturer. They are in the diagnostics download instead.
+
 ## Check it yourself
 
 Every diagnostics download (*Settings → Devices & services → MyHOME → ⋮ → Download diagnostics*) and every bus-monitor export (Export Trace / Export Sweep) carries:
@@ -155,6 +181,10 @@ Every diagnostics download (*Settings → Devices & services → MyHOME → ⋮ 
   "who13_distribution": null,
   "who1013_code": null,
   "who1013_model": null,
+  "who1013_other_names": [],
+  "who1013_n_conf": null,
+  "who1013_brand": null,
+  "who1013_line": null,
   "profile": "MH200NProfile",
   "conflict": null
 }
@@ -166,6 +196,8 @@ Reading it:
 - `who13_code` — the raw code your gateway reported; `who13_model_official` / `who13_model_observed` — what the 2006 specification and the field evidence say it means (either may be `null`).
 - `who13_firmware`, `who13_kernel`, `who13_distribution` — dimensions 16 / 23 / 24, corroborating evidence when the gateway sends them.
 - `who1013_code` / `who1013_model` — the `WHO=1013` OBJECT_MODEL reply and what the catalogue says it means; both `null` unless `who13_code` was a shared code (the question is not asked otherwise) and the gateway answered. On an MH200 they are always `null`.
+- `who1013_other_names` — the same product's other brand name(s), e.g. `["003598"]` for an F454.
+- `who1013_n_conf`, `who1013_brand`, `who1013_line` — the rest of the reply, rendered as `value (meaning)` when the value has been seen before and as the bare value when it has not, so a new one reaches the trace instead of being dropped. A traced gateway shows `"5 (Legrand BTicino)"` and `"0 (Undefined)"`.
 - `profile` — the OWNd profile actually in use (MH200 and MH200N share `MH200NProfile`; that is expected).
 - `conflict` — non-null exactly when a *Gateway model mismatch* repair issue is open, with the reason.
 
