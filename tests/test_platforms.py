@@ -197,7 +197,7 @@ class TestMediaPlayerEntity:
                 entity_name="Audio Zone 1",
                 device_id="1#16",
                 who="16",
-                where="1",
+                where="11",  # amplifier 1 of environment 1 (WHERE table: 01-99)
                 manufacturer="BTicino",
                 model="Audio System",
                 gateway=mock_gateway,
@@ -321,7 +321,7 @@ class TestMediaPlayerEntity:
         # 0.50 * 31.0 = 15.5 -> round to 16
         args, _ = player._gateway_handler.send.call_args
         command = args[0]
-        assert str(command) == "*#16*1*#1*16##"
+        assert str(command) == "*#16*11*#1*16##"
 
     @pytest.mark.asyncio
     async def test_async_mute_volume(self, player):
@@ -330,7 +330,7 @@ class TestMediaPlayerEntity:
         # Should set volume to 0
         args, _ = player._gateway_handler.send.call_args
         command = args[0]
-        assert str(command) == "*#16*1*#1*0##"
+        assert str(command) == "*#16*11*#1*0##"
         assert player._attr_is_volume_muted is True
         assert player._pre_mute_volume == 0.50
 
@@ -338,7 +338,7 @@ class TestMediaPlayerEntity:
         # Should restore volume to 16 HW units (round(0.50 * 31))
         args, _ = player._gateway_handler.send.call_args
         command = args[0]
-        assert str(command) == "*#16*1*#1*16##"
+        assert str(command) == "*#16*11*#1*16##"
         assert player._attr_is_volume_muted is False
 
     @pytest.mark.asyncio

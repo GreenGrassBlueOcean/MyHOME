@@ -189,7 +189,7 @@ def _zone_address(message: Any) -> Address | None:
     return Address(str(zone), key_suffix="#16")
 
 
-def _zone_environment(zone: str) -> str:
+def _zone_environment(zone: str) -> str | None:
     """Return the environment (room) an amplifier address belongs to.
 
     Amplifier addresses are ``EA`` — environment digit followed by the
@@ -197,8 +197,16 @@ def _zone_environment(zone: str) -> str:
     amplifier 3).  The F441M ties environments to its outputs one to one
     (OUT n serves environment n), which is why matrix routing is announced
     per environment, not per amplifier.
+
+    The WHO=16 WHERE table only knows two-digit amplifiers (``01``-``99``),
+    and OWNd hands the address through unpadded.  Anything else — the general
+    address ``0``, an environment command ``#E`` or a hand-written ``1`` — has
+    no environment we can be sure of, so ``None`` is returned rather than a
+    guess that could switch the wrong room.
     """
-    return zone[0] if len(zone) > 1 else zone
+    if len(zone) == 2 and zone.isdigit():
+        return zone[0]
+    return None
 
 
 def _routing_address(zone: str, source: int) -> str | None:
@@ -208,12 +216,12 @@ def _routing_address(zone: str, source: int) -> str | None:
     on source 2 gives ``122``, and on source 1 ``121`` — exactly what a wall
     panel puts on the bus when it switches that room's source.
 
-    Returns ``None`` for environment 0 (amplifiers ``01``-``09``): ``10S`` is
-    the source device address itself, so that environment has no routing
-    address of this form and cannot be switched over IP.
+    Returns ``None`` when the zone has no routing address: not a two-digit
+    amplifier (see :func:`_zone_environment`), or environment 0 (amplifiers
+    ``01``-``09``), where ``10S`` is the source device address itself.
     """
     environment = _zone_environment(zone)
-    if environment == "0":
+    if environment is None or environment == "0":
         return None
     return f"1{environment}{source}"
 
@@ -222,7 +230,9 @@ def _parse_routing_address(pseudo: str) -> tuple[int, str] | None:
     """Split a ``1ES`` matrix routing address into ``(source, environment)``.
 
     ``10S`` is not a routing address but a source device (``101``-``109``),
-    so environment 0 is excluded.
+    so environment 0 is excluded.  The source digit is returned as sent, even
+    outside S1-S4: the frame is still a routing frame and must not fall
+    through to zone discovery as a phantom amplifier ``1ES``.
 
     Returns ``None`` when ``pseudo`` is not a routing address.
     """
@@ -413,9 +423,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         routing alone", which is the default.
         """
         defaults = self._options().get(CONF_SOURCE_DEFAULTS) or {}
-        if not isinstance(defaults, dict):
+        environment = _zone_environment(self._where)
+        if not isinstance(defaults, dict) or environment is None:
             return None
-        value = defaults.get(_zone_environment(self._where))
+        value = defaults.get(environment)
         try:
             source = int(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -437,7 +448,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         ``None`` when no valid pair exists: the source is outside S1-S4 (for
         instance a decoder slot saved as ``0`` by an older options form), or
-        the zone sits in environment 0, which has no routing address.
+        the zone has no routing address (see :func:`_routing_address`).
         """
         if not 1 <= source_num <= CONF_SOURCE_SLOTS:
             return None
@@ -451,10 +462,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         frames = self._routing_frames(source_num)
         if frames is None:
             LOGGER.warning(
-                "%s: cannot route environment %s to matrix source %s; "
+                "%s: cannot route amplifier %s to matrix source %s; "
                 "leaving the routing unchanged",
                 self.entity_id,
-                _zone_environment(self._where),
+                self._where,
                 source_num,
             )
             return False
@@ -466,9 +477,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     def _environment_streamer(self) -> str | None:
         """Return another zone that streams from a decoder in this environment."""
         pool = self._get_pool()
-        if pool is None:
+        environment = _zone_environment(self._where)
+        if pool is None or environment is None:
             return None
-        return pool.environment_owner(_zone_environment(self._where), exclude=self.entity_id)
+        return pool.environment_owner(environment, exclude=self.entity_id)
 
     async def _apply_default_source(self) -> None:
         """Route this zone's environment to its default source, if one is set.
@@ -888,10 +900,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         environment ``E`` to it.  The F441M switches per output, so every
         amplifier sharing this zone's environment follows along — that is
         matrix hardware behaviour, not a limitation of this integration.
+        For the same reason the switch is refused while another zone of the
+        environment streams from a decoder: it would take that zone off its
+        stream while Home Assistant still showed it playing.
 
         Raises:
-            HomeAssistantError: If ``source`` is not a known source label, or
-                the zone is in environment 0, which has no routing address.
+            HomeAssistantError: If ``source`` is not a known source label, the
+                zone has no routing address (environment 0, or not a two-digit
+                amplifier), or another zone of the environment is streaming.
         """
         source_num = self._source_number(source)
         if source_num is None:
@@ -905,10 +921,26 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
         if self._routing_frames(source_num) is None:
             raise HomeAssistantError(
-                f"{self.entity_id}: environment 0 cannot be routed over IP",
+                f"{self.entity_id}: amplifier {self._where} has no matrix routing address",
                 translation_domain=DOMAIN,
                 translation_key="routing_unsupported",
-                translation_placeholders={"entity_id": str(self.entity_id)},
+                translation_placeholders={
+                    "entity_id": str(self.entity_id), "where": str(self._where),
+                },
+            )
+        streamer = self._environment_streamer()
+        if streamer is not None:
+            environment = str(_zone_environment(self._where))
+            raise HomeAssistantError(
+                f"{self.entity_id}: {streamer} is already streaming in environment "
+                f"{environment}, and zones in one environment share a matrix input",
+                translation_domain=DOMAIN,
+                translation_key="environment_busy",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id),
+                    "owner": streamer,
+                    "environment": environment,
+                },
             )
 
         await self._route_to(source_num)
@@ -1043,9 +1075,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         routing = _parse_routing_address(zone_str)
         if routing is not None:
             source_num, environment = routing
-            if _zone_environment(self._where) == environment:
+            if _zone_environment(self._where) != environment:
+                pass
+            elif 1 <= source_num <= CONF_SOURCE_SLOTS:
                 self._attr_source = self._source_label(source_num)
                 self._warn_unconfigured_source(source_num)
+            else:
+                # The F441M has inputs S1-S4; anything else is not a source
+                # this zone can be on, so the label is left as it was.
+                LOGGER.debug(
+                    "%s: ignoring routing to matrix source %d outside S1-S%d",
+                    self.entity_id,
+                    source_num,
+                    CONF_SOURCE_SLOTS,
+                )
         elif message.is_on:
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:

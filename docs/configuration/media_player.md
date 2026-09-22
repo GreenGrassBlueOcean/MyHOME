@@ -66,11 +66,15 @@ follows the switch**. Zones 22 and 23 cannot play different sources; that is
 matrix hardware, not an integration limitation. The integration holds to it:
 
 - **One stream per environment.** While zone 22 streams from a decoder,
-  `play_media` on zone 23 is refused with an error naming zone 22, instead of
-  silently switching zone 22 onto the new stream.
+  `play_media` or a source change on zone 23 is refused with an error naming
+  zone 22, instead of silently switching zone 22 off its stream.
 - **Environment 0 cannot be switched.** Amplifiers `01`–`09` would be routed
   with `10S`, which is the source device address itself. Source selection is
   refused there and no default can be set for it; use a wall panel.
+- **Only two-digit amplifier addresses are routed.** The WHO=16 address table
+  lists amplifiers as `01`–`99`. A single-digit address such as `1` in a YAML
+  configuration does not say which environment it belongs to (`01` or `11`?),
+  so it is never routed. Write the address with both digits.
 
 > Earlier releases refused to send these frames, on the assumption that they
 > caused relay clicks on MH200-class gateways. Bus captures on an MH200 show

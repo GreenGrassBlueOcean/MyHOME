@@ -148,7 +148,8 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
 
     registry_entry = MagicMock()
     registry_entry.domain = PLATFORM
-    registry_entry.unique_id = f"{mock_gateway.mac}-1#16"
+    # Amplifier 11: environment 1, so the 111 routing frame below reaches it
+    registry_entry.unique_id = f"{mock_gateway.mac}-11#16"
 
     async_add_entities = MagicMock()
 
@@ -168,7 +169,7 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
     src_msg = MagicMock(spec=OWNSoundEvent, zone="101", is_source_event=True)
     async_dispatcher_send(hass, f"myhome_message_{mac}", src_msg)
 
-    # Test pseudo-zone routing event matching known player 1#16 (lines 160-169)
+    # Test pseudo-zone routing event matching known player 11#16 (environment 1)
     routing_msg = MagicMock(spec=OWNSoundEvent, zone="111", is_source_event=False)
     async_dispatcher_send(hass, f"myhome_message_{mac}", routing_msg)
 
@@ -436,6 +437,7 @@ async def test_select_source_routes_environment(hass, player, mock_gateway):
 @pytest.mark.asyncio
 async def test_select_source_legacy_labels_without_configuration(hass, player, mock_gateway):
     """Without configured names the legacy ``Source N`` labels still work."""
+    player._where = "11"
     assert player.source_list == ["Source 1", "Source 2", "Source 3", "Source 4"]
 
     await player.async_select_source("Source 2")
@@ -561,6 +563,7 @@ def test_decoder_state_changed_reverse_sync(hass, player, mock_gateway):
 async def test_handle_event_bus_messages(hass, player, mock_gateway):
     """Test handling bus messages for routing, state, and volume."""
     player.async_schedule_update_ha_state = MagicMock()
+    player._where = "11"
 
     # Async update
     await player.async_update()
@@ -897,6 +900,87 @@ async def test_select_source_legacy_label_outside_the_matrix_is_refused(hass, pl
     mock_gateway.send.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_select_source_is_refused_while_the_environment_streams(hass, player, mock_gateway):
+    """A source change on zone 23 would take zone 22 off its stream."""
+    player._where = "23"
+    pool = _streaming_pool()
+    pool.environment_owner = MagicMock(return_value="media_player.audio_zone_22")
+    _set_pool(player, pool)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "environment_busy"
+    assert err.value.translation_placeholders == {
+        "entity_id": player.entity_id,
+        "owner": "media_player.audio_zone_22",
+        "environment": "2",
+    }
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_play_media_in_one_environment(hass, player, mock_gateway):
+    """Two zones of one environment starting together: exactly one wins.
+
+    The environment check runs under the pool lock, so the second claim sees
+    the first one even when both requests are in flight at the same time.
+    """
+    pool = DecoderPool(hass, {"media_player.dec_a": 1, "media_player.dec_b": 2})
+    hass.states.async_set("media_player.dec_a", MediaPlayerState.IDLE)
+    hass.states.async_set("media_player.dec_b", MediaPlayerState.IDLE)
+
+    zone_22 = player
+    zone_22._where = "22"
+    _name_sources(zone_22, s1="Streamer", s2="Cambridge")
+    _set_pool(zone_22, pool)
+
+    zone_23 = MyHOMEMediaPlayer(
+        hass=hass, name="Audio Zone 23", entity_name=None, device_id="23#16",
+        who="16", where="23", manufacturer="BTicino", model="Audio System",
+        gateway=mock_gateway,
+    )
+    zone_23.hass = hass
+    zone_23.entity_id = "media_player.audio_zone_23"
+    attach_platform(zone_23, zone_22.platform.config_entry)
+
+    for zone in (zone_22, zone_23):
+        zone.async_write_ha_state = MagicMock()
+        zone.async_schedule_update_ha_state = MagicMock()
+
+    import asyncio
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        results = await asyncio.gather(
+            zone_22.async_play_media("music", "http://a"),
+            zone_23.async_play_media("music", "http://b"),
+            return_exceptions=True,
+        )
+
+    errors = [r for r in results if isinstance(r, HomeAssistantError)]
+    assert len(errors) == 1
+    assert errors[0].translation_key == "environment_busy"
+    assert sum(r is None for r in results) == 1
+    owners = {pool.get_assignment(z.entity_id) for z in (zone_22, zone_23)}
+    assert len(owners - {None}) == 1
+
+
+def test_routing_to_a_source_outside_the_matrix_is_not_labelled(hass, player, mock_gateway):
+    """``159`` is a routing frame, but S9 is not an F441M input."""
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "53"
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="159",
+                                  is_on=False, is_off=False, volume=None))
+    assert player.source is None
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="152",
+                                  is_on=False, is_off=False, volume=None))
+    assert player.source == "Source 2"
+
+
 def test_environment_zero_has_no_routing_address():
     """``10S`` is a source device; environment 0 has no ``1ES`` form."""
     from custom_components.myhome.media_player import _routing_address
@@ -959,7 +1043,45 @@ def test_captured_amplifier_addresses_resolve_to_their_environment():
     assert _zone_environment("23") == "2"   # plant A, eetkamer
     assert _zone_environment("11") == "1"   # plant B
     assert _zone_environment("36") == "3"   # plant A, badkamer
-    assert _zone_environment("7") == "7"    # single-digit address is its own environment
+
+
+
+@pytest.mark.parametrize(
+    ("where", "environment", "route_s2"),
+    [
+        ("11", "1", "112"),     # amplifier 1 of environment 1
+        ("23", "2", "122"),
+        ("01", "0", None),      # environment 0: 10S is the source device
+        ("09", "0", None),
+        ("1", None, None),      # not in the WHERE table: 01 or 11?
+        ("7", None, None),
+        ("0", None, None),      # general amplifier address
+        ("#1", None, None),     # environment command, not an amplifier
+        ("123", None, None),
+    ],
+)
+def test_only_two_digit_amplifiers_are_routed(where, environment, route_s2):
+    """The WHO=16 WHERE table lists amplifiers as 01-99, and OWNd keeps the
+    padding.  A single digit would have to be guessed into an environment, and
+    a wrong guess switches somebody else's room, so it is never routed.
+    """
+    from custom_components.myhome.media_player import _routing_address, _zone_environment
+
+    assert _zone_environment(where) == environment
+    assert _routing_address(where, 2) == route_s2
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_a_single_digit_address(hass, player, mock_gateway):
+    """A hand-written ``1`` is refused with the address in the message."""
+    player._where = "1"
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "routing_unsupported"
+    assert err.value.translation_placeholders["where"] == "1"
+    mock_gateway.send.assert_not_called()
 
 
 # ── WHO=22 mirrors: the other dialect spells the addressing out ──────────────

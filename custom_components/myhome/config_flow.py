@@ -717,6 +717,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         than per zone: two amplifiers in one room physically cannot sit on
         different inputs.  Environment 0 is left out: its routing address would
         be ``10S``, which is the source device itself, so it cannot be routed.
+        So is any zone that is not a two-digit amplifier address.
         """
         from homeassistant.helpers import entity_registry as er
 
@@ -732,8 +733,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             if entry.domain != "media_player" or "#16" not in (entry.unique_id or ""):
                 continue
             zone = (entry.unique_id or "").rsplit("-", 1)[-1].split("#")[0]
-            if zone.isdigit():
-                environments.add(zone[0] if len(zone) > 1 else zone)
+            # Only two-digit amplifiers (01-99) have an environment digit
+            if len(zone) == 2 and zone.isdigit():
+                environments.add(zone[0])
         environments.discard("0")
         return sorted(environments)
 
