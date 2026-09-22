@@ -52,8 +52,8 @@ That is the whole list. **F454, F455, MH200N, MH201, MH202, MyHOMEServer1, F461 
 
 | code | seen on | evidence |
 | :---: | :--- | :--- |
-| `51` | F454 (firmware 1.x) | Reported from the OpenWebNet device database in [#420](https://github.com/OpenWebNet-HA/MyHOME/pull/420); no trace captured yet. Newer F454 firmware answers `200`. |
-| `200` | F454 / MyHOMEServer1 / MH202 / F461 | Diagnostics in [#297](https://github.com/OpenWebNet-HA/MyHOME/issues/297) from an owner who identified the hardware in [#292](https://github.com/OpenWebNet-HA/MyHOME/issues/292); F454 confirmed on a physical device with SSDP in [#370](https://github.com/OpenWebNet-HA/MyHOME/issues/370); F461 reported in #370 without diagnostics. **Shared** by every modern Linux-based gateway, so it identifies none of them — it is the cue for the WHO=1013 question below. |
+| `51` | F454 (firmware 1.x) | Reported from the OpenWebNet device database in [#420](https://github.com/OpenWebNet-HA/MyHOME/pull/420); **unconfirmed** — no 1.x unit has been traced, and a 2.x F454 cannot be downgraded to check. A 2.0.51 F454 answers `200`. |
+| `200` | F454 / MyHOMEServer1 / MH202 / F461 | Confirmed on physical hardware in [#420](https://github.com/OpenWebNet-HA/MyHOME/pull/420) for the F454 (firmware 2.0.51), the MH202 (1.0.21) and the MyHomeServer1 (2.87.13), each with its `WHO=1013` reply; earlier for the MyHomeServer1 in [#297](https://github.com/OpenWebNet-HA/MyHOME/issues/297) / [#292](https://github.com/OpenWebNet-HA/MyHOME/issues/292) and the F454 in [#370](https://github.com/OpenWebNet-HA/MyHOME/issues/370). F461 reported in #370 without diagnostics. **Shared** by every modern Linux-based gateway, so it identifies none of them — it is the cue for the WHO=1013 question below. |
 
 If your gateway reports a code that is in neither table, the integration logs it, keeps your configured model, and surfaces an `unknown_gateway_model` repair issue asking for a diagnostic trace.
 
@@ -65,16 +65,26 @@ A shared code such as `200` cannot label an unconfigured gateway, and it cannot 
 *#1013*0*1##            → *#1013**1*<OBJECT_MODEL>##
 ```
 
-`WHO=1013` is the *Gateway Diagnostic* family; dimension 1 is the model code, and its catalogue has one code per model (`4` MH200, `5` MH202, `44` MH200N, `51` F454, `67` MyHOMEServer1, `134` F461, … — the full list is `WHO1013_OBJECT_MODELS` in `const.py`, taken from the OpenWebNet device database as listed in #370). Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
+`WHO=1013` is the *Gateway Diagnostic* family; dimension 1 is the model code, and its catalogue has one code per model (`4` MH200, `5` MH202, `44` MH200N, `51` F454, `67` MyHOMEServer1, `134` F461, … — the full list is `WHO1013_OBJECT_MODELS` in `const.py`, taken from the OpenWebNet device database as listed in #370). A real reply carries the model code first and three further values, `*15*5*0` on every gateway traced so far, whose meaning is unknown; only the first is read:
+
+```text
+*#1013**1*67*15*5*0##   ← MyHomeServer1 (firmware 2.87.13)
+*#1013**1*51*15*5*0##   ← F454 (firmware 2.0.51)
+*#1013**1*5*15*5*0##    ← MH202 (firmware 1.0.21)
+``` Note that the same SKU does not necessarily answer matching codes in the two families: an F454 is `51` here but `200` (or `51` on 1.x firmware) on `WHO=13`. The two tables are therefore kept apart, and the `WHO=1013` one is consulted only after a shared `WHO=13` code.
 
 Two safeguards keep this off legacy hardware and out of your logs:
 
 - **A legacy gateway never gets the question.** An MH200 answers `4` on `WHO=13`, which is unambiguous, so the `WHO=1013` request is never queued (verified on a physical MH200; there is a regression test for it). Only gateways that answer a shared code are asked, and those are all modern Linux gateways that implement `WHO=1013`.
-- **A gateway that does not answer costs nothing visible.** The request goes out as a *status request*: if the gateway NACKs it, OWNd retries once and logs both attempts at DEBUG. The request is repeated on each later broadcast of the shared code until an answer has been recorded, after which it is never sent again for the lifetime of the connection.
+- **A gateway that does not answer costs nothing visible.** The request goes out as a *status request*: if the gateway NACKs it, OWNd retries once and logs both attempts at DEBUG. One request is sent per answer: while it is unanswered the periodic re-broadcast of the shared code does not repeat it, and a reconnect of the event session is what gives it another try.
 
-What the answer does depends on the configured source, exactly mirroring the `WHO=13` rule below: it **labels** an unconfigured gateway, **corrects** a manual choice (with a *Gateway model corrected* issue), and **cross-checks** an SSDP or serial identity — which is never overruled, but a *Gateway model mismatch* issue asks you to confirm when the two disagree. That mismatch is owned by the `WHO=1013` verdict: the periodic re-broadcast of the shared `WHO=13` code that started the check does not clear it; only a later `WHO=1013` reply that agrees does. An OBJECT_MODEL outside the catalogue raises the same `unknown_gateway_model` issue as an unknown `WHO=13` code, with the code written as `1013-1-<value>`.
+What the answer does depends on the configured source, exactly mirroring the `WHO=13` rule below: it **labels** an unconfigured gateway, **corrects** a manual choice (with a *Gateway model corrected* issue), and **cross-checks** an SSDP or serial identity — which is never overruled, but a *Gateway model mismatch* issue asks you to confirm when the two disagree. Because `WHO=1013` outranks `WHO=13`, the periodic re-broadcast of the shared code that started the check cannot undo its verdict; only a later `WHO=1013` reply changes it. An OBJECT_MODEL outside the catalogue raises the same `unknown_gateway_model` issue as an unknown `WHO=13` code, with the code written as `1013-1-<value>`.
 
-> **Status of the evidence.** The MH200 side of this (code `4`, no `WHO=1013` request) is verified on real hardware. No capture of a real `WHO=1013` exchange with an F454, MyHOMEServer1, MH202 or F461 exists in the test fixtures yet; the replies in the tests are synthetic, built from the catalogue. If you own one of these, the `who1013_code` field in your diagnostics download (below) is the evidence we are missing — please attach it to an issue.
+### How the verdict is reached
+
+Each source is recorded separately — what you picked, what the gateway announced, the `WHO=13` code, the `WHO=1013` code — and one pure function (`resolve_gateway_identity` in `identity.py`) turns all of it into the effective model plus its corroboration or conflict state. The handlers only answer *"what did I observe?"*; a single resolver answers *"what should the integration believe?"*. Because the same evidence always yields the same verdict, a repeated broadcast can neither repeat a correction nor flap a repair issue.
+
+> **Status of the evidence.** Four gateways are verified on real hardware, each with a fixture the test suite replays: the **MH200** answers `4` and is never asked (`mh200_physical_plant`), and the **F454**, **MH202** and **MyHomeServer1** answer the shared `200` and then `51`, `5` and `67` (`pr_420_f454`, `pr_420_mh202`, `pr_420_myhomeserver1`, contributed in #420). Still untraced: the **F461** (reported to answer `200`), the claim that a 1.x **F454** answers `51` on `WHO=13`, and every other code in the catalogue. If you own one of those, the `who1013_code` field in your diagnostics download (below) is the evidence we are missing — please attach it to an issue.
 
 ---
 

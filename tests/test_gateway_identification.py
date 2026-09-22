@@ -731,6 +731,84 @@ def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev
 def _who1013(h, code):
     h._handle_gateway_identity_diagnostics(OWNEvent.parse(f"*#1013**1*{code}##"))
 
+
+# ── golden samples: real WHO=13 / WHO=1013 exchanges captured on hardware (PR #420) ──
+
+FIXTURES_PLANTS_DIR = Path(__file__).resolve().parent / "fixtures" / "plants"
+
+
+@pytest.mark.parametrize(
+    ("plant", "model", "object_model", "firmware"),
+    [
+        ("pr_420_f454", "F454", "51", "2.0.51"),
+        ("pr_420_mh202", "MH202", "5", "1.0.21"),
+        ("pr_420_myhomeserver1", "MyHomeServer1", "67", "2.87.13"),
+    ],
+)
+def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, firmware):
+    """Replay the identification frames of a physical gateway, in the order the bus produced them.
+
+    All three announced themselves over SSDP, answer the shared WHO=13 device type 200,
+    and answer ``*#1013*0*1##`` with their catalogue OBJECT_MODEL followed by three values
+    of unknown meaning (``*15*5*0`` on all three). The handler must queue exactly the
+    request the reporter's installation sent, and end corroborated, not in conflict.
+    """
+    create, delete, corrected = issues
+    diag = json.loads((FIXTURES_PLANTS_DIR / plant / "diagnostic_summary.json").read_text(encoding="utf-8"))
+    frames = diag["data"]["bus_monitor"]["recent_frames"]
+    assert diag["data"]["gateway"]["firmware"] == firmware
+    h = _handler({"name": model, "ssdp_location": "http://192.0.2.1:49153/description.xml", "firmware": firmware})
+    h.gateway.model_name = model
+    dev_reg.async_get.return_value = MagicMock(model=model)
+
+    sent: list[str] = []  # what the reporter's installation (2.0.0b13, by hand) put on the bus
+    queued: list[str] = []  # what this handler puts on the bus
+    for frame in frames:
+        raw = frame["raw"]
+        if not (raw.startswith("*#13*") or raw.startswith("*#1013*")):
+            continue
+        if frame["direction"] == "tx":
+            sent.append(raw)
+            continue
+        msg = OWNEvent.parse(raw)
+        if raw.startswith("*#13*"):
+            h._handle_gateway_diagnostics(msg)
+        else:
+            h._handle_gateway_identity_diagnostics(msg)
+        while not h.send_buffer.empty():
+            item = h.send_buffer.get_nowait()
+            assert item["is_status_request"] is True
+            queued.append(str(item["message"]))
+    # one request, the same frame the reporter sent by hand to produce the reply
+    assert queued == ["*#1013*0*1##"]
+    assert "*#1013*0*1##" in sent
+
+    ident = h.identification()
+    assert ident["source"] == IDENTIFICATION_SSDP
+    assert ident["who13_code"] == "200"
+    assert ident["who1013_code"] == object_model
+    assert ident["who1013_model"] == model
+    assert ident["model"] == model and h.gateway.model_name == model
+    assert ident["conflict"] is None
+    assert h._who1013["pending"] is False
+    create.assert_not_called()
+    corrected.assert_not_called()
+    h.hass.config_entries.async_update_entry.assert_not_called()
+    # the same evidence, resolved on its own, says the same
+    verdict = resolve(Evidence(technical=model, technical_source=IDENTIFICATION_SSDP, who13_code="200", who1013_code=object_model))
+    assert (verdict.model, verdict.conflict, verdict.request_who1013) == (model, None, False)
+
+
+def test_real_who1013_reply_carries_trailing_values(dev_reg, issues):
+    """``*#1013**1*67*15*5*0##`` as a MyHomeServer1 really answers it: OBJECT_MODEL is the first value."""
+    msg = OWNEvent.parse("*#1013**1*67*15*5*0##")
+    assert getattr(msg, "dimension_value", getattr(msg, "_dimension_value", None)) == ["67", "15", "5", "0"]
+    h = _handler({"name": "Generic"}, title="Generic Gateway")
+    h.gateway.model_name = "Generic"
+    h._handle_gateway_identity_diagnostics(msg)
+    assert h.gateway.model_name == "MyHomeServer1"
+    assert h.identification()["who1013_code"] == "67"
+
 def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, issues):
     """A code outside the catalogue keeps the model and raises the same unknown-model repair as WHO=13 does."""
     h = _handler({"name": "Generic"}, title="Generic Gateway")
