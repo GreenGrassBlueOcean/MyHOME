@@ -83,6 +83,7 @@ from .const import (
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
     CONF_DECODER_SOURCE,
+    CONF_SOURCE_DEFAULTS,
     CONF_SOURCE_NAME,
     CONF_SOURCE_SLOTS,
     DOMAIN,
@@ -379,6 +380,40 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 return int(candidate)
         return None
 
+    def _default_source(self) -> int | None:
+        """Return the source this zone's environment should default to.
+
+        Configured per environment rather than per zone: the matrix routes per
+        output and an output serves a whole environment, so two amplifiers in
+        the same room cannot sit on different inputs. ``None`` means "leave the
+        routing alone", which is the default.
+        """
+        defaults = self._options().get(CONF_SOURCE_DEFAULTS) or {}
+        if not isinstance(defaults, dict):
+            return None
+        value = defaults.get(_zone_environment(self._where))
+        try:
+            source = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return source if 1 <= source <= CONF_SOURCE_SLOTS else None
+
+    async def _apply_default_source(self, source_num: int | None = None) -> None:
+        """Route this zone's environment to its default source, if one is set.
+
+        Only ever called from actions the user started in Home Assistant
+        (turning the zone on, starting playback). Routing announced by a wall
+        panel is left untouched — see :func:`_warn_unconfigured_source`.
+        """
+        target = source_num if source_num is not None else self._default_source()
+        if target is None:
+            return
+        await self._gateway_handler.send(OWNSoundCommand(f"*16*3*{100 + target}##"))
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*3*{_routing_address(self._where, target)}##")
+        )
+        self._attr_source = self._source_label(target)
+
     # ── Pool helpers ──────────────────────────────────────────────────────────
 
     def _get_pool(self) -> DecoderPool | None:
@@ -481,7 +516,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return
 
         # 1. Claim an idle decoder (thread-safe via asyncio.Lock)
-        result = await pool.claim(self.entity_id)
+        result = await pool.claim(self.entity_id, preferred_source=self._default_source())
         if result is None:
             raise HomeAssistantError(
                 f"{self.entity_id}: All audio matrix inputs are currently in use by other rooms!",
@@ -511,16 +546,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     decoder_id,
                 )
 
-        # 3. Activate the BTicino zone amplifier.
+        # 3. Activate the BTicino zone amplifier and route it to the decoder.
         #
-        # "Hardware Routing First" model:
-        # The matrix routing is managed physically (wall panels) or by a
-        # power-on scenario on the gateway. The integration deliberately does
-        # NOT send source-selection commands (*16*3*10X## / *16*3*1XY##)
-        # because they produce audible hiss on MH200-class gateways.
-        #
-        # A simple OFF → ON is sufficient. The F441M restores the last
-        # (physically or scenario-set) source assignment and volume level.
+        # The zone has to listen to the input this decoder is wired to,
+        # otherwise the stream plays into a room that is listening elsewhere.
         if self._attr_state != MediaPlayerState.ON:
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
@@ -528,6 +557,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             await asyncio.sleep(0.5)
             self._attr_state = MediaPlayerState.ON
             self.async_write_ha_state()
+        await self._apply_default_source(source_num)
 
         # 4. Forward the stream URL to the backend decoder
         service_data: dict[str, Any] = {
@@ -601,15 +631,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the zone amplifier on.
 
-        Uses a simple OFF → ON sequence.  The F441M matrix remembers
-        its source routing from the wall-panel configuration; sending
-        explicit source-selection commands corrupts the audio path.
+        Uses a simple OFF → ON sequence.  When a default source is configured
+        for this zone's environment the matrix is routed there first, so a room
+        left on a stale input by a wall panel comes back on the right source.
+        Without that setting the existing routing is kept untouched.
         """
         if self._attr_state != MediaPlayerState.ON:
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
             await asyncio.sleep(0.5)
+        await self._apply_default_source()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the zone amplifier off and release any claimed decoder.

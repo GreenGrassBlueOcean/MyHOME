@@ -22,6 +22,7 @@ from custom_components.myhome.const import (
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SOURCE,
     CONF_ENTITY,
+    CONF_SOURCE_DEFAULTS,
     CONF_SOURCE_NAME,
     DOMAIN,
 )
@@ -665,3 +666,92 @@ async def test_mute_volume_decoder_error_handled(hass, player, mock_gateway):
 
     assert player._attr_is_volume_muted is True
 
+
+
+def _set_default_source(player, environment, source):
+    """Configure the per-environment default matrix source."""
+    options = dict(player.platform.config_entry.options or {})
+    options[CONF_SOURCE_DEFAULTS] = {environment: source}
+    player.platform.config_entry.options = options
+
+
+@pytest.mark.asyncio
+async def test_turn_on_applies_the_environment_default_source(hass, player, mock_gateway):
+    """Turning a zone on from HA routes it to the configured default source."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+
+    await player.async_turn_on()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent[-2:] == ["*16*3*102##", "*16*3*122##"]
+    assert player.source == "Cambridge"
+
+
+@pytest.mark.asyncio
+async def test_turn_on_leaves_routing_alone_without_a_default(hass, player, mock_gateway):
+    """Without a configured default the existing routing is untouched."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    await player.async_turn_on()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert all("*16*3*1" not in frame or frame.endswith("*23##") for frame in sent)
+    assert player.source is None
+
+
+def test_wall_panel_routing_is_not_corrected(hass, player, mock_gateway):
+    """A default source never overrides a choice made at a wall panel.
+
+    The user pressed a button in the room; silently routing the zone back
+    would be the surprise this design set out to avoid.
+    """
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+
+    player.handle_event(
+        MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121",
+                  is_on=False, is_off=False, volume=None)
+    )
+
+    assert player.source == "Source 1 (not configured)"
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_media_routes_to_the_claimed_decoder(hass, player, mock_gateway):
+    """Streaming routes the zone to the input its decoder is wired to."""
+    player._where = "23"
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=("media_player.squeezelite_1", 1))
+    pool.get_pre_gain = MagicMock(return_value=0)
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await player.async_play_media("music", "http://stream")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent[-2:] == ["*16*3*101##", "*16*3*121##"]
+
+
+@pytest.mark.asyncio
+async def test_pool_claim_prefers_the_default_source(hass, player, mock_gateway):
+    """The zone asks the pool for a decoder on its default input."""
+    player._where = "23"
+    _set_default_source(player, "2", 2)
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=("media_player.cambridge_2", 2))
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.cambridge_2", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await player.async_play_media("music", "http://stream")
+
+    assert pool.claim.call_args.kwargs["preferred_source"] == 2

@@ -81,7 +81,17 @@
           "config_file_path": "Path onfiguratie bestand",
           "command_worker_count": "Aantal open command sessies",
           "generate_events": "Genereer gebeurtenissen in Home Assistant voor elk ontvangen bericht",
-          "broadcast_resync": "Bevraag groep-/gebied-/algemene adressen na een stille periode"
+          "broadcast_resync": "Bevraag groep-/gebied-/algemene adressen na een stille periode",
+          "default_source_env_0": "Standaardbron voor omgeving 0 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_1": "Standaardbron voor omgeving 1 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_2": "Standaardbron voor omgeving 2 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_3": "Standaardbron voor omgeving 3 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_4": "Standaardbron voor omgeving 4 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_5": "Standaardbron voor omgeving 5 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_6": "Standaardbron voor omgeving 6 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_7": "Standaardbron voor omgeving 7 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_8": "Standaardbron voor omgeving 8 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "default_source_env_9": "Standaardbron voor omgeving 9 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet"
         }
       }
     },

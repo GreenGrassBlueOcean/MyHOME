@@ -110,7 +110,17 @@
           "decoder_3_pre_gain": "Decoder 3 — Pre-gain offset %",
           "decoder_4_entity": "Decoder 4 — Media player entity",
           "decoder_4_source": "Decoder 4 — BTicino source input number (1–4)",
-          "decoder_4_pre_gain": "Decoder 4 — Pre-gain offset %"
+          "decoder_4_pre_gain": "Decoder 4 — Pre-gain offset %",
+          "default_source_env_0": "Default source for environment 0 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_1": "Default source for environment 1 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_2": "Default source for environment 2 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_3": "Default source for environment 3 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_4": "Default source for environment 4 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_5": "Default source for environment 5 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_6": "Default source for environment 6 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_7": "Default source for environment 7 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_8": "Default source for environment 8 — used when a zone in that room is turned on from Home Assistant",
+          "default_source_env_9": "Default source for environment 9 — used when a zone in that room is turned on from Home Assistant"
         }
       }
     },

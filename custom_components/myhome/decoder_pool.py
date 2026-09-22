@@ -109,7 +109,9 @@ class DecoderPool:
         """Return ``True`` if at least one decoder has been mapped."""
         return len(self._decoder_map) > 0
 
-    async def claim(self, zone_entity_id: str) -> tuple[str, int] | None:
+    async def claim(
+        self, zone_entity_id: str, preferred_source: int | None = None
+    ) -> tuple[str, int] | None:
         """Claim an idle decoder for *zone_entity_id*.
 
         Thread-safe: uses ``asyncio.Lock`` to prevent two zones from claiming
@@ -121,6 +123,9 @@ class DecoderPool:
         Args:
             zone_entity_id: The ``entity_id`` of the BTicino zone requesting
                 a decoder (e.g. ``"media_player.audio_zone_3"``).
+            preferred_source: Matrix input this zone would rather use. A
+                decoder wired to it is claimed first when it is idle;
+                otherwise the usual slot order applies.
 
         Returns:
             ``(decoder_entity_id, source_num: int)`` if an idle decoder was
@@ -140,8 +145,18 @@ class DecoderPool:
                     LOGGER.debug("Decoder %s already claimed by %s", dec_id, zone_entity_id)
                     return (dec_id, self._decoder_map[dec_id])
 
+            # Candidates in slot order, but a decoder wired to the caller's
+            # preferred source comes first: routing the matrix to the input
+            # the room already defaults to avoids an audible source switch.
+            candidates = list(self._assignments)
+            if preferred_source is not None:
+                candidates.sort(
+                    key=lambda dec: self._decoder_map.get(dec) != preferred_source
+                )
+
             # Find the first decoder that is unassigned AND idle.
-            for dec_id, owner in self._assignments.items():
+            for dec_id in candidates:
+                owner = self._assignments[dec_id]
                 if owner is not None:
                     continue  # already in use by another zone
 

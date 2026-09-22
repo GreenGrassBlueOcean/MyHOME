@@ -81,7 +81,17 @@
           "config_file_path": "Percorso del file di configurazione",
           "command_worker_count": "Numero di sessioni di comando simultanee",
           "generate_events": "Genera eventi in Home Assistant per ogni messaggio ricevuto",
-          "broadcast_resync": "Interroga gli indirizzi di gruppo/area/generale dopo una finestra di silenzio"
+          "broadcast_resync": "Interroga gli indirizzi di gruppo/area/generale dopo una finestra di silenzio",
+          "default_source_env_0": "Sorgente predefinita per l'ambiente 0 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_1": "Sorgente predefinita per l'ambiente 1 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_2": "Sorgente predefinita per l'ambiente 2 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_3": "Sorgente predefinita per l'ambiente 3 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_4": "Sorgente predefinita per l'ambiente 4 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_5": "Sorgente predefinita per l'ambiente 5 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_6": "Sorgente predefinita per l'ambiente 6 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_7": "Sorgente predefinita per l'ambiente 7 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_8": "Sorgente predefinita per l'ambiente 8 — usata quando una zona di quella stanza viene accesa da Home Assistant",
+          "default_source_env_9": "Sorgente predefinita per l'ambiente 9 — usata quando una zona di quella stanza viene accesa da Home Assistant"
         }
       }
     },

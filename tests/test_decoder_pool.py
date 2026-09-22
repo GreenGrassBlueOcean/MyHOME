@@ -284,3 +284,45 @@ async def test_get_assignment_returns_decoder(pool_one_decoder):
 async def test_get_assignment_none_when_not_claimed(pool_one_decoder):
     """get_assignment returns None for zones with no active decoder."""
     assert pool_one_decoder.get_assignment(ZONE_A) is None
+
+
+@pytest.mark.asyncio
+async def test_claim_prefers_a_decoder_on_the_requested_source(hass):
+    """A zone gets the decoder wired to its preferred input when it is idle.
+
+    Routing the matrix to the input the room already defaults to avoids an
+    audible source switch, so slot order yields to the preference.
+    """
+    pool = DecoderPool(
+        hass,
+        {
+            "media_player.slot_one": 1,
+            "media_player.slot_two": 2,
+        },
+    )
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "idle")
+
+    assert await pool.claim("media_player.zone", preferred_source=2) == (
+        "media_player.slot_two",
+        2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_claim_falls_back_when_the_preferred_decoder_is_busy(hass):
+    """A busy preference does not block playback; slot order takes over."""
+    pool = DecoderPool(
+        hass,
+        {
+            "media_player.slot_one": 1,
+            "media_player.slot_two": 2,
+        },
+    )
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "playing")
+
+    assert await pool.claim("media_player.zone", preferred_source=2) == (
+        "media_player.slot_one",
+        1,
+    )

@@ -81,7 +81,17 @@
           "config_file_path": "Chemin du fichier de configuration",
           "command_worker_count": "Nombre de session de commande simultanées",
           "generate_events": "Générer des événements dans Home Assistant pour chaque message reçu",
-          "broadcast_resync": "Interroger les adresses de groupe/zone/générale après une fenêtre de silence"
+          "broadcast_resync": "Interroger les adresses de groupe/zone/générale après une fenêtre de silence",
+          "default_source_env_0": "Source par défaut pour l'environnement 0 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_1": "Source par défaut pour l'environnement 1 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_2": "Source par défaut pour l'environnement 2 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_3": "Source par défaut pour l'environnement 3 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_4": "Source par défaut pour l'environnement 4 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_5": "Source par défaut pour l'environnement 5 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_6": "Source par défaut pour l'environnement 6 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_7": "Source par défaut pour l'environnement 7 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_8": "Source par défaut pour l'environnement 8 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant",
+          "default_source_env_9": "Source par défaut pour l'environnement 9 — utilisée lorsqu'une zone de cette pièce est allumée depuis Home Assistant"
         }
       }
     },
