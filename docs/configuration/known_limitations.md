@@ -43,7 +43,7 @@ Things the integration does not do, or does with a caveat, and the reason. Where
 
 | Limitation | Why | Workaround |
 | :--- | :--- | :--- |
-| **Zones are not entities; the panel follows the central unit.** Some plants (F454 + 3486) surface several zone objects with no arm / disarm frames answered (#311). | WHO 5 zone and sensor discovery needs a bus trace from a physical central unit to model correctly; the current implementation is built on golden frames. | Zone events are available as `myhome_event`; a trace attached to #311 unblocks the design. |
+| **Zones are not entities; the panel follows the central unit.** Some plants (F454 + 3486) surface several zone objects with no arm / disarm frames answered (#311). | WHO 5 zone and sensor discovery needs a bus trace from a physical central unit to model correctly; the current implementation is built on golden frames. | Zone frames are available as `myhome_message_event` (with **Generate Events** on) and alarm state changes as `myhome_alarm_event`; a trace attached to #311 unblocks the design. |
 | **Arming requires the central unit to accept the command.** | Central units reject arming while a zone is open or the engineer code is active; the bus only reports the refusal. | Watch the bus-monitor card for the NACK. |
 
 ## Sound system (WHO 16)

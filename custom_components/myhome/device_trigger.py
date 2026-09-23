@@ -17,6 +17,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_ROTARY_CCW_FAST,
     CONF_ROTARY_CCW_SLOW,
@@ -35,6 +36,7 @@ TRIGGER_TYPES = {
     CONF_SHORT_PRESS,
     CONF_SHORT_RELEASE,
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_ROTARY_CW_SLOW,
     CONF_ROTARY_CW_FAST,
@@ -45,7 +47,8 @@ TRIGGER_TYPES = {
 TRIGGER_SUBTYPES = [f"button_{i}" for i in range(0, 32)]
 
 # Triggers a family can never fire, so they are not offered for its devices.
-# CEN (WHO 15) has no rotary events; CEN+ (WHO 25) has no short-release frame.
+# CEN (WHO 15) has no rotary events and no separate repeat frame (its #3 both
+# starts and repeats a hold); CEN+ (WHO 25) has no short-release frame.
 _ROTARY_TRIGGER_TYPES = {
     CONF_ROTARY_CW_SLOW,
     CONF_ROTARY_CW_FAST,
@@ -53,7 +56,7 @@ _ROTARY_TRIGGER_TYPES = {
     CONF_ROTARY_CCW_FAST,
 }
 _UNSUPPORTED_TRIGGER_TYPES = {
-    "15": _ROTARY_TRIGGER_TYPES,
+    "15": _ROTARY_TRIGGER_TYPES | {CONF_LONG_PRESS_REPEAT},
     "25": {CONF_SHORT_RELEASE},
 }
 

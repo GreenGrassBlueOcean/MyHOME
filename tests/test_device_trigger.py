@@ -18,6 +18,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.const import (
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_ROTARY_CCW_FAST,
     CONF_ROTARY_CCW_SLOW,
     CONF_ROTARY_CW_FAST,
@@ -144,9 +145,9 @@ async def test_async_get_triggers_cen_device(hass: HomeAssistant):
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "cen_device_id")
 
-        # WHO 15 has no rotary events, so those triggers are not offered.
-        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - ROTARY_TYPES
-        assert len(triggers) == (len(TRIGGER_TYPES) - len(ROTARY_TYPES)) * len(TRIGGER_SUBTYPES)
+        # WHO 15 has no rotary events and no separate repeat frame.
+        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - CEN_UNSUPPORTED
+        assert len(triggers) == (len(TRIGGER_TYPES) - len(CEN_UNSUPPORTED)) * len(TRIGGER_SUBTYPES)
         for trigger in triggers:
             assert trigger[CONF_ADDRESS] == 5
             assert trigger[CONF_DEVICE_ID] == "cen_device_id"
@@ -191,14 +192,15 @@ async def test_home_assistant_discovers_cenplus_device_triggers(hass: HomeAssist
 
 
 ROTARY_TYPES = {CONF_ROTARY_CW_SLOW, CONF_ROTARY_CW_FAST, CONF_ROTARY_CCW_SLOW, CONF_ROTARY_CCW_FAST}
+CEN_UNSUPPORTED = ROTARY_TYPES | {CONF_LONG_PRESS_REPEAT}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("identifier", "expected"),
     [
-        ("cen_31", TRIGGER_TYPES - ROTARY_TYPES),
-        ("00:03:50:aa:bb:cc-cen-31", TRIGGER_TYPES - ROTARY_TYPES),
+        ("cen_31", TRIGGER_TYPES - CEN_UNSUPPORTED),
+        ("00:03:50:aa:bb:cc-cen-31", TRIGGER_TYPES - CEN_UNSUPPORTED),
         ("cenplus_2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
         ("00:03:50:aa:bb:cc-cenplus-2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
     ],
@@ -409,6 +411,29 @@ async def test_async_attach_trigger_cenplus_rotary_and_press(hass: HomeAssistant
     )
     await hass.async_block_till_done()
     unsub()
+
+
+@pytest.mark.asyncio
+async def test_long_press_and_repeat_triggers_are_separate(hass: HomeAssistant):
+    """A hold fires long_press once (WHAT 22) and long_press_repeat per WHAT 23."""
+    assert CONF_LONG_PRESS_REPEAT in TRIGGER_TYPES
+    on_press = AsyncMock()
+    on_repeat = AsyncMock()
+    unsub_press = await async_attach_trigger(
+        hass, {CONF_TYPE: CONF_LONG_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 1}, on_press, {}
+    )
+    unsub_repeat = await async_attach_trigger(
+        hass, {CONF_TYPE: CONF_LONG_PRESS_REPEAT, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 1}, on_repeat, {}
+    )
+
+    for event in (CONF_LONG_PRESS, CONF_LONG_PRESS_REPEAT, CONF_LONG_PRESS_REPEAT):
+        hass.bus.async_fire("myhome_cenplus_event", {"event": event, "pushbutton": 1, "object": 1})
+    await hass.async_block_till_done()
+
+    assert on_press.call_count == 1
+    assert on_repeat.call_count == 2
+    unsub_press()
+    unsub_repeat()
 
 
 def test_get_cen_info_from_device_branches():

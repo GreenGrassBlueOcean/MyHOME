@@ -43,7 +43,7 @@ automation:
       - platform: device
         domain: myhome
         device_id: <device id of the CEN+ module>
-        type: short_press
+        type: pushbutton_short_press
         subtype: button_1
     action:
       - service: light.toggle
@@ -55,7 +55,7 @@ automation:
       - platform: device
         domain: myhome
         device_id: <device id of the CEN+ module>
-        type: long_press
+        type: pushbutton_long_press
         subtype: button_1
     action:
       - service: vacuum.start

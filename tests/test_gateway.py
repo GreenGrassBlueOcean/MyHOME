@@ -29,6 +29,7 @@ from custom_components.myhome.const import (
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
@@ -597,7 +598,7 @@ async def test_listening_loop_cen_and_cenplus_variants(gateway_handler):
             pass
 
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 1, "event": CONF_LONG_PRESS, "where": "1", "gateway_mac": gateway_handler.mac})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 2, "event": CONF_LONG_PRESS, "where": "1", "gateway_mac": gateway_handler.mac})
+        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 2, "event": CONF_LONG_PRESS_REPEAT, "where": "1", "gateway_mac": gateway_handler.mac})
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 3, "event": CONF_LONG_RELEASE, "where": "1", "gateway_mac": gateway_handler.mac})
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 4, "event": None, "where": "1", "gateway_mac": gateway_handler.mac})
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cenplus_event", {"object": 1, "pushbutton": 5, "event": CONF_ROTARY_CW_SLOW, "where": "1", "gateway_mac": gateway_handler.mac})
@@ -609,6 +610,32 @@ async def test_listening_loop_cen_and_cenplus_variants(gateway_handler):
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cen_event", {"object": 2, "pushbutton": 2, "event": CONF_SHORT_RELEASE, "where": "2", "gateway_mac": gateway_handler.mac})
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cen_event", {"object": 2, "pushbutton": 3, "event": CONF_LONG_RELEASE, "where": "2", "gateway_mac": gateway_handler.mac})
         gateway_handler.hass.bus.async_fire.assert_any_call("myhome_cen_event", {"object": 2, "pushbutton": 4, "event": None, "where": "2", "gateway_mac": gateway_handler.mac})
+
+
+@pytest.mark.asyncio
+async def test_listening_loop_cenplus_hold_fires_long_press_once(gateway_handler):
+    # fedem95's MH201 trace (#418): a 2.18 s hold on button 2 of CEN+ object 1.
+    frames = ["*25*22#2*21##", "*25*23#2*21##", "*25*23#2*21##", "*25*23#2*21##", "*25*23#2*21##", "*25*24#2*21##"]
+    with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session.connect = AsyncMock(return_value={"Success": True})
+        mock_session.get_next = AsyncMock(side_effect=[OWNMessage.parse(f) for f in frames] + [asyncio.CancelledError()])
+        mock_session_class.return_value = mock_session
+        gateway_handler.send_status_request = AsyncMock()
+
+        try:
+            await gateway_handler.listening_loop()
+        except asyncio.CancelledError:
+            pass
+
+    payloads = [
+        c.args[1]
+        for c in gateway_handler.hass.bus.async_fire.call_args_list
+        if c.args[0] == "myhome_cenplus_event"
+    ]
+    assert [p["event"] for p in payloads] == [CONF_LONG_PRESS] + [CONF_LONG_PRESS_REPEAT] * 4 + [CONF_LONG_RELEASE]
+    # WHERE 21 is CEN+ object 1; the button comes from the #2 WHAT parameter.
+    assert {(p["object"], p["pushbutton"], p["where"]) for p in payloads} == {(1, 2, "1")}
 
 
 @pytest.mark.asyncio

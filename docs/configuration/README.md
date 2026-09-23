@@ -54,7 +54,7 @@ Fine-tune runtime parameters by clicking **Configure** on the MyHOME integration
 
 * **Command Worker Concurrency**: Number of asynchronous command workers (default: `1`). Increase to `2`–`4` for high-throughput multi-session gateways like F454 or MHS1.
 * **Dimmer Transition Mode**: Choose between `software_stepped` (smooth 100-step software stepping managed by Home Assistant) and `native` (actuator hardware fade ramp).
-* **Event Bus Broadcasting**: Toggle whether raw bus frames are emitted as `myhome_event` events to Home Assistant for custom event automations.
+* **Event Bus Broadcasting**: Toggle whether raw bus frames are emitted as `myhome_message_event` events to Home Assistant for custom event automations.
 * **Dynamic Proxy Decoders**: Map network audio decoders (Music Assistant, Squeezelite) to physical F441 matrix source inputs for Diffusione Sonora.
 
 ---
