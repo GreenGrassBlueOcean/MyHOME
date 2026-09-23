@@ -88,7 +88,7 @@ You can customize runtime behavior by clicking **Configure** on the gateway inte
 
 ### 3. Generate Events (`CONF_GENERATE_EVENTS`)
 - Boolean switch (Default: `False`).
-- When enabled, raw bus telegrams are emitted onto Home Assistant's event bus under the `myhome_event` topic.
+- When enabled, raw bus telegrams are emitted onto Home Assistant's event bus as `myhome_message_event` events.
 
 ---
 
@@ -175,7 +175,7 @@ You can adjust integration runtime parameters at any time without re-adding the 
 | :--- | :--- | :---: | :---: | :--- |
 | **Command Worker Concurrency** | `worker_count` | Integer (1–4) | `1` | Number of concurrent asynchronous command workers. Set to `1` on single-session scenario programmers (MH200/MH200N) to prevent command collision; can be increased to `2`–`4` on modern multi-session gateways (F454, MHS1). |
 | **Dimmer Transition Mode** | `transition_mode` | Select | `software_stepped` | `software_stepped` (smooth 100-step software interpolation managed by Home Assistant) vs `native` (hardware fade execution on F418 modules). |
-| **Event Bus Broadcasting** | `generate_events` | Boolean | `True` | Emits raw bus frames as `myhome_event` events to the Home Assistant global event bus for custom automations. |
+| **Event Bus Broadcasting** | `generate_events` | Boolean | `False` | Emits raw bus frames as `myhome_message_event` events to the Home Assistant global event bus for custom automations. |
 | **Broadcast Re-sync** | `broadcast_resync` | Boolean | `True` | Automatically triggers a targeted query when general/area broadcast commands (`WHERE = 0` or area addresses) are detected on the bus to keep individual entity states synchronized. |
 | **Dynamic Proxy Decoders** | `decoders` | Mapping | None | Maps external software audio players (e.g. Music Assistant, Squeezelite) to physical F441 audio matrix source inputs for Diffusione Sonora (`WHO = 16`). |
 

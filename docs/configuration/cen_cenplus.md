@@ -26,11 +26,11 @@ BTicino / Legrand pushbuttons operate in either **CEN** (`WHO = 15`) or **CEN+**
 In MyHOME v2.0, physical pushbuttons are automatically discovered and registered as **Home Assistant Devices**. You do **not** need to write complex template sensors or manual event listeners to automate them!
 
 ### Supported Trigger Types
-- `short_press`: Fired immediately upon a quick tap.
-- `short_release`: Fired when a short tap is released.
-- `long_press`: Fired when the button is held down (exceeding ~400ms). On CEN+ it fires once per hold.
-- `pushbutton_long_press_repeat` (CEN+ only): Fired about every 0.5 s while the button stays held (`WHAT = 23`). Use it for "hold to dim"; use `long_press` for actions that should run once.
-- `long_release`: Fired when a held button is finally released.
+- `pushbutton_short_press`: Fired immediately upon a quick tap.
+- `pushbutton_short_release`: Fired when a short tap is released.
+- `pushbutton_long_press`: Fired when the button is held down (exceeding ~400ms). On CEN+ it fires once per hold.
+- `pushbutton_long_press_repeat` (CEN+ only): Fired about every 0.5 s while the button stays held (`WHAT = 23`). Use it for "hold to dim"; use `pushbutton_long_press` for actions that should run once.
+- `pushbutton_long_release`: Fired when a held button is finally released.
 - `rotary_cw_slow`: Clockwise rotation at normal speed.
 - `rotary_cw_fast`: Clockwise rotation at fast speed.
 - `rotary_ccw_slow`: Counter-clockwise rotation at normal speed.
@@ -62,14 +62,14 @@ trigger:
   - platform: device
     domain: myhome
     device_id: 3c9b7410de884218a4521400e2345678
-    type: short_press
+    type: pushbutton_short_press
     subtype: button_1
     id: short_tap
 
   - platform: device
     domain: myhome
     device_id: 3c9b7410de884218a4521400e2345678
-    type: long_press
+    type: pushbutton_long_press
     subtype: button_1
     id: hold
 
@@ -138,23 +138,26 @@ action:
 
 ---
 
-## 📡 Advanced: The `myhome_event` Bus Stream
+## 📡 Advanced: Listening to the Event Bus
 
-If you prefer listening to the global Home Assistant event bus directly (e.g. in AppDaemon or custom automations):
+If you prefer listening to the Home Assistant event bus directly (e.g. in AppDaemon or custom automations), every button event is fired as `myhome_cen_event` (CEN) or `myhome_cenplus_event` (CEN+). No option needs to be enabled. The event data holds:
 
-1. Enable **Generate Events** in the integration **Options Flow**.
-2. Listen for events of type `myhome_event`:
+- `object`: the CEN object, or the CEN+ object without its leading `2` (WHERE `21` is object `1`)
+- `pushbutton`: the button number
+- `event`: one of the trigger types above (`pushbutton_short_press`, `rotary_cw_slow`, …)
+- `where`, `gateway_mac` and `entry_id`, to tell plants and gateways apart
 
 ```yaml
 trigger:
   - platform: event
-    event_type: myhome_event
+    event_type: myhome_cenplus_event
     event_data:
-      who: 25
-      address: "12"
-      button: 1
-      type: short_press
+      object: 1
+      pushbutton: 1
+      event: pushbutton_short_press
 ```
+
+Enabling **Generate Events** in the **Options Flow** additionally fires every bus frame as `myhome_message_event`.
 
 ---
 
