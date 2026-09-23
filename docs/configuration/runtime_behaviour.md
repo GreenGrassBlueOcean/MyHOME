@@ -12,9 +12,11 @@ After the event session is up, the integration sends a small set of general stat
 | :--- | :--- |
 | `*#2*0##` | Automation / covers |
 | `*#4*0##` | Thermoregulation |
-| `*#16*0##` | Sound system |
+| `*#16*0*5##` | Sound system (dimension 5; lists every amplifier) |
 
-Each request is only sent when the gateway's OWNd **profile** advertises that WHO (`GatewayProfile.supported_who`). An **MH200N**, for example, has no audio subsystem and NACKs `*#16*0##`; previously that produced a `Could not send message … Retrying` error on every boot. Unknown gateways keep the full set.
+Each request is only sent when the gateway's OWNd **profile** advertises that WHO (`GatewayProfile.supported_who`). Unknown gateways keep the full set.
+
+> The WHO 16 status request is `*#16*WHERE*5##` (spec section 1.5.2). Gateways NACK the bare `*#16*0##` for every address, whether or not the plant has audio, so an old NACK on that frame never meant "no audio".
 
 > WHO=1 has no valid general status request (`*#1*0##` is not OpenWebNet), so lights are hydrated from their own status replies and bus traffic.
 

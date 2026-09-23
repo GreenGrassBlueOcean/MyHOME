@@ -100,7 +100,7 @@ The integration includes enterprise-grade connection reliability safeguards:
 - **Backoff & Auto-Reconnect**: If a network glitch or gateway reboot occurs, the event and command workers automatically cycle through an exponential backoff reconnect loop.
 - **Availability Grace Period**: An entity availability grace timer (60 seconds) prevents entities from rapidly toggling to `Unavailable` during brief gateway reconnections or WiFi dropouts.
 - **Silent Reconnect Cycles**: the read cycle in which OWNd re-establishes the event socket produces no frame and is skipped at `DEBUG` level; `Event connection lost, reconnecting...` is OWNd's own log line and is normal on gateways that close idle sockets (MH200/MH201).
-- **Profile-Gated Discovery**: the startup status requests (`*#2*0##`, `*#4*0##`, `*#16*0##`) are only sent for subsystems the gateway profile advertises, so an MH200N is never asked for audio it does not have.
+- **Profile-Gated Discovery**: the startup status requests (`*#2*0##`, `*#4*0##`, `*#16*0*5##`) are only sent for subsystems the gateway profile advertises.
 - **Reauthentication**: a rejected OpenWebNet password raises `ConfigEntryAuthFailed`; Home Assistant shows *Reauthentication required* and opens the reauth flow. Other connection failures are retried with backoff (`ConfigEntryNotReady`).
 
 See [Runtime Behaviour Notes](runtime_behaviour.md) for the reasoning behind each of these.

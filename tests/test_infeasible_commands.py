@@ -283,7 +283,7 @@ class TestProbeAndStatusFeasibility:
 
     @pytest.mark.asyncio
     async def test_status_request_nack_logged_at_debug_without_warning(self):
-        """Status request NACK (e.g. *#16*0## without audio matrix) must log DEBUG and not WARN."""
+        """Status request NACK (e.g. *#16*0*5## on a plant without amplifiers) must log DEBUG and not WARN."""
         from unittest.mock import MagicMock
 
         from OWNd.connection import OWNCommandSession, OWNGateway
@@ -307,13 +307,13 @@ class TestProbeAndStatusFeasibility:
         assert (await session.connect())["Success"] is True
 
         try:
-            # When probing audio on MH201 without audio matrix:
-            status_cmd = OWNCommand.parse("*#16*0##")
+            # When probing audio on MH201 without amplifiers:
+            status_cmd = OWNCommand.parse("*#16*0*5##")
             result = await session.send(status_cmd, is_status_request=True)
             assert result is None
 
             # Attempt 0 retries once upon immediate NACK, then on attempt 1 reports NACK at DEBUG
-            assert harness.received_messages.count("*#16*0##") == 2
+            assert harness.received_messages.count("*#16*0*5##") == 2
 
             # Must log at DEBUG, never at WARNING
             mock_logger.debug.assert_any_call(

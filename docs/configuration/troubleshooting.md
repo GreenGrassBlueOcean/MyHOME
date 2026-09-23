@@ -92,7 +92,7 @@ Every playing zone claims one decoder; map more decoders or stop playback in ano
 
 ### `Could not send message *#16*0##` (or `*#2*0##`, `*#4*0##`) at every start
 
-Startup discovery only asks for subsystems the gateway profile advertises. If you still see it, the gateway model is wrong (an MH200N has no audio): correct it with the reconfigure flow.
+Startup discovery only asks for subsystems the gateway profile advertises. The bare `*#16*0##` was the wrong frame and every gateway NACKs it; current versions send `*#16*0*5##`. If a status request is still rejected, check that the gateway model is right and correct it with the reconfigure flow.
 
 ### The gateway stops answering after a burst of commands
 
