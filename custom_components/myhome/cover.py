@@ -1166,6 +1166,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             message.human_readable_log,
         )
         now = time.monotonic()
+        moving = bool(message.is_opening or message.is_closing)
+        if moving and position is not None:
+            # While the motor runs the actuator repeats the level it started from
+            # (*#2*0112*10*12*25*…## until *#2*0112*10*10*0*…##): the status
+            # decides, and the level is only the last known position.
+            if self._advanced:
+                self._attr_current_cover_position = position
+            position = None
         if position is None and self._handle_echo(message, now):
             self._publish_state()
             return
