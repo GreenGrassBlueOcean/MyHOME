@@ -1,3 +1,4 @@
+import pytest
 from OWNd.message import OWNEvent, OWNSoundCommand, OWNSoundEvent
 
 
@@ -149,14 +150,7 @@ def test_own_sound_command_generation():
     off_msg = OWNSoundCommand.turn_off("11")
     assert str(off_msg) == "*16*13*11##"
 
-    # Select Source — returns TWO commands:
-    #   1. Activate the source device on the bus (WHERE = 100 + source)
-    #   2. Route the amplifier output to that source (compound 1XY address)
-    source_cmds = OWNSoundCommand.select_source("22", "3")
-    assert isinstance(source_cmds, list)
-    assert len(source_cmds) == 2
-    assert str(source_cmds[0]) == "*16*3*103##"  # activate source 3 device
-    assert str(source_cmds[1]) == "*16*3*132##"  # route zone 2 to source 3
+    # Select Source: see test_own_sound_select_source_routes_the_environment
 
     # Volume Up
     vol_up_msg = OWNSoundCommand.volume_up("0") # All zones
@@ -171,6 +165,37 @@ def test_own_sound_command_generation():
     # Set Volume
     set_vol_msg = OWNSoundCommand.set_volume("1", 15)
     assert str(set_vol_msg) == "*#16*1*#1*15##"
+
+
+# OWNd releases up to and including 2.0.0b8 build the routing address from the
+# source and the LAST amplifier digit (22 on source 3 -> 132).  OWNd#48 fixes it
+# to environment-then-source (-> 123).  Detect which one is installed instead of
+# pinning a version: this suite runs against released OWNd here and against the
+# OWNd#48 checkout in that PR's "MyHOME test suite" job, and must be green in
+# both.  strict=True turns an unexpected pass into a failure, so the marker
+# cannot quietly outlive the old formula.
+_OWND_ROUTES_BY_LAST_DIGIT = (
+    str(OWNSoundCommand.select_source("22", "3")[1]) == "*16*3*132##"
+)
+
+
+@pytest.mark.xfail(
+    _OWND_ROUTES_BY_LAST_DIGIT,
+    reason="installed OWNd predates OWNd#48 (routing address built from the last amplifier digit)",
+    strict=True,
+)
+def test_own_sound_select_source_routes_the_environment():
+    """``select_source`` returns the two frames a wall panel sends.
+
+    1. Activate the source device on the bus (WHERE = 100 + source).
+    2. Route the matrix to that source: compound ``1ES`` address, where E is
+       the environment, the FIRST digit of the ``EA`` amplifier address.
+    """
+    source_cmds = OWNSoundCommand.select_source("22", "3")
+    assert isinstance(source_cmds, list)
+    assert len(source_cmds) == 2
+    assert str(source_cmds[0]) == "*16*3*103##"  # activate source 3 device
+    assert str(source_cmds[1]) == "*16*3*123##"  # route environment 2 to source 3
 
 
 def test_own_sound_live_capture_full_sequence():

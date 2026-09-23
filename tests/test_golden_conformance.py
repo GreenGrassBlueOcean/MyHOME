@@ -18,6 +18,7 @@ try:
         OWNLightingCommand,
         OWNMessage,
         OWNSignaling,
+        OWNSoundCommand,
     )
 except ImportError:
     from OWNd.message import (  # type: ignore[no-redef]
@@ -29,6 +30,7 @@ except ImportError:
     )
     OWNCenCommand = None  # type: ignore[assignment]
     OWNCenPlusCommand = None  # type: ignore[assignment]
+    OWNSoundCommand = None  # type: ignore[assignment]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GOLDEN_DIR = REPO_ROOT / "tests" / "golden"
@@ -173,6 +175,7 @@ def test_golden_frame_builder_parity(fixture: Dict[str, Any]):
         "OWNCenCommand": OWNCenCommand,
         "OWNCenPlusCommand": OWNCenPlusCommand,
         "OWNHeatingCommand": OWNHeatingCommand,
+        "OWNSoundCommand": OWNSoundCommand,
     }
     cls = class_map.get(builder["class"])
     if cls is None:

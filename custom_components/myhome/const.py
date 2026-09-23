@@ -110,6 +110,22 @@ CONF_DECODER_SOURCE = "decoder_{}_source"     # BTicino source number (int 1-4)
 CONF_DECODER_PRE_GAIN = "decoder_{}_pre_gain" # Volume offset % added to decoder (0-50)
 CONF_DECODER_SLOTS = 4                        # Maximum number of decoder slots
 
+# ── Matrix sources (F441M inputs S1-S4) ────────────────────────────────────
+# Friendly name per physical source input. A blank name means "no source wired
+# to this input": the integration then never offers it for selection and labels
+# a zone routed to it as unconfigured instead of silently showing "Source N".
+CONF_SOURCE_NAME = "source_{}_name"           # Friendly name, e.g. "Cambridge"
+CONF_SOURCE_SLOTS = 4                         # Matrix inputs S1-S4
+SOURCE_UNCONFIGURED_SUFFIX = " (not configured)"
+
+# Default source per environment. The F441M routes per output and an output
+# serves one environment, so a default belongs to an environment, not to a
+# single amplifier: two zones in the same room cannot sit on different inputs.
+# Stored as {environment_digit: source_number}; a missing entry means "leave
+# the routing alone", which is the default.
+CONF_SOURCE_DEFAULTS = "source_defaults"
+CONF_SOURCE_DEFAULT_FIELD = "default_source_env_{}"  # options-flow field name
+
 # ── Light transition modes (software stepped dimming) ─────────────────────
 CONF_TRANSITION_MODE = "transition_mode"
 TRANSITION_MODE_NATIVE = "native"

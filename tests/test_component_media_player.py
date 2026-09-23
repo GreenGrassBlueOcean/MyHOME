@@ -22,6 +22,8 @@ from custom_components.myhome.const import (
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SOURCE,
     CONF_ENTITY,
+    CONF_SOURCE_DEFAULTS,
+    CONF_SOURCE_NAME,
     DOMAIN,
 )
 from custom_components.myhome.data import MyHOMERuntimeData
@@ -146,7 +148,8 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
 
     registry_entry = MagicMock()
     registry_entry.domain = PLATFORM
-    registry_entry.unique_id = f"{mock_gateway.mac}-1#16"
+    # Amplifier 11: environment 1, so the 111 routing frame below reaches it
+    registry_entry.unique_id = f"{mock_gateway.mac}-11#16"
 
     async_add_entities = MagicMock()
 
@@ -158,7 +161,7 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
     mac = mock_config_entry.data[CONF_MAC]
 
     # Test filtering out message without zone
-    no_zone_msg = MagicMock(spec=OWNSoundEvent, zone=None)
+    no_zone_msg = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone=None)
     async_dispatcher_send(hass, f"myhome_message_{mac}", "RAW_STRING")
     async_dispatcher_send(hass, f"myhome_message_{mac}", no_zone_msg)
 
@@ -166,7 +169,7 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
     src_msg = MagicMock(spec=OWNSoundEvent, zone="101", is_source_event=True)
     async_dispatcher_send(hass, f"myhome_message_{mac}", src_msg)
 
-    # Test pseudo-zone routing event matching known player 1#16 (lines 160-169)
+    # Test pseudo-zone routing event matching known player 11#16 (environment 1)
     routing_msg = MagicMock(spec=OWNSoundEvent, zone="111", is_source_event=False)
     async_dispatcher_send(hass, f"myhome_message_{mac}", routing_msg)
 
@@ -406,11 +409,88 @@ async def test_volume_controls_and_gain_staging(hass, player, mock_gateway):
         assert player._attr_is_volume_muted is False
 
 
+def _name_sources(player, **names):
+    """Give the entry configured matrix source names, e.g. ``_name_sources(p, s2="Cambridge")``."""
+    options = dict(player.platform.config_entry.options or {})
+    for key, value in names.items():
+        options[CONF_SOURCE_NAME.format(int(key[1:]))] = value
+    player.platform.config_entry.options = options
+
+
 @pytest.mark.asyncio
-async def test_source_selection_ignored(hass, player, mock_gateway):
-    """Test source selection via HA is ignored to prevent audible relay hiss."""
+async def test_select_source_routes_environment(hass, player, mock_gateway):
+    """Selecting a source activates it and routes the zone's environment to it.
+
+    A wall panel sends ``*16*3*102##`` + ``*16*3*122##`` for zone 23; the
+    routing address carries the environment digit, not the amplifier digit.
+    """
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    await player.async_select_source("Cambridge")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*3*102##", "*16*3*122##"]
+    assert player.source == "Cambridge"
+
+
+@pytest.mark.asyncio
+async def test_select_source_legacy_labels_without_configuration(hass, player, mock_gateway):
+    """Without configured names the legacy ``Source N`` labels still work."""
+    player._where = "11"
+    assert player.source_list == ["Source 1", "Source 2", "Source 3", "Source 4"]
+
     await player.async_select_source("Source 2")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*3*102##", "*16*3*112##"]
+
+
+@pytest.mark.asyncio
+async def test_select_source_rejects_unknown_source(hass, player, mock_gateway):
+    """An unknown label is refused rather than silently sending a bogus frame."""
+    _name_sources(player, s2="Cambridge")
+
+    assert player.source_list == ["Cambridge"]
+    with pytest.raises(HomeAssistantError):
+        await player.async_select_source("Radio")
     mock_gateway.send.assert_not_called()
+
+
+def test_unconfigured_source_is_visible_and_logged(hass, player, mock_gateway, caplog):
+    """A zone routed to an empty matrix input says so, and warns once.
+
+    The integration never corrects the routing: the user chose it at the wall
+    panel, and silently overriding that would be its own surprise.
+    """
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    # Wall panel routes environment 2 to source 1, which has nothing wired to it
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+
+    assert player.source == "Source 1 (not configured)"
+    assert "not configured" in caplog.text
+    mock_gateway.send.assert_not_called()
+
+    # The warning is logged once per source, not on every re-broadcast
+    caplog.clear()
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+    assert "not configured" not in caplog.text
+
+
+def test_routing_event_targets_the_environment(hass, player, mock_gateway):
+    """Routing is announced per environment: zone 23 follows 12S, not 13S."""
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="132", is_on=False, is_off=False, volume=None))
+    assert player.source is None
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="122", is_on=False, is_off=False, volume=None))
+    assert player.source == "Cambridge"
 
 
 def test_metadata_and_state_mirroring(hass, player, mock_gateway):
@@ -483,18 +563,19 @@ def test_decoder_state_changed_reverse_sync(hass, player, mock_gateway):
 async def test_handle_event_bus_messages(hass, player, mock_gateway):
     """Test handling bus messages for routing, state, and volume."""
     player.async_schedule_update_ha_state = MagicMock()
+    player._where = "11"
 
     # Async update
     await player.async_update()
     mock_gateway.send_status_request.assert_called_once()
 
-    # Matrix routing event (e.g. zone 121 -> Route source 2 to zone x1)
-    msg_routing = MagicMock(spec=OWNSoundEvent, zone="121", is_on=False, is_off=False, volume=None)
+    # Matrix routing event (112 -> route the amplifiers of environment 1 to source 2)
+    msg_routing = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="112", is_on=False, is_off=False, volume=None)
     player.handle_event(msg_routing)
     assert player.source == "Source 2"
 
     # Turn on event
-    msg_on = MagicMock(spec=OWNSoundEvent, zone="1", is_on=True, is_off=False, volume=None)
+    msg_on = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=True, is_off=False, volume=None)
     player.handle_event(msg_on)
     assert player.state == MediaPlayerState.ON
 
@@ -504,18 +585,18 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     _set_pool(player, mock_pool)
     player._active_decoder = "media_player.squeezelite_1"
 
-    msg_off = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=True, volume=None)
+    msg_off = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=True, volume=None)
     player.handle_event(msg_off)
     assert player.state == MediaPlayerState.OFF
     assert player._active_decoder is None
 
     # Volume update with mute / unmute detection
-    msg_vol_0 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=0)
+    msg_vol_0 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=0)
     player.handle_event(msg_vol_0)
     assert player._attr_volume_level == 0.0
     assert player.is_volume_muted is True
 
-    msg_vol_15 = MagicMock(spec=OWNSoundEvent, zone="1", is_on=False, is_off=False, volume=15)
+    msg_vol_15 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=15)
     player.handle_event(msg_vol_15)
     assert pytest.approx(player._attr_volume_level, 0.01) == 15 / 31.0
     assert player.is_volume_muted is False
@@ -588,3 +669,487 @@ async def test_mute_volume_decoder_error_handled(hass, player, mock_gateway):
 
     assert player._attr_is_volume_muted is True
 
+
+
+def _set_default_source(player, environment, source):
+    """Configure the per-environment default matrix source."""
+    options = dict(player.platform.config_entry.options or {})
+    options[CONF_SOURCE_DEFAULTS] = {environment: source}
+    player.platform.config_entry.options = options
+
+
+@pytest.mark.asyncio
+async def test_turn_on_applies_the_environment_default_source(hass, player, mock_gateway):
+    """Turning a zone on from HA routes it to the configured default source."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+
+    await player.async_turn_on()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent[-2:] == ["*16*3*102##", "*16*3*122##"]
+    assert player.source == "Cambridge"
+
+
+@pytest.mark.asyncio
+async def test_turn_on_leaves_routing_alone_without_a_default(hass, player, mock_gateway):
+    """Without a configured default the existing routing is untouched."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    await player.async_turn_on()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert all("*16*3*1" not in frame or frame.endswith("*23##") for frame in sent)
+    assert player.source is None
+
+
+def test_wall_panel_routing_is_not_corrected(hass, player, mock_gateway):
+    """A default source never overrides a choice made at a wall panel.
+
+    The user pressed a button in the room; silently routing the zone back
+    would be the surprise this design set out to avoid.
+    """
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+
+    player.handle_event(
+        MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121",
+                  is_on=False, is_off=False, volume=None)
+    )
+
+    assert player.source == "Source 1 (not configured)"
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_media_routes_to_the_claimed_decoder(hass, player, mock_gateway):
+    """Streaming routes the zone to the input its decoder is wired to."""
+    player._where = "23"
+    _name_sources(player, s1="Streamer")
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=("media_player.squeezelite_1", 1))
+    pool.get_pre_gain = MagicMock(return_value=0)
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await player.async_play_media("music", "http://stream")
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent[-2:] == ["*16*3*101##", "*16*3*121##"]
+
+
+@pytest.mark.asyncio
+async def test_pool_claim_prefers_the_default_source(hass, player, mock_gateway):
+    """The zone asks the pool for a decoder on its default input."""
+    player._where = "23"
+    _set_default_source(player, "2", 2)
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=("media_player.cambridge_2", 2))
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.cambridge_2", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await player.async_play_media("music", "http://stream")
+
+    assert pool.claim.call_args.kwargs["preferred_source"] == 2
+
+
+def _streaming_pool(decoder="media_player.squeezelite_1", source=1):
+    """A mock pool that hands out one decoder."""
+    pool = MagicMock()
+    pool.is_configured = True
+    pool.claim = AsyncMock(return_value=(decoder, source))
+    pool.get_pre_gain = MagicMock(return_value=0)
+    pool.environment_owner = MagicMock(return_value=None)
+    return pool
+
+
+def _sent(mock_gateway):
+    return [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+
+
+@pytest.mark.asyncio
+async def test_play_media_without_configuration_trusts_the_wall_panels(hass, player, mock_gateway):
+    """An installation that never described its matrix is not routed on upgrade.
+
+    The decoder slot numbers of such an entry were never used before, so
+    nobody checked them; routing on them would switch rooms to wrong inputs.
+    """
+    player._where = "23"
+    pool = _streaming_pool()
+    _set_pool(player, pool)
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        await player.async_play_media("music", "http://stream")
+
+    assert not any(frame.startswith("*16*3*1") for frame in _sent(mock_gateway))
+    # Without configuration the environment is not claimed either
+    assert pool.claim.call_args.kwargs["environment"] is None
+
+
+@pytest.mark.asyncio
+async def test_play_media_never_routes_to_an_invalid_decoder_source(hass, player, mock_gateway, caplog):
+    """A decoder slot saved as 0 by the old options form sends no frame."""
+    player._where = "23"
+    _name_sources(player, s1="Streamer")
+    _set_pool(player, _streaming_pool(source=0))
+    hass.states.async_set("media_player.squeezelite_1", MediaPlayerState.IDLE)
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        await player.async_play_media("music", "http://stream")
+
+    assert "*16*3*100##" not in _sent(mock_gateway)
+    assert "*16*3*120##" not in _sent(mock_gateway)
+    assert "cannot route" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_play_media_is_refused_while_the_environment_streams(hass, player, mock_gateway):
+    """Zones of one environment share a matrix output, so one stream at a time.
+
+    Handing zone 23 a second decoder would re-route zone 22 onto the new stream
+    while Home Assistant still showed zone 22 playing its own.
+    """
+    player._where = "23"
+    _name_sources(player, s1="Streamer", s2="Cambridge")
+    pool = DecoderPool(hass, {"media_player.dec_a": 1, "media_player.dec_b": 2})
+    hass.states.async_set("media_player.dec_a", MediaPlayerState.IDLE)
+    hass.states.async_set("media_player.dec_b", MediaPlayerState.IDLE)
+    await pool.claim("media_player.audio_zone_22", environment="2")
+    _set_pool(player, pool)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_play_media("music", "http://stream")
+
+    assert err.value.translation_key == "environment_busy"
+    assert err.value.translation_placeholders["owner"] == "media_player.audio_zone_22"
+    mock_gateway.send.assert_not_called()
+    assert pool.get_assignment(player.entity_id) is None
+
+
+@pytest.mark.asyncio
+async def test_turn_on_does_not_reroute_a_zone_that_is_already_on(hass, player, mock_gateway):
+    """Turning an ON zone on again sends nothing: the route may carry a stream."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+    player._attr_state = MediaPlayerState.ON
+
+    await player.async_turn_on()
+
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_on_keeps_the_route_of_a_streaming_environment(hass, player, mock_gateway):
+    """A default source is not applied over another zone's stream."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+    _set_default_source(player, "2", 2)
+    pool = _streaming_pool()
+    pool.environment_owner = MagicMock(return_value="media_player.audio_zone_22")
+    _set_pool(player, pool)
+
+    with patch("asyncio.sleep", return_value=None):
+        await player.async_turn_on()
+
+    assert not any(frame.startswith("*16*3*1") for frame in _sent(mock_gateway))
+    pool.environment_owner.assert_called_once_with("2", exclude=player.entity_id)
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_environment_zero(hass, player, mock_gateway):
+    """Amplifiers 01-09 would be routed with 10S, the source device address."""
+    player._where = "05"
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "routing_unsupported"
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_unnamed_inputs_once_sources_are_named(hass, player, mock_gateway):
+    """Neither the legacy label nor the "not configured" label selects a blank input."""
+    player._where = "23"
+    _name_sources(player, s2="Cambridge")
+
+    for label in ("Source 3", "Source 3 (not configured)"):
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source(label)
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_source_legacy_label_outside_the_matrix_is_refused(hass, player, mock_gateway):
+    """``Source 0`` or ``Source 9`` is not a matrix input, configured or not."""
+    for label in ("Source 0", "Source 9"):
+        with pytest.raises(HomeAssistantError):
+            await player.async_select_source(label)
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_source_is_refused_while_the_environment_streams(hass, player, mock_gateway):
+    """A source change on zone 23 would take zone 22 off its stream."""
+    player._where = "23"
+    pool = _streaming_pool()
+    pool.environment_owner = MagicMock(return_value="media_player.audio_zone_22")
+    _set_pool(player, pool)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "environment_busy"
+    assert err.value.translation_placeholders == {
+        "entity_id": player.entity_id,
+        "owner": "media_player.audio_zone_22",
+        "environment": "2",
+    }
+    mock_gateway.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_play_media_in_one_environment(hass, player, mock_gateway):
+    """Two zones of one environment starting together: exactly one wins.
+
+    The environment check runs under the pool lock, so the second claim sees
+    the first one even when both requests are in flight at the same time.
+    """
+    pool = DecoderPool(hass, {"media_player.dec_a": 1, "media_player.dec_b": 2})
+    hass.states.async_set("media_player.dec_a", MediaPlayerState.IDLE)
+    hass.states.async_set("media_player.dec_b", MediaPlayerState.IDLE)
+
+    zone_22 = player
+    zone_22._where = "22"
+    _name_sources(zone_22, s1="Streamer", s2="Cambridge")
+    _set_pool(zone_22, pool)
+
+    zone_23 = MyHOMEMediaPlayer(
+        hass=hass, name="Audio Zone 23", entity_name=None, device_id="23#16",
+        who="16", where="23", manufacturer="BTicino", model="Audio System",
+        gateway=mock_gateway,
+    )
+    zone_23.hass = hass
+    zone_23.entity_id = "media_player.audio_zone_23"
+    attach_platform(zone_23, zone_22.platform.config_entry)
+
+    for zone in (zone_22, zone_23):
+        zone.async_write_ha_state = MagicMock()
+        zone.async_schedule_update_ha_state = MagicMock()
+
+    import asyncio
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock), \
+         patch("asyncio.sleep", return_value=None):
+        results = await asyncio.gather(
+            zone_22.async_play_media("music", "http://a"),
+            zone_23.async_play_media("music", "http://b"),
+            return_exceptions=True,
+        )
+
+    errors = [r for r in results if isinstance(r, HomeAssistantError)]
+    assert len(errors) == 1
+    assert errors[0].translation_key == "environment_busy"
+    assert sum(r is None for r in results) == 1
+    owners = {pool.get_assignment(z.entity_id) for z in (zone_22, zone_23)}
+    assert len(owners - {None}) == 1
+
+
+def test_routing_to_a_source_outside_the_matrix_is_not_labelled(hass, player, mock_gateway):
+    """``159`` is a routing frame, but S9 is not an F441M input."""
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "53"
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="159",
+                                  is_on=False, is_off=False, volume=None))
+    assert player.source is None
+
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="152",
+                                  is_on=False, is_off=False, volume=None))
+    assert player.source == "Source 2"
+
+
+def test_environment_zero_has_no_routing_address():
+    """``10S`` is a source device; environment 0 has no ``1ES`` form."""
+    from custom_components.myhome.media_player import _routing_address
+
+    assert _routing_address("05", 2) is None
+    assert _routing_address("15", 2) == "112"
+
+
+# ── Golden corpus: our addressing against frames captured on real hardware ────
+
+def _golden_sound_fixtures():
+    """Load the WHO=16 fixtures captured on real F441M installations."""
+    import json
+    from pathlib import Path
+
+    corpus = Path(__file__).resolve().parent / "golden" / "corpus.json"
+    return [f for f in json.loads(corpus.read_text(encoding="utf-8"))
+            if f.get("who") == 16]
+
+
+@pytest.mark.parametrize(
+    ("environment", "source", "frame"),
+    [
+        ("1", 1, "*16*3*111##"),
+        ("1", 2, "*16*3*112##"),
+        ("2", 1, "*16*3*121##"),
+        ("2", 2, "*16*3*122##"),
+        ("3", 1, "*16*3*131##"),
+        ("8", 1, "*16*3*181##"),
+    ],
+)
+def test_routing_address_matches_captured_frames(environment, source, frame):
+    """Our routing address reproduces frames captured on two installations.
+
+    Plant B pins the digit order on its own: amplifier 11 is routed to source 2
+    with 112 and to source 1 with 111, and a general power-on sweeps 111..181.
+    """
+    from custom_components.myhome.media_player import _parse_routing_address, _routing_address
+
+    # A two-digit amplifier address in that environment, e.g. environment 2 -> "23"
+    zone = f"{environment}3"
+    assert _routing_address(zone, source) == frame.removeprefix("*16*3*").removesuffix("##")
+    assert _parse_routing_address(frame.removeprefix("*16*3*").removesuffix("##")) == (source, environment)
+
+
+def test_source_addresses_are_not_routing_addresses():
+    """101-109 are source devices; decoding them as routing invents a source 0."""
+    from custom_components.myhome.media_player import _parse_routing_address
+
+    for fixture in _golden_sound_fixtures():
+        where = str(fixture.get("where"))
+        if where.startswith("10") and len(where) == 3:
+            assert _parse_routing_address(where) is None, where
+
+
+def test_captured_amplifier_addresses_resolve_to_their_environment():
+    """Amplifier addresses are EA: the environment is the first digit."""
+    from custom_components.myhome.media_player import _zone_environment
+
+    assert _zone_environment("23") == "2"   # plant A, eetkamer
+    assert _zone_environment("11") == "1"   # plant B
+    assert _zone_environment("36") == "3"   # plant A, badkamer
+
+
+
+@pytest.mark.parametrize(
+    ("where", "environment", "route_s2"),
+    [
+        ("11", "1", "112"),     # amplifier 1 of environment 1
+        ("23", "2", "122"),
+        ("01", "0", None),      # environment 0: 10S is the source device
+        ("09", "0", None),
+        ("1", None, None),      # not in the WHERE table: 01 or 11?
+        ("7", None, None),
+        ("0", None, None),      # general amplifier address
+        ("#1", None, None),     # environment command, not an amplifier
+        ("123", None, None),
+    ],
+)
+def test_only_two_digit_amplifiers_are_routed(where, environment, route_s2):
+    """The WHO=16 WHERE table lists amplifiers as 01-99, and OWNd keeps the
+    padding.  A single digit would have to be guessed into an environment, and
+    a wrong guess switches somebody else's room, so it is never routed.
+    """
+    from custom_components.myhome.media_player import _routing_address, _zone_environment
+
+    assert _zone_environment(where) == environment
+    assert _routing_address(where, 2) == route_s2
+
+
+@pytest.mark.asyncio
+async def test_select_source_refuses_a_single_digit_address(hass, player, mock_gateway):
+    """A hand-written ``1`` is refused with the address in the message."""
+    player._where = "1"
+
+    with pytest.raises(HomeAssistantError) as err:
+        await player.async_select_source("Source 2")
+
+    assert err.value.translation_key == "routing_unsupported"
+    assert err.value.translation_placeholders["where"] == "1"
+    mock_gateway.send.assert_not_called()
+
+
+# ── WHO=22 mirrors: the other dialect spells the addressing out ──────────────
+
+@pytest.mark.parametrize(
+    ("who16", "environment", "source", "who22"),
+    [
+        ("*16*3*111##", "1", 1, "*22*2#4#1*5#2#1##"),
+        ("*16*3*112##", "1", 2, "*22*2#4#1*5#2#2##"),
+        ("*16*3*121##", "2", 1, "*22*2#4#2*5#2#1##"),
+        ("*16*3*181##", "8", 1, "*22*2#4#8*5#2#1##"),
+    ],
+)
+def test_routing_agrees_with_the_who22_mirror(who16, environment, source, who22):
+    """Our decoding of a routing frame matches its WHO=22 twin.
+
+    An MH200N announces every sound event in both dialects. WHO=22 writes the
+    environment and the source into separate, separator-delimited fields, so
+    the pair is independent evidence for how the WHO=16 pseudo address packs
+    them - this is not our inference, it is the protocol restating itself.
+    WHAT is ``2#MULTIMEDIA_TYPE#AREA`` and WHERE ``5#2#SOURCE_ID``.
+    """
+    from custom_components.myhome.media_player import _parse_routing_address
+
+    pseudo = who16.removeprefix("*16*3*").removesuffix("##")
+    assert _parse_routing_address(pseudo) == (source, environment)
+
+    what_param = who22.split("*")[2].split("#")      # ["2", "4", AREA]
+    where_param = who22.split("*")[3].split("#")     # ["5", "2", SOURCE]
+    assert what_param[2] == environment
+    assert int(where_param[2]) == source
+
+
+@pytest.mark.parametrize(
+    ("amplifier", "area", "point"),
+    [("11", "1", "1"), ("12", "1", "2"), ("31", "3", "1")],
+)
+def test_amplifier_address_agrees_with_the_who22_speaker_form(amplifier, area, point):
+    """Amplifier ``EA`` is area then point, as WHO=22 writes it as ``3#AREA#POINT``."""
+    from custom_components.myhome.media_player import _zone_environment
+
+    assert _zone_environment(amplifier) == area
+    assert amplifier == f"{area}{point}"
+
+
+def test_default_source_ignores_malformed_options(hass, player):
+    """A malformed default-source option is ignored rather than acted on."""
+    player._where = "23"
+
+    def _set(value):
+        options = dict(player.platform.config_entry.options or {})
+        options[CONF_SOURCE_DEFAULTS] = value
+        player.platform.config_entry.options = options
+
+    _set("not-a-mapping")
+    assert player._default_source() is None
+
+    _set({"2": "radio"})
+    assert player._default_source() is None
+
+    _set({"2": 0})          # 0 is not a source; 101-109 start at 1
+    assert player._default_source() is None
+
+    _set({"2": 99})
+    assert player._default_source() is None
+
+    _set({"3": 2})          # another environment's default does not apply here
+    assert player._default_source() is None
+
+    _set({"2": 2})
+    assert player._default_source() == 2

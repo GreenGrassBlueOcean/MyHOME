@@ -97,12 +97,13 @@ async def test_actuator_frame_discovers_no_phantom_zone(hass, zones):
     assert set(zones) == before
 
 
-async def test_where_zero_frames_still_name_their_zone_in_the_parameter(hass, zones):
-    """``*#4*0#2*0*0215##`` is zone 2's temperature: the WHERE=0 parameter form keeps working."""
-    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNEvent.parse("*#4*0#2*0*0215##"))
+async def test_pump_call_reaches_the_calling_zone_only(hass, zones):
+    """``*4*4001#2*0#3##`` from this plant: zone 2 calls pump 3 (``0#3``), not zone 3 (#431)."""
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNEvent.parse("*4*4001#2*0#3##"))
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNEvent.parse("*#4*0#3*20*1##"))
     await hass.async_block_till_done()
-    assert zones["2"].current_temperature == 21.5
-    assert zones["1"].current_temperature is None
+    assert zones["3"].hvac_action == HVACAction.IDLE
+    assert zones["1"].hvac_action == HVACAction.IDLE
 
 
 @pytest.mark.asyncio

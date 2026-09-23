@@ -1971,6 +1971,281 @@
     "_file": "who15_cen.yaml"
   },
   {
+    "id": "sound.cmd.source.on.1",
+    "frame": "*16*3*101##",
+    "direction": "command",
+    "who": 16,
+    "what": 3,
+    "where": "101",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Grammar valid. Activate source device 1 (stereo channel). openwebnet-mcp warns WHAT=3 is non-standard, but WHO_16 v1.0.1 defines 3 as 'ON amplifier / source stereo channel'; its catalog is incomplete here.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.cmd.source.on.2",
+    "frame": "*16*3*102##",
+    "direction": "command",
+    "who": 16,
+    "what": 3,
+    "where": "102",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Activate source device 2. Plant A: wall panel emits this together with the routing frame when switching a room to the RCA input.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.source.off.1",
+    "frame": "*16*13*101##",
+    "direction": "event",
+    "who": 16,
+    "what": 13,
+    "where": "101",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Source device 1 to standby (stereo channel OFF). Plant B emits this before routing a room to a different source.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.source.off.2",
+    "frame": "*16*13*102##",
+    "direction": "event",
+    "who": 16,
+    "what": 13,
+    "where": "102",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: source 2 (L4561 stereo control) released; its power LED returns to standby.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env1.source1",
+    "frame": "*16*3*111##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "111",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: route environment 1 to source 1 (tuner). Captured while switching amplifier 11, which stayed the same amplifier across sources \u2014 see sound.event.routing.env1.source2.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env1.source2",
+    "frame": "*16*3*112##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "112",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: the same amplifier 11, now on source 2 (RCA). Only the last digit changes, which is what fixes the digit order: middle = environment, last = source.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env2.source1",
+    "frame": "*16*3*121##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "121",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: route environment 2 to source 1. Audibly switched zone 23 (environment 2, amplifier 3) and the matrix answered with that zone's own volume status.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env2.source2",
+    "frame": "*16*3*122##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "122",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: route environment 2 to source 2. Emitted by the wall panel and reproduced from the gateway with identical effect.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env3.source1",
+    "frame": "*16*3*131##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "131",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: part of a general power-on that sweeps environments 1..8 onto source 1 (111, 121, 131 ... 181).",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.routing.env8.source1",
+    "frame": "*16*3*181##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "181",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: last environment of the same sweep. Eight environments on one source rules out reading the middle digit as the source.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.cmd.zone.on.11",
+    "frame": "*16*3*11##",
+    "direction": "command",
+    "who": 16,
+    "what": 3,
+    "where": "11",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: amplifier 1 in environment 1 ON.",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNSoundCommand",
+      "method": "turn_on",
+      "args": [
+        "11"
+      ]
+    },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.cmd.zone.off.11",
+    "frame": "*16*13*11##",
+    "direction": "command",
+    "who": 16,
+    "what": 13,
+    "where": "11",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: the same amplifier OFF.",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNSoundCommand",
+      "method": "turn_off",
+      "args": [
+        "11"
+      ]
+    },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.zone.on.23",
+    "frame": "*16*3*23##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "23",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 3 in environment 2 ON. A two-digit address whose last digit is NOT its environment \u2014 the case the old routing formula got wrong.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.zone.off.23",
+    "frame": "*16*13*23##",
+    "direction": "event",
+    "who": 16,
+    "what": 13,
+    "where": "23",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: the same amplifier OFF.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.11",
+    "frame": "*#16*11*1*17##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "11",
+    "dimension": 1,
+    "dimension_values": [
+      "17"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B: amplifier 11 reports volume 17 of 31.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.23",
+    "frame": "*#16*23*1*15##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "23",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: the matrix answers a routing command with the volume of the zone in that environment, which is how the environment mapping was confirmed.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.write.23",
+    "frame": "*#16*23*#1*15##",
+    "direction": "dimension_write",
+    "who": 16,
+    "where": "23",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: set amplifier 23 to volume 15.",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNSoundCommand",
+      "method": "set_volume",
+      "args": [
+        "23",
+        15
+      ]
+    },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.rds.response.101",
+    "frame": "*#16*101*8*32*82*97*100*105*111*32*49##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "101",
+    "dimension": 8,
+    "dimension_values": [
+      "32",
+      "82",
+      "97",
+      "100",
+      "105",
+      "111",
+      "32",
+      "49"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant B captured a live RDS broadcast on source 1 as eight ASCII codes. The station name has been replaced with ' Radio 1' here \u2014 the payload is what the contributor happened to be listening to, and only the shape (DIMENSION 8, eight codes) is under test.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
     "id": "energy.req.active_power.meter1",
     "frame": "*#18*1*1##",
     "direction": "dimension_request",
@@ -2079,6 +2354,165 @@
     "mcp_notes": "Energy Management: Actuator channel 77#0 reports 415 Watts active power (issue #247 reporter plant)",
     "roundtrip": true,
     "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "sounddiff.event.routing.env1.source1",
+    "frame": "*22*2#4#1*5#2#1##",
+    "direction": "event",
+    "who": 22,
+    "what": 2,
+    "where": "5",
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Grammar valid; openwebnet-mcp's WHO=22 catalog is a stub (two WHAT codes, no dimensions) and cannot judge this frame. The Encyclopedia's WHO=22 page is the authority used here: WHAT 2 'source turned on' with multimedia type 4 (stereo) and area 1, WHERE 5#2#1 naming source 1. Mirrors *16*3*111##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.event.routing.env1.source2",
+    "frame": "*22*2#4#1*5#2#2##",
+    "direction": "event",
+    "who": 22,
+    "what": 2,
+    "where": "5",
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Same area, source 2. Against sounddiff.event.routing.env1.source1 only the source field moves, which is what pins the last digit of the WHO=16 form. Mirrors *16*3*112##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.event.routing.env2.source1",
+    "frame": "*22*2#4#2*5#2#1##",
+    "direction": "event",
+    "who": 22,
+    "what": 2,
+    "where": "5",
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Area 2, source 1: here the area field moves instead. Mirrors *16*3*121##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.event.routing.env8.source1",
+    "frame": "*22*2#4#8*5#2#1##",
+    "direction": "event",
+    "who": 22,
+    "what": 2,
+    "where": "5",
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Last frame of a general power-on that sweeps areas 1..8 onto source 1. Mirrors *16*3*181##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.state.area1.point1",
+    "frame": "*#22*3#1#1*12*1*4##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "3",
+    "dimension": 12,
+    "dimension_values": [
+      "1",
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Speaker area 1, point 1: device state ON, multimedia type 4 (stereo). Mirrors *16*3*11## \u2014 the WHO=16 address 11 written out as area 1, point 1.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.state.area1.point2",
+    "frame": "*#22*3#1#2*12*1*4##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "3",
+    "dimension": 12,
+    "dimension_values": [
+      "1",
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Area 1, point 2. Mirrors *16*3*12##: same area as 11, different amplifier.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.state.area3.point1",
+    "frame": "*#22*3#3#1*12*1*4##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "3",
+    "dimension": 12,
+    "dimension_values": [
+      "1",
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Area 3, point 1. Mirrors *16*3*31##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.volume.area1.point1",
+    "frame": "*#22*3#1#1*1*17##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "3",
+    "dimension": 1,
+    "dimension_values": [
+      "17"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Volume 17 on area 1 point 1, emitted together with *#16*11*1*17##. DIMENSION 1 carries the same 0..31 scale in both dialects.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.state.source1.on",
+    "frame": "*#22*2#1*12*1*4##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "2",
+    "dimension": 12,
+    "dimension_values": [
+      "1",
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "Source 1 active, stereo. Mirrors *16*3*101##.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
+  },
+  {
+    "id": "sounddiff.dim.rds.source1",
+    "frame": "*#22*5#2#1*10*32*82*97*100*105*111*32*49##",
+    "direction": "dimension_response",
+    "who": 22,
+    "where": "5",
+    "dimension": 10,
+    "dimension_values": [
+      "32",
+      "82",
+      "97",
+      "100",
+      "105",
+      "111",
+      "32",
+      "49"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": false,
+    "mcp_notes": "RDS text for source 1 under DIMENSION 10, where WHO=16 reports the same payload under DIMENSION 8. Station name replaced with ' Radio 1' for the same reason as sound.dim.rds.response.101.",
+    "roundtrip": true,
+    "_file": "who22_sound_diffusion.yaml"
   },
   {
     "id": "cen_plus.event.short_press.btn1.21",
