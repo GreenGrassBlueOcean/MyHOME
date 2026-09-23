@@ -737,6 +737,35 @@ async def test_listening_loop_generate_events_and_clean_termination(gateway_hand
 
 
 @pytest.mark.asyncio
+async def test_listening_loop_closes_event_session_when_cancelled(gateway_handler):
+    """Unloading the entry cancels the listener mid-read: the event session must still close.
+
+    Seen live on an MH200: after an options reload the old session's keepalive went on
+    for minutes, because the close after the loop was skipped by the cancellation.
+    """
+    with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session.connect = AsyncMock(return_value={"Success": True})
+        mock_session.close = AsyncMock()
+        reading = asyncio.Event()
+
+        async def block_forever():
+            reading.set()
+            await asyncio.Event().wait()
+
+        mock_session.get_next = AsyncMock(side_effect=block_forever)
+        mock_session_class.return_value = mock_session
+
+        task = asyncio.create_task(gateway_handler.listening_loop())
+        await reading.wait()
+        task.cancel("Config entry unloading")
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        mock_session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_listening_loop_auth_failure_lockout_protection(gateway_handler):
     with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
         mock_session = MagicMock()
