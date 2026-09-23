@@ -324,11 +324,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         runtime.router.publish("2", ("general",), message)
 
     @callback
-    def relay_scope(message) -> None:  # type: ignore
+    def relay_scope(message, address: Address) -> None:  # type: ignore
         """An area or group command moves the covers in it, and is the scope cover's own frame."""
-        address = Address.from_message(message)
-        if address is None:
-            return
         runtime.router.publish("2", [address.key, *family.keys_moved_by(address.where, address.interface)], message)
 
     PlatformDiscovery(

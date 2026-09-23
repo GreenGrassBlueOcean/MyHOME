@@ -249,8 +249,8 @@ class PlatformDiscovery:
         central unit).
     on_scope:
         Optional: called with an area or group frame (``is_area`` /
-        ``is_group``); without it those frames are ignored. They address
-        many devices, never discover one.
+        ``is_group``) and its :class:`Address`; without it those frames are
+        ignored. They address many devices, never discover one.
     yaml_device_id:
         Optional: how the device id of a ``myhome.yaml`` device is formed;
         defaults to :attr:`Address.key` (switches use the clean WHERE).
@@ -291,7 +291,7 @@ class PlatformDiscovery:
         accept: Callable[[DeviceContext], bool] | None = None,
         pre_message: Callable[[Any, Address, KnownDevices], bool] | None = None,
         on_general: Callable[[Any], None] | None = None,
-        on_scope: Callable[[Any], None] | None = None,
+        on_scope: Callable[[Any, Address], None] | None = None,
         general_is_device: bool = False,
         yaml_device_id: Callable[[Address], str] | None = None,
         address: Callable[[Any], Address | None] | None = None,
@@ -440,7 +440,7 @@ class PlatformDiscovery:
         if address is not None:
             if getattr(message, "is_group", False) is True or getattr(message, "is_area", False) is True:
                 if self.on_scope:
-                    self.on_scope(message)
+                    self.on_scope(message, address)
                 return
             if self.pre_message and self.pre_message(message, address, self.known):
                 return

@@ -374,3 +374,54 @@ def test_general_scope_behind_an_interface_holds_that_interface_only(gateway) ->
         family.add(c)
     assert [c._device_id for c in family.members(CoverScope.of("0", "02"))] == ["11#4#02"]
     assert len(family.members(CoverScope.of("0"))) == 3
+
+
+async def test_scope_cover_on_the_main_bus_close_stop_and_position(gateway) -> None:
+    family = CoverFamily()
+    area = _cover(gateway, "1", scope=CoverScope.of("1"))
+    family.add(area)
+    await area.async_close_cover()
+    await area.async_stop_cover()
+    assert _sent(gateway) == ["*2*2*1##", "*2*0*1##"]
+    with patch.object(MyHOMECover, "async_set_cover_position", AsyncMock()) as timed:
+        await area.async_set_cover_position(position=40)
+    timed.assert_awaited_once_with(position=40)  # the scope's own timed run
+
+
+async def test_scope_cover_behind_an_interface_positions_each_member(gateway) -> None:
+    family = CoverFamily()
+    points = [_cover(gateway, "11", "02"), _cover(gateway, "12", "02")]
+    area = _cover(gateway, "1", "02", scope=CoverScope.of("1", "02"))
+    for c in (*points, area):
+        family.add(c)
+    with patch.object(MyHOMECover, "async_set_cover_position", AsyncMock()) as timed:
+        await area.async_set_cover_position(position=40)
+    assert timed.await_count == 2  # one timed run per member, none for the scope
+
+
+async def test_scope_cover_timeout_edges(hass: HomeAssistant, gateway) -> None:
+    group = _cover(gateway, "#7", scope=CoverScope.of("#7"))
+    group.hass = hass
+
+    # Closing without members comes from the cover's own state.
+    group.handle_event(OWNEvent.parse("*2*2*#7##"))
+    assert group.is_closing is True
+    armed = group._run_timeout
+    group.handle_event(OWNEvent.parse("*2*2*#7##"))  # same direction: the timer is kept
+    assert group._run_timeout is armed
+
+    # Our own stop, frozen when written (gateways that do not echo it never reach
+    # handle_event): the pending timer must not then force the endpoint.
+    group._freeze_position(time.monotonic())
+    position = group.current_cover_position
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=21))
+    await hass.async_block_till_done()
+    assert group.is_closing is False
+    assert group.current_cover_position == position
+
+    # Removal drops the member subscription and any timer.
+    group.handle_event(OWNEvent.parse("*2*1*#7##"))
+    unsub = group._unsub_members = MagicMock()
+    await group.async_will_remove_from_hass()
+    unsub.assert_called_once()
+    assert group._unsub_members is None and group._run_timeout is None
