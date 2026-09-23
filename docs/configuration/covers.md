@@ -111,6 +111,35 @@ target:
 
 ---
 
+## 🏠 General, Area and Group Covers
+
+A cover declared in `/config/myhome.yaml` on a **general** (`where: '0'`), **area** (`where: '1'`, `'00'`, `'100'`) or **group** (`where: '#3'`) address is one button for many shutters: *open*, *close* and *stop* send a single frame to that address, like the general button on a keypad.
+
+Its state comes from the shutters it moves, not from the bus. At the end of a run every actuator reports its own stop (`*2*0*11##`, `*2*0*12##`, …) and none arrives for the general or area address (WHO_2 specification §3.0.1). So the cover shows *opening* / *closing* while any of its shutters is moving, *closed* when all are closed, and the average of their positions:
+
+| Address | Shutters it follows |
+| :--- | :--- |
+| General `0` | every point-to-point cover of the gateway |
+| Area `1`…`9`, `00`, `100` | the covers of that area on the same bus: area `1` is `11`…`19` and `0110`…`0115` |
+| Group `#1`…`#255` | the covers listed under `members:`; group membership is programmed in the actuators and cannot be read from the bus |
+
+```yaml
+cover:
+  all_shutters:
+    where: '1'          # area 1: follows covers 11-19 on its own
+    name: All shutters
+  bedrooms:
+    where: '#3'
+    name: Bedrooms
+    members: ['11', '13']
+```
+
+**Behind an F422 interface** (`bus_interface: '02'`, logical `#4#` addressing) the gateway does not pass general or area commands through: on an MH200 both `*2*2*1##` and `*2*1*1#4#02##` left the covers behind interface 02 standing, while point commands moved them. A general, area or group cover with a `bus_interface` therefore sends each of its covers its own command (one frame per shutter, paced by the gateway queue); on the main bus it sends the single scope frame.
+
+A general or area command from a keypad also moves the individual covers in Home Assistant. A group or area cover whose shutters are not known yet ends its run after its own `travel_time`, so it never stays stuck on *opening* ([#433](https://github.com/OpenWebNet-HA/MyHOME/issues/433)).
+
+---
+
 ## 🔄 Legacy YAML Note
 
 > [!NOTE]

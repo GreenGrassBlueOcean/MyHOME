@@ -17,7 +17,7 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 - **Signaling (`who00_signaling.yaml`)**: Gateway ACK (`*#*1##`) and NACK (`*#*0##`).
 - **WHO=0 Scenarios (`who00_scenario.yaml`)**: Basic scenario execution and stop.
 - **WHO=1 Lighting (`who01_lighting.yaml`)**: Point-to-point ON/OFF, status requests, local bus routing (`0311#4#01`), group broadcast, speed transitions (`*1*1#5*12##`), and dimension writes.
-- **WHO=2 Automation (`who02_automation.yaml`)**: Shutter UP/DOWN/STOP, private bus routing (`21#4#1`), absolute position percentages, and slat tilt angles.
+- **WHO=2 Automation (`who02_automation.yaml`)**: Shutter UP/DOWN/STOP, private bus routing (`21#4#1`), absolute position percentages, and slat tilt angles. Records tagged `scope` pin OWNd's general / area / group classification; an MH201 capture (MyHOME#433) adds an area-1 stop echo (`*2*0*1##`) and the per-actuator end-of-run stop that closes a general UP: a scope command never gets a stop of its own (WHO_2.pdf §3.0.1).
 - **WHO=4 Thermoregulation (`who04_thermo.yaml`)**: Measured temperature queries (`21.5°C`), setpoint writes, Antifreeze/Protection modes, and negative temperature probe status (`-4.8°C`).
 - **WHO=5 Burglar Alarm (`who05_alarm.yaml`)**: Status requests and silent alarm events across zones and central units.
 - **WHO=9 Auxiliary (`who09_auxiliary.yaml`)**: Activation and deactivation of AUX relay channels.

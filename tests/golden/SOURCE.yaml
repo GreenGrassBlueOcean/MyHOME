@@ -110,6 +110,18 @@ authorities:
         date: "2026-09-16"
         gateway: "BTicino MH200"
         devices: "Full installation: 62 lights (dimmers and switches), 11 covers on interface 02, MH200 gateway diagnostics"
+      - name: "Physical Bus Capture (BTicino MH201 + Automation WHO 2, general and area commands)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/433"
+        author: "issue #433 reporter (anonymized: frames and their spacing only)"
+        date: "2026-09-23"
+        gateway: "BTicino MH201"
+        devices: "Eight shutters 11-18 (area 1): keypad point runs, a general UP (*2*0*0## + *2*1*0##) ended by one stop per actuator ~126 s later and none for WHERE 0, an area-1 stop echo (*2*0*1##)"
+      - name: "Live Bus Test (BTicino MH200 + F422, Automation WHO 2 scope commands)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/433"
+        author: "Laurens (@GreenGrassBlueOcean)"
+        date: "2026-09-23"
+        gateway: "BTicino MH200"
+        devices: "Covers 11-16, 18, 19 behind F422 interface 02 (logical #4# addressing): area status request answered per object; area commands on the main bus (*2*2*1##) and on the private bus (*2*1*1#4#02##) moved none of them; point commands did"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 
