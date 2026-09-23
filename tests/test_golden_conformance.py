@@ -101,6 +101,14 @@ def test_golden_frame_parsing(fixture: Dict[str, Any]):
     if expected_where is not None:
         assert parsed.where == expected_where, f"WHERE mismatch: {parsed.where} != {expected_where}"
 
+    # Scope assertion (WHO 1/2 addressing class: general / area / group / point)
+    expected_scope = fixture.get("scope")
+    if expected_scope is not None:
+        actual_scope = (
+            "general" if parsed.is_general else "area" if parsed.is_area else "group" if parsed.is_group else "point"
+        )
+        assert actual_scope == expected_scope, f"Scope mismatch for {frame_str}: {actual_scope} != {expected_scope}"
+
     # Interface assertion (for private bus routed frames)
     expected_interface = fixture.get("interface")
     if expected_interface is not None:

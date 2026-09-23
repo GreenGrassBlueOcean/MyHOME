@@ -47,6 +47,11 @@
       "type": ["string", "null"],
       "description": "Target or source address (preserving leading zeros, e.g. '0311', '51')."
     },
+    "scope": {
+      "type": "string",
+      "enum": ["general", "area", "group", "point"],
+      "description": "WHO 1/2 addressing class of WHERE (OWNd is_general / is_area / is_group); a scope command ends with frames from the objects it moved, never one for the scope itself (WHO_2.pdf 3.0.1)."
+    },
     "interface": {
       "type": ["string", "null"],
       "description": "Private bus interface identifier if routed (e.g. '01' from '#4#01')."
