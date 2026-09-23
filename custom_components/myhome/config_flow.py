@@ -48,6 +48,10 @@ from .const import (
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
     CONF_OWN_PASSWORD,
+    CONF_SOURCE_DEFAULT_FIELD,
+    CONF_SOURCE_DEFAULTS,
+    CONF_SOURCE_NAME,
+    CONF_SOURCE_SLOTS,
     CONF_SSDP_LOCATION,
     CONF_SSDP_ST,
     CONF_TRANSITION_MODE,
@@ -705,6 +709,36 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             self.options[CONF_TRANSITION_MODE] = DEFAULT_TRANSITION_MODE  # type: ignore
         return await self.async_step_user()  # type: ignore
 
+    def _audio_environments(self) -> list[str]:
+        """Return the environments that have audio zones, from the registry.
+
+        Amplifier addresses are ``EA`` (environment, amplifier), and the F441M
+        routes per environment, so defaults are offered per environment rather
+        than per zone: two amplifiers in one room physically cannot sit on
+        different inputs.  Environment 0 is left out: its routing address would
+        be ``10S``, which is the source device itself, so it cannot be routed.
+        So is any zone that is not a two-digit amplifier address.
+        """
+        from homeassistant.helpers import entity_registry as er
+
+        environments: set[str] = set()
+        try:
+            registry = er.async_get(self.hass)
+            entries = er.async_entries_for_config_entry(
+                registry, self.config_entry.entry_id  # type: ignore
+            )
+        except Exception:  # pylint: disable=broad-except
+            return []
+        for entry in entries:
+            if entry.domain != "media_player" or "#16" not in (entry.unique_id or ""):
+                continue
+            zone = (entry.unique_id or "").rsplit("-", 1)[-1].split("#")[0]
+            # Only two-digit amplifiers (01-99) have an environment digit
+            if len(zone) == 2 and zone.isdigit():
+                environments.add(zone[0])
+        environments.discard("0")
+        return sorted(environments)
+
     async def async_step_user(self, user_input=None, errors=None):  # type: ignore
         """Manage general settings and decoder mapping."""
 
@@ -738,14 +772,29 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 self.options.update({CONF_BROADCAST_RESYNC: user_input.get(CONF_BROADCAST_RESYNC, True)})  # type: ignore
                 self.options[CONF_TRANSITION_MODE] = user_input.get(CONF_TRANSITION_MODE, DEFAULT_TRANSITION_MODE)  # type: ignore
 
+                # Persist the per-environment default source ("" = leave routing alone)
+                _defaults: dict[str, int] = {}
+                for env in self._audio_environments():
+                    raw = user_input.get(CONF_SOURCE_DEFAULT_FIELD.format(env), "")
+                    if raw not in ("", None, "none"):
+                        _defaults[env] = int(raw)
+                self.options[CONF_SOURCE_DEFAULTS] = _defaults  # type: ignore
+
+                # Persist matrix source names (blank = nothing wired to that input)
+                for i in range(1, CONF_SOURCE_SLOTS + 1):
+                    name_key = CONF_SOURCE_NAME.format(i)
+                    self.options[name_key] = str(user_input.get(name_key, "") or "").strip()  # type: ignore
+
                 # Persist decoder slots
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
                     self.options[entity_key] = user_input.get(entity_key, "")  # type: ignore
-                    self.options[source_key] = user_input.get(source_key, i)  # type: ignore
-                    self.options[gain_key] = user_input.get(gain_key, 0)  # type: ignore
+                    # Selectors hand back strings/floats; the decoder pool and the
+                    # source labels both index on plain ints.
+                    self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
+                    self.options[gain_key] = int(float(user_input.get(gain_key, 0) or 0))  # type: ignore
 
                 _model_update = False
                 if CONF_NAME in user_input and user_input[CONF_NAME] != self.data.get(CONF_NAME):  # type: ignore
@@ -826,6 +875,53 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             ),
         }
 
+        # Matrix source names 1–4 (F441M inputs S1–S4)
+        _source_names: dict[int, str] = {}
+        for i in range(1, CONF_SOURCE_SLOTS + 1):
+            name_key = CONF_SOURCE_NAME.format(i)
+            _name = str(self.options.get(name_key, "") or "").strip()  # type: ignore
+            if _name:
+                _source_names[i] = _name
+            schema_dict[vol.Optional(
+                name_key,
+                description={"suggested_value": _name},
+            )] = selector.TextSelector()
+
+        # Default source per environment — only for environments that have zones.
+        _stored_defaults = self.options.get(CONF_SOURCE_DEFAULTS) or {}  # type: ignore
+        for env in self._audio_environments():
+            field = CONF_SOURCE_DEFAULT_FIELD.format(env)
+            _current = _stored_defaults.get(env) if isinstance(_stored_defaults, dict) else None
+            schema_dict[vol.Required(
+                field,
+                default=str(_current) if _current else "none",
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="none", label="Leave routing as it is"),
+                        *(
+                            selector.SelectOptionDict(
+                                value=str(i),
+                                label=f"S{i} — {_source_names[i]}" if i in _source_names else f"S{i} (unnamed)",
+                            )
+                            for i in range(1, CONF_SOURCE_SLOTS + 1)
+                        ),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+
+        # Decoders are wired to one of those inputs: offer them by name, so the
+        # mapping reads "which source is this decoder plugged into" rather than
+        # asking the user to remember input numbers.
+        _source_options = [
+            selector.SelectOptionDict(
+                value=str(i),
+                label=f"S{i} — {_source_names[i]}" if i in _source_names else f"S{i} (unnamed)",
+            )
+            for i in range(1, CONF_SOURCE_SLOTS + 1)
+        ]
+
         # Decoder slots 1–4
         for i in range(1, CONF_DECODER_SLOTS + 1):
             entity_key = CONF_DECODER_ENTITY.format(i)
@@ -845,14 +941,26 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     selector.EntitySelectorConfig(domain=["media_player"])
                 )
 
-            schema_dict[vol.Optional(
+            _source_val = int(self.options.get(source_key, i) or i)  # type: ignore
+            schema_dict[vol.Required(
                 source_key,
-                description={"suggested_value": self.options.get(source_key, i)},  # type: ignore
-            )] = All(Coerce(int), Range(min=0, max=4))
-            schema_dict[vol.Optional(
+                default=str(min(max(_source_val, 1), CONF_SOURCE_SLOTS)),
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_source_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Required(
                 gain_key,
-                description={"suggested_value": self.options.get(gain_key, 0)},  # type: ignore
-            )] = All(Coerce(int), Range(min=0, max=50))
+                default=int(self.options.get(gain_key, 0) or 0),  # type: ignore
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=50, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
 
         return self.async_show_form(
             step_id="user",

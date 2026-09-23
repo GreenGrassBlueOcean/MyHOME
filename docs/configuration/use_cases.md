@@ -120,10 +120,11 @@ The same service accepts `switch` entities (a socket, a fan).
 
 ## 5. Whole-house multiroom audio with Music Assistant
 
-The F441 / F441M analog matrix plays whatever is on its inputs. Map one or more network decoders (a Squeezelite / Raspberry Pi per input) in the options flow (**Configure → Dynamic Proxy Decoders**, one row per input: decoder entity, source number, pre-gain). Every audio zone then advertises `play_media`, becomes a Music Assistant player, and on playback claims a free decoder, routes the matrix to it and mirrors playback state and metadata.
+The F441 / F441M analog matrix plays whatever is on its inputs. Map one or more network decoders (a Squeezelite / Raspberry Pi per input) in the options flow (**Configure**, one row per decoder: entity, source input, pre-gain), and name the sources wired to the matrix. Every audio zone then advertises `play_media`, becomes a Music Assistant player, and on playback claims a free decoder, routes its environment to that decoder's input and mirrors playback state and metadata. Without source names the matrix routing is left to the wall panels.
 
-- The wall panels keep working: source 0–4 selection and volume still come from the bus.
-- Two decoders = two different streams at once; a third room gets *All audio matrix inputs are currently in use* until one stops.
+- The wall panels keep working: source selection (S1–S4) and volume changes made there are reflected in Home Assistant, and are never overridden.
+- Two decoders = two different streams at once, in two different environments; a third room gets *All audio matrix inputs are currently in use* until one stops.
+- Zones in the same environment share one matrix output, so they share one stream: starting a second stream there is refused with an error naming the zone that is already playing.
 
 Details, the gain-staging notes (why a pre-gain removes the hiss) and the reference frames are in [Sound System](media_player.md).
 

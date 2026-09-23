@@ -12,6 +12,8 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 
 ## Supported Subsystems Catalog (58 Fixtures)
 
+> Frames marked `community-plant-capture` come from real installations contributed by users. They are the only authority for behaviour the official PDFs leave undefined, and they are kept verbatim except where a fixture note records a deliberate substitution.
+
 - **Signaling (`who00_signaling.yaml`)**: Gateway ACK (`*#*1##`) and NACK (`*#*0##`).
 - **WHO=0 Scenarios (`who00_scenario.yaml`)**: Basic scenario execution and stop.
 - **WHO=1 Lighting (`who01_lighting.yaml`)**: Point-to-point ON/OFF, status requests, local bus routing (`0311#4#01`), group broadcast, speed transitions (`*1*1#5*12##`), and dimension writes.
@@ -21,6 +23,8 @@ A declarative conformance suite of OpenWebNet frames providing cross-framework v
 - **WHO=9 Auxiliary (`who09_auxiliary.yaml`)**: Activation and deactivation of AUX relay channels.
 - **WHO=13 Gateway Management (`who13_gateway.yaml`)**: Firmware versions and gateway internal datetime responses.
 - **WHO=15 CEN Pushbuttons (`who15_cen.yaml`)**: Short press, start long press, release, and extended hold events.
+- **WHO=16 Sound System (`who16_sound.yaml`)**: Source devices (`101`-`109`), matrix routing (`1` + environment + source), amplifier ON/OFF, volume (`DIMENSION 1`) and RDS (`DIMENSION 8`). Captured on two independent F441M installations — an MH200 and an MH200N — rather than derived from the specification, because the routing address is not documented in `WHO_16.pdf`.
+- **WHO=22 Sound Diffusion (`who22_sound_diffusion.yaml`)**: The mirror frames an MH200N emits alongside every WHO=16 sound event. Kept as structural evidence for the WHO=16 addressing: this dialect writes the environment and the source into separate fields (`*22*2#4#AREA*5#2#SOURCE##`) where WHO=16 packs them into one pseudo address. Judged against the Encyclopedia's WHO=22 reference, since `openwebnet-mcp`'s catalog for this family is still a stub.
 - **WHO=18 Energy Management (`who18_energy.yaml`)**: Instantaneous active power and cumulative energy totalizers.
 - **WHO=25 CEN+ / Dry Contacts (`who25_cen_plus.yaml`)**: CEN+ press events and physical dry contact inputs.
 

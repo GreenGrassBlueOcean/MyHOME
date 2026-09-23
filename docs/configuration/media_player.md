@@ -14,7 +14,7 @@ In MyHOME systems, multi-room audio is managed by dedicated hardware analog matr
 - **Audio Controls**: L/N/NT4684, 3529
 
 > [!IMPORTANT]
-> **Hardware-Only Analog Matrix**: The BTicino F441 / F441M is a purely analog matrix switcher. It does not contain an Ethernet port or digital audio decoder and cannot stream IP audio by itself. It routes line-level analog signals from physical source inputs (Source 1 to Source 4) to room amplifier outputs (Zone 1 to Zone 9).
+> **Hardware-Only Analog Matrix**: The BTicino F441 / F441M is a purely analog matrix switcher. It does not contain an Ethernet port or digital audio decoder and cannot stream IP audio by itself. It routes line-level analog signals from physical source inputs (Source 1 to Source 4) to its room outputs, one output per **environment**. Amplifiers are addressed `EA` (`01`–`99`): environment digit, then amplifier number within it.
 
 ---
 
@@ -41,15 +41,92 @@ To bridge modern streaming platforms (such as **Music Assistant**, **Spotify Con
                ▼               ▼
        ┌───────────────┐ ┌───────────────┐
        │ Audio Streamer│ │ F441M Matrix  │
-       │ (Squeezelite /│ │ & Amplifier   │
-       │  WiiM / Pi)   │ │ (Zone 1..9)   │
+       │ (Squeezelite /│ │ & Amplifiers  │
+       │  WiiM / Pi)   │ │ (01..99)      │
        └───────┬───────┘ └───────▲───────┘
                │ Analog Line-In  │
                └─────────────────┘
 ```
 
+### Source switching
+
+Selecting a source sends the same two frames a wall panel puts on the bus:
+
+| Frame | Meaning |
+| :--- | :--- |
+| `*16*3*10S##` | Activate source device `S` |
+| `*16*3*1ES##` | Route environment `E` to source `S` |
+
+The routing address carries the **environment** digit of the amplifier
+address, not the amplifier digit. Amplifier addresses are `EA` — environment
+followed by amplifier — so zone `23` lives in environment 2 and is routed with
+`121` (source 1) or `122` (source 2). The F441M switches per output and an
+output serves a whole environment, so **every amplifier in that environment
+follows the switch**. Zones 22 and 23 cannot play different sources; that is
+matrix hardware, not an integration limitation. The integration holds to it:
+
+- **One stream per environment.** While zone 22 streams from a decoder,
+  `play_media` or a source change on zone 23 is refused with an error naming
+  zone 22, instead of silently switching zone 22 off its stream.
+- **Environment 0 cannot be switched.** Amplifiers `01`–`09` would be routed
+  with `10S`, which is the source device address itself. Source selection is
+  refused there and no default can be set for it; use a wall panel.
+- **Only two-digit amplifier addresses are routed.** The WHO=16 address table
+  lists amplifiers as `01`–`99`. A single-digit address such as `1` in a YAML
+  configuration does not say which environment it belongs to (`01` or `11`?),
+  so it is never routed. Write the address with both digits.
+
+> Earlier releases refused to send these frames, on the assumption that they
+> caused relay clicks on MH200-class gateways. Bus captures on an MH200 show
+> clean switching. The real problem was a routing address built from the wrong
+> digit, which addressed an environment that did not exist.
+
+### Naming your sources
+
+Each F441M input (S1–S4) has a name field in the integration Options. Fill in
+what is physically wired to it and **leave the rest blank**.
+
+- Only named sources are offered in the Home Assistant source list.
+- A zone routed to a blank input — typically by someone pressing a stale
+  button on a wall panel — is labelled `Source N (not configured)` and logged
+  once, so amplified silence or tuner hiss has a visible cause.
+- Routing chosen at a wall panel is never overridden. The user pressed a
+  button in the room, and silently switching it back would be its own
+  surprise. Select a configured source to recover.
+
+If no names are configured the legacy `Source 1`–`Source 4` list is used and
+nothing is flagged, so existing installations are unaffected.
+
+### Default source per environment
+
+For every environment that has audio zones, the Options offer a **default
+source**. It is set per environment, not per zone, because two amplifiers in
+one room share a matrix output and cannot sit on different inputs.
+
+- The default is applied when a zone is switched **on from Home Assistant**,
+  so a room left on a stale input comes back on the right source.
+- It is not applied to a zone that is already on, nor while another zone of
+  the environment is streaming.
+- It never overrides routing announced by a wall panel.
+- *Leave routing as it is* (the default) keeps the existing routing.
+
+Environment 0 is not offered: it has no routing address.
+
+### Routing when streaming
+
+Once sources are named, or a default source is set for an environment,
+`play_media` routes the zone's environment to the input its decoder is wired
+to, and turning a zone on routes it to its environment default. A zone that is
+already on is not re-routed when it is turned on again, and a default is not
+applied while another zone in the environment is streaming.
+
+Without either setting the integration does not route while streaming and
+relies on the "Hardware Routing First" model below, as earlier releases did.
+
 ### The "Hardware Routing First" Model
-Switching matrix sources dynamically via OpenWebNet IP commands (`*16*100*WHERE##` to `*16*103*WHERE##`) on MH200/MH201/F454 gateways causes mechanical relay clicks and momentary bus noise.
+
+For installations that have not named their sources, `play_media` leaves the
+matrix routing to the wall panels.
 
 **Recommended Practice**:
 
@@ -58,10 +135,10 @@ Switching matrix sources dynamically via OpenWebNet IP commands (`*16*100*WHERE#
 3. **Automated Power Sequence**: When a stream starts, the integration proxy:
    - Claims an idle decoder from the shared **Decoder Pool**.
    - Wakes the decoder if it is in standby.
-   - Powers ON the BTicino amplifier zone with a smooth `*16*1*WHERE##` command.
+   - Powers the BTicino amplifier on with an OFF → ON sequence (`*16*13*<WHERE>##`, then `*16*3*<WHERE>##`) if it is not already on.
    - Forwards the stream URL to the streaming decoder.
    - Mirrors track metadata (title, artist, album art) and state back onto the Home Assistant room entity.
-4. **Shutdown & Release**: When playback stops or the zone is turned off, the amplifier powers off (`*16*0*WHERE##`) and the decoder is released back to the idle pool.
+4. **Shutdown & Release**: When the zone is turned off, the amplifier powers off (`*16*13*<WHERE>##`), playback on the decoder is stopped and the decoder is released back to the idle pool.
 
 ---
 
@@ -79,16 +156,21 @@ $$\text{Decoder Volume} = \text{Zone Volume} + \text{Pre-Gain Offset}$$
 
 ## ⚙️ Configuration via Home Assistant UI
 
-You configure the Dynamic Proxy directly via the integration's **Options Flow**:
+Sources, defaults and the Dynamic Proxy are all configured in the integration's **Options Flow**:
 
 1. Go to **Settings** -> **Devices & Services** -> **MyHOME**.
 2. Click **Configure**.
-3. Scroll to the **Audio Decoder Mapping** section:
-   - **Decoder Slot 1 Entity**: Select your backend media player (e.g. `media_player.squeezelite_salon`).
-   - **Matrix Source Input**: Set to the physical F441M input (e.g. `1` for Source 1).
-   - **Pre-Gain Offset**: Enter your pre-gain dB/percentage compensation (e.g. `15`).
-   - *(Repeat for Decoders 2 through 4 if you have multiple streaming DACs).*
-4. Click **Submit**.
+3. **Source names** (*Source 1*–*Source 4*): name what is wired to each F441M input and leave unused inputs blank. See [Naming your sources](#naming-your-sources).
+4. **Default source for environment N** (one field per environment with audio zones): pick a source, or keep *Leave routing as it is*. See [Default source per environment](#default-source-per-environment).
+5. **Decoder mapping**, one row per streaming decoder (up to 4):
+   - **Media player entity**: your backend player (e.g. `media_player.squeezelite_salon`).
+   - **Source input**: the F441M input it is wired to, chosen from a list that shows your source names (e.g. `S1 — Streamer`).
+   - **Pre-gain offset**: percentage added to the decoder volume (0–50 %, e.g. `15`). See [Gain Staging](#gain-staging-bus-noise-elimination).
+6. Click **Submit**.
+
+Naming a source or setting a default is what switches on automatic routing for
+streaming (see [Routing when streaming](#routing-when-streaming)); leaving both
+empty keeps the wall-panel routing in charge.
 
 > [!WARNING]
 > **Avoid Recursive Loops**: Do NOT select a Music Assistant virtual player as the backend decoder entity. The backend decoder must be the actual hardware device (e.g. `media_player.squeezelite_salon`, `media_player.wiim_dining`), while Music Assistant targets the MyHOME zone entity.
@@ -100,22 +182,29 @@ You configure the Dynamic Proxy directly via the integration's **Options Flow**:
 If you do not configure any streaming decoders in the Options Flow, the room amplifier entities operate in **Native WHO = 16 Mode**:
 
 - **On / Off**: Toggles the physical amplifier power.
-- **Volume**: Controls the hardware volume step (0 to 30) via dimension 1.
-- **Source Selection**: Allows switching between physical sources 1–4.
-- **Track Controls**: Sends OpenWebNet Next/Previous track commands (`WHAT = 20` / `WHAT = 21`) to compatible Legrand FM/DAB tuners.
+- **Volume**: Steps the volume up and down, or sets it directly on the amplifier's 0–31 scale.
+- **Source Selection**: Switches the zone's environment between the physical sources (named ones, or `Source 1`–`Source 4` when none are named).
+
+Play, pause, stop and next / previous track are only offered once a decoder is
+configured; they are forwarded to that decoder, not sent on the bus.
 
 ---
 
 ## 📜 OpenWebNet WHO = 16 Reference Frames
 
+`<WHERE>` is an amplifier (`01`–`99`), an environment (`#0`–`#9`) or `0` for
+all amplifiers. The integration addresses individual amplifiers.
+
 | Action | OpenWebNet Frame | Description |
 | :--- | :--- | :--- |
-| **Zone Turn ON** | `*16*1*<WHERE>##` | Turns ON amplifier in room `<WHERE>` (1–9). |
-| **Zone Turn OFF** | `*16*0*<WHERE>##` | Turns OFF amplifier in room `<WHERE>` (1–9). |
-| **Volume UP** | `*16*10*<WHERE>##` | Steps amplifier volume UP. |
-| **Volume DOWN** | `*16*11*<WHERE>##` | Steps amplifier volume DOWN. |
-| **Set Exact Volume** | `*#16*<WHERE>*#1*<LEVEL>##` | Sets exact volume level (where `<LEVEL>` is 0 to 30). |
-| **Select Source 1** | `*16*100*<WHERE>##` | Routes input Source 1 to room `<WHERE>`. |
-| **Select Source 2** | `*16*101*<WHERE>##` | Routes input Source 2 to room `<WHERE>`. |
-| **Next Track / Station** | `*16*20*<WHERE>##` | Skips to next preset/track on active source. |
-| **Prev Track / Station** | `*16*21*<WHERE>##` | Skips to previous preset/track on active source. |
+| **Amplifier ON** | `*16*3*<WHERE>##` | Stereo channel ON. `*16*0*<WHERE>##` is the base-band form. |
+| **Amplifier OFF** | `*16*13*<WHERE>##` | Stereo channel OFF. `*16*10*<WHERE>##` is the base-band form. |
+| **Volume UP** | `*16*1001*<WHERE>##` | One step up; `1001`–`1015` step +1 to +15. |
+| **Volume DOWN** | `*16*1101*<WHERE>##` | One step down; `1101`–`1115` step −1 to −15. |
+| **Set Exact Volume** | `*#16*<WHERE>*#1*<LEVEL>##` | Writes the volume, `<LEVEL>` 0–31. |
+| **Volume Report** | `*#16*<WHERE>*1*<LEVEL>##` | Amplifier reporting its volume, 0–31. |
+| **Activate Source `S`** | `*16*3*10S##` | Switches source device `S` on (`101`–`109`). |
+| **Route Environment to Source** | `*16*3*1ES##` | Routes every amplifier of environment `E` to source `S`. Not in `WHO_16.pdf`; established from bus captures on two installations. |
+
+> Released OWNd builds volume down as `*16*1000*<WHERE>##`, which the
+> specification does not define; the library fix is pending.
