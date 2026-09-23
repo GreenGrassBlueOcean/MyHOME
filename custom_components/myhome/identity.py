@@ -43,6 +43,36 @@ from .const import (
 )
 
 
+def _normalized(model: str | None) -> str:
+    """Compare model names without case, spaces, dashes or underscores."""
+    return str(model or "").strip().upper().replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _same_product_names() -> dict[str, frozenset[str]]:
+    """Every model name a table lists -> the names of that one product (itself and its brand variants).
+
+    A shared code lists distinct models, not one product under several names, so
+    it contributes nothing.
+    """
+    entries: list[tuple[str, ...]] = [(model,) for model in WHO13_OFFICIAL_DEVICE_TYPES.values()]
+    entries += [
+        models
+        for code, models in WHO13_OBSERVED_DEVICE_TYPES.items()
+        if code not in WHO13_SHARED_DEVICE_TYPES
+    ]
+    entries += list(WHO13_THIRD_PARTY_DEVICE_TYPES.values())
+    entries += list(WHO1013_OBJECT_MODELS.values())
+    names: dict[str, frozenset[str]] = {}
+    for models in entries:
+        product = frozenset(_normalized(m) for m in models)
+        for name in product:
+            names[name] = names.get(name, frozenset()) | product
+    return names
+
+
+_SAME_PRODUCT = _same_product_names()
+
+
 @dataclass(frozen=True)
 class CodeReading:
     """What one in-band code means, according to the tables."""
@@ -76,14 +106,24 @@ class CodeReading:
         return self.models[1:]
 
     def compatible_with(self, model: str | None) -> bool | None:
-        """Does ``model`` belong to the family set this code stands for?
+        """Does ``model`` name the product this code stands for?
 
         True when it does, False when it does not and the code is certain, None
         when it does not but the code is field evidence only (unverified).
+
+        A model some table lists by name has a code of its own, so only that name
+        or a brand variant of it agrees: an MH200N (44) is contradicted by code 4
+        (MH200), although both reduce to the MH200 family. A name no table lists
+        (a variant suffix, a spelling the tables do not carry) is judged by family.
         """
-        family = gateway_model_family(model)
-        if family and family in {gateway_model_family(m) for m in self.models}:
-            return True
+        names = _SAME_PRODUCT.get(_normalized(model))
+        if names is not None:
+            if names & {_normalized(m) for m in self.models}:
+                return True
+        else:
+            family = gateway_model_family(model)
+            if family and family in {gateway_model_family(m) for m in self.models}:
+                return True
         return False if self.certain else None
 
     def describe(self) -> str:
