@@ -102,6 +102,25 @@ def test_zone_actuator_still_names_its_zone():
     assert _calling_zones(message) == (["2"], None)
 
 
+def test_where_zero_behind_an_interface_is_not_zone_4():
+    """``0#4#01`` is WHERE=0 behind F422 interface 01; OWNd b8 reads the ``4`` as zone 4."""
+    message = OWNEvent.parse("*#4*0#4#01*20*1##")
+    assert _calling_zones(message) == ([], "01")
+    assert _zone_address(message) is None
+    assert not {"4", "4#4#01"} & set(_zone_route_keys(message, None))
+
+
+def test_zone_behind_an_interface_keeps_its_zone():
+    message = OWNEvent.parse("*#4*1#4#01*20*1##")
+    assert _calling_zones(message) == (["1"], "01")
+
+
+def test_four_zone_central_form_keeps_its_zone():
+    """``#0#5`` (hashed) is zone 5 of a 4-zone central unit, not a pump."""
+    message = OWNEvent.parse("*4*101*#0#5##")
+    assert _calling_zones(message) == (["5"], None)
+
+
 async def test_reporter_trace_leaves_zone_2_idle(hass, plant):
     zones, _ = plant
     _send(hass, ISSUE_431_TRACE_ON)
