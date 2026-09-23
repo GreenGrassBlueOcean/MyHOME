@@ -333,8 +333,8 @@ class TestHeatingEdgeCases:
         assert cmd is not None
 
     def test_heating_zone_from_param(self):
-        """Zone 0 with where_param should use the param as zone."""
-        msg = OWNEvent.parse("*#4*0#5*0*0225##")
+        """``#0#N`` (4-zone central unit) names zone N; ``0#N`` is a pump (#431, climate.py)."""
+        msg = OWNEvent.parse("*4*101*#0#5##")
         assert isinstance(msg, OWNHeatingEvent)
         assert msg.zone == 5
 
