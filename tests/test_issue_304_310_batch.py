@@ -244,11 +244,11 @@ async def test_brightness_restore_does_not_downgrade_color_light(hass, mock_gate
     assert light.color_mode == ColorMode.HS
 
 
-# ── Startup discovery honours the gateway profile (MH200N NACKs *#16*0##) ──
+# ── Startup discovery honours the gateway profile ──
 
 
 async def test_discovery_skips_unsupported_who(gateway_handler):
-    """An MH200N profile (no audio) must not be asked *#16*0## at startup."""
+    """A profile without WHO 16 (OWNd's MH200N profile) must not be asked *#16*0*5## at startup."""
     from OWNd.profiles import get_gateway_profile
 
     gateway_handler.gateway.profile = get_gateway_profile("MH200N")

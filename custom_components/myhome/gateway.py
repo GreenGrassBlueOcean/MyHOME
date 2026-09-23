@@ -1191,9 +1191,11 @@ class MyHOMEGatewayHandler:
         before then and the reply would be silently dropped.
         """
         # Active Discovery (WHO=1 general status request *#1*0## is invalid in OpenWebNet and omitted).
-        # Only query subsystems the gateway profile advertises: an MH200N NACKs *#16*0##
-        # (no audio) and logs a retry error on every boot otherwise.
-        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0##")):
+        # WHO 16 status is dimension 5 (*#16*WHERE*5##, spec section 1.5.2): gateways NACK the
+        # bare *#16*0## for every address, audio or not, while *#16*0*5## lists every amplifier.
+        # The literal frame parses on every OWNd release; OWNSoundCommand.status() only emits
+        # dimension 5 from OWNd#51 on. Subsystems the gateway profile does not advertise are skipped.
+        for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0*5##")):
             if not self._profile_supports_who(who):
                 LOGGER.debug(
                     "%s Skipping WHO=%s discovery: not supported by %s profile.",

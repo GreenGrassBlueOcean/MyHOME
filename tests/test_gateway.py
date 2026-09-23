@@ -230,14 +230,17 @@ async def test_gateway_send_and_send_status_request(gateway_handler):
 
 @pytest.mark.asyncio
 async def test_gateway_initial_discovery_queues_sweep(gateway_handler):
-    """The startup sweep queues covers, heating and audio status requests, never *#1*0##."""
+    """The startup sweep queues covers, heating and audio status requests, never *#1*0##.
+
+    WHO 16 goes out as dimension 5 (``*#16*0*5##``): gateways NACK the bare ``*#16*0##``.
+    """
     await gateway_handler.initial_discovery()
     queued = []
     while not gateway_handler.send_buffer.empty():
         item = gateway_handler.send_buffer.get_nowait()
         assert item["is_status_request"] is True
         queued.append(str(item["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#16*0##"]
+    assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##"]
 
 
 @pytest.mark.asyncio
