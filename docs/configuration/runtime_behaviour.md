@@ -16,6 +16,8 @@ After the event session is up, the integration sends a small set of general stat
 
 Each request is only sent when the gateway's OWNd **profile** advertises that WHO (`GatewayProfile.supported_who`). Unknown gateways keep the full set.
 
+> OWNd 2.0.0b8 and earlier give an **MH200** the MH200N profile, which does not advertise WHO 16, so amplifiers behind an MH200 only appear once they send bus traffic. A live MH200 answers `*#16*0*5##` with every amplifier and source; [OWNd#53](https://github.com/OpenWebNet-HA/OWNd/issues/53) gives it its own profile.
+
 > The WHO 16 status request is `*#16*WHERE*5##` (spec section 1.5.2). Gateways NACK the bare `*#16*0##` for every address, whether or not the plant has audio, so an old NACK on that frame never meant "no audio".
 
 > WHO=1 has no valid general status request (`*#1*0##` is not OpenWebNet), so lights are hydrated from their own status replies and bus traffic.
