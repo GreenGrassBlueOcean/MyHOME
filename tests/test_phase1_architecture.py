@@ -67,6 +67,14 @@ from custom_components.myhome.const import (
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
 from tests.mock_gateway_harness import MockGatewayHarness
 
+# OWNd releases up to and including 2.0.0b8 alias "MH200" to the MH200N profile,
+# which advertises no WHO 16, so startup discovery never asks an MH200 for its
+# amplifiers although a live MH200 answers *#16*0*5## with every one of them.
+# OWNd#53 gives the MH200 its own profile.  The suite stays green against released
+# OWNd and against the OWNd#53 checkout, and strict=True retires the marker once a
+# release ships the fix.
+_OWND_MH200_IS_MH200N = isinstance(get_gateway_profile("MH200"), MH200NProfile)
+
 # ── 1. GatewayProfile Tests ──────────────────────────────────────────────────
 
 class TestGatewayProfiles:
@@ -114,7 +122,7 @@ class TestGatewayProfiles:
         assert profile.command_queue_delay == 0.15
         assert profile.supports_audio is False
         assert profile.supports_energy_instant_power is False
-        # MH200N does not support audio or energy
+        # OWNd's MH200N profile advertises neither audio nor energy (audio unverified, OWNd#53)
         assert profile.supports_who(WHO_LIGHTING) is True
         assert profile.supports_who(WHO_AUTOMATION) is True
         assert profile.supports_who(WHO_SOUND) is False
@@ -166,7 +174,6 @@ class TestGatewayProfiles:
             ("F-454", F454Profile),
             ("F455", F455Profile),
             ("MH200N", MH200NProfile),
-            ("mh200", MH200NProfile),
             ("MH-200-N", MH200NProfile),
             ("MH202", MH202Profile),
             ("MyHomeServer1", MyHomeServer1Profile),
@@ -179,6 +186,17 @@ class TestGatewayProfiles:
     def test_get_gateway_profile_resolution(self, name, expected_cls):
         profile = get_gateway_profile(name)
         assert isinstance(profile, expected_cls)
+
+    @pytest.mark.xfail(
+        _OWND_MH200_IS_MH200N,
+        reason="installed OWNd aliases MH200 to the MH200N profile (OWNd#53)",
+        strict=True,
+    )
+    @pytest.mark.parametrize("name", ["MH200", "mh200", "MH-200"])
+    def test_mh200_profile_advertises_sound(self, name):
+        profile = get_gateway_profile(name)
+        assert profile.model_name == "MH200"
+        assert profile.supports_who(WHO_SOUND) is True
 
     def test_owngateway_profile_integration(self):
         gw = OWNGateway({

@@ -741,7 +741,8 @@ def test_firmware_kernel_distribution_are_recorded(dev_reg):
     assert ident["who13_firmware"] == "2.60.46"
     assert ident["who13_kernel"] == "2.6.32"
     assert ident["who13_distribution"] == "1.0.5"
-    assert ident["profile"] == "MH200NProfile"
+    # MH200NProfile up to OWNd 2.0.0b8, MH200Profile from OWNd#53 on
+    assert ident["profile"] == type(get_gateway_profile("MH200")).__name__
 
 
 # ── the evidence travels with diagnostics and the WebSocket / trace payload ──
