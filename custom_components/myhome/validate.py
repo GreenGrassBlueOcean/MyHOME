@@ -401,9 +401,23 @@ cover_schema = MyHomeDeviceSchema(
             Optional(CONF_TRAVEL_TIME, default=25): Coerce(int),
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
             Optional(CONF_DEVICE_MODEL): Coerce(str),
+            Optional(CONF_MEMBERS): [All(Coerce(str), PointToPoint())],
         }
     }
 )
+
+
+def _validate_cover_members(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    # A general or area cover's members follow from the addresses (issue #433);
+    # a group's membership is programmed in the actuators, never seen on the bus.
+    for device, cfg in data.items():
+        if CONF_MEMBERS in cfg:
+            where = cfg.get(CONF_WHERE)
+            if not where or not str(where).startswith("#"):
+                raise Invalid("Members can only be defined on a group cover (where must start with #)")
+    return data
+
+cover_schema = All(cover_schema, _validate_cover_members)  # type: ignore[assignment]
 
 binary_sensor_schema = MyHomeDeviceSchema(
     {
