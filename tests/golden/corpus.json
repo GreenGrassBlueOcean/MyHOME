@@ -891,6 +891,174 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.evt.keypad_hold.level9.ptp.99",
+    "frame": "*1*9*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 9,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: level 9 (90%), the first step of a keypad dim-down hold on dimmer 99; each further 10% step followed ~0.5 s later (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.keypad_hold.level3.ptp.99",
+    "frame": "*1*3*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 3,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: level 3 (30%), the last frame of a keypad dim-down hold on dimmer 99 (released there); no DIMENSION 1 report of the exact level followed (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.keypad_hold.level4.ptp.99",
+    "frame": "*1*4*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 4,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: level 4 (40%), the first step of a keypad dim-up hold on dimmer 99 starting from level 3 (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.level.69",
+    "frame": "*#1*69*1##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "69",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 request to dimmer 69; the MH200 answered *#1*69*1*175*2## then ACK on the command session (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "get_brightness",
+      "args": [
+        "69"
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.status100.69",
+    "frame": "*#1*69*4##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "69",
+    "dimension": 4,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 request to dimmer 69; the MH200 (firmware 2.1.0) answered NACK (*#*0##) after ~2 s with no bus frame, as it did for dimmer 62 and on/off point 11 (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.75.69",
+    "frame": "*#1*69*1*175*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "69",
+    "dimension": 1,
+    "dimension_values": [
+      "175",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 175 = 75% at speed 2, from dimmer 69 (MH200 capture, MyHOME#434). LEVEL100 is offset by 100, not a literal percentage",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.off.29",
+    "frame": "*#1*29*1*100*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "29",
+    "dimension": 1,
+    "dimension_values": [
+      "100",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply from a dimmer that is OFF: LEVEL100 100 = OFF, not 100%; twelve dimmers on the plant answered this way during a MyHOME startup (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.write.level.30.69",
+    "frame": "*#1*69*#1*130*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "69",
+    "dimension": 1,
+    "dimension_values": [
+      "130",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 write, 30% with SPEED 0 (last speed), to dimmer 69; ACKed, and the dimmer reported *#1*69*1*130*4## (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_brightness",
+      "args": [
+        "69",
+        30
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed4.69",
+    "frame": "*#1*69*1*130*4##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "69",
+    "dimension": 1,
+    "dimension_values": [
+      "130",
+      "4"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 report after a write with SPEED 0: the dimmer reports the speed it used (4), not 0 (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed5.69",
+    "frame": "*#1*69*1*130*5##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "69",
+    "dimension": 1,
+    "dimension_values": [
+      "130",
+      "5"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: the report of ON with speed 5 (*1*1#5*69##) to dimmer 69, which restored its last level 30%: a DIMENSION 1 frame, not a WHAT level event (MH200 capture, MyHOME#434)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
