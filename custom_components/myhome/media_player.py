@@ -182,8 +182,12 @@ async def async_setup_entry(
 
 
 def _zone_address(message: Any) -> Address | None:
-    """Sound-system frames address a zone (amplifier); sources are never devices."""
-    zone = getattr(message, "zone", None)
+    """Sound-system frames address a zone (amplifier); sources are never devices.
+
+    Reads ``where``, not ``zone``: OWNd#51 reports no ``zone`` for a ``1ES``
+    routing frame, and routing frames must still reach ``_route_pseudo_zones``.
+    """
+    zone = getattr(message, "where", None)
     if not zone or getattr(message, "is_source_event", False):
         return None
     return Address(str(zone), key_suffix="#16")
@@ -1058,7 +1062,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     @callback
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Handle incoming state updates directly from the bus."""
-        zone_str = str(message.zone)
+        # `where`, not `zone`: routing frames have no zone from OWNd#51 on.
+        zone_str = message.where or ""
         if getattr(message, "is_source_event", False):
             # *16*3*10S## reports a source device switching on or off. It says
             # nothing about this zone: acting on it would turn zones on that
