@@ -17,6 +17,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_ROTARY_CCW_FAST,
     CONF_ROTARY_CCW_SLOW,
@@ -35,6 +36,7 @@ TRIGGER_TYPES = {
     CONF_SHORT_PRESS,
     CONF_SHORT_RELEASE,
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_ROTARY_CW_SLOW,
     CONF_ROTARY_CW_FAST,

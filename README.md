@@ -386,7 +386,7 @@ The integration fires native events to the Home Assistant event bus for automati
 * **`myhome_cen_event` & `myhome_cenplus_event`**: Pushbutton events from physical CEN (`WHO=15`) and CEN+ (`WHO=25`) scenario controllers. Event payload includes:
   - `object`: Scenario button unit number
   - `pushbutton`: Pushbutton index (0–31)
-  - `event`: Trigger action (`pushbutton_short_press`, `pushbutton_short_release`, `pushbutton_long_press`, `pushbutton_long_release`, or rotary dial `rotary_cw_slow`, `rotary_cw_fast`, `rotary_ccw_slow`, `rotary_ccw_fast`)
+  - `event`: Trigger action (`pushbutton_short_press`, `pushbutton_short_release`, `pushbutton_long_press`, `pushbutton_long_press_repeat` (CEN+, every ~0.5 s while held), `pushbutton_long_release`, or rotary dial `rotary_cw_slow`, `rotary_cw_fast`, `rotary_ccw_slow`, `rotary_ccw_fast`)
 * **`myhome_alarm_event`**: State transitions emitted by burglar alarm systems (WHO=5), including partition `where`, `state`, `state_code`, and `is_alarm` flag.
 * **Broadcast Subsystem Events**: Global and area broadcast commands are mirrored as:
   - `myhome_general_light_event`, `myhome_area_light_event`, `myhome_group_light_event`

@@ -47,6 +47,7 @@ from .const import (
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
     CONF_LONG_PRESS,
+    CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
@@ -652,8 +653,12 @@ class MyHOMEGatewayHandler:
             event = None
             if message.is_short_pressed:
                 event = CONF_SHORT_PRESS
-            elif message.is_held or message.is_still_held:
+            elif message.is_held:
+                # WHAT 22: once, when the hold starts.
                 event = CONF_LONG_PRESS
+            elif message.is_still_held:
+                # WHAT 23: repeated about every 0.5 s while the button stays down.
+                event = CONF_LONG_PRESS_REPEAT
             elif message.is_released:
                 event = CONF_LONG_RELEASE
             elif getattr(message, "is_slowly_turned_cw", False) is True:

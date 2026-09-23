@@ -28,7 +28,8 @@ In MyHOME v2.0, physical pushbuttons are automatically discovered and registered
 ### Supported Trigger Types
 - `short_press`: Fired immediately upon a quick tap.
 - `short_release`: Fired when a short tap is released.
-- `long_press`: Fired when the button is held down (exceeding ~400ms).
+- `long_press`: Fired when the button is held down (exceeding ~400ms). On CEN+ it fires once per hold.
+- `pushbutton_long_press_repeat` (CEN+ only): Fired about every 0.5 s while the button stays held (`WHAT = 23`). Use it for "hold to dim"; use `long_press` for actions that should run once.
 - `long_release`: Fired when a held button is finally released.
 - `rotary_cw_slow`: Clockwise rotation at normal speed.
 - `rotary_cw_fast`: Clockwise rotation at fast speed.
@@ -168,3 +169,4 @@ trigger:
 | **CEN+ Short Press** | 25 | `*25*21#<BUTTON>*<WHERE>##` | `*25*21#1*12##` (Btn 1 on addr 12) |
 | **CEN+ Start Long** | 25 | `*25*22#<BUTTON>*<WHERE>##` | `*25*22#1*12##` |
 | **CEN+ Release** | 25 | `*25*24#<BUTTON>*<WHERE>##` | `*25*24#1*12##` |
+| **CEN+ Still Held** (repeats ~0.5 s) | 25 | `*25*23#<BUTTON>*<WHERE>##` | `*25*23#1*21##` |
