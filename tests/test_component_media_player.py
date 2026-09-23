@@ -14,6 +14,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
+    OWNEvent,
     OWNSoundEvent,
 )
 
@@ -31,6 +32,7 @@ from custom_components.myhome.decoder_pool import DecoderPool
 from custom_components.myhome.media_player import (
     MyHOMEMediaPlayer,
     _build_pool,
+    _zone_address,
     async_setup_entry,
     async_unload_entry,
 )
@@ -161,26 +163,26 @@ async def test_dynamic_discovery_listener(hass, mock_config_entry, mock_gateway)
     mac = mock_config_entry.data[CONF_MAC]
 
     # Test filtering out message without zone
-    no_zone_msg = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone=None)
+    no_zone_msg = MagicMock(spec=OWNSoundEvent, is_source_event=False, where=None)
     async_dispatcher_send(hass, f"myhome_message_{mac}", "RAW_STRING")
     async_dispatcher_send(hass, f"myhome_message_{mac}", no_zone_msg)
 
     # Test filtering out source event early (line 154)
-    src_msg = MagicMock(spec=OWNSoundEvent, zone="101", is_source_event=True)
+    src_msg = MagicMock(spec=OWNSoundEvent, where="101", is_source_event=True)
     async_dispatcher_send(hass, f"myhome_message_{mac}", src_msg)
 
     # Test pseudo-zone routing event matching known player 11#16 (environment 1)
-    routing_msg = MagicMock(spec=OWNSoundEvent, zone="111", is_source_event=False)
+    routing_msg = MagicMock(spec=OWNSoundEvent, where="111", is_source_event=False)
     async_dispatcher_send(hass, f"myhome_message_{mac}", routing_msg)
 
     # Test source event filter before unique_id (line 173)
-    src_msg_late = MagicMock(spec=OWNSoundEvent, zone="2", is_source_event=True)
+    src_msg_late = MagicMock(spec=OWNSoundEvent, where="2", is_source_event=True)
     async_dispatcher_send(hass, f"myhome_message_{mac}", src_msg_late)
 
     # Test standard zone event discovery
     zone_msg = MagicMock(
         spec=OWNSoundEvent,
-        zone="2",
+        where="2",
         who="16",
         is_source_event=False,
         is_on=True,
@@ -468,7 +470,7 @@ def test_unconfigured_source_is_visible_and_logged(hass, player, mock_gateway, c
     _name_sources(player, s2="Cambridge")
 
     # Wall panel routes environment 2 to source 1, which has nothing wired to it
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="121", is_on=False, is_off=False, volume=None))
 
     assert player.source == "Source 1 (not configured)"
     assert "not configured" in caplog.text
@@ -476,7 +478,7 @@ def test_unconfigured_source_is_visible_and_logged(hass, player, mock_gateway, c
 
     # The warning is logged once per source, not on every re-broadcast
     caplog.clear()
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121", is_on=False, is_off=False, volume=None))
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="121", is_on=False, is_off=False, volume=None))
     assert "not configured" not in caplog.text
 
 
@@ -486,11 +488,39 @@ def test_routing_event_targets_the_environment(hass, player, mock_gateway):
     player._where = "23"
     _name_sources(player, s2="Cambridge")
 
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="132", is_on=False, is_off=False, volume=None))
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="132", is_on=False, is_off=False, volume=None))
     assert player.source is None
 
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="122", is_on=False, is_off=False, volume=None))
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="122", is_on=False, is_off=False, volume=None))
     assert player.source == "Cambridge"
+
+
+def test_parsed_routing_frame_routes_whatever_owned_reports_as_zone(hass, player, mock_gateway):
+    """Routing is read from ``where``, not from OWNd's ``zone``.
+
+    Real parsed frames, so this holds whatever the installed OWNd reports as
+    ``zone`` for a ``1ES`` frame (OWNd#51 briefly made it ``None``).
+    """
+    player.async_schedule_update_ha_state = MagicMock()
+    player._where = "23"
+    player._attr_state = MediaPlayerState.OFF
+    _name_sources(player, s2="Cambridge")
+
+    routing = OWNEvent.parse("*16*3*122##")
+    assert isinstance(routing, OWNSoundEvent)
+    assert _zone_address(routing).where == "122"
+
+    player.handle_event(routing)
+
+    assert player.source == "Cambridge"
+    # A routing frame says nothing about this zone's power: an ON routing
+    # frame must not resurrect a zone that was switched off.
+    assert player.state == MediaPlayerState.OFF
+
+    # Source 0 is no matrix input: still routing, never an amplifier `120`.
+    player.handle_event(OWNEvent.parse("*16*3*120##"))
+    assert player.source == "Cambridge"
+    assert player.state == MediaPlayerState.OFF
 
 
 def test_metadata_and_state_mirroring(hass, player, mock_gateway):
@@ -570,12 +600,12 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     mock_gateway.send_status_request.assert_called_once()
 
     # Matrix routing event (112 -> route the amplifiers of environment 1 to source 2)
-    msg_routing = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="112", is_on=False, is_off=False, volume=None)
+    msg_routing = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="112", is_on=False, is_off=False, volume=None)
     player.handle_event(msg_routing)
     assert player.source == "Source 2"
 
     # Turn on event
-    msg_on = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=True, is_off=False, volume=None)
+    msg_on = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=True, is_off=False, volume=None)
     player.handle_event(msg_on)
     assert player.state == MediaPlayerState.ON
 
@@ -585,18 +615,18 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     _set_pool(player, mock_pool)
     player._active_decoder = "media_player.squeezelite_1"
 
-    msg_off = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=True, volume=None)
+    msg_off = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=False, is_off=True, volume=None)
     player.handle_event(msg_off)
     assert player.state == MediaPlayerState.OFF
     assert player._active_decoder is None
 
     # Volume update with mute / unmute detection
-    msg_vol_0 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=0)
+    msg_vol_0 = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=False, is_off=False, volume=0)
     player.handle_event(msg_vol_0)
     assert player._attr_volume_level == 0.0
     assert player.is_volume_muted is True
 
-    msg_vol_15 = MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="1", is_on=False, is_off=False, volume=15)
+    msg_vol_15 = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=False, is_off=False, volume=15)
     player.handle_event(msg_vol_15)
     assert pytest.approx(player._attr_volume_level, 0.01) == 15 / 31.0
     assert player.is_volume_muted is False
@@ -717,7 +747,7 @@ def test_wall_panel_routing_is_not_corrected(hass, player, mock_gateway):
     _set_default_source(player, "2", 2)
 
     player.handle_event(
-        MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="121",
+        MagicMock(spec=OWNSoundEvent, is_source_event=False, where="121",
                   is_on=False, is_off=False, volume=None)
     )
 
@@ -972,11 +1002,11 @@ def test_routing_to_a_source_outside_the_matrix_is_not_labelled(hass, player, mo
     player.async_schedule_update_ha_state = MagicMock()
     player._where = "53"
 
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="159",
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="159",
                                   is_on=False, is_off=False, volume=None))
     assert player.source is None
 
-    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, zone="152",
+    player.handle_event(MagicMock(spec=OWNSoundEvent, is_source_event=False, where="152",
                                   is_on=False, is_off=False, volume=None))
     assert player.source == "Source 2"
 

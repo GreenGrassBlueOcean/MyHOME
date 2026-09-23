@@ -92,33 +92,34 @@ def test_own_sound_event_volume():
 
 
 def test_own_sound_event_amplifier_zones():
-    """Test that amplifier/zone addresses (121, 122, 132) are parsed as zone events.
+    """Test that matrix routing addresses (121, 122, 132) are not source events.
 
-    These addresses appear on BTicino multi-amplifier systems.  They are NOT
-    sources (101-109) and should be treated as regular zone events.
+    These are ``1ES`` routing frames (environment E to source S) on BTicino
+    multi-amplifier systems, NOT sources (101-109).  The address is asserted on
+    ``where``, which MyHOME reads, not on OWNd's ``zone``.
     """
 
-    # *16*3*121## from live capture — amplifier zone, not a source
+    # *16*3*121## from live capture — routing, not a source
     message = OWNEvent.parse("*16*3*121##")
     assert isinstance(message, OWNSoundEvent)
     assert message.is_on is True
     assert message.is_source_event is False  # 121 does NOT start with "10"
     assert message.source_id is None
-    assert message.zone == "121"
+    assert message.where == "121"
 
     # *16*3*122## from live capture
     message = OWNEvent.parse("*16*3*122##")
     assert isinstance(message, OWNSoundEvent)
     assert message.is_on is True
     assert message.is_source_event is False
-    assert message.zone == "122"
+    assert message.where == "122"
 
     # *16*3*132## from live capture
     message = OWNEvent.parse("*16*3*132##")
     assert isinstance(message, OWNSoundEvent)
     assert message.is_on is True
     assert message.is_source_event is False
-    assert message.zone == "132"
+    assert message.where == "132"
 
 
 def test_own_sound_event_unknown_command():
@@ -225,14 +226,14 @@ def test_own_sound_live_capture_full_sequence():
         ("*16*13*22##",     {"is_on": False, "is_off": True,  "zone": "22"}),
         ("*#16*22*1*19##",  {"volume": 19, "zone": "22"}),
         ("*16*3*101##",     {"is_on": True,  "is_source_event": True, "source_id": "1"}),
-        ("*16*3*121##",     {"is_on": True,  "is_source_event": False, "zone": "121"}),
-        ("*16*3*122##",     {"is_on": True,  "is_source_event": False, "zone": "122"}),
+        ("*16*3*121##",     {"is_on": True,  "is_source_event": False, "where": "121"}),
+        ("*16*3*122##",     {"is_on": True,  "is_source_event": False, "where": "122"}),
         ("*#16*22*1*20##",  {"volume": 20, "zone": "22"}),
         ("*#16*22*1*21##",  {"volume": 21, "zone": "22"}),
         ("*#16*22*1*20##",  {"volume": 20, "zone": "22"}),
         ("*#16*22*1*19##",  {"volume": 19, "zone": "22"}),
         ("*16*3*22##",      {"is_on": True,  "is_off": False, "zone": "22"}),
-        ("*16*3*132##",     {"is_on": True,  "is_source_event": False, "zone": "132"}),
+        ("*16*3*132##",     {"is_on": True,  "is_source_event": False, "where": "132"}),
     ]
 
     for raw, expected in capture:
