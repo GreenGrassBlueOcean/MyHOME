@@ -169,7 +169,7 @@ Enabling **Generate Events** in the **Options Flow** additionally fires every bu
 | **CEN Short Release** | 15 | `*15*<BUTTON>#1*<WHERE>##` | `*15*02#1*11##` |
 | **CEN Long Press** (repeats while held) | 15 | `*15*<BUTTON>#3*<WHERE>##` | `*15*02#3*11##` |
 | **CEN Long Release** | 15 | `*15*<BUTTON>#2*<WHERE>##` | `*15*02#2*11##` |
-| **CEN+ Short Press** | 25 | `*25*21#<BUTTON>*<WHERE>##` | `*25*21#1*12##` (Btn 1 on addr 12) |
-| **CEN+ Start Long** | 25 | `*25*22#<BUTTON>*<WHERE>##` | `*25*22#1*12##` |
-| **CEN+ Release** | 25 | `*25*24#<BUTTON>*<WHERE>##` | `*25*24#1*12##` |
+| **CEN+ Short Press** | 25 | `*25*21#<BUTTON>*<WHERE>##` | `*25*21#1*21##` (Btn 1 of object 1: WHERE is `2` + object) |
+| **CEN+ Start Long** | 25 | `*25*22#<BUTTON>*<WHERE>##` | `*25*22#1*21##` |
 | **CEN+ Still Held** (repeats ~0.5 s) | 25 | `*25*23#<BUTTON>*<WHERE>##` | `*25*23#1*21##` |
+| **CEN+ Release** | 25 | `*25*24#<BUTTON>*<WHERE>##` | `*25*24#1*21##` |

@@ -628,12 +628,14 @@ async def test_listening_loop_cenplus_hold_fires_long_press_once(gateway_handler
         except asyncio.CancelledError:
             pass
 
-    events = [
-        c.args[1]["event"]
+    payloads = [
+        c.args[1]
         for c in gateway_handler.hass.bus.async_fire.call_args_list
         if c.args[0] == "myhome_cenplus_event"
     ]
-    assert events == [CONF_LONG_PRESS] + [CONF_LONG_PRESS_REPEAT] * 4 + [CONF_LONG_RELEASE]
+    assert [p["event"] for p in payloads] == [CONF_LONG_PRESS] + [CONF_LONG_PRESS_REPEAT] * 4 + [CONF_LONG_RELEASE]
+    # WHERE 21 is CEN+ object 1; the button comes from the #2 WHAT parameter.
+    assert {(p["object"], p["pushbutton"], p["where"]) for p in payloads} == {(1, 2, "1")}
 
 
 @pytest.mark.asyncio
