@@ -95,8 +95,8 @@ def test_own_sound_event_amplifier_zones():
     """Test that matrix routing addresses (121, 122, 132) are not source events.
 
     These are ``1ES`` routing frames (environment E to source S) on BTicino
-    multi-amplifier systems, NOT sources (101-109).  The address is read from
-    ``where``: OWNd#51 reports no ``zone`` for a routing frame.
+    multi-amplifier systems, NOT sources (101-109).  The address is asserted on
+    ``where``, which MyHOME reads, not on OWNd's ``zone``.
     """
 
     # *16*3*121## from live capture — routing, not a source

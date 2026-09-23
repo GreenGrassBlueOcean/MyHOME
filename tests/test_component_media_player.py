@@ -496,10 +496,10 @@ def test_routing_event_targets_the_environment(hass, player, mock_gateway):
 
 
 def test_parsed_routing_frame_routes_whatever_owned_reports_as_zone(hass, player, mock_gateway):
-    """Routing is read from ``where``: from OWNd#51 on a ``1ES`` frame has no zone.
+    """Routing is read from ``where``, not from OWNd's ``zone``.
 
-    Real parsed frames, so this holds against released OWNd (``zone == "122"``)
-    and against OWNd#51 (``zone is None``) alike.
+    Real parsed frames, so this holds whatever the installed OWNd reports as
+    ``zone`` for a ``1ES`` frame (OWNd#51 briefly made it ``None``).
     """
     player.async_schedule_update_ha_state = MagicMock()
     player._where = "23"
