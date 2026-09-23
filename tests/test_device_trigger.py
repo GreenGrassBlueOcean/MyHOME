@@ -145,9 +145,9 @@ async def test_async_get_triggers_cen_device(hass: HomeAssistant):
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "cen_device_id")
 
-        # WHO 15 has no rotary events, so those triggers are not offered.
-        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - ROTARY_TYPES
-        assert len(triggers) == (len(TRIGGER_TYPES) - len(ROTARY_TYPES)) * len(TRIGGER_SUBTYPES)
+        # WHO 15 has no rotary events and no separate repeat frame.
+        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - CEN_UNSUPPORTED
+        assert len(triggers) == (len(TRIGGER_TYPES) - len(CEN_UNSUPPORTED)) * len(TRIGGER_SUBTYPES)
         for trigger in triggers:
             assert trigger[CONF_ADDRESS] == 5
             assert trigger[CONF_DEVICE_ID] == "cen_device_id"
@@ -192,14 +192,15 @@ async def test_home_assistant_discovers_cenplus_device_triggers(hass: HomeAssist
 
 
 ROTARY_TYPES = {CONF_ROTARY_CW_SLOW, CONF_ROTARY_CW_FAST, CONF_ROTARY_CCW_SLOW, CONF_ROTARY_CCW_FAST}
+CEN_UNSUPPORTED = ROTARY_TYPES | {CONF_LONG_PRESS_REPEAT}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("identifier", "expected"),
     [
-        ("cen_31", TRIGGER_TYPES - ROTARY_TYPES),
-        ("00:03:50:aa:bb:cc-cen-31", TRIGGER_TYPES - ROTARY_TYPES),
+        ("cen_31", TRIGGER_TYPES - CEN_UNSUPPORTED),
+        ("00:03:50:aa:bb:cc-cen-31", TRIGGER_TYPES - CEN_UNSUPPORTED),
         ("cenplus_2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
         ("00:03:50:aa:bb:cc-cenplus-2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
     ],
