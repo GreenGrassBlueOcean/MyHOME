@@ -138,9 +138,7 @@ def test_own_sound_command_generation():
     to match BTicino Sound System 2.0 protocol.
     """
 
-    # Status Request
-    status_msg = OWNSoundCommand.status("22")
-    assert str(status_msg) == "*#16*22##"
+    # Status Request: see test_own_sound_status_requests_dimension_5
 
     # Turn On — must send WHAT=3 (stereo)
     on_msg = OWNSoundCommand.turn_on("11")
@@ -194,6 +192,27 @@ def test_own_sound_select_source_routes_the_environment():
     assert len(source_cmds) == 2
     assert str(source_cmds[0]) == "*16*3*103##"  # activate source 3 device
     assert str(source_cmds[1]) == "*16*3*123##"  # route environment 2 to source 3
+
+
+# OWNd releases up to and including 2.0.0b8 build the WHO 16 status request as
+# the bare `*#16*WHERE##`, which an MH201 NACKs for every address.  OWNd#51
+# sends the specified dimension-5 form `*#16*WHERE*5##`.  Same detection as
+# above, so the suite is green against released OWNd and against the OWNd#51
+# checkout, and strict=True retires the marker once a release ships the fix.
+_OWND_STATUS_IS_BARE = str(OWNSoundCommand.status("22")) == "*#16*22##"
+
+
+@pytest.mark.xfail(
+    _OWND_STATUS_IS_BARE,
+    reason="installed OWNd predates OWNd#51 (bare `*#16*WHERE##` status request)",
+    strict=True,
+)
+def test_own_sound_status_requests_dimension_5():
+    """WHO 16 status is dimension 5 (``*#16*WHERE*5##``, spec section 1.5.2).
+
+    The gateway answers with ordinary ``*16*WHAT*WHERE##`` state frames.
+    """
+    assert str(OWNSoundCommand.status("22")) == "*#16*22*5##"
 
 
 def test_own_sound_live_capture_full_sequence():
