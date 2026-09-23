@@ -208,7 +208,8 @@ async def test_async_get_triggers_filters_by_legacy_identifier(
 ):
     """Older CEN/CEN+ identifier forms are filtered by family too."""
     mock_device = MagicMock()
-    mock_device.identifiers = {("other_domain", "x"), (DOMAIN, identifier)}
+    # A list, not a set: the foreign identifier must come first on every run.
+    mock_device.identifiers = [("other_domain", "x"), (DOMAIN, identifier)]
     mock_registry = MagicMock()
     mock_registry.async_get.return_value = mock_device
 
@@ -217,6 +218,21 @@ async def test_async_get_triggers_filters_by_legacy_identifier(
         triggers = await async_get_triggers(hass, "legacy_device_id")
 
     assert {t[CONF_TYPE] for t in triggers} == expected
+
+
+@pytest.mark.asyncio
+async def test_async_get_triggers_gateway_with_foreign_identifier_gets_all_types(hass: HomeAssistant):
+    """Identifiers of other integrations are skipped; a gateway keeps every trigger type."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {("other_domain", "00:03:50:aa:bb:cc-15-5"), (DOMAIN, "00:03:50:aa:bb:cc")}
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        triggers = await async_get_triggers(hass, "gateway_device_id")
+
+    assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES
 
 
 @pytest.mark.asyncio
