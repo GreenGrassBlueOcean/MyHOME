@@ -138,7 +138,7 @@ The model label decides the gateway profile (command sessions, pacing, queue siz
 
 Rules applied when the reply arrives:
 
-- **Compatible model** (e.g. configured MH200N with code `4` = MH200, or configured F454 / MyHOMEServer1 with code `200`): consistent, nothing changes. A variant suffix is never downgraded.
+- **Compatible model** (e.g. configured MH200 with code `4`, or configured F454 / MyHOMEServer1 with code `200`): consistent, nothing changes. A model the tables list by name must match by name or brand variant: an MH200N has a code of its own (`44`), so code `4` contradicts it. Only a variant suffix no table lists is compared by family and never downgraded.
 - **`ssdp` / `serial` contradicted**: model kept; a repair issue *asks* you to confirm.
 - **`manual` contradicted by an official code**: model, profile and device registry are corrected and a repair issue tells you (the old manual flow defaulted to F454, which is how mislabelled entries came to exist).
 - **`manual` contradicted by an observed-only code**: model kept; a repair issue asks you to confirm.

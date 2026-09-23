@@ -46,7 +46,7 @@ Gateways answer the *model request* `*#13**15##` with `*#13**15*<code>##`, and m
 | `11` | MHServer2 | 2006 |
 | `13` | H4684 | 2006 |
 
-That is the whole list. **F454, F455, MH200N, MH201, MH202, MyHOMEServer1, F461 … are not in it.** Newer gateways reuse an old code or invent one, so the reply can *corroborate* a label but can never *establish* one for a modern gateway. For example an **MH200N reports `4`** — the code of its 2006 predecessor — which is consistent, not a contradiction.
+That is the whole list. **F454, F455, MH200N, MH201, MH202, MyHOMEServer1, F461 … are not in it.** Newer gateways reuse an old code or invent one, so the reply can *corroborate* a label but can never *establish* one for a modern gateway. The **MH200N is the exception that has a code of its own**: `44` in the `WHO=1013` catalogue and in Nmap's `WHO=13` table (below). A gateway answering the 2006 code `4` is therefore an MH200, not an MH200N: a physical MH200 (firmware 2.1.0) answers `*#13**15*4##`, and until 2026-09-23 a manual MH200N label on one was wrongly accepted as the same family.
 
 ### Codes seen in the field (evidence, not specification)
 
@@ -129,9 +129,9 @@ Each source is recorded separately — what you picked, what the gateway announc
 
 ## The rule the integration applies
 
-When a dimension-15 reply arrives, the handler compares the reported model with the configured one **by family** (`MH200N` → `MH200`, `F452V` → `F452`; a variant suffix is never downgraded) and then:
+When a dimension-15 reply arrives, the handler compares the reported model with the configured one. A configured model that one of the tables lists by name has a code of its own, so only that name or a brand variant of it agrees: `MH200N` (`44`) is contradicted by `4` (MH200), and `F452V` (`7`) by `6` (F452), even though each pair shares a family. A name no table lists is compared **by family** (`F452X` → `F452`), so an unlisted variant suffix is never downgraded. Then:
 
-| configured `source` | code agrees (same family) | code contradicts — **official** 2006 code | code contradicts — **uncertain** code (field evidence or third-party) | code **shared** (`200`) | code unknown |
+| configured `source` | code agrees | code contradicts — **official** 2006 code | code contradicts — **uncertain** code (field evidence or third-party) | code **shared** (`200`) | code unknown |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `ssdp` / `serial` | nothing | model kept; repair issue **asks** you to confirm | model kept, no repair issue | model kept; `WHO=1013` asked and its answer cross-checks (mismatch → repair issue asks) | recorded; repair issue created |
 | `manual` | nothing | model, profile and device registry **corrected**; repair issue tells you | model kept, no repair issue | model kept; `WHO=1013` asked and its answer corrects if it differs | recorded; repair issue created |

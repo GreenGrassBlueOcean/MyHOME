@@ -171,14 +171,21 @@ def test_read_who13():
     official = read_who13("4")
     assert (official.models, official.certain, official.shared, official.raw) == (("MH200",), True, False, "4")
     assert official.compatible_with("MH200") is True
-    assert official.compatible_with("MH200N") is True  # variant suffix, same family
+    assert official.compatible_with(" mh 200 ") is True  # case and spacing do not matter
+    # same family, but the MH200N has a code of its own (44): a certain contradiction
+    assert official.compatible_with("MH200N") is False
+    assert official.compatible_with("003565") is False  # the MH200N's Legrand name
+    assert official.compatible_with("MH200X") is True  # a name no table lists: judged by family
     assert official.compatible_with("F454") is False  # a certain contradiction
     assert official.compatible_with(None) is False and official.compatible_with("") is False
 
     third_party = read_who13("51")
     assert (third_party.models, third_party.certain, third_party.shared) == (("F454",), False, False)
     assert third_party.compatible_with("F454") is True
+    assert third_party.compatible_with("003598") is True  # the F454's Legrand name
     assert third_party.compatible_with("MH200") is None  # a third-party table cannot contradict
+    # nor can Nmap's 44 contradict an MH200, though the two are different products
+    assert read_who13("44").compatible_with("MH200") is None
 
     shared = read_who13("200")
     assert shared.shared and shared.known and shared.canonical == "F454"
@@ -243,7 +250,8 @@ def test_resolver_labels_an_untrusted_model_from_in_band_evidence():
 
 def test_resolver_manual_choice():
     # compatible, or questioned by field evidence only: kept
-    assert resolve(Evidence(manual="MH200N", who13_code="4")).model == "MH200N"
+    assert resolve(Evidence(manual="MH200", who13_code="4")).model == "MH200"
+    assert resolve(Evidence(manual="MH200", who13_code="44")).corrected_from is None  # Nmap only
     r = resolve(Evidence(manual="MH200", who13_code="51"))
     assert (r.model, r.conflict, r.corrected_from) == ("MH200", None, None)
     # a certain contradiction corrects it and says from what
@@ -256,6 +264,43 @@ def test_resolver_manual_choice():
     assert (r.model, r.conflict, r.corrected_from) == ("F461", None, None)
     # a manual entry naming the Legrand variant is corroborated
     assert resolve(Evidence(manual="003598", who13_code="200", who1013_code="51")).corrected_from is None
+
+
+def test_resolver_same_family_with_a_code_of_its_own_is_a_contradiction():
+    """Live 2026-09-23: an MH200 (firmware 2.1.0, `*#13**15*4##`) set up by hand as MH200N.
+
+    Both names reduce to the MH200 family, so the family check let the manual MH200N
+    stand; OWNd's MH200N profile then skipped the startup WHO=16 sweep. The MH200N
+    has a code of its own (WHO=1013 44, Nmap's WHO=13 44), so an official 4 proves
+    the gateway is an MH200.
+    """
+    r = resolve(Evidence(manual="MH200N", who13_code="4"))
+    assert (r.model, r.source, r.corrected_from, r.corrected_reading.raw) == ("MH200", IDENTIFICATION_WHO13, "MH200N", "4")
+    assert r.conflict is None
+    # the reverse, settled by the certain catalogue
+    r = resolve(Evidence(manual="MH200", who1013_code="44"))
+    assert (r.model, r.corrected_from, r.corrected_reading.raw) == ("MH200N", "MH200", "1013-1-44")
+    # the MH200N under its Legrand name is contradicted too, and corroborated by its own code
+    assert resolve(Evidence(manual="003565", who13_code="4")).corrected_from == "003565"
+    assert resolve(Evidence(manual="003565", who1013_code="44")).corrected_from is None
+    # F452V is in the 2006 table itself (7), so the F452 code (6) contradicts it too
+    assert resolve(Evidence(manual="F452V", who13_code="7")).corrected_from is None
+    r = resolve(Evidence(manual="F452V", who13_code="6"))
+    assert (r.model, r.corrected_from) == ("F452", "F452V")
+    # a variant name no table lists is still judged by family, so it stays
+    r = resolve(Evidence(manual="F452X", who13_code="6"))
+    assert (r.model, r.source, r.corrected_from) == ("F452X", IDENTIFICATION_MANUAL, None)
+    r = resolve(Evidence(manual="F454X", who13_code="200", who1013_code="51"))
+    assert (r.model, r.corrected_from) == ("F454X", None)
+
+
+def test_resolver_same_family_contradiction_of_a_technical_identity_is_a_conflict():
+    """An SSDP or serial MH200N answering 4 is kept and flagged, never relabelled."""
+    for source in (IDENTIFICATION_SSDP, IDENTIFICATION_SERIAL):
+        r = resolve(Evidence(technical="MH200N", technical_source=source, who13_code="4"))
+        assert (r.model, r.source, r.corrected_from) == ("MH200N", source, None)
+        assert r.conflict == f"configured as MH200N ({source}) but WHO=13 device type 4 identifies MH200 per the OpenWebNet specification"
+        assert r.conflict_reading.raw == "4"
 
 
 def test_resolver_technical_identity_is_never_overruled():
@@ -346,17 +391,46 @@ def test_manual_mh200_reporting_type_4_is_left_alone(dev_reg, issues):
     assert ident["who13_model_official"] == "MH200" and ident["who13_model_observed"] is None
 
 
-def test_variant_suffix_is_not_a_conflict(dev_reg, issues):
-    """An MH200N owner whose unit reports the 2006 code 4 (MH200) is consistent, not mislabelled."""
+def test_manual_mh200n_on_a_live_mh200_is_corrected(dev_reg, issues, caplog):
+    """Live 2026-09-23: a manual-flow entry named MH200N on an MH200 answering `*#13**15*4##`.
+
+    The entry (source "user", no model_source, no SSDP fields) kept MH200N because
+    both names share the MH200 family, so the gateway got OWNd's MH200N profile and
+    startup discovery skipped `*#16*0*5##`. The MH200N has a code of its own, so the
+    official 4 now corrects it to MH200.
+    """
     create, _, corrected = issues
-    h = _handler({"name": "MH200N"})
+    h = _handler({"name": "MH200N"}, title="MH200N Gateway")
+    h.gateway.model_name = "MH200N"
+    dev_reg.async_get.return_value = MagicMock(model="MH200N")
+    assert h.identification_source == IDENTIFICATION_MANUAL
+
+    _who13(h, "4")
+    assert h.gateway.model_name == "MH200"
+    # whatever profile the installed OWNd gives an MH200 (its own with WHO 16 from OWNd#53)
+    assert type(h.gateway.profile) is type(get_gateway_profile("MH200"))
+    kwargs = h.hass.config_entries.async_update_entry.call_args.kwargs
+    assert kwargs["data"]["name"] == "MH200" and kwargs["data"]["model_source"] == IDENTIFICATION_WHO13
+    assert kwargs["title"] == "MH200 Gateway"
+    corrected.assert_called_once_with(h.hass, "entry_ident", "MH200N", "MH200", "4")
+    create.assert_not_called()
+    assert h._identity_conflict is None
+    dev_reg.async_update_device.assert_called_once_with("dev_gw", model="MH200")
+    assert "Gateway model `MH200` set from WHO=13 device type 4 (was `MH200N`, source manual)" in caplog.text
+
+
+def test_ssdp_mh200n_answering_type_4_is_flagged_not_corrected(dev_reg, issues):
+    """An MH200N the gateway announced itself is never relabelled; code 4 raises a mismatch."""
+    create, _, corrected = issues
+    h = _handler({"name": "MH200N", "ssdp_location": "http://192.0.2.40:49153/desc.xml"}, title="MH200N Gateway")
     h.gateway.model_name = "MH200N"
     dev_reg.async_get.return_value = MagicMock(model="MH200N")
     _who13(h, "4")
     assert h.gateway.model_name == "MH200N"
-    assert h._identity_conflict is None
-    create.assert_not_called()
+    assert "configured as MH200N (ssdp)" in h._identity_conflict
+    create.assert_called_once()
     corrected.assert_not_called()
+    h.hass.config_entries.async_update_entry.assert_not_called()
 
 
 # ── SSDP-announced model is never overruled, but a contradiction is flagged ──
@@ -575,8 +649,11 @@ def test_serial_model_cross_checked_by_who1013(dev_reg, issues):
     dev_reg.async_get.return_value = MagicMock(model="MH200")
     _who13(h, "200")  # no serial gateway is known to answer this; the path must still be sound
     assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
-    _who1013(h, "44")  # MH200N: same family
+    _who1013(h, "4")  # MH200: corroborated
     assert h._identity_conflict is None
+    _who1013(h, "44")  # MH200N: same family, but a product with a code of its own
+    assert h.gateway.model_name == "MH200"
+    assert create.call_args.args[1:] == ("entry_ident", "MH200", "MH200N", "1013-1-44", "serial", True)
     _who1013(h, "51")  # F454
     assert h.gateway.model_name == "MH200"
     assert "configured as MH200 (serial)" in h._identity_conflict
@@ -687,21 +764,22 @@ def test_who13_label_is_not_repeated_when_already_applied(dev_reg, issues):
 
 
 def test_manual_selection_outranks_an_earlier_who13_label(dev_reg, issues):
-    """PR #345 review: an entry labelled MH200 by WHO=13, then switched to MH200N in the
-    options flow, must not be flipped back by the next device-type 4 reply."""
+    """PR #345 review: an entry labelled MH200N by WHO=13, then switched to MH200 in the
+    options flow, must not be flipped back by the next device-type 44 reply (Nmap's
+    MH200N code: field evidence, which labels but never contradicts)."""
     create, delete, corrected = issues
     # Before the options flow: the entry was labelled from WHO=13 and would be relabelled.
-    h = _handler({"name": "MH200N", "model_source": "who13"})
-    h.gateway.model_name = "MH200N"
-    _who13(h, "4")
-    assert h.gateway.model_name == "MH200"  # the bug the review reproduced
+    h = _handler({"name": "MH200", "model_source": "who13"})
+    h.gateway.model_name = "MH200"
+    _who13(h, "44")
+    assert h.gateway.model_name == "MH200N"  # the bug the review reproduced
     # After the options flow: the selection is recorded as manual and stays intact.
-    h = _handler({"name": "MH200N", "model_source": "manual"})
-    h.gateway.model_name = "MH200N"
-    dev_reg.async_get.return_value = MagicMock(model="MH200N")
-    _who13(h, "4")
-    assert h.gateway.model_name == "MH200N"
-    assert h.config_entry.data["name"] == "MH200N"
+    h = _handler({"name": "MH200", "model_source": "manual"})
+    h.gateway.model_name = "MH200"
+    dev_reg.async_get.return_value = MagicMock(model="MH200")
+    _who13(h, "44")
+    assert h.gateway.model_name == "MH200"
+    assert h.config_entry.data["name"] == "MH200"
     assert h._identity_conflict is None
     h.hass.config_entries.async_update_entry.assert_not_called()
     create.assert_not_called()

@@ -900,9 +900,10 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
 async def test_options_flow_model_selection_survives_reload_and_next_who13(hass: HomeAssistant) -> None:
     """PR #345 review: selecting a model in the options flow is authoritative.
 
-    An entry labelled MH200 from WHO=13 is switched to MH200N; after the reload the new
-    handler receives device type 4 (MH200) again and must keep MH200N. The reload also
-    clears a mismatch warning left in the issue registry by the previous handler.
+    An entry labelled MH200N from WHO=13 is switched to MH200; after the reload the new
+    handler receives device type 44 (MH200N, Nmap's table: field evidence) again and
+    must keep MH200. The reload also clears a mismatch warning left in the issue
+    registry by the previous handler.
     """
     from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
     from homeassistant.helpers import issue_registry as ir
@@ -928,15 +929,15 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
             CONF_HOST: "192.0.2.10",
             CONF_PORT: 20000,
             CONF_MAC: "00:03:50:00:12:34",
-            CONF_NAME: "MH200",
+            CONF_NAME: "MH200N",
             "model_source": IDENTIFICATION_WHO13,
         },
-        title="MH200 Gateway",
+        title="MH200N Gateway",
         unique_id="00:03:50:00:12:34",
     )
     entry.add_to_hass(hass)
     # A warning the previous handler raised and never cleared before the reload.
-    async_create_identity_issue(hass, entry.entry_id, "MH200", "MyHomeServer1", "200", "who13", False)
+    async_create_identity_issue(hass, entry.entry_id, "MH200N", "MyHomeServer1", "200", "who13", False)
     issue_id = f"{ISSUE_GATEWAY_IDENTITY}_{entry.entry_id}"
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
@@ -946,7 +947,7 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
     with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
         res = await opt_flow.async_step_user({
             CONF_ADDRESS: "192.0.2.10",
-            CONF_NAME: "MH200N",
+            CONF_NAME: "MH200",
             CONF_OWN_PASSWORD: None,
             CONF_WORKER_COUNT: 1,
             CONF_GENERATE_EVENTS: False,
@@ -954,19 +955,19 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
         })
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert mock_reload.called
-    assert entry.data[CONF_NAME] == "MH200N"
+    assert entry.data[CONF_NAME] == "MH200"
     assert entry.data["model_source"] == IDENTIFICATION_MANUAL
 
     # The reload builds a fresh handler from the updated entry ...
     handler = MyHOMEGatewayHandler(hass, entry)
-    assert handler.gateway.model_name == "MH200N"
+    assert handler.gateway.model_name == "MH200"
     assert handler.identification_source == IDENTIFICATION_MANUAL
     assert handler._identity_conflict is None
 
-    # ... and the next WHO=13 device-type 4 reply (MH200 per the 2006 table) leaves it alone.
-    handler._handle_gateway_diagnostics(OWNEvent.parse("*#13**15*4##"))
-    assert handler.gateway.model_name == "MH200N"
-    assert entry.data[CONF_NAME] == "MH200N"
+    # ... and the next WHO=13 device-type 44 reply (Nmap's MH200N code: it cannot contradict) leaves it alone.
+    handler._handle_gateway_diagnostics(OWNEvent.parse("*#13**15*44##"))
+    assert handler.gateway.model_name == "MH200"
+    assert entry.data[CONF_NAME] == "MH200"
     assert entry.data["model_source"] == IDENTIFICATION_MANUAL
     assert handler.identification()["conflict"] is None
     # The stale warning from before the reload is gone.
