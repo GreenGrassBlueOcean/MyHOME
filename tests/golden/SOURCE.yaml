@@ -104,6 +104,12 @@ authorities:
         date: "2026-09-16"
         gateway: "BTicino MH201"
         devices: "Lighting actuator/point, address 05 (*#1*05## status request)"
+      - name: "Physical Bus Capture (BTicino MH201 + CEN+ WHO 25, short press and hold)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/418#issuecomment-5753691792"
+        author: "@fedem95"
+        date: "2026-09-21"
+        gateway: "BTicino MH201, firmware 3.6.27"
+        devices: "CEN+ pushbuttons 1 and 2 on Object 1 (WHERE 21): 21 alone for a short press; 22, then 23 every 0.48-0.51 s, then 24 for a hold"
       - name: "Physical Bus Capture (BTicino MH200 Physical Plant)"
         reference: "tests/fixtures/plants/mh200_physical_plant"
         author: "Laurens (@GreenGrassBlueOcean)"
@@ -124,6 +130,12 @@ authorities:
         devices: "Covers 11-16, 18, 19 behind F422 interface 02 (logical #4# addressing): area status request answered per object; area commands on the main bus (*2*2*1##) and on the private bus (*2*1*1#4#02##) moved none of them; point commands did"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
+
+  encyclopedia:
+    name: "OpenWebNet Encyclopedia"
+    repository: "https://github.com/OpenWebNet-HA/OpenWebNet-Encyclopedia"
+    verified_commit: "305278651b593a785271c7c4df15d9e802a41ffb"
+    role: "Frames taken from the Encyclopedia's published examples and tables. Documentation-derived, not a bus capture: replace with a community-plant-capture fixture when one exists."
 
   sut:
     name: "OWNd / MyHOME Integration v2"

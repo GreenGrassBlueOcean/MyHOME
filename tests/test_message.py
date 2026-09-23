@@ -157,7 +157,9 @@ def test_own_sound_command_generation():
 
     # Volume Down
     vol_down_msg = OWNSoundCommand.volume_down("21")
-    assert str(vol_down_msg) == "*16*1000*21##"
+    # 1101 per the Encyclopedia; OWNd <= 2.0.0b8 still sends the undefined 1000.
+    # Tighten to 1101 only once the manifest pins a release with the fix.
+    assert str(vol_down_msg) in ("*16*1101*21##", "*16*1000*21##")
 
     # Set Volume
     set_vol_msg = OWNSoundCommand.set_volume("1", 15)

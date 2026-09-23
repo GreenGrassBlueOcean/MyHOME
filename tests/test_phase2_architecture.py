@@ -49,34 +49,33 @@ def test_p2_cen_command_builders_exact_framing():
     """Verify strongly typed OWNCenCommand and OWNCenPlusCommand emit exact OpenWebNet frames."""
     if OWNCenCommand is None or OWNCenPlusCommand is None:
         pytest.skip("OWNCenCommand / OWNCenPlusCommand not available in installed OWNd")
-    # CEN (WHO=15)
-    press = OWNCenCommand.press("11", 2)
-    assert str(press) == "*15*1*11#2##"
-
-    start_long = OWNCenCommand.start_long_press("11", 2)
-    assert str(start_long) == "*15*0*11#2##"
-
-    release = OWNCenCommand.release("11", 2)
-    assert str(release) == "*15*2*11#2##"
+    # CEN (WHO=15): button in WHAT, phase as its parameter (*15*BUTTON[#phase]*WHERE##).
+    # OWNd <= 2.0.0b8 built *15*<phase>*<where>#<button>##; the fixed release adds
+    # release_short_press, so only check WHO 15 framing where the fix is present.
+    if hasattr(OWNCenCommand, "release_short_press"):
+        assert str(OWNCenCommand.press("11", 2)) == "*15*02*11##"
+        assert str(OWNCenCommand.release_short_press("11", 2)) == "*15*02#1*11##"
+        assert str(OWNCenCommand.start_long_press("11", 2)) == "*15*02#3*11##"
+        assert str(OWNCenCommand.release("11", 2)) == "*15*02#2*11##"
 
     # CEN+ (WHO=25)
-    press_plus = OWNCenPlusCommand.press("12", 1)
-    assert str(press_plus) == "*25*21#1*12##"
+    press_plus = OWNCenPlusCommand.press("21", 1)
+    assert str(press_plus) == "*25*21#1*21##"
 
-    start_long_plus = OWNCenPlusCommand.start_long_press("12", 1)
-    assert str(start_long_plus) == "*25*22#1*12##"
+    start_long_plus = OWNCenPlusCommand.start_long_press("21", 1)
+    assert str(start_long_plus) == "*25*22#1*21##"
 
-    release_plus = OWNCenPlusCommand.release("12", 1)
-    assert str(release_plus) == "*25*24#1*12##"
+    release_plus = OWNCenPlusCommand.release("21", 1)
+    assert str(release_plus) == "*25*24#1*21##"
 
-    held_plus = OWNCenPlusCommand.still_held("12", 1)
-    assert str(held_plus) == "*25*23#1*12##"
+    held_plus = OWNCenPlusCommand.still_held("21", 1)
+    assert str(held_plus) == "*25*23#1*21##"
 
     # Roundtrip parser instantiation
-    parsed_cen = OWNCommand.parse("*15*1*11#2##")
+    parsed_cen = OWNCommand.parse("*15*02*11##")
     assert isinstance(parsed_cen, OWNCenCommand)
 
-    parsed_cen_plus = OWNCommand.parse("*25*21#1*12##")
+    parsed_cen_plus = OWNCommand.parse("*25*21#1*21##")
     assert isinstance(parsed_cen_plus, OWNCenPlusCommand)
 
 

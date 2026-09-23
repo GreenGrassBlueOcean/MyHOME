@@ -161,9 +161,10 @@ trigger:
 
 | Action | WHO | Frame Format | Example |
 | :--- | :---: | :--- | :--- |
-| **CEN Short Press** | 15 | `*15*1*<WHERE>#<BUTTON>##` | `*15*1*11#2##` (Btn 2 on addr 11) |
-| **CEN Start Long** | 15 | `*15*0*<WHERE>#<BUTTON>##` | `*15*0*11#2##` |
-| **CEN Release** | 15 | `*15*2*<WHERE>#<BUTTON>##` | `*15*2*11#2##` |
+| **CEN Press** | 15 | `*15*<BUTTON>*<WHERE>##` | `*15*02*11##` (Btn 2 on addr 11) |
+| **CEN Short Release** | 15 | `*15*<BUTTON>#1*<WHERE>##` | `*15*02#1*11##` |
+| **CEN Long Press** (repeats while held) | 15 | `*15*<BUTTON>#3*<WHERE>##` | `*15*02#3*11##` |
+| **CEN Long Release** | 15 | `*15*<BUTTON>#2*<WHERE>##` | `*15*02#2*11##` |
 | **CEN+ Short Press** | 25 | `*25*21#<BUTTON>*<WHERE>##` | `*25*21#1*12##` (Btn 1 on addr 12) |
 | **CEN+ Start Long** | 25 | `*25*22#<BUTTON>*<WHERE>##` | `*25*22#1*12##` |
 | **CEN+ Release** | 25 | `*25*24#<BUTTON>*<WHERE>##` | `*25*24#1*12##` |

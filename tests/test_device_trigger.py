@@ -19,8 +19,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.myhome.const import (
     CONF_LONG_PRESS,
     CONF_ROTARY_CCW_FAST,
+    CONF_ROTARY_CCW_SLOW,
     CONF_ROTARY_CW_FAST,
+    CONF_ROTARY_CW_SLOW,
     CONF_SHORT_PRESS,
+    CONF_SHORT_RELEASE,
     DOMAIN,
 )
 from custom_components.myhome.device_trigger import (
@@ -141,7 +144,9 @@ async def test_async_get_triggers_cen_device(hass: HomeAssistant):
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "cen_device_id")
 
-        assert len(triggers) == len(TRIGGER_TYPES) * len(TRIGGER_SUBTYPES)
+        # WHO 15 has no rotary events, so those triggers are not offered.
+        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - ROTARY_TYPES
+        assert len(triggers) == (len(TRIGGER_TYPES) - len(ROTARY_TYPES)) * len(TRIGGER_SUBTYPES)
         for trigger in triggers:
             assert trigger[CONF_ADDRESS] == 5
             assert trigger[CONF_DEVICE_ID] == "cen_device_id"
@@ -159,7 +164,9 @@ async def test_async_get_triggers_cenplus_device(hass: HomeAssistant):
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "cenplus_device_id")
 
-        assert len(triggers) == len(TRIGGER_TYPES) * len(TRIGGER_SUBTYPES)
+        # CEN+ sends no short-release frame, so short_release is not offered.
+        assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES - {CONF_SHORT_RELEASE}
+        assert len(triggers) == (len(TRIGGER_TYPES) - 1) * len(TRIGGER_SUBTYPES)
         for trigger in triggers:
             assert trigger[CONF_ADDRESS] == 12
             assert trigger[CONF_DEVICE_ID] == "cenplus_device_id"
@@ -180,7 +187,52 @@ async def test_home_assistant_discovers_cenplus_device_triggers(hass: HomeAssist
         hass, DeviceAutomationType.TRIGGER, [device.id]
     )
 
-    assert len(triggers[device.id]) == len(TRIGGER_TYPES) * len(TRIGGER_SUBTYPES)
+    assert len(triggers[device.id]) == (len(TRIGGER_TYPES) - 1) * len(TRIGGER_SUBTYPES)
+
+
+ROTARY_TYPES = {CONF_ROTARY_CW_SLOW, CONF_ROTARY_CW_FAST, CONF_ROTARY_CCW_SLOW, CONF_ROTARY_CCW_FAST}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [
+        ("cen_31", TRIGGER_TYPES - ROTARY_TYPES),
+        ("00:03:50:aa:bb:cc-cen-31", TRIGGER_TYPES - ROTARY_TYPES),
+        ("cenplus_2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
+        ("00:03:50:aa:bb:cc-cenplus-2101", TRIGGER_TYPES - {CONF_SHORT_RELEASE}),
+    ],
+)
+async def test_async_get_triggers_filters_by_legacy_identifier(
+    hass: HomeAssistant, identifier: str, expected: set[str]
+):
+    """Older CEN/CEN+ identifier forms are filtered by family too."""
+    mock_device = MagicMock()
+    # A list, not a set: the foreign identifier must come first on every run.
+    mock_device.identifiers = [("other_domain", "x"), (DOMAIN, identifier)]
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        triggers = await async_get_triggers(hass, "legacy_device_id")
+
+    assert {t[CONF_TYPE] for t in triggers} == expected
+
+
+@pytest.mark.asyncio
+async def test_async_get_triggers_gateway_with_foreign_identifier_gets_all_types(hass: HomeAssistant):
+    """Identifiers of other integrations are skipped; a gateway keeps every trigger type."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {("other_domain", "00:03:50:aa:bb:cc-15-5"), (DOMAIN, "00:03:50:aa:bb:cc")}
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        triggers = await async_get_triggers(hass, "gateway_device_id")
+
+    assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES
 
 
 @pytest.mark.asyncio
