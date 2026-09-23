@@ -456,49 +456,55 @@ class MyHOMEGatewayHandler:
             logger=LOGGER,
             on_state_change=self._on_event_connection_state_change,
         )
-        res = await _event_session.connect()
-        if (
-            isinstance(res, dict)
-            and res.get("Success", False)
-            and getattr(_event_session, "is_connected", True)
-        ):
-            self._on_event_connection_state_change(True)
-            LOGGER.debug(
-                "%s Event session ready, command sessions can now start.",
-                self.log_id,
-            )
-        elif isinstance(res, dict) and not res.get("Success", True):
-            if res.get("Message") in ("password_error", "password_required", "negotiation_refused", "connection_refused"):
-                LOGGER.error(
-                    "%s Event session authentication or connection refused (%s). Terminating event listener to prevent gateway lockout.",
+        try:
+            res = await _event_session.connect()
+            if (
+                isinstance(res, dict)
+                and res.get("Success", False)
+                and getattr(_event_session, "is_connected", True)
+            ):
+                self._on_event_connection_state_change(True)
+                LOGGER.debug(
+                    "%s Event session ready, command sessions can now start.",
                     self.log_id,
-                    res.get("Message"),
                 )
-                self._on_event_connection_state_change(False)
-                return
-        else:
-            LOGGER.warning(
-                "%s Initial event session was not established; reconnecting "
-                "without allowing command sessions to start.",
-                self.log_id,
-            )
+            elif isinstance(res, dict) and not res.get("Success", True):
+                if res.get("Message") in ("password_error", "password_required", "negotiation_refused", "connection_refused"):
+                    LOGGER.error(
+                        "%s Event session authentication or connection refused (%s). Terminating event listener to prevent gateway lockout.",
+                        self.log_id,
+                        res.get("Message"),
+                    )
+                    self._on_event_connection_state_change(False)
+                    return
+            else:
+                LOGGER.warning(
+                    "%s Initial event session was not established; reconnecting "
+                    "without allowing command sessions to start.",
+                    self.log_id,
+                )
 
-        while not self._terminate_listener:
-            message = await _event_session.get_next()
-            if message is None:
-                # OWNd yields None while the event socket is being re-established
-                # (e.g. after a gateway-side idle close); nothing to dispatch.
-                LOGGER.debug("%s Event session yielded no message (reconnecting).", self.log_id)
-                continue
-            self.bus_monitor.record_frame(
-                direction="rx",
-                raw=str(message),
-                parsed=message if isinstance(message, OWNMessage) else None,
-            )
-            LOGGER.debug("%s Message received: `%s`", self.log_id, message)
-            await self._process_message(message)
+            while not self._terminate_listener:
+                message = await _event_session.get_next()
+                if message is None:
+                    # OWNd yields None while the event socket is being re-established
+                    # (e.g. after a gateway-side idle close); nothing to dispatch.
+                    LOGGER.debug("%s Event session yielded no message (reconnecting).", self.log_id)
+                    continue
+                self.bus_monitor.record_frame(
+                    direction="rx",
+                    raw=str(message),
+                    parsed=message if isinstance(message, OWNMessage) else None,
+                )
+                LOGGER.debug("%s Message received: `%s`", self.log_id, message)
+                await self._process_message(message)
+        finally:
+            # Unloading the entry (a reload, an options change) cancels this task while it
+            # waits in get_next(); without closing here the socket stayed open and OWNd's
+            # keepalive task went on writing to it, holding one of the gateway's few sessions.
+            with contextlib.suppress(Exception):
+                await asyncio.shield(_event_session.close())
 
-        await _event_session.close()
         self._on_event_connection_state_change(False)
 
         LOGGER.debug("%s Destroying listening worker.", self.log_id)
