@@ -158,32 +158,48 @@ def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict
     )
 
 
+def _where_param(message: Any) -> list[str]:
+    return getattr(message, "where_param", None) or getattr(message, "_where_param", None) or []
+
+
+def _is_plant_actuator(message: Any) -> bool:
+    """WHERE ``0#<n>``: actuator ``n`` of zone 0 - a pump shared by the zones - not zone ``n``.
+
+    WHERE ``Z#N`` is actuator ``N`` of zone ``Z`` (``Z = 0..99``). A zone calls
+    the pump with ``*4*4001#<zone>*0#<n>##`` and it reports ``*#4*0#<n>*20*1##``;
+    zones 1, 2, 3, 5 and 6 of one plant all call ``0#3`` (#303, #333, #404).
+    OWNd <= 2.0.0b8 reports such a frame as zone ``n``, so pump 2 switched
+    zone 2 on and off (#431). ``0#4#<if>`` is WHERE=0 behind an F422 interface.
+    """
+    where_param = _where_param(message)
+    return (
+        str(getattr(message, "where", None)) == "0"
+        and bool(where_param)
+        and not (len(where_param) > 1 and where_param[0] == "4")
+    )
+
+
 def _calling_zones(message: Any) -> tuple[list[str], str | None]:
     """Zones a heating frame concerns, and the F422 interface it came through."""
     raw_where = getattr(message, "where", None)
     zone = getattr(message, "zone", None)
     interface = getattr(message, "interface", None)
-    what = getattr(message, "what", None)
+    what = getattr(message, "what", None) or getattr(message, "_what", None)
     what_param = getattr(message, "what_param", None) or getattr(message, "_what_param", None) or []
-    where_param = getattr(message, "where_param", None) or getattr(message, "_where_param", None) or []
+    where_param = _where_param(message)
     if not interface and len(where_param) > 1 and where_param[0] == "4":
         interface = str(where_param[1])
 
     zones: list[str] = []
-    if zone is not None and zone > 0:
+    # WHERE ``<zone>#<n>`` names actuator <n> of the zone (``*#4*2#1*20*1##``
+    # = zone 2, actuator 1 is on), never zone <n>: routing it there made zone 1
+    # "heat" whenever any zone's actuator 1 opened (#333), and pump 2 (``0#2``)
+    # switch zone 2 (#431).
+    if zone is not None and zone > 0 and not _is_plant_actuator(message):
         zones.append(str(zone))
     if what in ("4001", "4002", 4001, 4002) and what_param:
         try:
             zones.append(str(int(what_param[0])))
-        except (ValueError, TypeError):
-            pass
-    # WHERE ``<zone>#<n>`` names the zone's actuator (``*#4*2#1*20*1##`` =
-    # zone 2, actuator 1 is on), not another zone: routing it to zone <n>
-    # made zone 1 "heat" whenever any zone's actuator 1 opened (#333). The
-    # parameter is the zone only on a WHERE=0 frame (``*#4*0#5*...``).
-    if where_param and where_param[0] != "4" and str(raw_where) in ("0", ""):
-        try:
-            zones.append(str(int(where_param[0])))
         except (ValueError, TypeError):
             pass
     if not zones and raw_where and raw_where not in ("0", "") and not _is_probe(str(raw_where)):
@@ -202,7 +218,7 @@ def _zone_address(message: Any) -> Address | None:
 def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     """Every key a heating frame is delivered under: the zone, WHERE, and the calling zones."""
     zones, interface = _calling_zones(message)
-    zone = getattr(message, "zone", None)
+    zone = None if _is_plant_actuator(message) else getattr(message, "zone", None)
     keys = [] if zone is None else [f"#{zone}" if zone == 0 else str(zone)]
     if getattr(message, "where", None):
         keys.append(str(message.where))

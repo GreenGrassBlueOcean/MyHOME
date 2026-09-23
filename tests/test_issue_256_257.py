@@ -160,13 +160,11 @@ async def test_climate_auto_discovery_from_heating_call_event(hass, mock_gateway
     attach_runtime(hass, config_entry)
     await async_setup_climate_entry(hass, config_entry, mock_add_entities)
 
-    # Frame *4*4001#2*0#3##: heating call where zone 2 calls master zone 3
+    # Frame *4*4001#2*0#3##: zone 2 calls pump 3 (actuator 3 of zone 0), not a zone 3 (#431)
     event = OWNHeatingEvent("*4*4001#2*0#3##")
     async_dispatcher_send(hass, f"myhome_message_{mac}", event)
 
-    assert len(added_entities) >= 1
-    zones = [e._where for e in added_entities]
-    assert "2" in zones or "3" in zones
+    assert [e._where for e in added_entities] == ["2"]
 
 
 async def test_climate_auto_discovery_deduplication(hass, mock_gateway):
@@ -812,29 +810,21 @@ async def test_climate_discovery_what_param_and_invalid_params(hass, mock_gatewa
     attach_runtime(hass, config_entry)
     await async_setup_climate_entry(hass, config_entry, added.extend)
 
-    # 1. Message with what=4001 and valid what_param
-    msg1 = OWNHeatingEvent("*4*4001*0#3##")
-    msg1.what = 4001
-    msg1._what_param = ["3"]
-    async_dispatcher_send(hass, f"myhome_message_{mac}", msg1)
-    assert any(e._where == "3" for e in added)
+    # 1. Zone 3 calls pump 1: the what parameter is the zone
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNHeatingEvent("*4*4001#3*0#1##"))
+    assert [e._where for e in added] == ["3"]
 
     # 2. Message with what=4001 and non-numeric what_param (hits ValueError exception)
     msg2 = OWNHeatingEvent("*4*4001*0#3##")
-    msg2.what = 4001
     msg2._what_param = ["invalid"]
     async_dispatcher_send(hass, f"myhome_message_{mac}", msg2)
 
-    # 3. Message with where_param != "4" and valid int
-    msg3 = OWNHeatingEvent("*4*0*0##")
-    msg3._where_param = ["6"]
-    async_dispatcher_send(hass, f"myhome_message_{mac}", msg3)
-    assert any(e._where == "6" for e in added)
-
-    # 4. Message with non-numeric where_param (hits ValueError exception)
+    # 3. WHERE 0#6 is pump 6 (actuator 6 of zone 0), not zone 6 (#431)
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNHeatingEvent("*#4*0#6*20*1##"))
     msg4 = OWNHeatingEvent("*4*0*0##")
     msg4._where_param = ["not_a_number"]
     async_dispatcher_send(hass, f"myhome_message_{mac}", msg4)
+    assert [e._where for e in added] == ["3"]
 
 
 async def test_climate_async_unload_entry_missing_mac(hass):
