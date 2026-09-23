@@ -16,7 +16,7 @@ Only `community-plant-capture` fixtures were recorded from a real bus. They are 
 
 Every other source (`legrand-spec`, `encyclopedia`, `openwebnet4j`, `public-readme`, `mcp-draft`) is a reading of a document or of another implementation, and can be wrong. Such a fixture may be corrected, but only in a commit that names the source it now follows (page and commit) and explains what was wrong.
 
-- `mcp_valid: true` means openwebnet-mcp accepted the **grammar**. It is not evidence of meaning: the judge's WHO 15 catalog described `*15*1*11#2##` as "short press on button 2", which is how three wrong CEN fixtures entered this corpus (corrected in OpenWebNet-HA/OWNd#49).
+- `mcp_valid: true` means openwebnet-mcp accepted the **grammar**. It is not evidence of meaning: the judge's WHO 15 catalog described `*15*1*11#2##` as "short press on button 2", which is how three wrong CEN fixtures entered this corpus (corrected in OpenWebNet-HA/OWNd#49). Its WHO 25 catalog did the same for `*25*21#1*12##`, `*25*22#1*12##` and `*25*24#1*12##`: `12` is not a CEN+ Object (`WHERE` is `2` + Object 0..2047). Those were replaced by a capture in the same PR.
 - A `builder:` block proves the builder matches the fixture, not that either is right. When both are written in the same change from the same reading, the test only compares the code with itself. Prefer builder parity against a capture or an independent source such as `openwebnet4j`.
 - When a capture arrives for a frame that so far exists only as a spec-derived fixture, add the capture and keep the spec entry only if it agrees.
 
@@ -32,7 +32,7 @@ Every other source (`legrand-spec`, `encyclopedia`, `openwebnet4j`, `public-read
 - **WHO=13 Gateway Management (`who13_gateway.yaml`)**: Firmware versions and gateway internal datetime responses.
 - **WHO=15 CEN Pushbuttons (`who15_cen.yaml`)**: Pressure, short release, long release and extended pressure (`*15*BUTTON[#1|#2|#3]*WHERE##`).
 - **WHO=18 Energy Management (`who18_energy.yaml`)**: Instantaneous active power and cumulative energy totalizers.
-- **WHO=25 CEN+ / Dry Contacts (`who25_cen_plus.yaml`)**: CEN+ press events and physical dry contact inputs.
+- **WHO=25 CEN+ / Dry Contacts (`who25_cen_plus.yaml`)**: CEN+ short press, hold start, hold repeat and release (`*25*21..24#PUSHBUTTON*2OBJECT##`, captured on an MH201) and a dry-contact event (`*25*31#1*WHERE##`).
 
 ## Directory Structure
 
