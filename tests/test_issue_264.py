@@ -89,11 +89,11 @@ async def test_probe_dimension_15_discovery_and_update(mock_gateway, mock_config
     assert len(discovered_entities) == 1
     probe_sensor: MyHOMETemperatureSensor = discovered_entities[0]
     assert probe_sensor._where == "100"
-    assert probe_sensor._device_id == "100"
+    assert probe_sensor._device_id == "4-100"  # same id as a myhome.yaml probe (#441)
     assert probe_sensor.native_unit_of_measurement == UnitOfTemperature.CELSIUS
     assert probe_sensor.native_value == 20.0
     assert probe_sensor._display_name == "Probe 100 Temperature"
-    assert probe_sensor.unique_id == f"{mac}-100-temperature"
+    assert probe_sensor.unique_id == f"{mac}-4-100-temperature"
 
     # 2. Dispatch subsequent update: *#4*100*15*1*0196*0001## (19.6°C)
     msg2 = OWNEvent.parse("*#4*100*15*1*0196*0001##")
