@@ -60,7 +60,9 @@ def _entry(hass: HomeAssistant, *, broadcast_resync: bool = True) -> MockConfigE
 def _handler(hass: HomeAssistant, entry: MockConfigEntry, *, broadcast_resync: bool = True) -> MyHOMEGatewayHandler:
     with patch("custom_components.myhome.gateway.OWNGateway"):
         handler = MyHOMEGatewayHandler(hass, entry, generate_events=False, broadcast_resync=broadcast_resync)
-        handler.gateway.mac = MAC
+        # Only the serial: OWNGateway has no `mac`, and setting one on the mock hid
+        # that `_known_light_areas` read it (the listener died on `*1*0*0##` live).
+        handler.gateway.serial = MAC
         handler.send_status_request = AsyncMock()
         return handler
 
@@ -315,7 +317,7 @@ def test_known_light_areas_without_valid_entry_id(hass: HomeAssistant):
     entry.entry_id = None
     with patch("custom_components.myhome.gateway.OWNGateway"):
         handler = MyHOMEGatewayHandler(hass, entry, generate_events=False)
-        handler.gateway.mac = MAC
+        handler.gateway.serial = MAC
 
     assert handler._known_light_areas() == []
 
