@@ -7,6 +7,7 @@ import pytest
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_FLASH,
     ATTR_TRANSITION,
     FLASH_LONG,
@@ -464,10 +465,74 @@ async def test_software_stepped_delta_zero_or_one_instant_path(hass):
     light._attr_is_on = True
     light._attr_brightness_pct = 50
 
-    await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 50, ATTR_TRANSITION: 45.0})
+    # 50% -> 51% (1% delta): instant dispatch, no fade task, exactly 1 send
+    await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 51, ATTR_TRANSITION: 45.0})
     assert light._fade_task is None
     gateway.send.assert_called_once()
+    assert light._attr_brightness_pct == 51
+
+
+async def test_turn_on_same_brightness_when_already_on_skips_bus_send(hass):
+    """Test calling turn_on with identical brightness when already on skips redundant bus write."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24c2", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+
+    # 50% -> 50% while already on: no-op for bus, optimistic state preserved
+    await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 50, ATTR_TRANSITION: 45.0})
+    assert light._fade_task is None
+    gateway.send.assert_not_called()
     assert light._attr_brightness_pct == 50
+    light.async_schedule_update_ha_state.assert_called_once()
+
+
+async def test_software_stepped_fade_with_color_temp(hass):
+    """Test combined color_temp_kelvin and brightness with transition dispatches CT then fades."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24ct", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_supported_color_modes = {ColorMode.COLOR_TEMP, ColorMode.BRIGHTNESS}
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await light.async_turn_on(**{
+            ATTR_COLOR_TEMP_KELVIN: 3000,
+            ATTR_BRIGHTNESS_PCT: 52,
+            ATTR_TRANSITION: 45.0,
+        })
+        # CT (Dimension 14) sent immediately
+        assert gateway.send.call_count >= 1
+        first_frame = str(gateway.send.call_args_list[0][0][0])
+        assert "*#1*24*#14*333##" in first_frame
+
+        assert light._fade_task is not None
+        await light._fade_task
+
+        assert light._attr_color_temp_kelvin == 3000
+        assert light._attr_brightness_pct == 52
 
 
 async def test_native_transition_optimistic_state_update(hass):

@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.components.light import ATTR_BRIGHTNESS
+from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN, ATTR_HS_COLOR
 from homeassistant.const import CONF_NAME, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -618,8 +618,6 @@ async def test_group_turn_on_tolerates_transition(hass: HomeAssistant):
 
 async def test_group_turn_on_simultaneous_brightness_and_color_temp(hass: HomeAssistant):
     """A lighting group dispatches both color temperature and brightness when sent together."""
-    from homeassistant.components.light import ATTR_COLOR_TEMP_KELVIN
-
     gateway = _gateway()
     group = _group(hass, gateway, dimmable=True, color_temp=True, rgb=False)
 
@@ -633,3 +631,20 @@ async def test_group_turn_on_simultaneous_brightness_and_color_temp(hass: HomeAs
     assert group.brightness == 128
     assert group.color_temp_kelvin == 3000
     assert group.is_on is True
+
+
+async def test_group_turn_on_simultaneous_brightness_and_hs_color(hass: HomeAssistant):
+    """A lighting group folds brightness into HSV frame without duplicate dim 1 frame."""
+    gateway = _gateway()
+    group = _group(hass, gateway, dimmable=True, color_temp=False, rgb=True)
+
+    await group.async_turn_on(**{ATTR_BRIGHTNESS: 128, ATTR_HS_COLOR: (120.0, 50.0)})
+
+    # Exactly 1 frame sent (HSV Dimension 12 with V=50%), no redundant Dimension 1 frame
+    assert gateway.send.await_count == 1
+    sent = str(gateway.send.call_args[0][0])
+    assert sent == "*#1*#6*#12*120*50*50##"
+    assert group.brightness == 128
+    assert group.hs_color == (120.0, 50.0)
+    assert group.is_on is True
+

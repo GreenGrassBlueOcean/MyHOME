@@ -10,7 +10,7 @@ BTicino MyHOME lighting systems communicate over a physical SCS two-wire bus ope
 
 Starting in MyHOME v2, the integration incorporates specific bus-protection and optimization mechanisms designed for adaptive lighting:
 
-1. **Small-Delta Step Clamping & Frame Deduplication**: When Adaptive Lighting applies a slight periodic adjustment (e.g. 1–2% brightness change over a transition window), MyHOME automatically clamps calculation steps and suppresses duplicate integer percentage frames. This cuts bus traffic by up to 90% during circadian transitions.
+1. **Small-Delta Instant Dispatch & Step Clamping**: Brightness adjustments \<= 1% execute instantly without spawning a background fade task, and identical brightness writes on lights that are already on are skipped entirely. For adjustments \>= 2%, calculation steps are clamped to `delta_pct` and duplicate integer percentage frames are deduplicated. This eliminates bus flooding during periodic circadian adaptations (saving up to ~90% on-wire traffic compared to unclamped 25-step transitions).
 2. **Atomic Parameter Dispatch**: When Adaptive Lighting dispatches `brightness` and `color_temp_kelvin` together in a single service call, MyHOME dispatches both dimensions (Dimension 1 for dimming, Dimension 14 for tunable white) smoothly.
 3. **Graceful Group Transitions**: Both Home Assistant native `light.group` helpers and MyHOME SCS hardware groups (`MyHOMELightGroup`) tolerate `transition` parameters gracefully without raising configuration errors.
 4. **Optimistic State Tracking**: Native transition commands update Home Assistant's internal entity state immediately, preventing bouncing or visual flicker in circadian loops.
@@ -32,7 +32,7 @@ When configuring an Adaptive Lighting instance for MyHOME lights, use the follow
 | Setting | Recommended Value | Rationale |
 | :--- | :--- | :--- |
 | **`transition`** | `1` or `2` seconds | Prevents long software step chains from queuing across the 9600-baud SCS bus. |
-| **`interval`** | `60` – `90` seconds | A 60–90 second cadence is imperceptible to the human eye while keeping bus load minimal. |
+| **`interval`** | `90` seconds (min floor `60`s) | A 90s interval is imperceptible to the human eye while keeping bus load minimal. |
 | **`min_color_temp`** | `2000` K (or fixture min) | Sets the warmest evening/night color temperature. |
 | **`max_color_temp`** | `6535` K (or fixture max) | OpenWebNet Dimension 14 supports up to 6535 K (153 mireds). |
 | **`separate_turn_on_commands`** | `false` | MyHOME handles simultaneous brightness and color temperature in a unified call. |
@@ -55,7 +55,7 @@ adaptive_lighting:
     transition: 2
     interval: 90
     min_color_temp: 2200
-    max_color_temp: 6500
+    max_color_temp: 6535
     min_brightness: 5
     max_brightness: 100
     sleep_color_temp: 2000
@@ -80,7 +80,7 @@ In **Settings → Devices & Services → MyHOME → Configure**:
 ## Working with Groups
 
 ### Option A: Home Assistant Light Groups (Recommended)
-Create a Light Group helper (**Settings → Devices & Services → Helpers → Create Helper → Light Group**) combining your MyHOME fixtures. Point Adaptive Lighting directly to the `light.group_...` entity. Home Assistant will distribute the target brightness and color temperature across all members.
+Create a Light Group helper (**Settings → Devices & Services → Helpers → Create Helper → Light Group**) combining your MyHOME fixtures. Point Adaptive Lighting directly to the `light.group_...` entity. Home Assistant will distribute the target brightness and color temperature across all members. This is the recommended default because it maintains 100% accurate per-entity state tracking regardless of physical actuator model.
 
 ### Option B: MyHOME SCS Hardware Groups (`WHERE = '#G'`)
 If you define SCS groups in `/config/myhome.yaml`:
@@ -94,7 +94,7 @@ groups:
       - '12'
       - '13'
 ```
-Adaptive Lighting can control `light.living_room_dali_group` directly. MyHOME dispatches both brightness and color temperature across the group without transition errors.
+Adaptive Lighting can control `light.living_room_dali_group` directly. MyHOME dispatches both brightness and color temperature across the group without transition errors. Targeting an SCS hardware group issues a single pair of frames on the bus for all ballasts, significantly cutting bus traffic compared to individually addressing many fixtures.
 
 ---
 

@@ -271,17 +271,25 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         # Dispatch HS color if specified
         elif ATTR_HS_COLOR in kwargs:
             h, s = kwargs[ATTR_HS_COLOR]
+            if ATTR_BRIGHTNESS in kwargs:
+                v_level = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
+            else:
+                v_level = self._last_brightness_pct
             await self._gateway_handler.send(
                 OWNLightingCommand.set_hsv_color(
-                    self._full_where, int(h), int(s), self._last_brightness_pct
+                    self._full_where, int(h), int(s), v_level
                 )
             )
             if not self._member_entity_ids:
                 self._attr_hs_color = (h, s)
+                if ATTR_BRIGHTNESS in kwargs:
+                    self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
                 self._attr_is_on = True
+            if v_level > 0:
+                self._last_brightness_pct = v_level
 
-        # Dispatch brightness if specified
-        if ATTR_BRIGHTNESS in kwargs:
+        # Dispatch brightness if specified (and not already included in HSV frame)
+        if ATTR_BRIGHTNESS in kwargs and ATTR_HS_COLOR not in kwargs:
             level = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, level)
