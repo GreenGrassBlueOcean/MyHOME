@@ -175,7 +175,7 @@ def test_prune_catalogs(tmp_path: Path) -> None:
 
 
 def test_audit_status(tmp_path: Path) -> None:
-    """Test audit_status coverage calculations."""
+    """Test audit_status coverage calculations with healthy files."""
     strings_file = tmp_path / "strings.json"
     strings_file.write_text(json.dumps({"key1": "a", "key2": "b"}), encoding="utf-8")
 
@@ -191,6 +191,68 @@ def test_audit_status(tmp_path: Path) -> None:
     ):
         code = audit_status(verbose=True, strict=True)
         assert code == 0
+
+
+def test_audit_status_orphaned_fails_strict(tmp_path: Path) -> None:
+    """Test audit_status returns 1 in strict mode when orphaned keys exist."""
+    strings_file = tmp_path / "strings.json"
+    strings_file.write_text(json.dumps({"key1": "a"}), encoding="utf-8")
+
+    tr_dir = tmp_path / "translations"
+    tr_dir.mkdir()
+    en_file = tr_dir / "en.json"
+    en_file.write_text(json.dumps({"key1": "a"}), encoding="utf-8")
+    fr_file = tr_dir / "fr.json"
+    fr_file.write_text(json.dumps({"key1": "a", "ghost_key": "b"}), encoding="utf-8")
+
+    with patch("scripts.manage_translations.STRINGS_FILE", strings_file), patch(
+        "scripts.manage_translations.TRANSLATIONS_DIR", tr_dir
+    ):
+        assert audit_status(verbose=True, strict=False) == 0
+        assert audit_status(verbose=True, strict=True) == 1
+
+
+def test_audit_status_en_drift_fails_strict(tmp_path: Path) -> None:
+    """Test audit_status returns 1 in strict mode when en.json differs from strings.json."""
+    strings_file = tmp_path / "strings.json"
+    strings_file.write_text(json.dumps({"key1": "a", "key2": "b"}), encoding="utf-8")
+
+    tr_dir = tmp_path / "translations"
+    tr_dir.mkdir()
+    en_file = tr_dir / "en.json"
+    en_file.write_text(json.dumps({"key1": "a", "key2": "outdated"}), encoding="utf-8")
+
+    with patch("scripts.manage_translations.STRINGS_FILE", strings_file), patch(
+        "scripts.manage_translations.TRANSLATIONS_DIR", tr_dir
+    ):
+        assert audit_status(verbose=True, strict=True) == 1
+
+
+def test_check_fails_on_either_drift_or_orphans() -> None:
+    """Test check command exits 1 if either sync_en or audit_status fails."""
+    # When sync_en fails
+    with patch("sys.argv", ["manage_translations.py", "check"]), patch(
+        "scripts.manage_translations.sync_en", return_value=False
+    ), patch("scripts.manage_translations.audit_status", return_value=0):
+        assert main() == 1
+
+    # When audit_status fails (e.g. orphans present)
+    with patch("sys.argv", ["manage_translations.py", "check"]), patch(
+        "scripts.manage_translations.sync_en", return_value=True
+    ), patch("scripts.manage_translations.audit_status", return_value=1):
+        assert main() == 1
+
+    # When both fail
+    with patch("sys.argv", ["manage_translations.py", "check"]), patch(
+        "scripts.manage_translations.sync_en", return_value=False
+    ), patch("scripts.manage_translations.audit_status", return_value=1):
+        assert main() == 1
+
+    # When both pass
+    with patch("sys.argv", ["manage_translations.py", "check"]), patch(
+        "scripts.manage_translations.sync_en", return_value=True
+    ), patch("scripts.manage_translations.audit_status", return_value=0):
+        assert main() == 0
 
 
 def test_main_cli_dispatch() -> None:
