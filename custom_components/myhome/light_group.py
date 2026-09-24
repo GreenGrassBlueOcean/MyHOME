@@ -116,6 +116,9 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         self._full_where = f"#{group}"
         # Last known brightness (0-100%), used as HSV "value" when only hue/saturation
         # are being set so a colour change never silently zeroes the group's level.
+        # For groups with declared members the displayed brightness is derived from
+        # member states (_update_from_members); this field only tracks the last
+        # *commanded* value and may diverge if a member does not acknowledge.
         self._last_brightness_pct = 100
 
     async def async_added_to_hass(self) -> None:

@@ -382,6 +382,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._fade_task: asyncio.Task[None] | None = None
         self._fade_id: int = 0
         self._cmd_lock: asyncio.Lock = asyncio.Lock()
+        self._warned_multi_worker: bool = False
         self._last_brightness_pct: int = 100
 
     @property
@@ -557,6 +558,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if self._fade_task and not self._fade_task.done():
             self._fade_task.cancel()
             try:
+                # shield() prevents wait_for from double-cancelling the task
+                # when the 0.15 s timeout fires (we already called .cancel()).
                 await asyncio.wait_for(asyncio.shield(self._fade_task), timeout=0.15)
             except (Exception, asyncio.CancelledError):
                 pass
@@ -575,9 +578,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if fade_id != self._fade_id:
             return
 
-        # Warn if using multiple workers (can interleave steps for this light)
+        # Warn once if using multiple workers (can interleave steps for this light)
         try:
-            if self._gateway_handler and self._gateway_handler.config_entry:
+            if not self._warned_multi_worker and self._gateway_handler and self._gateway_handler.config_entry:
                 wc = self._gateway_handler.config_entry.options.get(CONF_WORKER_COUNT, 1)
                 if int(wc) > 1:
                     LOGGER.warning(
@@ -585,6 +588,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                         "Step reordering is possible. Recommend =1 for reliable fades.",
                         self._where, wc
                     )
+                    self._warned_multi_worker = True
         except Exception:
             pass
 
