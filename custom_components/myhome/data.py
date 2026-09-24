@@ -32,8 +32,6 @@ class MyHOMERuntimeData:
     entities: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Shared multi-room audio decoder pool (media_player), rebuilt on options update.
     decoder_pool: DecoderPool | None = None
-    # Active multi-room audio groups: {leader_entity_id: [member_entity_ids]}
-    audio_groups: dict[str, list[str]] = field(default_factory=dict)
     # Media player entity instances registered by entity_id
     media_players: dict[str, Any] = field(default_factory=dict)
     # Delivers bus frames to the entities owning their addresses (see router.py).

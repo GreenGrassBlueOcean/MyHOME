@@ -191,6 +191,33 @@
     "unknown_gateway_model": {
       "title": "Code de type d'appareil de passerelle inconnu ({code})",
       "description": "La passerelle a signalé un code de type d'appareil matériel ({code}) inconnu pour l'intégration MyHOME. Veuillez cliquer sur « En savoir plus » pour ouvrir un ticket GitHub et joindre une trace de diagnostic afin que nous puissions ajouter la prise en charge de ce modèle."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Le décodeur {decoder} utilise une intégration non prise en charge ({platform})",
+      "description": "Le décodeur de streaming configuré {decoder} est fourni par l'intégration {platform}, qui n'accepte pas les URL de flux HTTP via play_media. Pour le streaming multi-pièces (par exemple Music Assistant), configurez ce matériel via l'intégration DLNA Digital Media Renderer (DMR) à la place."
+    }
+  },
+  "exceptions": {
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: impossible de rejoindre l'entité externe {member} ; seules les zones audio MyHOME peuvent être groupées"
+    },
+    "decoders_busy": {
+      "message": "{entity_id}: toutes les entrées de la matrice audio sont actuellement utilisées par d'autres pièces"
+    },
+    "decoder_start_failed": {
+      "message": "{entity_id}: le décodeur {decoder} n'a pas pu démarrer la lecture : {error}"
+    },
+    "unknown_source": {
+      "message": "{entity_id}: source inconnue \"{source}\""
+    },
+    "environment_busy": {
+      "message": "{entity_id}: {owner} diffuse déjà dans l'environnement {environment} ; les zones d'un même environnement partagent une entrée de matrice"
+    },
+    "routing_unsupported": {
+      "message": "{entity_id}: l'amplificateur {where} n'a pas d'adresse de routage de matrice (environnement 0 ou amplificateur à moins de deux chiffres) ; changez sa source sur une commande murale"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: le décodeur {decoder} ({platform}) ne prend pas en charge les URL de flux ; configurez-le plutôt via DLNA DMR"
     }
   }
 }

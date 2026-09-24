@@ -115,9 +115,7 @@ class DecoderPool:
         self._assignments: dict[str, str | None] = {             # entity_id → zone_entity_id (leader) or None
             entity_id: None for entity_id in decoder_map
         }
-        self._members: dict[str, set[str]] = {                   # entity_id → set of member zone_entity_ids
-            entity_id: set() for entity_id in decoder_map
-        }
+        self._groups: dict[str, set[str]] = {}                   # leader_entity_id → set of member_entity_ids
         self._environments: dict[str, str] = {}                   # zone_entity_id → environment
         self._lock = asyncio.Lock()
 
@@ -181,7 +179,9 @@ class DecoderPool:
             if environment is not None:
                 owner = self.environment_owner(environment, exclude=zone_entity_id)
                 if owner is not None:
-                    raise EnvironmentBusyError(environment, owner)
+                    group_members = self._groups.get(zone_entity_id, set())
+                    if owner not in group_members:
+                        raise EnvironmentBusyError(environment, owner)
 
             # Candidates in slot order, but a decoder wired to the caller's
             # preferred source comes first: routing the matrix to the input
@@ -225,53 +225,86 @@ class DecoderPool:
         member_entity_id: str,
         environment: str | None = None,
     ) -> tuple[str, int] | None:
-        """Add a member zone to the group owning an active decoder.
+        """Add a member zone to the group of leader_entity_id.
 
-        The member shares the leader's claimed decoder. If the member is in an
-        environment where another zone is already streaming from a *different*
-        decoder, an EnvironmentBusyError is raised.
+        The member shares the leader's claimed decoder (if one is active).
+        If the member is in an environment where another zone is already streaming
+        from a different decoder, an EnvironmentBusyError is raised.
 
         Args:
-            leader_entity_id: The zone entity ID that claimed the decoder.
+            leader_entity_id: The zone entity ID that leads the group.
             member_entity_id: The zone entity ID joining the group.
             environment: Optional environment digit of the member zone.
 
         Returns:
-            ``(decoder_entity_id, source_num)`` if the member was added, or
-            ``None`` if the leader does not currently hold a decoder.
+            ``(decoder_entity_id, source_num)`` if the leader holds a decoder,
+            or ``None`` if the group is passive / not currently streaming.
 
         Raises:
             EnvironmentBusyError: If the member's environment is streaming from
                 a different decoder.
         """
         async with self._lock:
-            # Find the decoder held by the leader
+            # Check idempotency
+            if member_entity_id in self._groups.get(leader_entity_id, set()):
+                dec_id = None
+                for d_id, owner in self._assignments.items():
+                    if owner == leader_entity_id:
+                        dec_id = d_id
+                        break
+                if dec_id is None:
+                    return None
+                return (dec_id, self._decoder_map[dec_id])
+
+            # 1. If leader was a member of another group, detach it
+            self._remove_member_locked(leader_entity_id)
+
+            # 2. If member was leader of a group, disband it and release decoder
+            if member_entity_id in self._groups:
+                self._disband_group_locked(member_entity_id)
+            for d_id, owner in self._assignments.items():
+                if owner == member_entity_id:
+                    self._assignments[d_id] = None
+                    self._environments.pop(member_entity_id, None)
+
+            # 3. If member was a member of another group, detach it
+            self._remove_member_locked(member_entity_id)
+
+            # Find decoder held by leader
             dec_id = None
             for d_id, owner in self._assignments.items():
                 if owner == leader_entity_id:
                     dec_id = d_id
                     break
-            if dec_id is None:
-                return None
 
-            if member_entity_id in self._members[dec_id]:
-                return (dec_id, self._decoder_map[dec_id])
-
+            # Environment collision check
             if environment is not None:
                 owner = self.environment_owner(environment, exclude=member_entity_id)
-                if owner is not None and self.get_assignment(owner) != dec_id:
-                    raise EnvironmentBusyError(environment, owner)
+                if owner is not None:
+                    owner_dec = self.get_assignment(owner)
+                    if owner_dec is not None and owner_dec != dec_id:
+                        raise EnvironmentBusyError(environment, owner)
+                    if dec_id is not None and owner_dec is None and owner != leader_entity_id:
+                        raise EnvironmentBusyError(environment, owner)
                 self._environments[member_entity_id] = environment
 
-            self._members[dec_id].add(member_entity_id)
+            if leader_entity_id not in self._groups:
+                self._groups[leader_entity_id] = set()
+            self._groups[leader_entity_id].add(member_entity_id)
+
             LOGGER.info(
-                "DecoderPool: zone %s joined group of %s on decoder %s (source %s)",
+                "DecoderPool: zone %s joined group of %s (decoder %s)",
                 member_entity_id,
                 leader_entity_id,
                 dec_id,
-                self._decoder_map[dec_id],
             )
+
+            if dec_id is None:
+                return None
             return (dec_id, self._decoder_map[dec_id])
+
+    # Alias for explicit group naming
+    add_group_member = add_member
 
     async def remove_member(self, member_entity_id: str) -> str | None:
         """Remove a member zone from whichever group it joined.
@@ -285,22 +318,47 @@ class DecoderPool:
         async with self._lock:
             return self._remove_member_locked(member_entity_id)
 
+    remove_group_member = remove_member
+
     def _remove_member_locked(self, member_entity_id: str) -> str | None:
         """Remove a member zone while already holding self._lock."""
-        for dec_id, members in self._members.items():
+        for leader_id, members in list(self._groups.items()):
             if member_entity_id in members:
                 members.remove(member_entity_id)
+                if not members:
+                    self._groups.pop(leader_id, None)
                 self._environments.pop(member_entity_id, None)
                 LOGGER.info(
-                    "DecoderPool: member %s removed from decoder %s",
+                    "DecoderPool: member %s removed from leader %s",
                     member_entity_id,
-                    dec_id,
+                    leader_id,
                 )
-                return dec_id
+                for dec_id, owner in self._assignments.items():
+                    if owner == leader_id:
+                        return dec_id
+                return None
         return None
 
+    def _disband_group_locked(self, leader_entity_id: str) -> list[str]:
+        """Disband group members while holding lock."""
+        members = list(self._groups.pop(leader_entity_id, set()))
+        for mem in members:
+            self._environments.pop(mem, None)
+        if members:
+            LOGGER.info(
+                "DecoderPool: group of %s disbanded (%d members)",
+                leader_entity_id,
+                len(members),
+            )
+        return members
+
+    async def disband_group(self, leader_entity_id: str) -> list[str]:
+        """Disband a group owned by leader_entity_id."""
+        async with self._lock:
+            return self._disband_group_locked(leader_entity_id)
+
     async def release(self, zone_entity_id: str) -> str | None:
-        """Release the decoder assigned to *zone_entity_id*.
+        """Release the decoder assigned to *zone_entity_id* or detach from group.
 
         If *zone_entity_id* is a member of a group, only the member is removed.
         If *zone_entity_id* is the group leader, the decoder is released and
@@ -324,15 +382,14 @@ class DecoderPool:
             if member_freed is not None:
                 return member_freed
 
-            # Check if this zone is a leader
+            # Check if this zone is a leader with a group
+            self._disband_group_locked(zone_entity_id)
+
+            # Check if this zone owns a decoder
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
                     self._assignments[dec_id] = None
                     self._environments.pop(zone_entity_id, None)
-                    # Disband all members
-                    for mem in self._members[dec_id]:
-                        self._environments.pop(mem, None)
-                    self._members[dec_id].clear()
                     LOGGER.info(
                         "DecoderPool: %s released by leader %s (group disbanded)",
                         dec_id,
@@ -342,7 +399,7 @@ class DecoderPool:
         return None
 
     async def release_all(self) -> None:
-        """Release every decoder assignment.
+        """Release every decoder assignment and disband all groups.
 
         Called when the user updates options via the UI so that the pool can be
         rebuilt cleanly.  Any zone currently streaming will lose its decoder;
@@ -355,14 +412,14 @@ class DecoderPool:
         async with self._lock:
             for dec_id in self._assignments:
                 self._assignments[dec_id] = None
-                self._members[dec_id].clear()
+            self._groups.clear()
             self._environments.clear()
             LOGGER.info("DecoderPool: all assignments released (options reload)")
 
     def get_assignment(self, zone_entity_id: str) -> str | None:
         """Return the decoder entity_id assigned to *zone_entity_id*, or ``None``.
 
-        Lock-free read — safe because ``_assignments`` and ``_members`` mutations
+        Lock-free read — safe because ``_assignments`` and ``_groups`` mutations
         only happen inside the asyncio event loop under the lock.
 
         Args:
@@ -375,17 +432,32 @@ class DecoderPool:
         for dec_id, owner in self._assignments.items():
             if owner == zone_entity_id:
                 return dec_id
-        for dec_id, members in self._members.items():
+        for leader_id, members in self._groups.items():
             if zone_entity_id in members:
-                return dec_id
+                for dec_id, owner in self._assignments.items():
+                    if owner == leader_id:
+                        return dec_id
+        return None
+
+    def get_group_members(self, entity_id: str) -> list[str] | None:
+        """Return group members for entity_id (leader first), or None if not grouped."""
+        if entity_id in self._groups and self._groups[entity_id]:
+            return [entity_id, *sorted(self._groups[entity_id])]
+        for leader_id, members in self._groups.items():
+            if members and entity_id in members:
+                return [leader_id, *sorted(members)]
+        return None
+
+    def get_leader(self, member_entity_id: str) -> str | None:
+        """Return the leader entity_id of the group member_entity_id belongs to, or None."""
+        for leader_id, members in self._groups.items():
+            if member_entity_id in members:
+                return leader_id
         return None
 
     def get_members(self, leader_entity_id: str) -> list[str]:
         """Return the list of member entity IDs joined with *leader_entity_id*."""
-        for dec_id, owner in self._assignments.items():
-            if owner == leader_entity_id:
-                return list(self._members.get(dec_id, []))
-        return []
+        return sorted(self._groups.get(leader_entity_id, set()))
 
     def get_decoder_for_source(self, source_num: int) -> str | None:
         """Return the decoder entity ID wired to ``source_num``, or ``None``."""
@@ -397,7 +469,6 @@ class DecoderPool:
     def decoder_source(self, decoder_entity_id: str) -> int | None:
         """Return the physical source number (1–4) for *decoder_entity_id*, or ``None``."""
         return self._decoder_map.get(decoder_entity_id)
-
 
     def environment_owner(self, environment: str, exclude: str | None = None) -> str | None:
         """Return the zone that streams from a decoder in ``environment``.
@@ -444,7 +515,7 @@ class DecoderPool:
 
     def __repr__(self) -> str:  # pragma: no cover
         busy = sum(1 for v in self._assignments.values() if v is not None)
-        members = sum(len(m) for m in self._members.values())
+        members = sum(len(m) for m in self._groups.values())
         return (
             f"<DecoderPool decoders={len(self._decoder_map)} "
             f"busy={busy}/{len(self._decoder_map)} members={members}>"

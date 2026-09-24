@@ -344,6 +344,9 @@
     },
     "decoder_incompatible_platform": {
       "message": "{entity_id}: decoder {decoder} ({platform}) does not support streaming URLs; configure it via DLNA DMR instead"
+    },
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: cannot join foreign entity {member}; only MyHOME sound zones can be grouped"
     }
   },
   "entity": {

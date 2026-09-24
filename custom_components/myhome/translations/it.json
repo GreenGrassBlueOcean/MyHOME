@@ -191,6 +191,33 @@
     "unknown_gateway_model": {
       "title": "Codice tipo dispositivo gateway sconosciuto ({code})",
       "description": "Il gateway ha segnalato un codice del tipo di dispositivo hardware ({code}) sconosciuto all'integrazione MyHOME. Fai clic su 'Ulteriori informazioni' per aprire una segnalazione su GitHub e allegare una traccia diagnostica per consentirci di aggiungere il supporto per questo modello."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Il decoder {decoder} usa un'integrazione non supportata ({platform})",
+      "description": "Il decoder di streaming configurato {decoder} è fornito dall'integrazione {platform}, che non accetta URL di streaming HTTP tramite play_media. Per lo streaming multi-room (es. Music Assistant), configura questo hardware tramite l'integrazione DLNA Digital Media Renderer (DMR)."
+    }
+  },
+  "exceptions": {
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: impossibile unire l'entità esterna {member}; solo le zone audio MyHOME possono essere raggruppate"
+    },
+    "decoders_busy": {
+      "message": "{entity_id}: tutti gli ingressi della matrice audio sono attualmente in uso da altre stanze"
+    },
+    "decoder_start_failed": {
+      "message": "{entity_id}: il decoder {decoder} non è riuscito ad avviare la riproduzione: {error}"
+    },
+    "unknown_source": {
+      "message": "{entity_id}: sorgente sconosciuta \"{source}\""
+    },
+    "environment_busy": {
+      "message": "{entity_id}: {owner} sta già trasmettendo nell'ambiente {environment}; le zone nello stesso ambiente condividono un ingresso della matrice"
+    },
+    "routing_unsupported": {
+      "message": "{entity_id}: l'amplificatore {where} non ha un indirizzo di instradamento della matrice (ambiente 0 o non a due cifre); cambia la sorgente dal pannello a parete"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: il decoder {decoder} ({platform}) non supporta gli URL di streaming; configuralo invece tramite DLNA DMR"
     }
   }
 }
