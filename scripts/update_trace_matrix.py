@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from pathlib import Path
 
@@ -22,19 +21,19 @@ def get_who(frame):
 def build_matrix():
     # Gather data
     gateways_data = {}
-    
+
     for p in FIXTURES_DIR.rglob('*'):
         if not p.is_file():
             continue
-        
+
         if p.suffix == '.json':
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     j = json.load(f)
-                
+
                 whos = set()
                 gateway = 'Unknown'
-                
+
                 if 'data' in j and 'gateway' in j['data']:
                     gateway = j['data']['gateway'].get('model_name', 'Unknown')
                     if 'bus_monitor' in j['data'] and 'recent_frames' in j['data']['bus_monitor']:
@@ -50,14 +49,14 @@ def build_matrix():
                     m = re.search(r'_trace_([A-Za-z0-9]+)_', p.name)
                     if m:
                         gateway = m.group(1)
-                
+
                 if whos:
                     if gateway not in gateways_data:
                         gateways_data[gateway] = set()
                     gateways_data[gateway].update(whos)
             except Exception:
                 pass
-                
+
         elif p.suffix == '.txt':
             try:
                 with open(p, 'r', encoding='utf-8') as f:
@@ -73,24 +72,24 @@ def build_matrix():
                     if gateway not in gateways_data:
                         gateways_data[gateway] = set()
                     gateways_data[gateway].update(whos)
-            except:
+            except Exception:
                 pass
-                
+
     # Build markdown table
     all_whos_found = set()
     for whos in gateways_data.values():
         all_whos_found.update(whos)
-        
+
     whos_list = sorted(list(all_whos_found))
-    
+
     who_names = {
         1: 'Lights', 2: 'Autom.', 4: 'Climate', 5: 'Alarm', 9: 'Power',
         13: 'Gateway', 14: 'Lock', 16: 'Audio', 18: 'Energy', 25: 'Diag', 1013: 'Diag'
     }
-    
+
     header = "| Gateway Model | " + " | ".join([f"WHO {w}<br>{who_names.get(w, '')}" for w in whos_list]) + " |"
     separator = "| :--- | " + " | ".join([" :---: " for _ in whos_list]) + " |"
-    
+
     rows = []
     # Sort gateways
     sorted_gateways = sorted(gateways_data.keys())
@@ -104,17 +103,17 @@ def build_matrix():
                 cols.append("")
         row += " | ".join(cols) + " |"
         rows.append(row)
-        
+
     md = header + "\n" + separator + "\n" + "\n".join(rows)
     return md
 
 def update_file(filepath, new_content):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
-    
+
     pattern = re.compile(f"{START_MARKER}.*?{END_MARKER}", re.DOTALL)
     replacement = f"{START_MARKER}\n{new_content}\n{END_MARKER}"
-    
+
     if pattern.search(content):
         updated = pattern.sub(replacement, content)
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -129,4 +128,5 @@ if __name__ == '__main__':
     print("Done")
     update_file(README_MD, matrix_md)
     update_file(DOCS_MD, matrix_md)
+
 
