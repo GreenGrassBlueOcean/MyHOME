@@ -183,6 +183,58 @@ test("regression #429: history backfill asks for the whole display buffer, de-du
   assert.equal(payload.capture.window.buffer_frames, 300);
 });
 
+test("regression #429: a card without max_frames buffers the whole backend ring", () => {
+  const card = create();
+  card.setConfig({ type: "custom:myhome-bus-card" });
+  assert.equal(card._maxDisplayFrames, 500); // bus_monitor.DEFAULT_RING_BUFFER_SIZE
+  assert.equal(card.constructor.getStubConfig().max_frames, 500);
+  card.setConfig({ max_frames: 1000 });
+  assert.equal(card._maxDisplayFrames, 1000);
+});
+
+test("regression #429: an HA restart on the same connection backfills the new process's ring", async () => {
+  const card = create();
+  const listeners = {};
+  const connection = {
+    subscribeMessage: async () => () => {},
+    addEventListener: (type, cb) => { (listeners[type] ||= []).push(cb); },
+    removeEventListener: (type, cb) => { listeners[type] = (listeners[type] || []).filter((l) => l !== cb); },
+  };
+  card._hass.connection = connection;
+  let ring = [frame("*1*1*11##", { timestamp: 10, who: "1", where: "11" })];
+  card._hass.callWS = async (payload) =>
+    payload.type === "myhome/bus_monitor/history" ? { frames: ring } : {};
+
+  await card._subscribeStream();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(card._frames.map((f) => f.raw), ["*1*1*11##"]);
+  assert.equal(listeners.ready.length, 1);
+
+  // HA restarts: the library reconnects the same Connection and re-subscribes on its own;
+  // the stream is back only after the startup sweep, which the new ring still holds.
+  ring = [
+    frame("*#4*1*0*0215*1##", { timestamp: 100, who: "4", where: "1" }),
+    frame("*#4*2*0*0200*1##", { timestamp: 101, who: "4", where: "2" }),
+  ];
+  card._onNewFrame(frame("*1*0*12##", { timestamp: 102, who: "1", where: "12" }));
+  listeners.ready.forEach((cb) => cb());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(card._frames.map((f) => f.raw), ["*1*1*11##", "*#4*1*0*0215*1##", "*#4*2*0*0200*1##", "*1*0*12##"]);
+
+  // A stopped (frozen) trace is not touched by a reconnect.
+  card._togglePause();
+  ring = [frame("*#4*3*0*0210*1##", { timestamp: 200, who: "4", where: "3" })];
+  listeners.ready.forEach((cb) => cb());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(card._frames.length, 4);
+
+  // Removing the card drops the listener; re-watching the same connection does not stack.
+  card._watchReconnect(connection);
+  assert.equal(listeners.ready.length, 1);
+  card.disconnectedCallback();
+  assert.equal(listeners.ready.length, 0);
+});
+
 test("transmit is refused until armed, allowed while armed, refused again after disarming", async () => {
   const card = create();
   const input = el("send-frame");
