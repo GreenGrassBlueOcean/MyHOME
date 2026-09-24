@@ -1814,7 +1814,7 @@ def test_unknown_state_keeps_last_state_and_is_exposed(hass, caplog):
     assert light.is_on is False
     assert light.icon == "mdi:lightbulb-off"
     assert light.extra_state_attributes["unknown_state"] == 19
-    warnings = [r for r in caplog.records if "fault/unknown state 19" in r.getMessage()]
+    warnings = [r for r in caplog.records if "unknown lighting WHAT 19" in r.getMessage()]
     assert len(warnings) == 1
 
     light.handle_event(off)

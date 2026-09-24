@@ -878,7 +878,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if isinstance(unknown_state, int):
             if self._attr_extra_state_attributes.get("unknown_state") != unknown_state:
                 LOGGER.warning(
-                    "%s light %s reports fault/unknown state %s; keeping its last state",
+                    "%s light %s reports unknown lighting WHAT %s; keeping its last state",
                     self._gateway_handler.log_id,
                     self._full_where,
                     unknown_state,
