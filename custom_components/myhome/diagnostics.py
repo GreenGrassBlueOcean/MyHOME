@@ -102,7 +102,8 @@ async def async_get_config_entry_diagnostics(
         if bus_monitor is not None:
             bus_monitor_info = {
                 "stats": bus_monitor.get_stats(),
-                "recent_frames": bus_monitor.get_recent_frames(limit=100),
+                # The whole ring: the startup status sweep alone can exceed 100 frames
+                "recent_frames": bus_monitor.get_recent_frames(limit=bus_monitor.maxlen),
             }
 
     # Count loaded entities per platform

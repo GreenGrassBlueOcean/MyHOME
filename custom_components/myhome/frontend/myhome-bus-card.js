@@ -7,6 +7,9 @@
 
 // Fallback only: the live value comes from the backend (bus_monitor/info -> integration_version).
 const CARD_VERSION = "2.0.0b13";
+// Default display buffer = the backend ring (bus_monitor.DEFAULT_RING_BUFFER_SIZE), so a
+// backfill after an HA restart keeps the whole startup status sweep (#429).
+const DEFAULT_MAX_FRAMES = 500;
 
 const WHO_CATALOG = {
   "0": { name: "Scenarios (Basic)", short: "Scenario", class: "who-cen" },
@@ -37,7 +40,7 @@ class MyHomeBusCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._frames = [];
-    this._maxDisplayFrames = 200;
+    this._maxDisplayFrames = DEFAULT_MAX_FRAMES;
     this._isPaused = false;
     this._filterWho = "all";
     this._filterWhere = "";
@@ -61,12 +64,14 @@ class MyHomeBusCard extends HTMLElement {
     this._retryDelay = 1000;
     this._maxRetryDelay = 30000;
     this._isSubscribing = false;
+    this._watchedConnection = null;
+    this._onConnectionReady = null;
   }
 
   static getStubConfig() {
     return {
       title: "MyHOME OpenWebNet Bus Monitor",
-      max_frames: 200,
+      max_frames: DEFAULT_MAX_FRAMES,
     };
   }
 
@@ -83,12 +88,12 @@ class MyHomeBusCard extends HTMLElement {
     this._config = Object.assign(
       {
         title: "MyHOME OpenWebNet Bus Monitor",
-        max_frames: 200,
+        max_frames: DEFAULT_MAX_FRAMES,
         mac: null,
       },
       config
     );
-    this._maxDisplayFrames = this._config.max_frames || 200;
+    this._maxDisplayFrames = this._config.max_frames || DEFAULT_MAX_FRAMES;
     this._render();
   }
 
@@ -127,7 +132,32 @@ class MyHomeBusCard extends HTMLElement {
       try { this._unsub(); } catch (e) {}
       this._unsub = null;
     }
+    this._unwatchReconnect();
     this._isSubscribing = false;
+  }
+
+  // An HA restart keeps the same hass.connection: the websocket library reconnects it and
+  // re-subscribes the stream by itself, so neither the hass setter nor _subscribeStream
+  // runs again. Its "ready" event is the only signal, and the new process's ring then holds
+  // the startup status sweep (#429) that streamed before the stream came back.
+  _watchReconnect(connection) {
+    if (this._watchedConnection === connection) return;
+    this._unwatchReconnect();
+    if (!connection || typeof connection.addEventListener !== "function") return;
+    this._onConnectionReady = () => {
+      // A paused / stopped trace is frozen on purpose: leave it as it is.
+      if (!this._isPaused) this._loadHistory();
+    };
+    connection.addEventListener("ready", this._onConnectionReady);
+    this._watchedConnection = connection;
+  }
+
+  _unwatchReconnect() {
+    if (this._watchedConnection && this._onConnectionReady) {
+      try { this._watchedConnection.removeEventListener("ready", this._onConnectionReady); } catch (e) {}
+    }
+    this._watchedConnection = null;
+    this._onConnectionReady = null;
   }
 
   _wsPayload(type, extra = {}) {
@@ -141,8 +171,12 @@ class MyHomeBusCard extends HTMLElement {
   async _loadHistory() {
     if (!this._hass) return;
     try {
+      // Backfill as much as the card can show: after an HA restart the startup status
+      // sweep easily exceeds 50 frames. Unfiltered on purpose - the WHO / WHERE / direction
+      // filters apply on display and export, exactly as for streamed frames. The backend
+      // caps the reply at its own ring size.
       const res = await this._hass.callWS(
-        this._wsPayload("myhome/bus_monitor/history", { limit: 50 })
+        this._wsPayload("myhome/bus_monitor/history", { limit: this._maxDisplayFrames })
       );
       if (res && res.frames) {
         const existingKeys = new Set(
@@ -154,7 +188,11 @@ class MyHomeBusCard extends HTMLElement {
         for (const f of newHistory) {
           if (f.who != null) this._ensureWhoRegistered(f.who);
         }
-        this._frames = newHistory.concat(this._frames);
+        // Chronological, not "history first": after an HA restart the new process's ring
+        // is newer than the frames the card kept from before it. sort() is stable.
+        this._frames = newHistory.concat(this._frames).sort(
+          (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
+        );
         if (this._frames.length > this._maxDisplayFrames) {
           this._frames = this._frames.slice(-this._maxDisplayFrames);
         }
@@ -181,6 +219,7 @@ class MyHomeBusCard extends HTMLElement {
       this._isSubscribing = false;
       this._retryDelay = 1000;
       this._updateConnectionStatus("connected");
+      this._watchReconnect(this._hass.connection);
       this._loadHistory();
     } catch (err) {
       this._isSubscribing = false;

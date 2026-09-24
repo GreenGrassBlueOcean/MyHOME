@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from OWNd.message import OWNEvent
@@ -201,6 +202,29 @@ async def test_ws_history_with_frames_and_filters(hass: HomeAssistant, mock_ws_c
     _, result = mock_ws_connection.send_result.call_args[0]
     assert len(result["frames"]) == 2
     assert all(f["who"] == "1" and f["where"] == "12" and f["direction"] == "rx" for f in result["frames"])
+
+
+async def test_ws_history_limit_is_capped_by_the_ring_not_the_schema(
+    hass: HomeAssistant, mock_ws_connection, attach_gateway
+):
+    """A card configured for more frames than the ring holds gets the whole ring, not an error."""
+    schema_hist = ws_bus_monitor_history._ws_schema
+    assert schema_hist({"id": 1, "type": "myhome/bus_monitor/history", "limit": 1000})["limit"] == 1000
+    with pytest.raises(vol.Invalid):
+        schema_hist({"id": 1, "type": "myhome/bus_monitor/history", "limit": 0})
+
+    monitor = BusMonitor(maxlen=5)
+    attach_gateway("00:03:50:00:12:34", MagicMock(), monitor)
+    for n in range(8):
+        monitor.record_frame("rx", f"*1*1*{n}##")
+
+    ws_bus_monitor_history(
+        hass, mock_ws_connection, {"id": 2, "type": "myhome/bus_monitor/history", "limit": 1000}
+    )
+    await hass.async_block_till_done()
+    _, result = mock_ws_connection.send_result.call_args[0]
+    # the newest 5 of 8, oldest first
+    assert [f["raw"] for f in result["frames"]] == [f"*1*1*{n}##" for n in range(3, 8)]
 
 
 async def test_ws_stream_subscription_and_dispatch(hass: HomeAssistant, mock_ws_connection, attach_gateway):

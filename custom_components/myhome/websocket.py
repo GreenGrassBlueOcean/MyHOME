@@ -60,7 +60,9 @@ SCHEMA_WS_INFO: dict[str | vol.Marker, Any] = {
 SCHEMA_WS_HISTORY: dict[str | vol.Marker, Any] = {
     vol.Required("type"): WS_TYPE_HISTORY,
     vol.Optional("mac"): vol.Any(cv.string, None),
-    vol.Optional("limit", default=100): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
+    # No upper bound here: the ring buffer is the cap (see ws_bus_monitor_history), so a
+    # card configured for more frames than the ring holds gets the whole ring, not an error.
+    vol.Optional("limit", default=100): vol.All(vol.Coerce(int), vol.Range(min=1)),
     vol.Optional("who"): vol.Any(cv.string, vol.Coerce(int), None),
     vol.Optional("where"): vol.Any(cv.string, None),
     vol.Optional("direction"): vol.Any(vol.In(["rx", "tx", "ack", "nack", "all"]), None),
@@ -316,7 +318,7 @@ async def ws_bus_monitor_history(
         f for f in raw_frames if _matches_filter(f, who=who, where=where, direction=direction)
     ]
 
-    # Return newest frames up to requested limit
+    # Return newest frames up to requested limit (never more than the ring holds)
     if len(filtered) > limit:
         filtered = filtered[-limit:]
 
