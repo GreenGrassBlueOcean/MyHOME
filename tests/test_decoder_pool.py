@@ -370,3 +370,113 @@ async def test_claim_without_environment_keeps_the_old_behaviour(hass):
     assert await pool.claim("media_player.zone_22") is not None
     assert await pool.claim("media_player.zone_23") is not None
     assert pool.environment_owner("2") is None
+
+
+# -- Tests: Grouping & Members ------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_add_member_when_leader_not_assigned(hass):
+    """add_member returns None if the leader has no active decoder."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1})
+    assert await pool.add_member("media_player.leader", "media_player.member") is None
+
+
+@pytest.mark.asyncio
+async def test_add_member_success_and_idempotent(hass):
+    """add_member successfully adds member and is idempotent when called again."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1})
+    hass.states.async_set("media_player.slot_one", "idle")
+
+    # Leader claims slot_one
+    claimed = await pool.claim("media_player.leader", environment="1")
+    assert claimed == ("media_player.slot_one", 1)
+
+    # Member joins
+    joined = await pool.add_member("media_player.leader", "media_player.member", environment="2")
+    assert joined == ("media_player.slot_one", 1)
+    assert pool.get_members("media_player.leader") == ["media_player.member"]
+    assert pool.environment_owner("2") == "media_player.member"
+
+    # Idempotent call
+    joined_again = await pool.add_member("media_player.leader", "media_player.member", environment="2")
+    assert joined_again == ("media_player.slot_one", 1)
+
+
+@pytest.mark.asyncio
+async def test_add_member_environment_busy_conflict(hass):
+    """add_member raises EnvironmentBusyError if member environment is locked by another decoder."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "idle")
+
+    # Leader 1 in env 1 gets slot 1
+    await pool.claim("media_player.leader1", environment="1")
+    # Zone in env 2 gets slot 2
+    await pool.claim("media_player.zone_env2", environment="2")
+
+    # Leader 1 tries to add a member in env 2 (which is already on slot 2)
+    with pytest.raises(EnvironmentBusyError) as err:
+        await pool.add_member("media_player.leader1", "media_player.member_env2", environment="2")
+    assert err.value.owner == "media_player.zone_env2"
+    assert err.value.environment == "2"
+
+
+@pytest.mark.asyncio
+async def test_release_member_directly(hass):
+    """Calling release() on a member removes the member and frees its environment."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1})
+    hass.states.async_set("media_player.slot_one", "idle")
+
+    await pool.claim("media_player.leader", environment="1")
+    await pool.add_member("media_player.leader", "media_player.member", environment="2")
+
+    # Releasing member zone directly
+    freed = await pool.release("media_player.member")
+    assert freed == "media_player.slot_one"
+    assert pool.get_members("media_player.leader") == []
+    assert pool.environment_owner("2") is None
+
+
+@pytest.mark.asyncio
+async def test_release_leader_disbands_members(hass):
+    """Calling release() on the leader disbands all members and clears their environments."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1})
+    hass.states.async_set("media_player.slot_one", "idle")
+
+    await pool.claim("media_player.leader", environment="1")
+    await pool.add_member("media_player.leader", "media_player.member", environment="2")
+
+    freed = await pool.release("media_player.leader")
+    assert freed == "media_player.slot_one"
+    assert pool.get_members("media_player.leader") == []
+    assert pool.environment_owner("1") is None
+    assert pool.environment_owner("2") is None
+
+
+@pytest.mark.asyncio
+async def test_remove_member_explicit(hass):
+    """Calling remove_member() directly removes the member and returns the decoder."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1})
+    hass.states.async_set("media_player.slot_one", "idle")
+
+    await pool.claim("media_player.leader")
+    await pool.add_member("media_player.leader", "media_player.member")
+    assert pool.get_assignment("media_player.member") == "media_player.slot_one"
+
+    freed = await pool.remove_member("media_player.member")
+    assert freed == "media_player.slot_one"
+    assert pool.get_assignment("media_player.member") is None
+
+    # Removing nonexistent member returns None
+    assert await pool.remove_member("media_player.nonexistent") is None
+
+
+def test_decoder_source_lookups(hass):
+    """Test get_members, get_decoder_for_source and decoder_source lookups."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+
+    assert pool.get_members("media_player.nonexistent") == []
+    assert pool.decoder_source("media_player.slot_one") == 1
+    assert pool.decoder_source("media_player.unknown") is None
+    assert pool.get_decoder_for_source(1) == "media_player.slot_one"
+    assert pool.get_decoder_for_source(99) is None
