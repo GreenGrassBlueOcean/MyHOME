@@ -68,6 +68,7 @@ before — it controls the BTicino amplifier zone via WHO=16 commands only.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -116,6 +117,18 @@ if TYPE_CHECKING:
 
 PARALLEL_UPDATES = 0
 
+# The amplifier wake sequence starts with an OFF frame, and the gateway reports
+# that frame back on the event session like any other bus traffic. An OFF that
+# arrives this soon after a wake is our own and must not tear the zone down.
+_WAKE_ECHO_WINDOW = 3.0  # seconds
+
+# Integrations that cannot play a stream URL, and the media types they do take.
+# ``cambridge_audio`` (StreamMagic) accepts presets, Airable and internet radio
+# only; a Music Assistant stream is refused with ``unsupported_media_type``.
+_STREAM_INCOMPATIBLE_PLATFORMS: dict[str, frozenset[str]] = {
+    "cambridge_audio": frozenset({"preset", "airable", "internet_radio"}),
+}
+
 
 def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> DecoderPool:
     """Build a :class:`DecoderPool` from the current options entry.
@@ -134,6 +147,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
     options = config_entry.options
     decoder_map: dict[str, int] = {}
     pre_gain_map: dict[str, int] = {}
+    stream_incompatible: set[str] = set()
     ent_reg = er.async_get(hass)
 
     for i in range(1, CONF_DECODER_SLOTS + 1):
@@ -145,7 +159,8 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
             decoder_map[entity_id] = int(source_num)   # always int — never f"Source N"
             pre_gain_map[entity_id] = int(pre_gain)
             reg_entry = ent_reg.async_get(entity_id)
-            if reg_entry and reg_entry.platform == "cambridge_audio":
+            if reg_entry and reg_entry.platform in _STREAM_INCOMPATIBLE_PLATFORMS:
+                stream_incompatible.add(entity_id)
                 async_create_incompatible_decoder_issue(
                     hass, config_entry.entry_id, entity_id, reg_entry.platform
                 )
@@ -166,7 +181,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
                     hass, config_entry.entry_id, slug_id
                 )
 
-    return DecoderPool(hass, decoder_map, pre_gain_map)
+    return DecoderPool(hass, decoder_map, pre_gain_map, stream_incompatible)
 
 
 
@@ -364,6 +379,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._syncing_volume: bool = False        # guard flag — prevents volume feedback loop
         self._pre_mute_volume: float | None = None  # volume to restore on unmute
         self._turning_off: bool = False          # guard flag — dampens bus-OFF echo loops
+        self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -405,7 +421,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         pool = self._get_pool()
         if pool:
             assigned = pool.get_assignment(self.entity_id)
-            if assigned:
+            # A group member listens to the leader's decoder only while its
+            # environment is routed there; without automatic routing it may
+            # still be on another input, and mirroring would show a stream
+            # the room does not hear.
+            current = self._source_number(self._attr_source) if self._attr_source else None
+            if assigned and current in (None, pool.decoder_source(assigned)):
                 return assigned
         if self._attr_state == MediaPlayerState.ON and self._attr_source:
             source_num = self._source_number(self._attr_source)
@@ -600,6 +621,35 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         runtime = get_runtime_data(entry) if entry is not None else None
         return runtime.decoder_pool if runtime is not None else None
 
+    def _decoder_platform(self, decoder_id: str) -> str | None:
+        """Return the integration providing ``decoder_id``, from the entity registry."""
+        reg_entry = er.async_get(self.hass).async_get(decoder_id)
+        return reg_entry.platform if reg_entry else None
+
+    def _decoders_refusing(self, pool: DecoderPool, media_type: str) -> set[str]:
+        """Return the decoders whose integration cannot play ``media_type``."""
+        refusing: set[str] = set()
+        for decoder_id in pool.stream_incompatible:
+            accepted = _STREAM_INCOMPATIBLE_PLATFORMS.get(
+                self._decoder_platform(decoder_id) or "", frozenset()
+            )
+            if media_type not in accepted:
+                refusing.add(decoder_id)
+        return refusing
+
+    def _write_zone_state(self, entity_id: str | None) -> None:
+        """Republish another zone of this gateway, e.g. after its group changed."""
+        runtime = self._runtime_data
+        zone = runtime.media_players.get(entity_id) if runtime and entity_id else None
+        if zone is not None and zone is not self:
+            zone.async_write_ha_state()
+
+    async def _async_power_off_zone(self, zone: MyHOMEMediaPlayer) -> None:
+        """Switch ``zone``'s amplifier off because its group no longer includes it."""
+        await zone._gateway_handler.send(OWNSoundCommand.turn_off(zone._where))
+        zone._attr_state = MediaPlayerState.OFF
+        zone.async_write_ha_state()
+
     # ── Dynamic feature flags ─────────────────────────────────────────────────
 
     @property
@@ -665,23 +715,25 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         )
 
     async def async_will_remove_from_hass(self) -> None:
-        """Run when entity will be removed from hass."""
+        """Drop this zone from the pool's books when the entity goes away.
+
+        Removal happens on every integration reload, options change and
+        entity_id rename, none of which is a request to silence a room, so no
+        frame is sent: the amplifiers and the decoder keep playing and only
+        the group bookkeeping is cleared.
+        """
         runtime = self._runtime_data
         if runtime is not None:
             runtime.media_players.pop(self.entity_id, None)
         pool = self._get_pool()
         if pool:
+            leader_id = pool.get_leader(self.entity_id)
             members = pool.get_members(self.entity_id)
-            if members and runtime:
-                for member_id in members:
-                    member_ent = runtime.media_players.get(member_id)
-                    if member_ent:
-                        await member_ent._gateway_handler.send(
-                            OWNSoundCommand.turn_off(member_ent._where)
-                        )
-                        member_ent._attr_state = MediaPlayerState.OFF
-                        member_ent.async_write_ha_state()
             await pool.release(self.entity_id)
+            for zone_id in [*members, *([leader_id] if leader_id else [])]:
+                zone_ent = runtime.media_players.get(zone_id) if runtime else None
+                if zone_ent is not None and zone_ent.hass is not None:
+                    zone_ent.async_write_ha_state()
         await super().async_will_remove_from_hass()
 
     # ── Proxy: play_media ─────────────────────────────────────────────────────
@@ -719,11 +771,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         #    configured the claim is per environment: the zones of one
         #    environment share a matrix output, so they cannot play two streams.
         route = self._routing_configured()
+        # Decoders whose integration cannot take this media are skipped rather
+        # than claimed and failed, so another idle decoder can play it.
+        exclude = self._decoders_refusing(pool, media_type)
+        # Playing on a member takes it out of its group (claim() detaches it);
+        # the leader's group_members has to be republished.
+        old_leader = pool.get_leader(self.entity_id)
         try:
             result = await pool.claim(
                 self.entity_id,
                 preferred_source=self._default_source(),
                 environment=_zone_environment(self._where) if route else None,
+                exclude=exclude,
             )
         except EnvironmentBusyError as err:
             raise HomeAssistantError(
@@ -737,7 +796,23 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     "environment": err.environment,
                 },
             ) from err
+        self._write_zone_state(old_leader)
         if result is None:
+            if exclude and set(pool.decoder_entity_ids) <= exclude:
+                # Nothing is busy: no configured decoder can take this media.
+                decoder_id = sorted(exclude)[0]
+                platform = self._decoder_platform(decoder_id)
+                raise HomeAssistantError(
+                    f"{self.entity_id}: decoder {decoder_id} ({platform}) does not support "
+                    "streaming URLs; configure it via DLNA DMR instead",
+                    translation_domain=DOMAIN,
+                    translation_key="decoder_incompatible_platform",
+                    translation_placeholders={
+                        "entity_id": str(self.entity_id),
+                        "decoder": str(decoder_id),
+                        "platform": str(platform),
+                    },
+                )
             raise HomeAssistantError(
                 f"{self.entity_id}: All audio matrix inputs are currently in use by other rooms!",
                 translation_domain=DOMAIN,
@@ -746,24 +821,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
         decoder_id, source_num = result
         self._active_decoder = decoder_id
-
-        # Incompatible platform check (e.g. cambridge_audio cannot receive stream URLs)
-        ent_reg = er.async_get(self.hass)
-        reg_entry = ent_reg.async_get(decoder_id)
-        if reg_entry and reg_entry.platform == "cambridge_audio":
-            await pool.release(self.entity_id)
-            self._active_decoder = None
-            raise HomeAssistantError(
-                f"{self.entity_id}: decoder {decoder_id} ({reg_entry.platform}) does not support "
-                "streaming URLs; configure it via DLNA DMR instead",
-                translation_domain=DOMAIN,
-                translation_key="decoder_incompatible_platform",
-                translation_placeholders={
-                    "entity_id": str(self.entity_id),
-                    "decoder": str(decoder_id),
-                    "platform": str(reg_entry.platform),
-                },
-            )
 
         # 2. Wake an off decoder. IDLE decoders are already ready to play.
         dec_state = self.hass.states.get(decoder_id)
@@ -827,8 +884,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                             member_ent.async_write_ha_state()
                         continue
 
-                if member_ent and route:
-                    await member_ent._route_to(source_num)
+                # Routing follows the same opt-in as the leader's own; the
+                # member's amplifier is switched on either way.
+                if member_ent:
+                    if route:
+                        await member_ent._route_to(source_num)
                     await member_ent._async_wake_zone()
                     member_ent.async_write_ha_state()
 
@@ -873,7 +933,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         Replaces the group members with the desired group list (snapshot semantics).
         Any previously grouped member not in ``group_members`` is dropped (amplifier turned off).
-        Any newly specified member is validated, routed to the leader's source, and turned on.
+        Any newly specified member is validated, routed to the leader's source
+        (once matrix routing is configured), and turned on. All members are
+        validated before any of them is touched.
         """
         runtime = self._runtime_data
         if runtime is None:
@@ -929,27 +991,49 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     },
                 )
 
-        # Callee is always leader: if callee was a member of another group, leave it
+        # Book the whole group in one step. The pool checks every member's
+        # environment before it changes anything, so a refused join leaves
+        # groups, decoders and amplifiers exactly as they were.
         old_leader = pool.get_leader(self.entity_id)
-        if old_leader:
-            await pool.remove_group_member(self.entity_id)
-            old_leader_ent = runtime.media_players.get(old_leader)
-            if old_leader_ent:
-                old_leader_ent.async_write_ha_state()
+        try:
+            change = await pool.set_group(
+                self.entity_id,
+                {
+                    member_id: _zone_environment(runtime.media_players[member_id]._where)
+                    for member_id in sorted(desired_members)
+                },
+            )
+        except EnvironmentBusyError as err:
+            raise HomeAssistantError(
+                f"{self.entity_id}: {err.owner} is already streaming in environment "
+                f"{err.environment}, and zones in one environment share a matrix input",
+                translation_domain=DOMAIN,
+                translation_key="environment_busy",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id),
+                    "owner": err.owner,
+                    "environment": err.environment,
+                },
+            ) from err
+        self._write_zone_state(old_leader)
 
-        current_members = set(pool.get_members(self.entity_id))
-        to_remove = current_members - desired_members
-        to_add = desired_members - current_members
-
-        for member_id in to_remove:
-            await pool.remove_group_member(member_id)
-            member_ent = runtime.media_players.get(member_id)
-            if member_ent:
-                await member_ent._gateway_handler.send(
-                    OWNSoundCommand.turn_off(member_ent._where)
+        # Decoders the joining zones held are no longer anyone's: stop them.
+        for decoder_id in change.released:
+            try:
+                await self.hass.services.async_call(
+                    "media_player", "media_stop", {"entity_id": decoder_id}
                 )
-                member_ent._attr_state = MediaPlayerState.OFF
-                member_ent.async_write_ha_state()
+            except Exception:  # pylint: disable=broad-except
+                pass  # Best-effort — the zone joins the group either way
+        for member_id in change.joined:
+            runtime.media_players[member_id]._active_decoder = None
+
+        # Rooms that left, and rooms of groups a joining zone used to lead,
+        # would keep listening to a stream nobody controls any more.
+        for zone_id in [*change.left, *change.orphaned]:
+            zone_ent = runtime.media_players.get(zone_id)
+            if zone_ent:
+                await self._async_power_off_zone(zone_ent)
 
         source_num: int | None = None
         if self._active_decoder:
@@ -959,41 +1043,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         if source_num is None:
             source_num = self._default_source()
 
-        for member_id in to_add:
+        # Routing follows the opt-in of _routing_configured(): until the matrix
+        # is described in the options, the wall-panel routing is trusted.
+        route = self._routing_configured()
+        for member_id in change.joined:
             member_ent = runtime.media_players[member_id]
-            member_env = _zone_environment(member_ent._where)
-
-            # If member currently owns an active decoder, stop and release it
-            if member_ent._active_decoder:
-                try:
-                    await self.hass.services.async_call(
-                        "media_player", "media_stop", {"entity_id": member_ent._active_decoder}
-                    )
-                except Exception:
-                    pass
-                await pool.release(member_id)
-                member_ent._active_decoder = None
-
-            try:
-                await pool.add_group_member(self.entity_id, member_id, environment=member_env)
-            except EnvironmentBusyError as err:
-                raise HomeAssistantError(
-                    f"{self.entity_id}: {err.owner} is already streaming in environment "
-                    f"{err.environment}, and zones in one environment share a matrix input",
-                    translation_domain=DOMAIN,
-                    translation_key="environment_busy",
-                    translation_placeholders={
-                        "entity_id": str(self.entity_id),
-                        "owner": err.owner,
-                        "environment": err.environment,
-                    },
-                ) from err
-
             if source_num is not None:
-                await member_ent._route_to(source_num)
+                if route:
+                    await member_ent._route_to(source_num)
                 await member_ent._async_wake_zone()
-                member_ent._attr_source = self._source_label(source_num)
-
             member_ent.async_write_ha_state()
 
         self.async_write_ha_state()
@@ -1085,8 +1143,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     # ── Zone on / off ─────────────────────────────────────────────────────────
 
     async def _async_wake_zone(self) -> None:
-        """Wake a zone amplifier using the hardware-required OFF → ON sequence."""
+        """Wake a zone amplifier using the hardware-required OFF → ON sequence.
+
+        The gateway reports the OFF back on the event session. The time it was
+        sent is kept so :meth:`handle_event` can tell that echo from a wall
+        switch; treating it as a real OFF would release the decoder this
+        zone just claimed, or drop the member that is joining a group.
+        """
         if self._attr_state != MediaPlayerState.ON:
+            self._wake_off_sent_at = time.monotonic()
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
@@ -1134,15 +1199,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     for member_id in members:
                         member_ent = runtime.media_players.get(member_id) if runtime else None
                         if member_ent:
-                            member_ent._turning_off = True
+                            # The member's OFF echo runs its own turn-off later;
+                            # all that does is leave a group released below.
                             try:
                                 await member_ent._gateway_handler.send(
                                     OWNSoundCommand.turn_off(member_ent._where)
                                 )
                             except Exception:
                                 pass
-                            finally:
-                                member_ent._turning_off = False
                             member_ent._attr_state = MediaPlayerState.OFF
                             member_ent.async_write_ha_state()
                     await pool.release(self.entity_id)
@@ -1446,6 +1510,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Request a status update from the gateway."""
         await self._gateway_handler.send_status_request(OWNSoundCommand.status(self._where))
 
+    def _is_wake_echo(self) -> bool:
+        """Return ``True`` while an OFF frame is most likely our wake sequence's own.
+
+        A wall-switch OFF inside the same window is taken for the echo too;
+        the zone's next status report corrects that rare case.
+        """
+        sent = self._wake_off_sent_at
+        return sent is not None and time.monotonic() - sent < _WAKE_ECHO_WINDOW
+
     async def _async_drop_from_group(self, pool: DecoderPool, leader_id: str) -> None:
         """Drop this member from group when its source changes on the bus."""
         await pool.remove_group_member(self.entity_id)
@@ -1516,9 +1589,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         elif message.is_on:
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:
-            self._attr_state = MediaPlayerState.OFF
-            if not self._turning_off:
-                self.hass.async_create_task(self._async_handle_turn_off(from_bus=True))
+            if self._is_wake_echo():
+                # Our own wake sequence's OFF: the ON follows it.
+                LOGGER.debug("%s: ignoring the OFF echo of the wake sequence", self.entity_id)
+            else:
+                self._attr_state = MediaPlayerState.OFF
+                if not self._turning_off:
+                    self.hass.async_create_task(self._async_handle_turn_off(from_bus=True))
 
         if message.volume is not None:
             self._attr_volume_level = message.volume / 31.0

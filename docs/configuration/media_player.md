@@ -185,16 +185,17 @@ The MyHOME integration implements native Home Assistant player grouping (`MediaP
 
 When using **Music Assistant (MA)** or Home Assistant's `media_player.join` service:
 1. **Single Backend Stream**: Only the group **leader** claims a network decoder from the decoder pool and requests the audio stream (e.g. from Spotify, Tidal, or local FLAC).
-2. **Matrix Route Sharing**: Each joined **member** zone automatically routes its physical environment output to the leader's matrix source input (`*16*3*1ES##`) and powers on its room amplifier (`*16*3*<WHERE>##`).
+2. **Matrix Route Sharing**: Each joined **member** zone routes its physical environment output to the leader's matrix source input (`*16*3*1ES##`) and powers on its room amplifier (`*16*3*<WHERE>##`). Routing follows the same opt-in as the rest of the integration: until you name a source or set an environment default, the wall-panel routing is left alone and only the member amplifiers are switched on. A member only shows the leader's track while it is actually on the leader's input.
 3. **Cross-Environment & Same-Environment Synchrony**:
    - Zones in different environments (e.g. Environment 2 living room and Environment 3 kitchen) are bridged to the same analog source input, guaranteeing **zero latency** and perfectly aligned analog audio across rooms.
    - Zones within the same environment share the matrix output physically.
 4. **Environment Isolation Protection**:
-   - The F441 / F441M matrix routes an entire environment to one input. If an attempt is made to join a zone whose environment is already actively streaming from another decoder, the operation is rejected with an `environment_busy` error to prevent cutting off an active listener in that environment.
+   - The F441 / F441M matrix routes an entire environment to one input. If an attempt is made to join a zone whose environment is already actively streaming from another decoder, the operation is rejected with an `environment_busy` error to prevent cutting off an active listener in that environment. The check runs for every requested member before anything is switched, so a refused join changes nothing. A group that is not playing yet does not block its environments.
 5. **Dynamic Disbanding & Member Lifecycle**:
    - **Leader turned off or unjoined**: When the group leader turns off or calls `unjoin`, the entire group is disbanded, and all member amplifiers are powered off.
    - **Member leaves the group**: A member calling `unjoin` or turning off powers off its own amplifier and leaves the group; the leader and any other members continue streaming uninterrupted.
-   - **Physical Wall Switch Interaction**: Pressing OFF on a physical wall control sends a bus OFF frame which immediately cleans up group membership in Home Assistant.
+   - **Physical Wall Switch Interaction**: Pressing OFF on a physical wall control sends a bus OFF frame which immediately cleans up group membership in Home Assistant. The OFF → ON wake sequence the integration sends itself is recognised and ignored for 3 seconds; a wall-switch OFF inside that window is corrected by the zone's next status report.
+   - **Reloading the integration** (or renaming an entity) clears the groups in Home Assistant but sends nothing to the bus: rooms keep playing.
 
 ---
 
@@ -213,7 +214,8 @@ To stream seamlessly to Cambridge Audio network players:
 
 > [!NOTE]
 > **Automatic Diagnostic & Repair**:
-> If you select a `cambridge_audio` entity in MyHOME Options, the integration automatically issues a **Home Assistant Repair Issue** explaining that DLNA DMR is required and linking to the documentation.
+> If you select a `cambridge_audio` entity in MyHOME Options, the integration issues a **Home Assistant Repair Issue** as soon as the options are saved, explaining that DLNA DMR is required and linking to the documentation.
+> The `cambridge_audio` decoder stays in the pool: it still provides passive track mirroring and plays presets, Airable and internet radio. A stream URL (Music Assistant, Spotify) skips it and goes to another idle decoder.
 
 ---
 

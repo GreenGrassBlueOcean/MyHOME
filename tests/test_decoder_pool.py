@@ -563,19 +563,107 @@ async def test_add_member_idempotent_without_leader_decoder(hass):
 
 
 @pytest.mark.asyncio
-async def test_add_member_environment_busy_conflict_unassigned_owner(hass):
-    """Adding a member to a leader with decoder when another unassigned zone owns the environment."""
+async def test_environment_without_a_stream_does_not_block(hass):
+    """A zone booked in an environment but listening to no decoder is not streaming.
+
+    Members of a group whose leader has not claimed a decoder yet are in that
+    state; they must not make other zones of their environment report
+    ``environment_busy`` while nothing plays.
+    """
     pool = DecoderPool(hass, {"media_player.slot_one": 1})
     hass.states.async_set("media_player.slot_one", "idle")
     await pool.claim("media_player.leader", environment="1")
 
-    # Another zone has environment 2 registered without a decoder directly assigned
-    pool._environments["media_player.zone_unassigned"] = "2"
+    # A passive group: its member is booked in environment 2, nothing streams.
+    await pool.add_member("media_player.passive_leader", "media_player.passive", environment="2")
+    assert pool.environment_owner("2") is None
 
-    with pytest.raises(EnvironmentBusyError) as exc_info:
-        await pool.add_member("media_player.leader", "media_player.member", environment="2")
-    assert exc_info.value.environment == "2"
-    assert exc_info.value.owner == "media_player.zone_unassigned"
+    assert await pool.add_member(
+        "media_player.leader", "media_player.member", environment="2"
+    ) == ("media_player.slot_one", 1)
+    assert pool.environment_owner("2", exclude="media_player.passive") == "media_player.member"
+
+
+@pytest.mark.asyncio
+async def test_refused_join_changes_nothing(hass):
+    """An environment conflict is raised before the pool is touched.
+
+    The joining zone keeps its own decoder and group, and the leader stays in
+    the group it belonged to: a refused ``media_player.join`` is a no-op.
+    """
+    pool = DecoderPool(
+        hass,
+        {"media_player.slot_one": 1, "media_player.slot_two": 2, "media_player.slot_three": 3},
+    )
+    for dec in ("media_player.slot_one", "media_player.slot_two", "media_player.slot_three"):
+        hass.states.async_set(dec, "idle")
+
+    await pool.add_member("media_player.outer", "media_player.leader", environment="1")
+    await pool.claim("media_player.joiner", environment="3")
+    await pool.add_member("media_player.joiner", "media_player.joiner_member", environment="3")
+    await pool.claim("media_player.other", environment="2")
+    before = (dict(pool._assignments), {k: set(v) for k, v in pool._groups.items()}, dict(pool._environments))
+
+    with pytest.raises(EnvironmentBusyError) as err:
+        await pool.set_group(
+            "media_player.leader",
+            {"media_player.joiner": "3", "media_player.blocked": "2"},
+        )
+    assert err.value.owner == "media_player.other"
+    after = (dict(pool._assignments), {k: set(v) for k, v in pool._groups.items()}, dict(pool._environments))
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_set_group_reports_what_changed(hass):
+    """set_group applies a snapshot and returns the zones and decoders to act on."""
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "idle")
+
+    await pool.claim("media_player.leader", environment="1")
+    await pool.set_group("media_player.leader", {"media_player.stays": "2", "media_player.goes": "3"})
+    # A zone that leads its own streaming group joins: it gives up both.
+    await pool.claim("media_player.joiner", environment="4")
+    await pool.add_member("media_player.joiner", "media_player.orphan", environment="5")
+
+    change = await pool.set_group(
+        "media_player.leader",
+        {"media_player.stays": "2", "media_player.joiner": "4", "media_player.no_env": None},
+    )
+
+    assert sorted(change.joined) == ["media_player.joiner", "media_player.no_env"]
+    assert change.left == ["media_player.goes"]
+    assert change.orphaned == ["media_player.orphan"]
+    assert change.released == ["media_player.slot_two"]
+    assert pool.get_members("media_player.leader") == [
+        "media_player.joiner", "media_player.no_env", "media_player.stays",
+    ]
+    assert pool.get_assignment("media_player.joiner") == "media_player.slot_one"
+    assert pool.get_assignment("media_player.orphan") is None
+    assert pool.environment_owner("5") is None
+
+    # An empty snapshot dissolves the group.
+    change = await pool.set_group("media_player.leader", {})
+    assert sorted(change.left) == ["media_player.joiner", "media_player.no_env", "media_player.stays"]
+    assert pool.get_group_members("media_player.leader") is None
+
+
+@pytest.mark.asyncio
+async def test_claim_skips_excluded_decoders(hass):
+    """A decoder that cannot play the media is passed over, not claimed and failed."""
+    pool = DecoderPool(
+        hass,
+        {"media_player.cxn": 1, "media_player.dlna": 2},
+        stream_incompatible={"media_player.cxn"},
+    )
+    hass.states.async_set("media_player.cxn", "idle")
+    hass.states.async_set("media_player.dlna", "idle")
+
+    assert pool.stream_incompatible == frozenset({"media_player.cxn"})
+    assert await pool.claim(
+        "media_player.zone", preferred_source=1, exclude={"media_player.cxn"}
+    ) == ("media_player.dlna", 2)
 
 
 @pytest.mark.asyncio
