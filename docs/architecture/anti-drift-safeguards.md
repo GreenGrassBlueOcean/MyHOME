@@ -129,3 +129,25 @@ Both repositories enforce automated zero-tolerance quality gates:
 | **Upstream Compatibility** | `dev`, `beta`, `stable` | `.github/workflows/ha-upstream-compat.yml` |
 
 By combining Shift-Left testing in `OWNd` with nightly canary builds and automated release bumping in `MyHOME`, protocol drift is structurally impossible.
+
+---
+
+## 5. Translation Lifecycle & Localization Anti-Drift (Crowdin)
+
+Translation catalogs (`custom_components/myhome/translations/`) are subject to two common failure modes in Home Assistant custom components:
+1. **Schema & String Drift**: Modifying `strings.json` without updating `en.json`, or having lingering orphaned keys in community locales (`nl`, `fr`, `it`) when features are deprecated.
+2. **Translation Decay**: Non-English catalogs falling behind the English source over time.
+
+### Single Source of Truth & Developer Workflow
+* **Developer Source of Truth**: Developers only edit `custom_components/myhome/strings.json`.
+* **Synchronizer Tool (`scripts/manage_translations.py`)**:
+  * `python scripts/manage_translations.py sync-en`: Compiles and aligns `translations/en.json` from `strings.json`.
+  * `python scripts/manage_translations.py prune`: Scans all non-English translation catalogs and prunes obsolete keys no longer present in `strings.json`.
+  * `python scripts/manage_translations.py status`: Reports coverage percentages, missing keys, and orphaned key counts across all locales.
+* **Architectural Enforcer**: `scripts/verify_ha_standards.py` validates deep structural equality between `strings.json` and `translations/en.json` under Quality Scale Gold rule `entity-translations`.
+
+### Crowdin Integration & Continuous Localization
+Community translations are managed through **Crowdin** and synchronized via `.github/workflows/crowdin.yml`:
+* **Push to branch**: Pushing changes to `strings.json` or `en.json` automatically uploads source strings to Crowdin.
+* **Scheduled / Dispatch Pull Requests**: Weekly scheduled jobs download verified community translations from Crowdin and open clean, automated PRs with updated locale catalogs.
+

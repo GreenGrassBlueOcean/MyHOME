@@ -28,9 +28,7 @@
         "description": "Compila con le impostazioni del tuo gateway",
         "data": {
           "address": "Indirizzo IP",
-          "port": "Porta",
-          "serialNumber": "Indirizzo MAC",
-          "modelName": "Tipo di gateway"
+          "port": "Porta"
         }
       },
       "discovery_confirm": {
