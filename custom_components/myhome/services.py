@@ -44,6 +44,9 @@ def _get_gateway_handler(hass: HomeAssistant, gateway_identifier: str | None) ->
         return None
 
     if gateway_identifier is None:
+        for handler in gateways.values():
+            if getattr(handler, "is_primary", True):
+                return handler
         return next(iter(gateways.values()))
 
     if gateway_identifier in gateways:
@@ -67,12 +70,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle time synchronization service call."""
         gateway = call.data.get(ATTR_GATEWAY, None)
         if gateway is None:
-            if not _loaded_gateways(hass):
+            gateways = _loaded_gateways(hass)
+            if not gateways:
                 _LOGGER.error("No MyHOME gateways found, cannot sync time.")
                 return
-        else:
-            gateway = dr.format_mac(gateway)
+            timezone = hass.config.as_dict().get("time_zone", "UTC")
+            from OWNd.message import OWNGatewayCommand
+            cmd = OWNGatewayCommand.set_datetime_to_now(timezone)
+            for handler in gateways.values():
+                await handler.send(cmd)
+            return
 
+        gateway = dr.format_mac(gateway)
         timezone = hass.config.as_dict().get("time_zone", "UTC")
         handler = _get_gateway_handler(hass, gateway)
         if handler is not None:
@@ -145,17 +154,25 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.warning("No active MyHOME gateways found to sweep.")
             return
 
-        sweep_queries = [
-            "*#13**0##",   # Gateway real-time clock
-            "*#13**15##",  # Gateway device model
-            "*#13**16##",  # Gateway firmware version
-            "*#2*0##",     # All cover actuators
-            "*#4*0##",     # Thermoregulation master status
-        ]
-
         for gw_mac, handler in target_gateways.items():
             _LOGGER.info("Executing diagnostic bus sweep on gateway %s", gw_mac)
-            for query in sweep_queries:
+            queries = [
+                "*#13**0##",   # Gateway real-time clock
+                "*#13**15##",  # Gateway device model
+                "*#13**16##",  # Gateway firmware version
+            ]
+            if getattr(handler, "is_secondary", False) is True:
+                delegated = getattr(handler, "delegated_whos", set())
+                if 2 in delegated:
+                    queries.append("*#2*0##")
+                if 4 in delegated:
+                    queries.append("*#4*0##")
+                if 16 in delegated:
+                    queries.append("*#16*0*5##")
+            else:
+                queries.extend(["*#2*0##", "*#4*0##"])
+
+            for query in queries:
                 msg = OWNMessage.parse(query)
                 if msg is not None:
                     await handler.send(cast(OWNCommand, msg))

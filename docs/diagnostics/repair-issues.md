@@ -112,3 +112,50 @@ An unusually high rate of NACK frames or bus collisions was detected on the SCS 
 1. Verify physical bus wiring and ensure proper line termination (line end-resistors).
 2. Ensure multiple command sessions or third-party gateways are not flooding the bus simultaneously.
 3. Check the **Lovelace Bus Monitor Card** to identify which device address (`WHERE`) is generating frequent NACKs.
+
+---
+
+## Unconfigured Shared Bus Detected
+
+**Repair Key**: `shared_bus_detected_{gw1}_{gw2}`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes (when configured or when secondary role is saved)
+
+### What it means
+The integration passively detected that two or more configured OpenWebNet gateways share the same physical SCS bus wiring, but neither has been designated as a secondary gateway. The evidence was triggered by either:
+1. **TX-to-RX Echoes**: A gateway received a frame on its event session that another gateway transmitted on its command session within 1.5 seconds.
+2. **Concurrent RX Frames**: Multiple gateways received identical physical bus frames within 0.3 seconds.
+
+### Why it matters
+Without configuration, each gateway discovers the same physical devices and registers duplicate entities in Home Assistant (e.g. `light.kitchen_light` and `light.kitchen_light_2`), and simultaneous startup sweeps cause SCS bus collisions and NACK storms.
+
+### How to resolve
+1. Navigate to **Settings → Devices & Services → MyHOME**.
+2. Identify which gateway should serve as the **Primary Gateway** (usually the newest or most capable gateway, e.g. MH201 or F454) and which as **Secondary** (e.g. MH200N).
+3. On the secondary gateway card, click **Configure**:
+   - Set **Bus Topology** to `shared`.
+   - Set **Gateway Role** to `secondary`.
+   - Select the primary gateway under **Primary Gateway**.
+   - (Optional) If the secondary gateway is dedicated to specific subsystems (e.g. Burglar Alarm WHO=5 or Audio WHO=16), select them under **Delegated Subsystems**.
+4. Click **Submit**. Home Assistant will automatically prune duplicate entities and suppress future redundant sweeps.
+
+---
+
+## Gateway Failover Active (Warm Standby High Availability)
+
+**Repair Key**: `gateway_failover_active_{primary_mac}`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes (automatically clears when the primary gateway reconnects or unloads)
+
+### What it means
+The primary OpenWebNet gateway (e.g. an F454) has become offline or unreachable, and Home Assistant has automatically failed over all bus operations to a designated warm-standby secondary gateway (e.g. an MH202).
+
+While failover is active:
+- Outbound device commands and status polls are seamlessly routed through the standby gateway.
+- Inbound physical bus frames received by the standby gateway are bridged to primary entities, keeping your dashboards, states, and automations fully functional.
+- The primary gateway's entities remain available in Home Assistant UI.
+
+### How to resolve
+1. Check the network connectivity and power supply of the offline primary gateway.
+2. Once the primary gateway re-establishes its event session with Home Assistant, the integration automatically fails back to the primary gateway and resolves this repair issue.
+

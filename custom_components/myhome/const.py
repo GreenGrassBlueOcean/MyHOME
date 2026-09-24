@@ -144,6 +144,23 @@ SOFTWARE_TRANSITION_MAX_STEPS = 25
 RESYNC_DEBOUNCE_S = 0.5
 RESYNC_LEADING_WINDOW_S = 1.5
 
+# ── Multi-Gateway & Shared Bus Support (Issue #453) ─────────────────────────
+CONF_BUS_TOPOLOGY = "bus_topology"
+TOPOLOGY_STANDALONE = "standalone"
+TOPOLOGY_SHARED = "shared"
+TOPOLOGY_OPTIONS = [TOPOLOGY_STANDALONE, TOPOLOGY_SHARED]
+
+CONF_GATEWAY_ROLE = "gateway_role"
+ROLE_PRIMARY = "primary"
+ROLE_SECONDARY = "secondary"
+ROLE_STANDBY = "standby"
+ROLE_OPTIONS = [ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY]
+
+CONF_PRIMARY_GATEWAY = "primary_gateway"
+CONF_DELEGATED_WHOS = "delegated_whos"
+ISSUE_SHARED_BUS_DETECTED = "shared_bus_detected"
+ISSUE_GATEWAY_FAILOVER = "gateway_failover_active"
+
 
 def is_apl_address(base: str) -> bool:
     """Check if base address is a valid OpenWebNet Point-to-Point (APL) address.

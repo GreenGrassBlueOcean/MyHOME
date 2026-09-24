@@ -119,7 +119,11 @@
           "default_source_env_6": "Default source for environment 6 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_7": "Default source for environment 7 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_8": "Default source for environment 8 — used when a zone in that room is turned on from Home Assistant",
-          "default_source_env_9": "Default source for environment 9 — used when a zone in that room is turned on from Home Assistant"
+          "default_source_env_9": "Default source for environment 9 — used when a zone in that room is turned on from Home Assistant",
+          "bus_topology": "Bus topology",
+          "gateway_role": "Gateway role",
+          "primary_gateway": "Primary gateway",
+          "delegated_whos": "Delegated subsystems"
         }
       }
     },
@@ -131,7 +135,12 @@
       "invalid_password": "Invalid password",
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
-      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead."
+      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
+      "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
+      "invalid_primary_gateway": "Cannot select this gateway itself as the primary gateway.",
+      "primary_gateway_not_found": "The selected primary gateway could not be found.",
+      "circular_gateway_reference": "Circular reference: the selected primary gateway already points to this gateway.",
+      "multiple_shared_primaries": "Another gateway is already configured as primary on the shared bus. Only one primary is allowed per shared bus."
     }
   },
   "services": {
@@ -278,6 +287,14 @@
     "gateway_identity_corrected": {
       "title": "Gateway model corrected to {corrected}",
       "description": "The gateway was configured as {previous} but reports model code {code}, which the OpenWebNet device-type table (WHO=13) or the gateway diagnostic catalogue (WHO=1013, codes prefixed 1013-1-) identifies as {corrected}. The model, gateway profile and device registry were updated to {corrected}. If that is wrong, open the integration's options (Configure) and set the model explicitly."
+    },
+    "shared_bus_detected": {
+      "title": "Shared OpenWebNet bus detected ({gateway_a} & {gateway_b})",
+      "description": "Home Assistant detected that gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic. Operating multiple gateways on the same bus without secondary configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nPlease open Configure on one gateway, set its Bus Topology to Shared, and mark it as Secondary to designate the primary gateway."
+    },
+    "gateway_failover_active": {
+      "title": "High Availability failover active: {primary} offline",
+      "description": "Primary MyHOME gateway {primary} is currently offline or unreachable. High Availability warm-standby failover has automatically routed bus traffic and status monitoring through standby gateway {standby}.\n\nWhen {primary} recovers, Home Assistant will automatically fail back to the primary gateway and resolve this issue."
     }
   },
   "exceptions": {

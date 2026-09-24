@@ -37,7 +37,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import Entity
 
-from .const import BUS_ROUTING, CONF_BUS_INTERFACE, CONF_WHERE, CONF_WHO, CONF_ZONE, LOGGER
+from .const import BUS_ROUTING, CONF_BUS_INTERFACE, CONF_WHERE, CONF_WHO, CONF_ZONE, DOMAIN, LOGGER
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
 from .myhome_device import MyHOMEEntity
 
@@ -367,6 +367,31 @@ class PlatformDiscovery:
                     except Exception as err:  # the entry may already be gone
                         LOGGER.debug("%s: could not remove %s: %s", self.platform, entry.entity_id, err)
                 continue
+
+            # Secondary gateway on shared bus: prune duplicate entities if primary gateway owns the device
+            if getattr(self.runtime, "is_secondary", False) is True:
+                who_int = int(self.who) if str(self.who).isdigit() else None
+                delegated = getattr(self.runtime, "delegated_whos", set())
+                if isinstance(delegated, (set, list, tuple)) and who_int is not None and who_int not in delegated:
+                    primary_mac = getattr(self.runtime, "primary_gateway_mac", None)
+                    if isinstance(primary_mac, str) and primary_mac and registry is not None:
+                        clean_self = self.mac.replace(":", "").lower()
+                        clean_pri = primary_mac.replace(":", "").lower()
+                        target_uid = None
+                        if entry.unique_id.startswith(self.mac):
+                            target_uid = f"{primary_mac}{entry.unique_id[len(self.mac):]}"
+                        elif entry.unique_id.lower().startswith(clean_self):
+                            target_uid = f"{clean_pri}{entry.unique_id[len(clean_self):]}"
+                        if target_uid is not None and target_uid != entry.unique_id and registry.async_get_entity_id(entry.domain, DOMAIN, target_uid):
+                            LOGGER.info(
+                                "%s: Pruned duplicate secondary entity %s in favor of primary gateway %s",
+                                self.platform,
+                                entry.entity_id,
+                                primary_mac,
+                            )
+                            registry.async_remove(entry.entity_id)
+                            continue
+
             if self.accept and not self.accept(ctx):
                 continue
             if ctx.key in self.known:
@@ -445,6 +470,14 @@ class PlatformDiscovery:
             if self.pre_message and self.pre_message(message, address, self.known):
                 return
             if address.key not in self.known:
+                # Secondary gateway on shared bus: do not auto-discover entities unless delegated
+                if getattr(self.runtime, "is_secondary", False) is True:
+                    who_int = int(self.who) if str(self.who).isdigit() else None
+                    delegated = getattr(self.runtime, "delegated_whos", set())
+                    if isinstance(delegated, (set, list, tuple)) and who_int is not None and who_int not in delegated:
+                        self.route(message, address)
+                        return
+
                 ctx = DeviceContext(
                     address=address, who=str(getattr(message, "who", self.who)), source="bus", message=message,
                     cfg=config_for(self.configured, address),

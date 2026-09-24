@@ -38,16 +38,20 @@ from voluptuous import (
 from .const import (
     CONF_ADDRESS,
     CONF_BROADCAST_RESYNC,
+    CONF_BUS_TOPOLOGY,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
     CONF_DECODER_SOURCE,
+    CONF_DELEGATED_WHOS,
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
+    CONF_GATEWAY_ROLE,
     CONF_GENERATE_EVENTS,
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
     CONF_OWN_PASSWORD,
+    CONF_PRIMARY_GATEWAY,
     CONF_SOURCE_DEFAULT_FIELD,
     CONF_SOURCE_DEFAULTS,
     CONF_SOURCE_NAME,
@@ -61,7 +65,12 @@ from .const import (
     DOMAIN,
     IDENTIFICATION_MANUAL,
     LOGGER,
+    ROLE_PRIMARY,
+    ROLE_SECONDARY,
+    ROLE_STANDBY,
     SUPPORTED_GATEWAY_MODELS,
+    TOPOLOGY_SHARED,
+    TOPOLOGY_STANDALONE,
 )
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 
@@ -785,7 +794,6 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     if raw not in ("", None, "none"):
                         _defaults[env] = int(raw)
                 self.options[CONF_SOURCE_DEFAULTS] = _defaults  # type: ignore
-
                 # Persist matrix source names (blank = nothing wired to that input)
                 for i in range(1, CONF_SOURCE_SLOTS + 1):
                     name_key = CONF_SOURCE_NAME.format(i)
@@ -801,6 +809,105 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     # source labels both index on plain ints.
                     self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
                     self.options[gain_key] = int(float(user_input.get(gain_key, 0) or 0))  # type: ignore
+
+                _topology_update = False
+                in_topo = user_input.get(CONF_BUS_TOPOLOGY, self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE))
+                in_role = user_input.get(CONF_GATEWAY_ROLE, self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY))
+                in_pri = user_input.get(CONF_PRIMARY_GATEWAY, self.options.get(CONF_PRIMARY_GATEWAY))
+
+                other_gateways = [
+                    e for e in self.hass.config_entries.async_entries(DOMAIN)
+                    if e.entry_id != getattr(self.config_entry, "entry_id", None)
+                ]
+
+                if in_topo == TOPOLOGY_SHARED and in_role in (ROLE_SECONDARY, ROLE_STANDBY):
+                    my_mac = self.data.get(CONF_MAC) or getattr(self.config_entry, "unique_id", None)
+                    if not in_pri:
+                        errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_required"
+                    else:
+                        norm_in_pri = dr.format_mac(str(in_pri))
+                        norm_my_mac = dr.format_mac(str(my_mac)) if my_mac else None
+                        if norm_my_mac and norm_in_pri == norm_my_mac:
+                            errors[CONF_PRIMARY_GATEWAY] = "invalid_primary_gateway"
+                        else:
+                            matching_pri_entry = None
+                            for e in other_gateways:
+                                e_mac = e.data.get(CONF_MAC) or e.unique_id
+                                if e_mac and dr.format_mac(str(e_mac)) == norm_in_pri:
+                                    matching_pri_entry = e
+                                    break
+                            if matching_pri_entry is None:
+                                errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_found"
+                            else:
+                                pri_opts = getattr(matching_pri_entry, "options", None) or {}
+                                pri_data = getattr(matching_pri_entry, "data", None) or {}
+                                pri_topo = pri_opts.get(CONF_BUS_TOPOLOGY) or pri_data.get(CONF_BUS_TOPOLOGY)
+                                pri_role = pri_opts.get(CONF_GATEWAY_ROLE) or pri_data.get(CONF_GATEWAY_ROLE)
+                                pri_target = pri_opts.get(CONF_PRIMARY_GATEWAY) or pri_data.get(CONF_PRIMARY_GATEWAY)
+                                if (
+                                    pri_topo == TOPOLOGY_SHARED
+                                    and pri_role in (ROLE_SECONDARY, ROLE_STANDBY)
+                                    and pri_target
+                                    and norm_my_mac
+                                    and dr.format_mac(str(pri_target)) == norm_my_mac
+                                ):
+                                    errors[CONF_PRIMARY_GATEWAY] = "circular_gateway_reference"
+
+                elif in_topo == TOPOLOGY_SHARED and in_role == ROLE_PRIMARY:
+                    for e in other_gateways:
+                        e_opts = getattr(e, "options", None) or {}
+                        e_data = getattr(e, "data", None) or {}
+                        e_topo = e_opts.get(CONF_BUS_TOPOLOGY) or e_data.get(CONF_BUS_TOPOLOGY)
+                        e_role = e_opts.get(CONF_GATEWAY_ROLE) or e_data.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY)
+                        if e_topo == TOPOLOGY_SHARED and e_role == ROLE_PRIMARY:
+                            errors[CONF_GATEWAY_ROLE] = "multiple_shared_primaries"
+                            break
+
+                if not errors:
+                    if in_topo == TOPOLOGY_STANDALONE:
+                        if self.options.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_STANDALONE or self.options.get(CONF_GATEWAY_ROLE) != ROLE_PRIMARY:
+                            _topology_update = True
+                        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_STANDALONE
+                        self.options[CONF_GATEWAY_ROLE] = ROLE_PRIMARY
+                        self.options.pop(CONF_PRIMARY_GATEWAY, None)
+                        self.options.pop(CONF_DELEGATED_WHOS, None)
+                    elif in_topo == TOPOLOGY_SHARED and in_role == ROLE_PRIMARY:
+                        if self.options.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_SHARED or self.options.get(CONF_GATEWAY_ROLE) != ROLE_PRIMARY:
+                            _topology_update = True
+                        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
+                        self.options[CONF_GATEWAY_ROLE] = ROLE_PRIMARY
+                        self.options.pop(CONF_PRIMARY_GATEWAY, None)
+                        self.options.pop(CONF_DELEGATED_WHOS, None)
+                    elif in_topo == TOPOLOGY_SHARED and in_role == ROLE_STANDBY:
+                        if self.options.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_SHARED or self.options.get(CONF_GATEWAY_ROLE) != ROLE_STANDBY or self.options.get(CONF_PRIMARY_GATEWAY) != in_pri:
+                            _topology_update = True
+                        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
+                        self.options[CONF_GATEWAY_ROLE] = ROLE_STANDBY
+                        self.options[CONF_PRIMARY_GATEWAY] = in_pri
+                        self.options.pop(CONF_DELEGATED_WHOS, None)
+                    elif in_topo == TOPOLOGY_SHARED and in_role == ROLE_SECONDARY:
+                        if self.options.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_SHARED or self.options.get(CONF_GATEWAY_ROLE) != ROLE_SECONDARY or self.options.get(CONF_PRIMARY_GATEWAY) != in_pri:
+                            _topology_update = True
+                        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
+                        self.options[CONF_GATEWAY_ROLE] = ROLE_SECONDARY
+                        self.options[CONF_PRIMARY_GATEWAY] = in_pri
+                        del_whos = []
+                        if CONF_DELEGATED_WHOS in user_input:
+                            for item in user_input[CONF_DELEGATED_WHOS]:
+                                try:
+                                    del_whos.append(int(item))
+                                except (ValueError, TypeError):
+                                    pass
+                        if self.options.get(CONF_DELEGATED_WHOS) != del_whos:
+                            _topology_update = True
+                        self.options[CONF_DELEGATED_WHOS] = del_whos
+
+                    if in_topo == TOPOLOGY_SHARED and in_role in (ROLE_SECONDARY, ROLE_STANDBY):
+                        from .repairs import async_delete_shared_bus_issue
+                        primary_mac = self.options.get(CONF_PRIMARY_GATEWAY)
+                        my_mac = self.data.get(CONF_MAC) or getattr(self.config_entry, "unique_id", None)
+                        if primary_mac and my_mac:
+                            async_delete_shared_bus_issue(self.hass, str(my_mac), str(primary_mac))
 
                 _model_update = False
                 if CONF_NAME in user_input and user_input[CONF_NAME] != self.data.get(CONF_NAME):  # type: ignore
@@ -828,6 +935,8 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if _model_update and self.config_entry.title.endswith("Gateway"):
                             update_kwargs["title"] = f"{user_input[CONF_NAME]} Gateway"  # type: ignore
                         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)  # type: ignore
+                        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                    elif _topology_update:
                         await self.hass.config_entries.async_reload(self.config_entry.entry_id)
 
                     return self.async_create_entry(title="", data=self.options)  # type: ignore
@@ -971,6 +1080,71 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     min=0, max=50, step=1,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        other_gateways = [
+            e for e in self.hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != getattr(self.config_entry, "entry_id", None)
+        ]
+        if other_gateways:
+            gw_options = [
+                {"value": str(e.data.get(CONF_MAC) or e.unique_id), "label": f"{e.title} ({e.data.get(CONF_HOST)})"}
+                for e in other_gateways
+            ]
+            schema_dict[vol.Optional(
+                CONF_BUS_TOPOLOGY,
+                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": TOPOLOGY_STANDALONE, "label": "Standalone (Separate SCS Bus)"},
+                        {"value": TOPOLOGY_SHARED, "label": "Shared SCS Bus (Same bus as another gateway)"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_GATEWAY_ROLE,
+                description={"suggested_value": self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": ROLE_PRIMARY, "label": "Primary (Active gateway, discovers and polls bus devices)"},
+                        {"value": ROLE_SECONDARY, "label": "Secondary (Supplements primary with delegated subsystems)"},
+                        {"value": ROLE_STANDBY, "label": "Warm Standby (High availability failover when primary is offline)"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_PRIMARY_GATEWAY,
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY, gw_options[0]["value"])},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=gw_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_DELEGATED_WHOS,
+                description={"suggested_value": [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": "1", "label": "1 - Lighting (WHO=1)"},
+                        {"value": "2", "label": "2 - Covers / Shutters (WHO=2)"},
+                        {"value": "4", "label": "4 - Thermoregulation / Climate (WHO=4)"},
+                        {"value": "5", "label": "5 - Burglar Alarm (WHO=5)"},
+                        {"value": "9", "label": "9 - Auxiliary (WHO=9)"},
+                        {"value": "15", "label": "15 - CEN Scenarios (WHO=15)"},
+                        {"value": "16", "label": "16 - Sound Diffusion (WHO=16)"},
+                        {"value": "18", "label": "18 - Energy Management (WHO=18)"},
+                        {"value": "22", "label": "22 - Sound Diffusion / Audio Matrix (WHO=22)"},
+                        {"value": "25", "label": "25 - CEN+ Scenarios (WHO=25)"},
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
 

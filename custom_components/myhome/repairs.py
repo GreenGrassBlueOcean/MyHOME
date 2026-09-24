@@ -10,7 +10,7 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
-from .const import DOMAIN
+from .const import DOMAIN, ISSUE_GATEWAY_FAILOVER, ISSUE_SHARED_BUS_DETECTED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,3 +136,73 @@ def async_create_collision_issue(hass: HomeAssistant, entry_id: str, collision_c
 def async_delete_collision_issue(hass: HomeAssistant, entry_id: str) -> None:
     """Delete the collision repair issue once bus traffic normalizes."""
     async_delete_issue(hass, DOMAIN, f"{ISSUE_BUS_COLLISION}_{entry_id}")
+
+
+def _canonical_shared_bus_pair(mac_a: str, mac_b: str) -> tuple[str, str, str]:
+    """Return sorted clean MACs and canonical issue ID."""
+    clean_a = mac_a.replace(":", "").lower()
+    clean_b = mac_b.replace(":", "").lower()
+    first, second = sorted([clean_a, clean_b])
+    return first, second, f"{ISSUE_SHARED_BUS_DETECTED}_{first}_{second}"
+
+
+def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -> None:
+    """Create a repair issue when two gateways observe the same SCS bus traffic."""
+    _, _, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
+    disp_a, disp_b = sorted([mac_a, mac_b])
+    async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_SHARED_BUS_DETECTED,
+        translation_placeholders={"gateway_a": disp_a, "gateway_b": disp_b},
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/gateways/shared-bus/",
+    )
+
+
+def async_delete_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -> None:
+    """Delete the shared bus repair issue once the gateways are configured."""
+    clean_a, clean_b, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
+    async_delete_issue(hass, DOMAIN, issue_id)
+    domain_data = hass.data.get(DOMAIN)
+    if isinstance(domain_data, dict):
+        evidence_map = domain_data.get("_shared_bus_evidence")
+        if isinstance(evidence_map, dict):
+            evidence_map.pop((clean_a, clean_b), None)
+            evidence_map.pop((mac_a, mac_b), None)
+            evidence_map.pop((mac_b, mac_a), None)
+            evidence_map.pop(tuple(sorted([mac_a, mac_b])), None)
+
+
+def async_create_failover_issue(
+    hass: HomeAssistant,
+    primary_mac: str,
+    standby_mac: str,
+    primary_name: str,
+    standby_name: str,
+) -> None:
+    """Create a repair issue when primary gateway fails over to standby."""
+    clean_pri = primary_mac.replace(":", "").lower()
+    issue_id = f"{ISSUE_GATEWAY_FAILOVER}_{clean_pri}"
+    async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_GATEWAY_FAILOVER,
+        translation_placeholders={
+            "primary": f"{primary_name} ({primary_mac})",
+            "standby": f"{standby_name} ({standby_mac})",
+        },
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/gateways/shared-bus/#warm-standby-high-availability",
+    )
+
+
+def async_delete_failover_issue(hass: HomeAssistant, primary_mac: str) -> None:
+    """Delete the failover repair issue once primary gateway reconnects."""
+    clean_pri = primary_mac.replace(":", "").lower()
+    issue_id = f"{ISSUE_GATEWAY_FAILOVER}_{clean_pri}"
+    async_delete_issue(hass, DOMAIN, issue_id)
