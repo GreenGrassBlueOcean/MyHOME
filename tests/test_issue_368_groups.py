@@ -311,14 +311,14 @@ async def test_turn_on_hs_color_uses_last_brightness(hass: HomeAssistant):
     assert group.hs_color == (120.0, 50.0)
 
 
-async def test_turn_on_transition_raises(hass: HomeAssistant):
+async def test_turn_on_transition_ignored_gracefully(hass: HomeAssistant):
     gateway = _gateway()
     group = _group(hass, gateway)
     await group.async_added_to_hass()
 
-    with pytest.raises(HomeAssistantError):
-        await group.async_turn_on(transition=2)
-    gateway.send.assert_not_called()
+    await group.async_turn_on(transition=2)
+    gateway.send.assert_called_once()
+    assert str(gateway.send.call_args[0][0]) == "*1*1*#6##"
 
 
 async def test_turn_on_timed_raises(hass: HomeAssistant):
@@ -599,3 +599,37 @@ async def test_async_update_without_members_queries_status(hass: HomeAssistant):
     assert gateway.send_status_request.await_count == 4
     frames = {str(c.args[0]) for c in gateway.send_status_request.call_args_list}
     assert frames == {"*#1*#6##", "*#1*#6*1##", "*#1*#6*14##", "*#1*#6*12##"}
+
+
+async def test_group_turn_on_tolerates_transition(hass: HomeAssistant):
+    """A lighting group tolerates transition without raising HomeAssistantError."""
+    gateway = _gateway()
+    group = _group(hass, gateway, dimmable=True, color_temp=True, rgb=False)
+
+    # Calling turn_on with transition should not raise and should send brightness
+    await group.async_turn_on(brightness=200, transition=45)
+
+    assert gateway.send.await_count == 1
+    sent = str(gateway.send.call_args[0][0])
+    assert sent == "*#1*#6*#1*178*0##"
+    assert group.brightness == 200
+    assert group.is_on is True
+
+
+async def test_group_turn_on_simultaneous_brightness_and_color_temp(hass: HomeAssistant):
+    """A lighting group dispatches both color temperature and brightness when sent together."""
+    from homeassistant.components.light import ATTR_COLOR_TEMP_KELVIN
+
+    gateway = _gateway()
+    group = _group(hass, gateway, dimmable=True, color_temp=True, rgb=False)
+
+    await group.async_turn_on(**{ATTR_BRIGHTNESS: 128, ATTR_COLOR_TEMP_KELVIN: 3000, "transition": 10})
+
+    assert gateway.send.await_count == 2
+    sent_frames = [str(c.args[0]) for c in gateway.send.call_args_list]
+    # Dimension 14 (3000K = 333 mireds) and Dimension 1 (128/255 = 50% -> 150)
+    assert "*#1*#6*#14*333##" in sent_frames
+    assert "*#1*#6*#1*150*0##" in sent_frames
+    assert group.brightness == 128
+    assert group.color_temp_kelvin == 3000
+    assert group.is_on is True

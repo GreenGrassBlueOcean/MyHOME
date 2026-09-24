@@ -416,6 +416,84 @@ async def test_software_stepped_short_duration_instant_path(hass):
     assert light._attr_brightness_pct == 90
 
 
+async def test_software_stepped_small_delta_deduplication(hass):
+    """Test small brightness delta over long transition clamps steps and deduplicates bus frames."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24b", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        # 50% -> 52% over 45s (typical Adaptive Lighting adjustment)
+        await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 52, ATTR_TRANSITION: 45.0})
+        assert light._fade_task is not None
+        await light._fade_task
+
+        # Clamped to delta_pct=2 steps (51% and 52%), never 25 duplicate steps
+        assert gateway.send.call_count == 2
+        assert mock_sleep.call_count == 1
+        assert light._attr_brightness_pct == 52
+
+
+async def test_software_stepped_delta_zero_or_one_instant_path(hass):
+    """Test delta <= 1% executes instant path without spawning a stepped fade task."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24c", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+
+    await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 50, ATTR_TRANSITION: 45.0})
+    assert light._fade_task is None
+    gateway.send.assert_called_once()
+    assert light._attr_brightness_pct == 50
+
+
+async def test_native_transition_optimistic_state_update(hass):
+    """Test native transition turn_on immediately updates optimistic state attributes."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_NATIVE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24d", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = False
+
+    await light.async_turn_on(**{ATTR_BRIGHTNESS_PCT: 75, ATTR_TRANSITION: 3.0})
+    gateway.send.assert_called_once()
+    assert light._attr_brightness_pct == 75
+    assert light.is_on is True
+    light.async_schedule_update_ha_state.assert_called_once()
+
+
 async def test_software_stepped_multi_worker_warning(hass, caplog):
     """Test warning logged when command_worker_count > 1 with software stepped transitions."""
     gateway = MagicMock()
