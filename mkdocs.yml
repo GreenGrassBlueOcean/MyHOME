@@ -109,6 +109,7 @@ nav:
       - Supported Functions Matrix: configuration/supported_functions.md
       - OpenWebNet Protocol & WHO Archive: openwebnet-who-specifications.md
       - Protocol Conformance Matrix: protocol_conformance_matrix.md
+      - Hardware Trace Availability: trace-availability.md
       - F454 Regression Checks: f454-regression-checks.md
       - Quality Scale Roadmap: quality_scale_plan.md
   - Migration & Legacy:
