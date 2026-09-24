@@ -498,6 +498,59 @@ async def test_turn_on_same_brightness_when_already_on_skips_bus_send(hass):
     light.async_schedule_update_ha_state.assert_called_once()
 
 
+async def test_software_stepped_transition_only_delta_one_instant_path(hass):
+    """Test transition-only with delta <= 1% executes instant path without spawning fade task."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24t1", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+    light._last_brightness_pct = 51
+
+    # 50% -> 51% (1% delta): instant dispatch, no fade task, exactly 1 send
+    await light.async_turn_on(**{ATTR_TRANSITION: 45.0})
+    assert light._fade_task is None
+    gateway.send.assert_called_once()
+    assert light._attr_brightness_pct == 51
+
+
+async def test_software_stepped_transition_only_same_brightness_skips_bus_send(hass):
+    """Test transition-only with identical brightness when already on skips redundant bus write."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24t0", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+    light._last_brightness_pct = 50
+
+    # 50% -> 50% while already on: no-op for bus, optimistic state preserved
+    await light.async_turn_on(**{ATTR_TRANSITION: 45.0})
+    assert light._fade_task is None
+    gateway.send.assert_not_called()
+    assert light._attr_brightness_pct == 50
+    light.async_schedule_update_ha_state.assert_called_once()
+
+
 async def test_software_stepped_fade_with_color_temp(hass):
     """Test combined color_temp_kelvin and brightness with transition dispatches CT then fades."""
     gateway = MagicMock()

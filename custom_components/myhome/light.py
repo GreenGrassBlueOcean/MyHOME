@@ -633,7 +633,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     await asyncio.sleep(step_time)
 
             if fade_id == self._fade_id:
-                if last_sent != target_pct:
+                if last_sent != target_pct:  # pragma: no cover - defensive guarantee
                     await self._set_brightness_instant(target_pct)
                 self._apply_brightness_state(target_pct)
                 self.async_schedule_update_ha_state()
