@@ -278,6 +278,10 @@
     "gateway_identity_corrected": {
       "title": "Gateway model corrected to {corrected}",
       "description": "The gateway was configured as {previous} but reports model code {code}, which the OpenWebNet device-type table (WHO=13) or the gateway diagnostic catalogue (WHO=1013, codes prefixed 1013-1-) identifies as {corrected}. The model, gateway profile and device registry were updated to {corrected}. If that is wrong, open the integration's options (Configure) and set the model explicitly."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Decoder {decoder} uses unsupported integration ({platform})",
+      "description": "The configured streaming decoder {decoder} is provided by the '{platform}' integration, which does not accept HTTP stream URLs via play_media. For multi-room streaming (e.g. Music Assistant), configure this hardware via the DLNA Digital Media Renderer (DMR) integration instead."
     }
   },
   "exceptions": {
@@ -337,6 +341,9 @@
     },
     "routing_unsupported": {
       "message": "{entity_id}: amplifier {where} has no matrix routing address (environment 0, or not a two-digit amplifier); switch its source at a wall panel"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: decoder {decoder} ({platform}) does not support streaming URLs; configure it via DLNA DMR instead"
     }
   },
   "entity": {

@@ -177,6 +177,55 @@ empty keeps the wall-panel routing in charge.
 
 ---
 
+## 👥 Multi-Room Audio Grouping (Music Assistant & Home Assistant)
+
+The MyHOME integration implements native Home Assistant player grouping (`MediaPlayerEntityFeature.GROUPING`). This enables synchronized multi-room playback across BTicino audio zones without playing separate concurrent audio streams.
+
+### How Grouping Works with the Analog Matrix
+
+When using **Music Assistant (MA)** or Home Assistant's `media_player.join` service:
+1. **Single Backend Stream**: Only the group **leader** claims a network decoder from the decoder pool and requests the audio stream (e.g. from Spotify, Tidal, or local FLAC).
+2. **Matrix Route Sharing**: Each joined **member** zone automatically routes its physical environment output to the leader's matrix source input (`*16*3*1ES##`) and powers on its room amplifier (`*16*3*<WHERE>##`).
+3. **Cross-Environment & Same-Environment Synchrony**:
+   - Zones in different environments (e.g. Environment 2 living room and Environment 3 kitchen) are bridged to the same analog source input, guaranteeing **zero latency** and perfectly aligned analog audio across rooms.
+   - Zones within the same environment share the matrix output physically.
+4. **Environment Isolation Protection**:
+   - The F441 / F441M matrix routes an entire environment to one input. If an attempt is made to join a zone whose environment is already actively streaming from another decoder, the operation is rejected with an `environment_busy` error to prevent cutting off an active listener in that environment.
+5. **Dynamic Disbanding & Member Lifecycle**:
+   - **Leader turned off or unjoined**: When the group leader turns off or calls `unjoin`, the entire group is disbanded, and all member amplifiers are powered off.
+   - **Member leaves the group**: A member calling `unjoin` or turning off powers off its own amplifier and leaves the group; the leader and any other members continue streaming uninterrupted.
+   - **Physical Wall Switch Interaction**: Pressing OFF on a physical wall control sends a bus OFF frame which immediately cleans up group membership in Home Assistant.
+
+---
+
+## 📡 Backend Stream Compatibility & DLNA DMR (Cambridge Audio, WiiM, Squeezelite)
+
+When using the Dynamic Proxy, Home Assistant sends direct HTTP streaming URLs to the configured backend decoder.
+
+### The Cambridge Audio Dilemma
+The native Home Assistant `cambridge_audio` integration (for CXN, CXN V2, Edge NQ, Evo 75/150, MXN10, AXN10) uses the Cambridge StreamMagic API. By design, it only accepts built-in presets, Airable, and internet radio — it **does not accept raw HTTP stream URLs** from Music Assistant or Home Assistant, raising an `unsupported_media_type` exception.
+
+### Solution: Configure via DLNA Digital Media Renderer (DMR)
+To stream seamlessly to Cambridge Audio network players:
+1. Enable UPnP / DLNA in the Cambridge StreamMagic app settings.
+2. In Home Assistant, install the **DLNA Digital Media Renderer** integration. It will automatically discover your Cambridge Audio streamer (e.g. `media_player.cxn_v2_dlna`).
+3. In **Settings** -> **Devices & Services** -> **MyHOME** -> **Configure**, map the DLNA DMR entity as your decoder instead of the native `cambridge_audio` entity.
+
+> [!NOTE]
+> **Automatic Diagnostic & Repair**:
+> If you select a `cambridge_audio` entity in MyHOME Options, the integration automatically issues a **Home Assistant Repair Issue** explaining that DLNA DMR is required and linking to the documentation.
+
+---
+
+## 🎧 Passive Source & Metadata Tracking (Streamer-First Workflow)
+
+You do not need to initiate playback through Home Assistant or Music Assistant to see track metadata:
+- If you start Spotify Connect, TIDAL Connect, AirPlay, or internet radio directly in the Cambridge StreamMagic or WiiM mobile app, or via a physical matrix source (CD player, tuner):
+- Any BTicino zone turned ON and routed to that physical source automatically mirrors track title, artist name, album art, and transport state (`PLAYING`, `PAUSED`).
+- Transport controls (`media_play`, `media_pause`, `media_next_track`, `media_previous_track`) operated from the Home Assistant zone card are automatically forwarded to the active source decoder.
+
+---
+
 ## 📻 Standalone Fallback Mode (No Decoders)
 
 If you do not configure any streaming decoders in the Options Flow, the room amplifier entities operate in **Native WHO = 16 Mode**:

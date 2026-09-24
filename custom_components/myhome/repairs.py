@@ -21,6 +21,7 @@ ISSUE_UNKNOWN_GATEWAY_MODEL = "unknown_gateway_model"
 ISSUE_UNCONFIGURED_TIMEZONE = "unconfigured_timezone"
 
 ISSUE_GATEWAY_IDENTITY_CORRECTED = "gateway_identity_corrected"
+ISSUE_INCOMPATIBLE_DECODER = "incompatible_decoder_platform"
 
 
 def async_create_unknown_model_issue(hass: HomeAssistant, entry_id: str, code: str) -> None:
@@ -136,3 +137,26 @@ def async_create_collision_issue(hass: HomeAssistant, entry_id: str, collision_c
 def async_delete_collision_issue(hass: HomeAssistant, entry_id: str) -> None:
     """Delete the collision repair issue once bus traffic normalizes."""
     async_delete_issue(hass, DOMAIN, f"{ISSUE_BUS_COLLISION}_{entry_id}")
+
+
+def async_create_incompatible_decoder_issue(
+    hass: HomeAssistant, entry_id: str, decoder_id: str, platform: str
+) -> None:
+    """Create a repair issue when a configured decoder platform does not support streaming URLs."""
+    async_create_issue(
+        hass,
+        DOMAIN,
+        f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{decoder_id}",
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_INCOMPATIBLE_DECODER,
+        translation_placeholders={"decoder": decoder_id, "platform": platform},
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant",
+    )
+
+
+def async_delete_incompatible_decoder_issue(
+    hass: HomeAssistant, entry_id: str, decoder_id: str
+) -> None:
+    """Delete the incompatible decoder repair issue."""
+    async_delete_issue(hass, DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{decoder_id}")
