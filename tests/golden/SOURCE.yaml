@@ -128,6 +128,18 @@ authorities:
         date: "2026-09-23"
         gateway: "BTicino MH200"
         devices: "Covers 11-16, 18, 19 behind F422 interface 02 (logical #4# addressing): area status request answered per object; area commands on the main bus (*2*2*1##) and on the private bus (*2*1*1#4#02##) moved none of them; point commands did"
+      - name: "Physical Bus Capture (MyHomeServer1 + Home+Control, WHO 4 heating and cooling)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/429"
+        author: "@TheDarkWizard"
+        date: "2026-09-23"
+        gateway: "BTicino MyHomeServer1, firmware 2.87.13"
+        devices: "Four zones, one KM4691 thermostat each driving an F430R8; zone 4 is heating-only. Card exports of OFF / manual / cooling transitions: dimension 7 carries the zone state and setpoint, never the reply to *#4*Z##"
+      - name: "Passive Bus Trace (F454 on a MyHomeServer1 + Home+Control plant, WHO 4 schedule)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/429#issuecomment-5813061888"
+        author: "@xtimmy86x"
+        date: "2026-09-24"
+        gateway: "BTicino F454, firmware 2.0 (Home Assistant's gateway); MyHomeServer1 runs the program on the same bus"
+        devices: "Seven heating zones: 13 h trace in which MyHomeServer1 writes *#4*Z*#7*1*1*TTTT## at each program step (06:00, 09:00), each zone answers with the dimension 7 status, and *#4*Z*#5*0## is re-asserted every ~794 s"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 

@@ -284,4 +284,124 @@
   mcp_notes: "Thermoregulation: Zone 2 local knob offset 0.0°C"
   roundtrip: true
 
+# ── DIMENSION 7 zone state and DIMENSION 5, MyHomeServer1 + Home+Control (MyHOME#429, OWNd#58) ──
+# Dimension 7 is not in WHO_4 2.pdf; openwebnet-mcp accepts the grammar and
+# warns that it is undocumented. Meaning per the MyHOME_Suite ScenarioDevices
+# templates (Encyclopedia who-4-temperature-control/dimensions.md):
+# *#4*ZONE*7*CONTEXT*STATE[*TTTT]##, context 1 heating / 2 cooling,
+# state 1 setpoint / 2 protection.
 
+- id: thermo.capture.dim7.cooling_setpoint.z2
+  frame: "*#4*2*7*2*1*0260##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "2"
+  dimension: 7
+  dimension_values: ["2", "1", "0260"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 cooling setpoint 26.0 °C: the Home+Control app switched the zone from OFF to manual at 26 °C (MyHomeServer1 capture 18:11:35, MyHOME#429 comment 5800423418)"
+  roundtrip: true
+
+- id: thermo.capture.dim7.cooling_setpoint_35.z2
+  frame: "*#4*2*7*2*1*0350##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "2"
+  dimension: 7
+  dimension_values: ["2", "1", "0350"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 cooling setpoint 35.0 °C, the plant's cooling protection value, sent ~230 ms before the real setpoint (*#4*2*7*2*1*0260##) when the zone leaves OFF (MyHomeServer1 capture 18:11:34, MyHOME#429)"
+  roundtrip: true
+
+- id: thermo.capture.dim7.cooling_protection.z2
+  frame: "*#4*2*7*2*2##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "2"
+  dimension: 7
+  dimension_values: ["2", "2"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 cooling protection: the zone was switched OFF in Home+Control; followed by *4*202*2## (MyHomeServer1 capture 18:13:48, MyHOME#429)"
+  roundtrip: true
+
+- id: thermo.capture.what202.cooling_off.z2
+  frame: "*4*202*2##"
+  direction: event
+  who: 4
+  what: 202
+  where: "2"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 cooling OFF, 67 ms after *#4*2*7*2*2## (MyHomeServer1 capture 18:13:48, MyHOME#429)"
+  roundtrip: true
+
+- id: thermo.capture.dim7.heating_protection.z4
+  frame: "*#4*4*7*1*2##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "4"
+  dimension: 7
+  dimension_values: ["1", "2"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 4 heating protection: a heating-only bathroom zone while the plant runs in cooling, repeated ~2 s after every change on another zone (MyHomeServer1 capture, MyHOME#429 comment 5800919197)"
+  roundtrip: true
+
+- id: thermo.capture.dim7.write.heating_setpoint.z2
+  frame: "*#4*2*#7*1*1*0170##"
+  direction: dimension_write
+  who: 4
+  what: null
+  where: "2"
+  dimension: 7
+  dimension_values: ["1", "1", "0170"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "MyHomeServer1 running its weekly program: writes zone 2 heating setpoint 17.0 °C (Night) on the bus, seen on the event session of an F454 on the same plant (xtimmy86x 13 h passive trace 00:18:52, MyHOME#429 comment 5813061888)"
+  roundtrip: true
+
+- id: thermo.capture.dim7.heating_setpoint.z2
+  frame: "*#4*2*7*1*1*0170##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "2"
+  dimension: 7
+  dimension_values: ["1", "1", "0170"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 answers the dimension 7 write with heating setpoint 17.0 °C, 48 ms later; the program step carries no preset name (xtimmy86x trace 00:18:52, MyHOME#429)"
+  roundtrip: true
+
+- id: thermo.capture.dim5.write.z2
+  frame: "*#4*2*#5*0##"
+  direction: dimension_write
+  who: 4
+  what: null
+  where: "2"
+  dimension: 5
+  dimension_values: ["0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "MyHomeServer1 re-asserts dimension 5 (local control, value meaning unpublished) on every zone every ~794 s (xtimmy86x trace 00:17:51, MyHOME#429)"
+  roundtrip: true
+
+- id: thermo.capture.dim5.status.z2
+  frame: "*#4*2*5*0##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "2"
+  dimension: 5
+  dimension_values: ["0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Zone 2 answers the dimension 5 write, 46 ms later (xtimmy86x trace 00:17:51, MyHOME#429)"
+  roundtrip: true

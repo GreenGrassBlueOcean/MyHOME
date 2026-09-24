@@ -20,7 +20,7 @@ Every other source (`legrand-spec`, `encyclopedia`, `openwebnet4j`, `public-read
 - A `builder:` block proves the builder matches the fixture, not that either is right. When both are written in the same change from the same reading, the test only compares the code with itself. Prefer builder parity against a capture or an independent source such as `openwebnet4j`.
 - When a capture arrives for a frame that so far exists only as a spec-derived fixture, add the capture and keep the spec entry only if it agrees.
 
-## Supported Subsystems Catalog (58 Fixtures)
+## Supported Subsystems Catalog (179 Fixtures)
 
 > Frames marked `community-plant-capture` come from real installations contributed by users. They are the only authority for behaviour the official PDFs leave undefined, and they are kept verbatim except where a fixture note records a deliberate substitution.
 
@@ -28,7 +28,7 @@ Every other source (`legrand-spec`, `encyclopedia`, `openwebnet4j`, `public-read
 - **WHO=0 Scenarios (`who00_scenario.yaml`)**: Basic scenario execution and stop.
 - **WHO=1 Lighting (`who01_lighting.yaml`)**: Point-to-point ON/OFF, status requests, local bus routing (`0311#4#01`), group broadcast, speed transitions (`*1*1#5*12##`), and dimension writes. An MH200 dimmer capture (MyHOME#434) pins what a dimmer actually sends: a keypad hold is one `*1*LEVEL*WHERE##` per 10% step, a `DIMENSION 1` reply of `100` means OFF, and a `DIMENSION 4` request is NACKed; no source produced a `DIMENSION 4` frame, so the `openwebnet4j` one (`*#1*0714*4*200*2##`) is still the only evidence for its layout.
 - **WHO=2 Automation (`who02_automation.yaml`)**: Shutter UP/DOWN/STOP, private bus routing (`21#4#1`), absolute position percentages, and slat tilt angles. Records tagged `scope` pin OWNd's general / area / group classification; an MH201 capture (MyHOME#433) adds an area-1 stop echo (`*2*0*1##`) and the per-actuator end-of-run stop that closes a general UP: a scope command never gets a stop of its own (WHO_2.pdf §3.0.1).
-- **WHO=4 Thermoregulation (`who04_thermo.yaml`)**: Measured temperature queries (`21.5°C`), setpoint writes, Antifreeze/Protection modes, and negative temperature probe status (`-4.8°C`).
+- **WHO=4 Thermoregulation (`who04_thermo.yaml`)**: Measured temperature queries (`21.5°C`), setpoint writes, Antifreeze/Protection modes, and negative temperature probe status (`-4.8°C`). Two MyHomeServer1 + Home+Control plants (#429) add dimension 7, which carries the zone state and setpoint on those plants and is not in `WHO_4 2.pdf`: cooling and heating setpoints, protection (the zone is OFF, with `*4*202*Z##`), the 35.0 °C protection value sent just before a real setpoint, MyHomeServer1's `*#4*Z*#7*...##` program writes, and the dimension 5 re-assert. The full traces are in `tests/fixtures/traces/issue_429`.
 - **WHO=5 Burglar Alarm (`who05_alarm.yaml`)**: Status requests and silent alarm events across zones and central units.
 - **WHO=9 Auxiliary (`who09_auxiliary.yaml`)**: Activation and deactivation of AUX relay channels.
 - **WHO=13 Gateway Management (`who13_gateway.yaml`)**: Firmware versions and gateway internal datetime responses. `*#13**15*4##` is the device type a physical MH200 (firmware 2.1.0) answers. It is also the regression frame for an MH200 set up by hand as MH200N (live 2026-09-23): the code corrects that label to MH200, because the MH200N has a code of its own (`44`) and a family match (`MH200N` → `MH200`) is no longer enough (`test_manual_mh200n_on_a_live_mh200_is_corrected`).
