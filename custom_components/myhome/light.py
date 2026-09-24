@@ -358,7 +358,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._attr_hs_color: tuple[float, float] | None = None
         self._attr_rgb_color: tuple[int, int, int] | None = None
 
-        self._attr_extra_state_attributes = {
+        self._attr_extra_state_attributes: dict[str, Any] = {
             "A": where[: len(where) // 2],
             "PL": where[len(where) // 2 :],
         }
@@ -871,6 +871,21 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         )
         if message.is_on is not None:
             self._attr_is_on = message.is_on
+
+        # A WHAT outside the WHO 1 table (e.g. 19 from an MH200 actuator with a
+        # WHO 1001 fault) leaves is_on None: keep the last state, show the value.
+        unknown_state = getattr(message, "unknown_state", None)
+        if isinstance(unknown_state, int):
+            if self._attr_extra_state_attributes.get("unknown_state") != unknown_state:
+                LOGGER.warning(
+                    "%s light %s reports fault/unknown state %s; keeping its last state",
+                    self._gateway_handler.log_id,
+                    self._full_where,
+                    unknown_state,
+                )
+            self._attr_extra_state_attributes["unknown_state"] = unknown_state
+        elif message.is_on is not None:
+            self._attr_extra_state_attributes.pop("unknown_state", None)
 
         is_fading = bool(self._fade_task and not self._fade_task.done())
 
