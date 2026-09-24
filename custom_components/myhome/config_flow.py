@@ -63,7 +63,7 @@ from .const import (
     LOGGER,
     SUPPORTED_GATEWAY_MODELS,
 )
-from .gateway import MyHOMEGatewayHandler
+from .gateway import MyHOMEGatewayHandler, command_session_limit
 
 
 class MACAddress:
@@ -743,6 +743,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         """Manage general settings and decoder mapping."""
 
         errors = errors or {}
+        limit_model: str | None = None
 
         if self.options is None:
             self.options = dict(self.config_entry.options) if self.config_entry else {}  # type: ignore
@@ -765,6 +766,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if entry and entry.platform == "mass":
                             # Prevent infinite loops by rejecting MA clones
                             errors[entity_key] = "mass_entity_not_allowed"
+
+            limit_model = user_input.get(CONF_NAME, self.data.get(CONF_NAME))  # type: ignore
+            session_limit = command_session_limit(limit_model)
+            if session_limit is not None and int(user_input[CONF_WORKER_COUNT]) > session_limit:
+                errors[CONF_WORKER_COUNT] = "worker_count_above_gateway_limit"
 
             if not errors:
                 self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})  # type: ignore
@@ -966,4 +972,8 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             step_id="user",
             data_schema=Schema(schema_dict),
             errors=errors,
+            description_placeholders={
+                "session_limit": str(command_session_limit(limit_model or current_model) or ""),
+                "model": str(limit_model or current_model),
+            },
         )

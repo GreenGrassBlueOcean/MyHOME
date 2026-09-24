@@ -40,7 +40,7 @@ from OWNd.message import (
     OWNLightingEvent,
     OWNMessage,
 )
-from OWNd.profiles import get_gateway_profile
+from OWNd.profiles import GenericGatewayProfile, get_gateway_profile
 
 from .bus_monitor import BusMonitor
 from .const import (
@@ -123,6 +123,20 @@ class _StatusRequestLogFilter(logging.Filter):
 
 
 LOGGER.addFilter(_StatusRequestLogFilter())
+
+
+def command_session_limit(model: str | None) -> int | None:
+    """Return how many command sessions a known gateway model accepts at once.
+
+    Returns ``None`` for a model OWNd has no profile for: the generic profile's
+    limit of 1 is a safe default, not a measured limit, so it must not override
+    what the user configured.  An MH200N given 3 sessions stops answering new
+    ones and its event session goes quiet (issue #425).
+    """
+    profile = get_gateway_profile(model)
+    if isinstance(profile, GenericGatewayProfile):
+        return None
+    return int(profile.max_command_sessions)
 
 EVENT_READY_TIMEOUT = 120
 

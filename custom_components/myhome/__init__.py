@@ -35,7 +35,7 @@ from .const import (
     get_ownd_version,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
-from .gateway import MyHOMEGatewayHandler
+from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -498,6 +498,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         if CONF_WORKER_COUNT in entry.options
         else 1
     )
+    _session_limit = command_session_limit(gateway.model)
+    if _session_limit is not None and _command_worker_count > _session_limit:
+        LOGGER.warning(
+            "%s The %s accepts at most %d command session(s) but %d are configured; using %d. "
+            "Lower 'Number of concurrent command sessions' in the integration options to remove this warning.",
+            gateway.log_id,
+            gateway.model,
+            _session_limit,
+            _command_worker_count,
+            _session_limit,
+        )
+        _command_worker_count = _session_limit
 
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
