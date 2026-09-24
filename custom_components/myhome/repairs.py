@@ -10,7 +10,12 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
-from .const import DOMAIN, ISSUE_GATEWAY_FAILOVER, ISSUE_SHARED_BUS_DETECTED
+from .const import (
+    DOMAIN,
+    ISSUE_GATEWAY_FAILOVER,
+    ISSUE_PRIMARY_GATEWAY_MISSING,
+    ISSUE_SHARED_BUS_DETECTED,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -158,7 +163,7 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_SHARED_BUS_DETECTED,
         translation_placeholders={"gateway_a": disp_a, "gateway_b": disp_b},
-        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/gateways/shared-bus/",
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#unconfigured-shared-bus-detected",
     )
 
 
@@ -197,7 +202,7 @@ def async_create_failover_issue(
             "primary": f"{primary_name} ({primary_mac})",
             "standby": f"{standby_name} ({standby_mac})",
         },
-        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/gateways/shared-bus/#warm-standby-high-availability",
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#gateway-failover-active-warm-standby-high-availability",
     )
 
 
@@ -206,3 +211,22 @@ def async_delete_failover_issue(hass: HomeAssistant, primary_mac: str) -> None:
     clean_pri = primary_mac.replace(":", "").lower()
     issue_id = f"{ISSUE_GATEWAY_FAILOVER}_{clean_pri}"
     async_delete_issue(hass, DOMAIN, issue_id)
+
+
+def async_create_primary_missing_issue(hass: HomeAssistant, entry_id: str, gateway_name: str, primary: str) -> None:
+    """A secondary/standby whose primary is gone or no longer a shared primary."""
+    async_create_issue(
+        hass,
+        DOMAIN,
+        f"{ISSUE_PRIMARY_GATEWAY_MISSING}_{entry_id}",
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_PRIMARY_GATEWAY_MISSING,
+        translation_placeholders={"gateway": gateway_name, "primary": primary},
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#primary-gateway-missing",
+    )
+
+
+def async_delete_primary_missing_issue(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete the missing-primary issue once the secondary points at a valid primary."""
+    async_delete_issue(hass, DOMAIN, f"{ISSUE_PRIMARY_GATEWAY_MISSING}_{entry_id}")

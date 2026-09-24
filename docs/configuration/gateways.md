@@ -180,7 +180,7 @@ You can adjust integration runtime parameters at any time without re-adding the 
 | **Dynamic Proxy Decoders** | `decoders` | Mapping | None | Maps external software audio players (e.g. Music Assistant, Squeezelite) to physical F441 audio matrix source inputs for Diffusione Sonora (`WHO = 16`). |
 | **Bus Topology** | `bus_topology` | Select | `standalone` | Topology of the gateway: `standalone` (independent bus segment) or `shared` (multiple gateways wired to the same physical SCS bus). |
 | **Gateway Role** | `gateway_role` | Select | `primary` | Role on a shared bus: `primary` (owns active discovery, polling, and general entities), `secondary` (subsystem offloading, suppresses duplicate entities), or `standby` (warm backup for high availability failover). |
-| **Primary Gateway** | `primary_gateway` | Select | None | When configured as `secondary` or `standby`, selects the primary gateway entry for duplicate entity suppression and failover coordination. |
+| **Primary Gateway** | `primary_gateway` | Select | None | When configured as `secondary` or `standby`, selects the primary gateway entry for duplicate entity suppression and failover coordination. The selected gateway must itself be `shared` / `primary`. |
 | **Delegated Subsystems** | `delegated_whos` | Multi-select | None | Subsystems (`WHO` codes) explicitly delegated to this secondary gateway (e.g. WHO=5 Burglar Alarm or WHO=16 Audio). |
 
 ---
@@ -203,33 +203,36 @@ Without proper coordination on a shared bus:
 - Ambiguous service calls (such as `myhome.sweep_bus`) query all gateways redundantly.
 
 #### Shared Bus Configuration:
-- **Primary Gateway**:
+- **Primary Gateway** (configure it first):
   - Set `bus_topology: shared` and `gateway_role: primary`.
-  - Performs active startup sweeps and entity discovery for all standard subsystems (lighting, automation, temperature control).
+  - Performs active startup sweeps and entity discovery for every subsystem not delegated to a secondary.
+  - Cannot leave the primary role while a secondary or standby still points at it.
 - **Secondary Gateway (Subsystem Offloading)**:
   - Set `bus_topology: shared` and `gateway_role: secondary`.
   - Select the **Primary Gateway** in the dropdown.
   - Active startup sweeps for non-delegated subsystems are automatically suppressed.
   - Automatic entity discovery on bus events is suppressed for non-delegated WHOs.
   - Any pre-existing duplicate secondary entities matching the primary gateway are pruned on startup.
+  - Changing the role reloads the gateway once the options are saved.
 - **Warm Standby Gateway (High Availability Failover)**:
   - Set `bus_topology: shared` and `gateway_role: standby`.
   - Select the **Primary Gateway** in the dropdown.
   - Functions as a warm backup (e.g. an MH202 or secondary F454 standing by behind a main F454).
   - While the primary gateway is healthy, duplicate entity discovery and startup sweeps are suppressed.
   - **Transparent Failover**: If the primary gateway loses connection or becomes unresponsive:
-    - Outbound commands and status polls are seamlessly dispatched via the standby gateway.
-    - Inbound bus frames received by the standby gateway are bridged to primary entities.
-    - An actionable **Repair Issue** (`gateway_failover_active`) is raised alerting you to the offline primary unit while keeping your home fully functional.
+    - Outbound commands and status polls are seamlessly dispatched via the standby gateway, and so are their replies.
+    - Inbound bus frames received by the standby gateway are bridged to primary entities (only from the standby, so a secondary on the same bus does not deliver them twice).
+    - Once the outage outlasts the 60-second reconnect grace, a **Repair Issue** (`gateway_failover_active`) is raised alerting you to the offline primary unit while keeping your home fully functional.
     - When the primary gateway reconnects, Home Assistant automatically performs failback and clears the repair issue.
 - **Delegated Subsystems**:
   - If the secondary gateway is a specialized unit (such as a 3486 for WHO=5 Burglar Alarm or an MH200N dedicated to WHO=16/22 Audio), select those subsystems under **Delegated Subsystems**.
-  - The secondary gateway will exclusively discover and manage entities for its delegated subsystems.
+  - New devices of a delegated subsystem are discovered by the secondary only; the primary stops sweeping and discovering that subsystem.
+  - Devices the primary already had before the delegation stay on the primary, so no entity is renamed or loses its settings. To move one to the secondary, delete it from the primary gateway's device page; the secondary discovers it on its next bus frame.
 
 #### Automatic Shared Bus Detection
-The integration passively monitors traffic across active gateways:
+The integration passively compares the traffic of every pair of gateways that is not configured on the same bus:
 - If Gateway B receives a bus frame that Gateway A transmitted within 1.5 seconds (TX-to-RX echo), or
 - If Gateway A and Gateway B receive the exact same physical frame concurrently within 0.3 seconds,
-the integration records evidence. Upon 3 correlated frames, an actionable **Home Assistant Repair Issue** (`shared_bus_detected`) is raised, alerting you to configure the shared bus relationship.
+the integration records evidence. Upon 3 correlated frames within 10 minutes, an actionable **Home Assistant Repair Issue** (`shared_bus_detected`) is raised, alerting you to configure the shared bus relationship. A frame a gateway transmitted itself is never evidence, so identical commands sent to two separate buses do not count. The dual-gateway traces of #453 (F454 + MH202) show the same frame on both gateways 4-47 ms apart.
 
 

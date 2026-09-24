@@ -34,7 +34,7 @@ from custom_components.myhome.const import (
 from custom_components.myhome.data import MyHOMERuntimeData
 from custom_components.myhome.diagnostics import async_get_config_entry_diagnostics
 from custom_components.myhome.discovery import PlatformDiscovery
-from custom_components.myhome.gateway import MyHOMEGatewayHandler
+from custom_components.myhome.gateway import AVAILABILITY_GRACE, MyHOMEGatewayHandler
 from custom_components.myhome.services import (
     SERVICE_SWEEP_BUS,
     SERVICE_SYNC_TIME,
@@ -276,7 +276,7 @@ async def test_shared_bus_traffic_detection_tx_rx(hass: HomeAssistant) -> None:
             recent_tx = domain_data.setdefault("_recent_tx", collections.deque())
             if not isinstance(recent_tx, collections.deque):
                 domain_data["_recent_tx"] = collections.deque()
-            domain_data["_recent_tx"].append((time.monotonic(), gw_a.mac, "*1*1*21##"))
+            domain_data["_recent_tx"].append((time.monotonic(), gw_a.mac, gw_a.bus_group, "*1*1*21##"))
 
             # Gateway B receives the exact same frame
             msg_rx = OWNLightingEvent.parse("*1*1*21##")
@@ -285,11 +285,11 @@ async def test_shared_bus_traffic_detection_tx_rx(hass: HomeAssistant) -> None:
         # After 3 correlations, the shared bus repair issue is raised
         mock_issue.assert_called_once_with(hass, "00:03:50:aa:bb:01", "00:03:50:aa:bb:02")
 
-        # Early return branches
-        hass.config_entries.async_update_entry(entry_b, options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED})
-        gw_b._correlate_shared_bus_traffic("*1*1*21##")
-        gw_a._record_shared_bus_evidence("")
-        gw_a._record_shared_bus_evidence(gw_a.mac)
+        # Early return branches: gateway-local frames, no/own peer
+        from OWNd.message import OWNMessage
+        gw_b._correlate_shared_bus_traffic(OWNMessage.parse("*#13**0##"))
+        gw_a._record_shared_bus_evidence("", 0.0)
+        gw_a._record_shared_bus_evidence(gw_a.mac, 0.0)
 
 
 @pytest.mark.asyncio
@@ -332,18 +332,18 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     # 1. _get_gateway_handler prefers primary gateway when unspecified
     assert _get_gateway_handler(hass, None) == gw_a
 
-    # 2. sync_time without gateway parameter synchronizes ALL gateways
+    # 2. sync_time without gateway parameter sets the clock once per bus (primaries only)
     await hass.services.async_call(DOMAIN, SERVICE_SYNC_TIME, {}, blocking=True)
     gw_a.send.assert_called_once()
-    gw_b.send.assert_called_once()
+    gw_b.send.assert_not_called()
 
     gw_a.send.reset_mock()
     gw_b.send.reset_mock()
 
-    # 3. sweep_bus filters queries: primary gets full sweep, secondary gets delegated WHO=2, 4, 16 + WHO=13
+    # 3. sweep_bus filters queries: WHO=2/4/16 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), Covers (*#2*0##), Climate (*#4*0##) = 5
-    assert gw_a.send.call_count == 5
+    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##); covers/climate are delegated away = 3
+    assert gw_a.send.call_count == 3
     # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 16 = 6
     assert gw_b.send.call_count == 6
 
@@ -389,7 +389,7 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
     entry_pri, _ = _create_mock_gateway(
         hass,
         "00:03:50:aa:bb:01",
-        topology=TOPOLOGY_STANDALONE,
+        topology=TOPOLOGY_SHARED,
         role=ROLE_PRIMARY,
     )
     entry_sec, _ = _create_mock_gateway(
@@ -431,8 +431,8 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
     assert options[CONF_GATEWAY_ROLE] == ROLE_SECONDARY
     assert options[CONF_PRIMARY_GATEWAY] == "00:03:50:aa:bb:01"
     assert options[CONF_DELEGATED_WHOS] == [5, 16]
-    # Verify reload was called due to topology change
-    assert mock_reload.called
+    # No reload from inside the flow: it would still see the old options (the listener reloads)
+    assert not mock_reload.called
     # Verify repair issue was automatically cleared
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
@@ -486,17 +486,17 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
     assert gw_primary.available is True
     assert gw_standby.available is True
     assert gw_primary.failover_active is False
+    gw_primary._setup_at -= 2 * AVAILABILITY_GRACE  # set up long ago: no startup grace left
 
-    # 1. Primary disconnects -> failover activates and creates repair issue
+    # 1. Primary's event session drops -> commands already go through the standby, but a
+    #    blip inside the reconnect grace raises no failover issue
     gw_primary._on_event_connection_state_change(False)
     assert gw_primary.is_connected is False
-    assert gw_primary.failover_active is True
+    assert gw_primary.failover_active is False
     assert gw_primary.available is True  # Available via connected standby!
 
     issue_id = f"{ISSUE_GATEWAY_FAILOVER}_000350aabb01"
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
-    assert issue is not None
-    assert issue.severity == ir.IssueSeverity.WARNING
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
     # 2. Outbound commands fail over transparently to standby
     cmd = OWNCommand.parse("*1*1*21##")
@@ -544,6 +544,11 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
     gw_primary._mark_unavailable(None)
     assert gw_primary._available is False
     assert gw_primary.available is True
+    # The outage outlived the grace: failover is now reported
+    assert gw_primary.failover_active is True
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.severity == ir.IssueSeverity.WARNING
 
     # Standby also becomes unavailable -> standby._notify_availability dispatches primary.availability_signal
     primary_avail_signals = []
@@ -558,12 +563,17 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
     assert gw_standby._available is False
     assert gw_primary.available is False
     assert len(primary_avail_signals) == 1
+    # Nothing carries the traffic any more: the failover issue must not claim otherwise
+    assert gw_primary.failover_active is False
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
     # Standby recovers -> standby._notify_availability dispatches primary.availability_signal
     gw_standby._on_event_connection_state_change(True)
     assert gw_standby._available is True
     assert gw_primary.available is True
     assert len(primary_avail_signals) == 2
+    assert gw_primary.failover_active is True
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
     unsub_avail()
 
     # 6. Primary reconnects -> failback occurs and repair issue is deleted
@@ -607,7 +617,7 @@ async def test_warm_standby_diagnostics_and_options_flow(hass: HomeAssistant) ->
     entry_pri, gw_pri = _create_mock_gateway(
         hass,
         "00:03:50:aa:bb:01",
-        topology=TOPOLOGY_STANDALONE,
+        topology=TOPOLOGY_SHARED,
         role=ROLE_PRIMARY,
     )
     entry_sb, gw_sb = _create_mock_gateway(
@@ -788,7 +798,8 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "circular_gateway_reference"
 
-    # 5. Multiple shared primaries: entry_1 is shared primary, entry_2 tries shared primary
+    # 5. Two shared primaries are allowed: they may lead two separate buses. If they are
+    #    on one bus after all, shared-bus detection compares them (different bus groups).
     hass.config_entries.async_update_entry(
         entry_1,
         options={
@@ -801,8 +812,42 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
         CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
         CONF_GATEWAY_ROLE: ROLE_PRIMARY,
     })
+    assert res["type"] == FlowResultType.CREATE_ENTRY
+
+    # 6. The primary must itself be a shared primary: a standalone one would flag its own standby
+    hass.config_entries.async_update_entry(entry_1, options={CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE})
+    opt_flow = MyhomeOptionsFlowHandler(entry_2)
+    opt_flow.hass = hass
+    res = await opt_flow.async_step_user({
+        **base_input,
+        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+        CONF_GATEWAY_ROLE: ROLE_STANDBY,
+        CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+    })
     assert res["type"] == FlowResultType.FORM
-    assert res["errors"][CONF_GATEWAY_ROLE] == "multiple_shared_primaries"
+    assert res["errors"][CONF_PRIMARY_GATEWAY] == "primary_gateway_not_shared_primary"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_primary_with_dependents_keeps_its_role(hass: HomeAssistant) -> None:
+    """A primary that a standby points at cannot become standalone or secondary."""
+    entry_pri, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY)
+    _create_mock_gateway(
+        hass, "00:03:50:aa:bb:02", topology=TOPOLOGY_SHARED, role=ROLE_STANDBY, primary_gateway="00:03:50:aa:bb:01"
+    )
+    opt_flow = MyhomeOptionsFlowHandler(entry_pri)
+    opt_flow.hass = hass
+    res = await opt_flow.async_step_user({
+        CONF_ADDRESS: entry_pri.data[CONF_HOST],
+        CONF_NAME: entry_pri.data[CONF_NAME],
+        CONF_OWN_PASSWORD: None,
+        CONF_WORKER_COUNT: 1,
+        CONF_GENERATE_EVENTS: False,
+        CONF_TRANSITION_MODE: "software_stepped",
+        CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+    })
+    assert res["type"] == FlowResultType.FORM
+    assert res["errors"][CONF_GATEWAY_ROLE] == "gateway_has_dependents"
 
 
 @pytest.mark.asyncio
@@ -904,16 +949,26 @@ async def test_service_sweep_delegated_who16_dimension_5(hass: HomeAssistant) ->
 
 
 def test_shared_bus_evidence_capping(hass: HomeAssistant) -> None:
-    """Test that shared bus evidence counter is capped at 3."""
+    """Evidence is bounded, and only evidence inside one window raises the issue."""
+    from custom_components.myhome.const import SHARED_BUS_EVIDENCE_WINDOW_S
+
     _, gw1 = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
     other_mac = "00:03:50:aa:bb:02"
-
-    for _ in range(5):
-        gw1._record_shared_bus_evidence(other_mac)
-
     pair_key = tuple(sorted([gw1.mac, other_mac]))
-    domain_data = hass.data[DOMAIN]
-    assert domain_data["_shared_bus_evidence"][pair_key] == 3
+
+    with patch("custom_components.myhome.repairs.async_create_shared_bus_issue") as mock_issue:
+        # Coincidences spread over days never add up
+        for day in range(5):
+            gw1._record_shared_bus_evidence(other_mac, day * 86400.0)
+        mock_issue.assert_not_called()
+        assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 3
+
+        # Three inside the window do; the evidence then starts over
+        start = 10 * 86400.0
+        for i in range(3):
+            gw1._record_shared_bus_evidence(other_mac, start + i * SHARED_BUS_EVIDENCE_WINDOW_S / 3)
+        mock_issue.assert_called_once_with(hass, *pair_key)
+        assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 0
 
 
 def test_duplicate_pruning_mac_normalization(hass: HomeAssistant) -> None:

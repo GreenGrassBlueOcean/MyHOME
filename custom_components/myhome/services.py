@@ -77,8 +77,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             timezone = hass.config.as_dict().get("time_zone", "UTC")
             from OWNd.message import OWNGatewayCommand
             cmd = OWNGatewayCommand.set_datetime_to_now(timezone)
-            for handler in gateways.values():
-                await handler.send(cmd)
+            # Once per bus: a secondary/standby shares its primary's bus
+            for gw_handler in gateways.values():
+                if getattr(gw_handler, "is_secondary", False) is not True:
+                    await gw_handler.send(cmd)
             return
 
         gateway = dr.format_mac(gateway)
@@ -162,7 +164,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 "*#13**16##",  # Gateway firmware version
             ]
             if getattr(handler, "is_secondary", False) is True:
-                delegated = getattr(handler, "delegated_whos", set())
+                delegated: set[int] = getattr(handler, "delegated_whos", set())
                 if 2 in delegated:
                     queries.append("*#2*0##")
                 if 4 in delegated:
@@ -170,7 +172,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 if 16 in delegated:
                     queries.append("*#16*0*5##")
             else:
-                queries.extend(["*#2*0##", "*#4*0##"])
+                delegated_away: object = getattr(handler, "delegated_away_whos", set())
+                if not isinstance(delegated_away, (set, frozenset, list, tuple)):
+                    delegated_away = set()
+                queries.extend(q for who, q in ((2, "*#2*0##"), (4, "*#4*0##")) if who not in delegated_away)
 
             for query in queries:
                 msg = OWNMessage.parse(query)

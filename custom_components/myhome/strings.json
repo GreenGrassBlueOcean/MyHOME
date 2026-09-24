@@ -124,6 +124,9 @@
           "gateway_role": "Gateway role",
           "primary_gateway": "Primary gateway",
           "delegated_whos": "Delegated subsystems"
+        },
+        "data_description": {
+          "delegated_whos": "Secondary role only: subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary."
         }
       }
     },
@@ -140,7 +143,8 @@
       "invalid_primary_gateway": "Cannot select this gateway itself as the primary gateway.",
       "primary_gateway_not_found": "The selected primary gateway could not be found.",
       "circular_gateway_reference": "Circular reference: the selected primary gateway already points to this gateway.",
-      "multiple_shared_primaries": "Another gateway is already configured as primary on the shared bus. Only one primary is allowed per shared bus."
+      "primary_gateway_not_shared_primary": "The selected gateway must first be configured with bus topology Shared and role Primary.",
+      "gateway_has_dependents": "Other gateways use this gateway as their primary. Point them at another primary (or make them standalone) first."
     }
   },
   "services": {
@@ -290,11 +294,15 @@
     },
     "shared_bus_detected": {
       "title": "Shared OpenWebNet bus detected ({gateway_a} & {gateway_b})",
-      "description": "Home Assistant detected that gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic. Operating multiple gateways on the same bus without secondary configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nPlease open Configure on one gateway, set its Bus Topology to Shared, and mark it as Secondary to designate the primary gateway."
+      "description": "Gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic, but they are not configured on the same bus. Operating several gateways on one bus without that configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nOpen Configure on the gateway that should lead, set its Bus Topology to Shared and its role to Primary. Then open Configure on the other gateway, set its Bus Topology to Shared, its role to Secondary or Warm standby, and select the first gateway as its Primary gateway."
     },
     "gateway_failover_active": {
       "title": "High Availability failover active: {primary} offline",
       "description": "Primary MyHOME gateway {primary} is currently offline or unreachable. High Availability warm-standby failover has automatically routed bus traffic and status monitoring through standby gateway {standby}.\n\nWhen {primary} recovers, Home Assistant will automatically fail back to the primary gateway and resolve this issue."
+    },
+    "primary_gateway_missing": {
+      "title": "Primary gateway of {gateway} is missing",
+      "description": "{gateway} is configured as a secondary or warm standby gateway for {primary}, but that gateway is no longer configured as a Shared Primary gateway (it was removed or reconfigured). {gateway} keeps suppressing discovery until it is reconfigured.\n\nOpen Configure on {gateway} and either select another Primary gateway or set its Bus Topology to Standalone."
     }
   },
   "exceptions": {
@@ -377,6 +385,35 @@
       },
       "energy_month": {
         "name": "Energy (current month)"
+      }
+    }
+  },
+  "selector": {
+    "bus_topology": {
+      "options": {
+        "standalone": "Standalone (own SCS bus)",
+        "shared": "Shared SCS bus (same bus as another gateway)"
+      }
+    },
+    "gateway_role": {
+      "options": {
+        "primary": "Primary (discovers and polls the bus)",
+        "secondary": "Secondary (discovers only its delegated subsystems)",
+        "standby": "Warm standby (takes over while the primary is offline)"
+      }
+    },
+    "delegated_whos": {
+      "options": {
+        "1": "1 - Lighting",
+        "2": "2 - Covers / shutters",
+        "4": "4 - Thermoregulation",
+        "5": "5 - Burglar alarm",
+        "9": "9 - Auxiliary",
+        "15": "15 - CEN scenarios",
+        "16": "16 - Sound diffusion",
+        "18": "18 - Energy management",
+        "22": "22 - Sound diffusion (audio matrix)",
+        "25": "25 - CEN+ scenarios"
       }
     }
   }

@@ -69,7 +69,13 @@ class MyHOMERuntimeData:
     @property
     def delegated_whos(self) -> set[int]:
         """Subsystems (WHOs) explicitly managed by this gateway."""
-        val = getattr(self.gateway, "delegated_whos", set())
+        val: object = getattr(self.gateway, "delegated_whos", set())
+        return set(val) if isinstance(val, (set, list, tuple)) else set()
+
+    @property
+    def delegated_away_whos(self) -> set[int]:
+        """Subsystems (WHOs) this primary leaves to its secondaries."""
+        val: object = getattr(self.gateway, "delegated_away_whos", set())
         return set(val) if isinstance(val, (set, list, tuple)) else set()
 
 

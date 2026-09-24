@@ -33,6 +33,14 @@
           "modelName": "Device type"
         }
       },
+      "custom_manual": {
+        "title": "Handmatige gatewayinvoer (detectie mislukt)",
+        "description": "De gateway op {host}:{port} kon niet automatisch worden gevonden. Voer het MAC-adres en het model handmatig in.",
+        "data": {
+          "serialNumber": "MAC-adres",
+          "modelName": "Apparaattype"
+        }
+      },
       "discovery_confirm": {
         "title": "Ontdekte MyHOME gateway",
         "description": "Wilt u de {name} gateway ({host}) instellen?"
@@ -44,6 +52,15 @@
           "port": "Seriële poort",
           "baudrate": "Baudsnelheid",
           "friendly_name": "Vriendelijke naam"
+        }
+      },
+      "reconfigure": {
+        "title": "MyHome {name} gateway opnieuw configureren",
+        "description": "Werk de verbindingsinstellingen of inloggegevens van uw {name} gateway bij.",
+        "data": {
+          "host": "IP-adres",
+          "port": "Poort / baudrate",
+          "password": "Wachtwoord"
         }
       }
     },
@@ -63,7 +80,8 @@
       "cannot_connect": "Kan niet verbinden met de gateway",
       "already_configured": "Deze gateway is reeds geconfigureerd",
       "already_in_progress": "De configuratie van deze gateway is reeds begonnen",
-      "reauth_successful": "Paswoord is gewijzigd"
+      "reauth_successful": "Paswoord is gewijzigd",
+      "reconfigure_successful": "Gatewayverbinding succesvol opnieuw geconfigureerd."
     }
   },
   "options": {
@@ -82,6 +100,19 @@
           "command_worker_count": "Aantal open command sessies",
           "generate_events": "Genereer gebeurtenissen in Home Assistant voor elk ontvangen bericht",
           "broadcast_resync": "Bevraag groep-/gebied-/algemene adressen na een stille periode",
+          "transition_mode": "Methode voor helderheidsovergang",
+          "decoder_1_entity": "Decoder 1 — media player-entiteit (bijv. media_player.cambridge_audio_cxn)",
+          "decoder_1_source": "Decoder 1 — nummer van de BTicino-bronningang (1–4)",
+          "decoder_1_pre_gain": "Decoder 1 — voorversterkingscorrectie % (0 = Cambridge met Pre-Amp UIT, 20 = squeezelite)",
+          "decoder_2_entity": "Decoder 2 — media player-entiteit",
+          "decoder_2_source": "Decoder 2 — nummer van de BTicino-bronningang (1–4)",
+          "decoder_2_pre_gain": "Decoder 2 — voorversterkingscorrectie %",
+          "decoder_3_entity": "Decoder 3 — media player-entiteit",
+          "decoder_3_source": "Decoder 3 — nummer van de BTicino-bronningang (1–4)",
+          "decoder_3_pre_gain": "Decoder 3 — voorversterkingscorrectie %",
+          "decoder_4_entity": "Decoder 4 — media player-entiteit",
+          "decoder_4_source": "Decoder 4 — nummer van de BTicino-bronningang (1–4)",
+          "decoder_4_pre_gain": "Decoder 4 — voorversterkingscorrectie %",
           "default_source_env_1": "Standaardbron voor omgeving 1 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_2": "Standaardbron voor omgeving 2 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_3": "Standaardbron voor omgeving 3 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
@@ -90,7 +121,14 @@
           "default_source_env_6": "Standaardbron voor omgeving 6 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_7": "Standaardbron voor omgeving 7 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
           "default_source_env_8": "Standaardbron voor omgeving 8 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
-          "default_source_env_9": "Standaardbron voor omgeving 9 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet"
+          "default_source_env_9": "Standaardbron voor omgeving 9 — gebruikt wanneer een zone in die ruimte vanuit Home Assistant wordt aangezet",
+          "bus_topology": "Bustopologie",
+          "gateway_role": "Gatewayrol",
+          "primary_gateway": "Primaire gateway",
+          "delegated_whos": "Gedelegeerde subsystemen"
+        },
+        "data_description": {
+          "delegated_whos": "Alleen voor de rol secundair: subsystemen waarvan deze gateway nieuwe apparaten detecteert. Apparaten die de primaire gateway al heeft, blijven bij de primaire."
         }
       }
     },
@@ -100,7 +138,15 @@
       "worker_count_above_gateway_limit": "De {model} accepteert maximaal {session_limit} gelijktijdige command sessie(s); met meer reageert hij niet meer.",
       "invalid_config_path": "Ongeldig path voor configuratie bestand",
       "invalid_password": "Ongeldig password",
-      "password_error": "Ongeldig password"
+      "password_error": "Ongeldig password",
+      "not_a_media_player": "Moet een media_player-entiteit zijn (bijv. media_player.cambridge_audio_cxn)",
+      "mass_entity_not_allowed": "Bescherming tegen oneindige lussen: kies geen Music Assistant-klonen! Kies in plaats daarvan de oorspronkelijke hardware-entiteit.",
+      "primary_gateway_required": "Voor de rollen secundair en stand-by op een gedeelde bus moet een primaire gateway worden gekozen.",
+      "invalid_primary_gateway": "Deze gateway kan niet zijn eigen primaire gateway zijn.",
+      "primary_gateway_not_found": "De gekozen primaire gateway is niet gevonden.",
+      "circular_gateway_reference": "Kringverwijzing: de gekozen primaire gateway verwijst al naar deze gateway.",
+      "primary_gateway_not_shared_primary": "De gekozen gateway moet eerst worden ingesteld met bustopologie Gedeeld en rol Primair.",
+      "gateway_has_dependents": "Andere gateways gebruiken deze gateway als primaire gateway. Laat ze eerst naar een andere primaire gateway verwijzen (of maak ze zelfstandig)."
     }
   },
   "services": {
@@ -181,9 +227,53 @@
           "description": "MAC-adres van de gateway (optioneel; standaard voor alle actieve gateways)."
         }
       }
+    },
+    "calibrate_cover": {
+      "name": "Looptijd rolluik kalibreren",
+      "description": "Meet de op- en neerwaartse looptijden van een tijdgestuurd rolluik op de SCS-bus en slaat ze op: het rolluik gaat helemaal omhoog, dan helemaal omlaag (getimed) en daarna weer helemaal omhoog (getimed). Rolluiken worden per gateway één voor één gekalibreerd."
+    },
+    "stop_cover_calibration": {
+      "name": "Rolluikkalibratie stoppen",
+      "description": "Stopt de lopende looptijdkalibratie en annuleert de wachtende; het bewegende rolluik wordt gestopt en er wordt niets opgeslagen.",
+      "fields": {
+        "gateway": {
+          "name": "Gateway",
+          "description": "Het MAC-adres van de gateway (optioneel; standaard alle gateways)."
+        }
+      }
+    },
+    "set_cover_travel_time": {
+      "name": "Looptijd rolluik instellen",
+      "description": "Slaat de fysieke looptijden van een tijdgestuurd rolluik handmatig op in plaats van ze op de bus te kalibreren.",
+      "fields": {
+        "travel_time": {
+          "name": "Looptijd",
+          "description": "Seconden voor een volledige beweging in beide richtingen (1-180); gebruikt voor elke richting zonder eigen waarde."
+        },
+        "travel_time_down": {
+          "name": "Looptijd omlaag",
+          "description": "Seconden voor een volledige sluitbeweging (1-180)."
+        },
+        "travel_time_up": {
+          "name": "Looptijd omhoog",
+          "description": "Seconden voor een volledige openingsbeweging (1-180)."
+        },
+        "copied_from": {
+          "name": "Gekopieerd van",
+          "description": "Het rolluik waarvan deze tijden zijn overgenomen; de bron wordt dan gemeld als \"copied\" in plaats van \"manual\"."
+        }
+      }
+    },
+    "reset_cover_travel_time": {
+      "name": "Looptijd rolluik terugzetten",
+      "description": "Vergeet de gemeten of handmatig ingestelde looptijden en valt terug op travel_time uit myhome.yaml of de standaardwaarde van 25 s."
     }
   },
   "issues": {
+    "gateway_authentication_failed": {
+      "title": "Authenticatie mislukt voor MyHOME gateway {gateway}",
+      "description": "De MyHOME gateway weigerde het ingestelde OpenWebNet-wachtwoord of de HMAC-onderhandeling. Controleer uw inloggegevens via de herconfiguratie."
+    },
     "unconfigured_timezone": {
       "title": "Niet-geconfigureerde tijdzone op MyHOME-gateway ({gateway})",
       "description": "De MyHOME-gateway {gateway} meldt een niet-geconfigureerde tijdzone (tijdelijke code '999'). Dit kan leiden tot fouten bij het verwerken van datum en tijd of het verliezen van diagnostische gatewayberichten.\n\nLog in op de webinterface van de gateway (of MyHOME_Suite / MyHOME_Up) om een geldige tijdzone in te stellen en herstart vervolgens de gateway."
@@ -191,6 +281,142 @@
     "unknown_gateway_model": {
       "title": "Onbekende apparaattypecode voor gateway ({code})",
       "description": "De gateway heeft een hardware-apparaattypecode ({code}) gerapporteerd die onbekend is bij de MyHOME-integratie. Klik op 'Meer informatie' om een GitHub-issue te openen en een diagnostische trace bij te voegen, zodat we ondersteuning voor dit model kunnen toevoegen."
+    },
+    "bus_collision_storm": {
+      "title": "Hoog aantal botsingen op de SCS-bus gedetecteerd ({count} NACK's)",
+      "description": "Er is een ongewoon hoog aantal busbotsingen of NACK-frames op de SCS-bus gedetecteerd. Controleer de bedrading van de actuatoren en de fysieke afsluiting van de bus."
+    },
+    "gateway_identity_mismatch": {
+      "title": "Afwijkend gatewaymodel voor {configured}",
+      "description": "De gateway is ingesteld als {configured} (bron: {source}), maar meldt OpenWebNet-apparaattype {code}, dat volgens {basis} {reported} aanduidt. Het ingestelde model blijft behouden; traces en diagnostiek bevatten beide waarden. Is {reported} wat u bezit, open dan de opties van de integratie (Configureren) en kies het juiste model; klopt {configured}, negeer dit dan en voeg een trace toe aan een issue zodat de code kan worden gedocumenteerd."
+    },
+    "gateway_identity_corrected": {
+      "title": "Gatewaymodel gecorrigeerd naar {corrected}",
+      "description": "De gateway was ingesteld als {previous}, maar meldt modelcode {code}, die volgens de OpenWebNet-apparaattypetabel (WHO=13) of de diagnostische gatewaycatalogus (WHO=1013, codes met voorvoegsel 1013-1-) overeenkomt met {corrected}. Het model, het gatewayprofiel en het apparaatregister zijn bijgewerkt naar {corrected}. Klopt dat niet, open dan de opties van de integratie (Configureren) en stel het model expliciet in."
+    },
+    "shared_bus_detected": {
+      "title": "Gedeelde OpenWebNet-bus gedetecteerd ({gateway_a} & {gateway_b})",
+      "description": "De gateways {gateway_a} en {gateway_b} zien hetzelfde verkeer op de SCS-bus, maar zijn niet op dezelfde bus geconfigureerd. Meerdere gateways op één bus zonder die configuratie leidt tot dubbele entiteiten, botsende opstartscans en fouten bij het opvragen van statussen.\n\nOpen Configureren bij de gateway die moet leiden en zet de bustopologie op Gedeeld en de rol op Primair. Open daarna Configureren bij de andere gateway, zet de bustopologie op Gedeeld, de rol op Secundair of Warme stand-by, en kies de eerste gateway als primaire gateway."
+    },
+    "gateway_failover_active": {
+      "title": "Failover voor hoge beschikbaarheid actief: {primary} offline",
+      "description": "De primaire MyHOME gateway {primary} is momenteel offline of onbereikbaar. De warme stand-by heeft busverkeer en statusbewaking automatisch omgeleid via stand-by gateway {standby}.\n\nWanneer {primary} herstelt, schakelt Home Assistant automatisch terug naar de primaire gateway en wordt deze melding opgelost."
+    },
+    "primary_gateway_missing": {
+      "title": "Primaire gateway van {gateway} ontbreekt",
+      "description": "{gateway} is ingesteld als secundaire of warme stand-by gateway voor {primary}, maar die gateway is niet langer ingesteld als gedeelde primaire gateway (hij is verwijderd of anders geconfigureerd). {gateway} blijft detectie onderdrukken totdat hij opnieuw is geconfigureerd.\n\nOpen Configureren bij {gateway} en kies een andere primaire gateway, of zet de bustopologie op Zelfstandig."
+    }
+  },
+  "exceptions": {
+    "command_delivery_cancelled": {
+      "message": "{name}: de aflevering van het richtingscommando is geannuleerd voordat het de bus bereikte"
+    },
+    "command_delivery_timeout": {
+      "message": "{name}: het richtingscommando is niet binnen {timeout} s op de bus afgeleverd"
+    },
+    "command_delivery_failed": {
+      "message": "{name}: aflevering van het richtingscommando mislukt: {error}"
+    },
+    "calibration_interrupted": {
+      "message": "{name}: {cause}"
+    },
+    "calibration_no_stop_status": {
+      "message": "{name}: geen stopstatus van de actuator binnen {timeout} s - mogelijk meldt hij geen status; stel travel_time handmatig in"
+    },
+    "cover_reports_position": {
+      "message": "{name} meldt zijn positie; looptijdkalibratie is daarop niet van toepassing"
+    },
+    "calibration_in_progress": {
+      "message": "{name} wordt al gekalibreerd"
+    },
+    "calibration_implausible_run": {
+      "message": "{name}: onwaarschijnlijke {direction}-loop van {seconds} s; niet opgeslagen"
+    },
+    "travel_time_missing": {
+      "message": "Geef ten minste travel_time of travel_time_down/up op"
+    },
+    "travel_time_out_of_range": {
+      "message": "{field} moet tussen {min} s en {max} s liggen"
+    },
+    "cover_command_undelivered": {
+      "message": "Commando niet afgeleverd (gateway niet verbonden of wachtrij geleegd)"
+    },
+    "cover_busy_calibrating": {
+      "message": "{entity_id} wordt gekalibreerd; probeer het opnieuw wanneer dat klaar is"
+    },
+    "decoders_busy": {
+      "message": "{entity_id}: alle ingangen van de audiomatrix zijn momenteel in gebruik door andere ruimtes"
+    },
+    "decoder_start_failed": {
+      "message": "{entity_id}: decoder {decoder} kon het afspelen niet starten: {error}"
+    },
+    "group_no_transition": {
+      "message": "{name}: een verlichtingsgroep ondersteunt geen softwareovergang"
+    },
+    "group_no_timer": {
+      "message": "{name}: tijdgestuurd aan/uit wordt niet ondersteund voor een verlichtingsgroep"
+    },
+    "unknown_source": {
+      "message": "{entity_id}: onbekende bron \"{source}\""
+    },
+    "environment_busy": {
+      "message": "{entity_id}: {owner} streamt al in omgeving {environment}; zones in één omgeving delen een matrixingang"
+    },
+    "routing_unsupported": {
+      "message": "{entity_id}: versterker {where} heeft geen routeringsadres in de matrix (omgeving 0, of geen tweecijferige versterker); wissel de bron via een bedieningspaneel"
+    }
+  },
+  "entity": {
+    "button": {
+      "lock": {
+        "name": "Vergrendelen"
+      },
+      "unlock": {
+        "name": "Ontgrendelen"
+      },
+      "calibrate_travel_time": {
+        "name": "Looptijd kalibreren"
+      },
+      "calibrate_all_covers": {
+        "name": "Alle rolluiken kalibreren"
+      }
+    },
+    "sensor": {
+      "energy_today": {
+        "name": "Energie (vandaag)"
+      },
+      "energy_month": {
+        "name": "Energie (huidige maand)"
+      }
+    }
+  },
+  "selector": {
+    "bus_topology": {
+      "options": {
+        "standalone": "Zelfstandig (eigen SCS-bus)",
+        "shared": "Gedeelde SCS-bus (dezelfde bus als een andere gateway)"
+      }
+    },
+    "gateway_role": {
+      "options": {
+        "primary": "Primair (detecteert en bevraagt de bus)",
+        "secondary": "Secundair (detecteert alleen zijn gedelegeerde subsystemen)",
+        "standby": "Warme stand-by (neemt over zolang de primaire offline is)"
+      }
+    },
+    "delegated_whos": {
+      "options": {
+        "1": "1 - Verlichting",
+        "2": "2 - Rolluiken / zonwering",
+        "4": "4 - Thermoregeling",
+        "5": "5 - Inbraakalarm",
+        "9": "9 - Hulpkanalen",
+        "15": "15 - CEN-scenario's",
+        "16": "16 - Geluidsdistributie",
+        "18": "18 - Energiebeheer",
+        "22": "22 - Geluidsdistributie (audiomatrix)",
+        "25": "25 - CEN+-scenario's"
+      }
     }
   }
 }
