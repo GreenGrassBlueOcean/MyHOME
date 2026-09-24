@@ -60,6 +60,14 @@ from .myhome_device import MyHOMEEntity
 PLATFORM = Platform.CLIMATE
 PARALLEL_UPDATES = 0
 
+# WHO 4 dimension 7 zone state (OWNd#60); the values OWNd uses, spelled out
+# here until the OWNd pin exports them.  On MyHomeServer1 + Home+Control
+# plants this is the only frame carrying the zone's mode and setpoint (#429).
+MESSAGE_TYPE_ZONE_STATE = "zone_state"
+_ZONE_CONTEXT_MODES = {"heating": HVACMode.HEAT, "cooling": HVACMode.COOL, "automatic": HVACMode.AUTO}
+_ZONE_STATES_ON = ("setpoint", "comfort", "eco")
+_ZONE_STATES_OFF = ("protection", "off")
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -549,6 +557,34 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
             )
 
+    def _apply_zone_state(self, message: OWNHeatingEvent) -> None:
+        """Dimension 7: the zone's operating state, and its setpoint in state 'setpoint'.
+
+        Protection and off turn the zone OFF but keep the nominal setpoint, as
+        WHAT 102/202 do (#383).  Comfort and eco carry no temperature.
+        """
+        state = getattr(message, "zone_state", None)
+        if state in _ZONE_STATES_OFF:
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_hvac_action = HVACAction.OFF
+            self._actuator_states.clear()
+            return
+        if state not in _ZONE_STATES_ON:
+            return
+        prev_mode = self._attr_hvac_mode
+        mode = _ZONE_CONTEXT_MODES.get(getattr(message, "zone_context", None) or "")
+        if mode is not None and mode in self._attr_hvac_modes:
+            self._attr_hvac_mode = mode
+            if self._attr_hvac_action == HVACAction.OFF:
+                self._attr_hvac_action = HVACAction.IDLE
+        temperature = message.set_temperature if state == "setpoint" else None
+        if temperature is not None:
+            self._target_temperature = temperature
+        if self._attr_hvac_mode != HVACMode.OFF and self._target_temperature is not None and (
+            temperature is not None or prev_mode == HVACMode.OFF
+        ):
+            self._local_target_temperature = self._target_temperature + self._local_offset
+
     @callback
     def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
@@ -730,6 +766,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     f"myhome_central_mode_{self._gateway_handler.mac}",
                     self._attr_hvac_mode,
                 )
+        elif message.message_type == MESSAGE_TYPE_ZONE_STATE:
+            LOGGER.debug(
+                "%s %s",
+                self._gateway_handler.log_id,
+                message.human_readable_log,
+            )
+            self._apply_zone_state(message)
         elif message.message_type == MESSAGE_TYPE_ACTION:
             LOGGER.debug(
                 "%s %s",
