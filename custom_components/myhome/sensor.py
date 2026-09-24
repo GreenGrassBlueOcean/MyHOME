@@ -118,6 +118,7 @@ async def async_setup_entry(
         return True
     gateway = runtime.gateway
     entry_mac = str(config_entry.data[CONF_MAC])
+    _migrate_temperature_unique_ids(hass, config_entry.entry_id, gateway.mac, entry_mac)
 
     # Device class of every configured (WHO, WHERE) under each of its spellings
     configured_class: dict[tuple[str, str], str | None] = {}
@@ -299,8 +300,9 @@ async def async_setup_entry(
         primary = normalize_where(where) or normalize_where(clean) or where
         label = normalize_where(clean) or clean
         name = f"Probe {label}" if clean.isdigit() and int(clean) >= 100 else f"Zone {label}"
+        # ``4-<where>``, the id validate.py gives a myhome.yaml probe: one unique id either way (#441)
         sensor = MyHOMETemperatureSensor(
-            hass=hass, device_id=primary, who="4", where=primary, name=name,
+            hass=hass, device_id=f"4-{primary}", who="4", where=primary, name=name,
             device_class=SensorDeviceClass.TEMPERATURE, manufacturer="BTicino", model="Temperature Probe", gateway=gateway,
         )
         sensor.entity_id = entity_id_of(ctx)  # type: ignore[assignment]
@@ -374,6 +376,39 @@ def _migrate_power_unique_id(hass: HomeAssistant, device_id: str) -> None:
             registry.async_update_entity(entity_id=existing_entity_id, new_unique_id=f"{device_id}-{SensorDeviceClass.POWER}")
     except Exception:
         pass
+
+
+def _migrate_temperature_unique_ids(hass: HomeAssistant, entry_id: str, mac: str, entry_mac: str) -> None:
+    """Restored and discovered probes were ``<mac>-<where>-temperature``, a myhome.yaml
+    probe ``<mac>-4-<where>-temperature`` (#441). Move the first form to the second; when
+    both exist, the WHO-less one is the duplicate (``sensor.<name>_2``) and goes.
+    """
+    marker = f"-{SensorDeviceClass.TEMPERATURE}"
+    try:
+        registry = er.async_get(hass)
+        entries = list(er.async_entries_for_config_entry(registry, entry_id))
+    except Exception:  # registry not loaded in some harnesses
+        return
+    for entry in entries:
+        if entry.domain != PLATFORM or not entry.unique_id.endswith(marker):
+            continue
+        prefix = next((f"{m}-" for m in (mac, entry_mac) if entry.unique_id.startswith(f"{m}-")), None)
+        if prefix is None:
+            continue
+        where = entry.unique_id[len(prefix) : -len(marker)]
+        if not where or "-" in where:
+            continue  # already ``4-<where>``
+        target = f"{mac}-4-{where}{marker}"
+        canonical = registry.async_get_entity_id(PLATFORM, DOMAIN, target)
+        try:
+            if canonical is not None:
+                registry.async_remove(entry.entity_id)
+                LOGGER.info("Removed duplicate temperature sensor %s in favor of %s", entry.entity_id, canonical)
+            else:
+                registry.async_update_entity(entry.entity_id, new_unique_id=target)
+                LOGGER.info("Migrated temperature sensor %s to unique id %s", entry.entity_id, target)
+        except ValueError as err:
+            LOGGER.warning("Could not migrate temperature sensor %s: %s", entry.entity_id, err)
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> bool:
