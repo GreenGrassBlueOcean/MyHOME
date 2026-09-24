@@ -312,8 +312,9 @@ class TestProbeAndStatusFeasibility:
             result = await session.send(status_cmd, is_status_request=True)
             assert result is None
 
-            # Attempt 0 retries once upon immediate NACK, then on attempt 1 reports NACK at DEBUG
-            assert harness.received_messages.count("*#16*0*5##") == 2
+            # OWNd <= 2.0.0b8 retries a NACKed status request once; later OWNd
+            # takes the NACK as final (OpenWebNet-HA/OWNd#57). Both report at DEBUG.
+            assert harness.received_messages.count("*#16*0*5##") in (1, 2)
 
             # Must log at DEBUG, never at WARNING
             mock_logger.debug.assert_any_call(

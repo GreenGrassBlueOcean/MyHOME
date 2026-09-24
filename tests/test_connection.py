@@ -974,7 +974,7 @@ class TestOWNEventAndCommandSessionRemainingCoverage:
         assert res is True
 
     @pytest.mark.asyncio
-    async def test_command_session_send_immediate_nack_retry_success(self, command_session):
+    async def test_command_session_send_immediate_status_nack(self, command_session):
         command_session._stream_writer = MagicMock()
         command_session._stream_writer.drain = AsyncMock()
         command_session._stream_reader = AsyncMock()
@@ -984,10 +984,15 @@ class TestOWNEventAndCommandSessionRemainingCoverage:
             b"*#*1##",
         ]
 
-        res = await command_session.send("*1*1*12##", is_status_request=True)
-        assert isinstance(res, list)
-        assert len(res) == 1
-        assert command_session._stream_writer.write.call_count == 2
+        res = await command_session.send("*#1*12##", is_status_request=True)
+        # OWNd <= 2.0.0b8 retries a NACKed status request once; later OWNd
+        # takes the NACK as the gateway's answer (OpenWebNet-HA/OWNd#57).
+        if command_session._stream_writer.write.call_count == 1:
+            assert res is None
+        else:
+            assert command_session._stream_writer.write.call_count == 2
+            assert isinstance(res, list)
+            assert len(res) == 1
 
     @pytest.mark.asyncio
     async def test_command_session_send_broad_exception(self, command_session):
