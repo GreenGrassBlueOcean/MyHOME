@@ -97,6 +97,7 @@
     "error": {
       "invalid_ip": "Indirizzo IP non valido",
       "invalid_worker_count": "I workers devono essere compresi tra 1 e 10",
+      "worker_count_above_gateway_limit": "Il {model} accetta al massimo {session_limit} sessione/i di comando contemporanee; oltre smette di rispondere.",
       "invalid_config_path": "Il file di configurazione non esiste in questo percorso",
       "invalid_password": "Password non valida",
       "password_error": "Errore password"

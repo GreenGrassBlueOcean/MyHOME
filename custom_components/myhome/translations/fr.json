@@ -97,6 +97,7 @@
     "error": {
       "invalid_ip": "Adresse IP invalide",
       "invalid_worker_count": "Workers must be between 1 and 10",
+      "worker_count_above_gateway_limit": "Le {model} accepte au maximum {session_limit} session(s) de commande simultanée(s) ; au-delà, il cesse de répondre.",
       "invalid_config_path": "Fichier de configuration inexistant à ce chemin",
       "invalid_password": "Mot de passe invalide",
       "password_error": "Mot de passe invalide"

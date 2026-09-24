@@ -126,6 +126,7 @@
     "error": {
       "invalid_ip": "Invalid IP address",
       "invalid_worker_count": "Workers must be between 1 and 10",
+      "worker_count_above_gateway_limit": "The {model} accepts at most {session_limit} command session(s) at a time; with more it stops answering.",
       "invalid_config_path": "Configuration file does not exist at this path",
       "invalid_password": "Invalid password",
       "password_error": "Invalid password",

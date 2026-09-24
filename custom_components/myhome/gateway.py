@@ -40,7 +40,7 @@ from OWNd.message import (
     OWNLightingEvent,
     OWNMessage,
 )
-from OWNd.profiles import get_gateway_profile
+from OWNd.profiles import GenericGatewayProfile, get_gateway_profile
 
 from .bus_monitor import BusMonitor
 from .const import (
@@ -123,6 +123,20 @@ class _StatusRequestLogFilter(logging.Filter):
 
 
 LOGGER.addFilter(_StatusRequestLogFilter())
+
+
+def command_session_limit(model: str | None) -> int | None:
+    """Return how many command sessions a known gateway model accepts at once.
+
+    Returns ``None`` for a model OWNd has no profile for: the generic profile's
+    limit of 1 is a safe default, not a measured limit, so it must not override
+    what the user configured.  An MH200N given 3 sessions stops answering new
+    ones and its event session goes quiet (issue #425).
+    """
+    profile = get_gateway_profile(model)
+    if isinstance(profile, GenericGatewayProfile):
+        return None
+    return int(profile.max_command_sessions)
 
 EVENT_READY_TIMEOUT = 120
 
@@ -929,6 +943,7 @@ class MyHOMEGatewayHandler:
         self.gateway.model = model
         self.gateway.profile = get_gateway_profile(model)
         self.gateway._log_id = f"[{model} gateway - {self.gateway.host}]"
+        self._trim_sending_workers(model)
         new_data = dict(self.config_entry.data)
         if new_data.get(CONF_NAME) == model:
             return
@@ -938,6 +953,25 @@ class MyHOMEGatewayHandler:
         if str(getattr(self.config_entry, "title", "")).endswith("Gateway"):
             update_kwargs["title"] = f"{model} Gateway"
         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)
+
+    def _trim_sending_workers(self, model: str) -> None:
+        """Stop the command workers a corrected model has no sessions for.
+
+        Setup capped the workers at the configured model's limit; a gateway that
+        identifies itself as a smaller one (an "F454" that is an MH200N) would
+        otherwise keep the extra sessions open until the next restart (#425).
+        A cancelled worker closes its session and cancels the frame it held.
+        """
+        limit = command_session_limit(model)
+        if limit is None or len(self.sending_workers) <= limit:
+            return
+        LOGGER.warning(
+            "%s The %s accepts at most %d command session(s); stopping %d of %d command workers.",
+            self.log_id, model, limit, len(self.sending_workers) - limit, len(self.sending_workers),
+        )
+        for worker in self.sending_workers[limit:]:
+            worker.cancel()
+        del self.sending_workers[limit:]
 
     def _request_object_model(self) -> None:
         """Queue ``*#1013*0*1##`` (Gateway Diagnostic, dimension 1 OBJECT_MODEL) once.
