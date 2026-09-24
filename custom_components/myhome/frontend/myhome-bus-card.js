@@ -141,8 +141,12 @@ class MyHomeBusCard extends HTMLElement {
   async _loadHistory() {
     if (!this._hass) return;
     try {
+      // Backfill as much as the card can show: after an HA restart the startup status
+      // sweep easily exceeds 50 frames. Unfiltered on purpose - the WHO / WHERE / direction
+      // filters apply on display and export, exactly as for streamed frames. The backend
+      // caps the reply at its own ring size.
       const res = await this._hass.callWS(
-        this._wsPayload("myhome/bus_monitor/history", { limit: 50 })
+        this._wsPayload("myhome/bus_monitor/history", { limit: this._maxDisplayFrames })
       );
       if (res && res.frames) {
         const existingKeys = new Set(

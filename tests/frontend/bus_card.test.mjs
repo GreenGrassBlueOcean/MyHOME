@@ -147,6 +147,42 @@ test("sweep export carries the sweep kind and start time; truncated when the buf
   assert.equal(payload.capture.window.truncated, true);
 });
 
+test("regression #429: history backfill asks for the whole display buffer, de-duplicates and caps it", async () => {
+  // After an HA restart the startup status sweep is > 50 frames; a 50-frame backfill lost WHO=4.
+  const card = create();
+  card._maxDisplayFrames = 300;
+  const history = [];
+  for (let n = 0; n < 300; n++) {
+    history.push(n % 3 === 0
+      ? frame(`*#4*${n}*0*0215*1##`, { timestamp: n, who: "4", where: String(n) })
+      : frame(`*1*1*${n}##`, { timestamp: n, who: "1", where: String(n) }));
+  }
+  // Streamed between subscribe and the history reply: one frame the ring also holds, one newer.
+  card._frames = [history[299], frame("*1*0*12##", { timestamp: 400, who: "1", where: "12" })];
+  const requests = [];
+  card._hass.callWS = async (payload) => {
+    requests.push(payload);
+    return payload.type === "myhome/bus_monitor/history" ? { frames: history, stats: { captured: 300 } } : {};
+  };
+
+  await card._loadHistory();
+
+  assert.equal(requests[0].type, "myhome/bus_monitor/history");
+  assert.equal(requests[0].limit, 300);
+  assert.equal(card._frames.length, 300); // 299 new + 2 streamed, capped to the newest 300
+  assert.equal(card._frames[0].raw, "*1*1*1##");
+  assert.equal(card._frames.at(-1).raw, "*1*0*12##");
+  assert.equal(card._frames.filter((f) => f.raw === history[299].raw).length, 1);
+
+  // Backfilled frames follow the same client-side filter as streamed ones.
+  card._filterWho = "4";
+  await card._handleExportTrace();
+  const { payload } = downloads.at(-1);
+  assert.equal(payload.frames.length, 99); // n = 3, 6, ... 297 (n = 0 fell off the cap)
+  assert.ok(payload.frames.every((f) => f.who === "4"));
+  assert.equal(payload.capture.window.buffer_frames, 300);
+});
+
 test("transmit is refused until armed, allowed while armed, refused again after disarming", async () => {
   const card = create();
   const input = el("send-frame");

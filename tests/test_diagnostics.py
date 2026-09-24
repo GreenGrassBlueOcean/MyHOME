@@ -7,7 +7,7 @@ from homeassistant.const import CONF_MAC, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from OWNd.message import OWNMessage
 
-from custom_components.myhome.bus_monitor import BusMonitor
+from custom_components.myhome.bus_monitor import DEFAULT_RING_BUFFER_SIZE, BusMonitor
 from custom_components.myhome.const import CONF_ENTITIES, CONF_ENTITY, DOMAIN, INTEGRATION_VERSION
 from custom_components.myhome.diagnostics import async_get_config_entry_diagnostics
 from tests.conftest import attach_runtime
@@ -143,6 +143,34 @@ async def test_diagnostics_with_full_gateway_and_bus_monitor(hass: HomeAssistant
 
     # Verify platform counts
     assert diag["platforms"] == {"light": 2, "switch": 1}
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_export_the_whole_ring_buffer(hass: HomeAssistant):
+    """The startup status sweep overflows 100 frames: diagnostics carry the full ring (#429)."""
+    mac = "00:03:50:aa:bb:cc"
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_ring_789"
+    mock_entry.version = 1
+    mock_entry.domain = DOMAIN
+    mock_entry.data = {CONF_MAC: mac}
+    mock_entry.options = {}
+
+    bus_mon = BusMonitor()
+    assert bus_mon.maxlen == DEFAULT_RING_BUFFER_SIZE
+    for n in range(DEFAULT_RING_BUFFER_SIZE + 100):
+        bus_mon.record_frame(direction="rx", raw=f"*#4*{n}*0*0215*1##")
+    mock_handler = MagicMock()
+    mock_handler.gateway, mock_handler.send_buffer, mock_handler.bus_monitor = None, None, bus_mon
+    attach_runtime(hass, mock_entry, mac, mock_handler)
+
+    diag = await async_get_config_entry_diagnostics(hass, mock_entry)
+
+    frames = diag["bus_monitor"]["recent_frames"]
+    assert len(frames) == DEFAULT_RING_BUFFER_SIZE
+    # the newest frames, oldest first: the evicted ones are the first 100
+    assert frames[0]["raw"] == "*#4*100*0*0215*1##"
+    assert frames[-1]["raw"] == f"*#4*{DEFAULT_RING_BUFFER_SIZE + 99}*0*0215*1##"
 
 
 @pytest.mark.asyncio
