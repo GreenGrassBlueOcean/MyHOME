@@ -372,6 +372,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             self._attr_icon = self._off_icon
 
         self._attr_is_on = None
+        # True while is_on is only what Home Assistant restored at startup: not
+        # worth keeping against a fault report (an actuator stuck at WHAT 19).
+        self._is_on_restored = False
         self._attr_brightness: int | None = None
         self._attr_brightness_pct: int | None = None
 
@@ -471,8 +474,10 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         # 5. Restore power state
         if last_state.state == "on":
             self._attr_is_on = True
+            self._is_on_restored = True
         elif last_state.state == "off":
             self._attr_is_on = False
+            self._is_on_restored = True
 
     async def async_update(self) -> None:
         """Update the entity.
@@ -533,6 +538,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             self._attr_is_on = is_on
         else:
             self._attr_is_on = pct > 0
+        self._is_on_restored = False
         if pct > 0:
             self._last_brightness_pct = pct
 
@@ -665,6 +671,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         )
         await self._gateway_handler.send(cmd)
         self._attr_is_on = True
+        self._is_on_restored = False
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -752,6 +759,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
 
             if ATTR_BRIGHTNESS not in kwargs and ATTR_BRIGHTNESS_PCT not in kwargs:
                 self._attr_is_on = True
+                self._is_on_restored = False
                 if self._attr_brightness is None and self._last_brightness_pct:
                     self._apply_brightness_state(self._last_brightness_pct, is_on=True)
                 self.async_schedule_update_ha_state()
@@ -871,17 +879,24 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         )
         if message.is_on is not None:
             self._attr_is_on = message.is_on
+            self._is_on_restored = False
 
         # A WHAT outside the WHO 1 table (e.g. 19 from an MH200 actuator with a
-        # WHO 1001 fault) leaves is_on None: keep the last state, show the value.
+        # WHO 1001 fault) leaves is_on None: keep a state seen on the bus or set
+        # from Home Assistant, but not one restored at startup - that may be the
+        # "on" a fault left behind before OWNd knew better (light 74, #456).
         unknown_state = getattr(message, "unknown_state", None)
         if isinstance(unknown_state, int):
+            if self._is_on_restored:
+                self._attr_is_on = None
+                self._is_on_restored = False
             if self._attr_extra_state_attributes.get("unknown_state") != unknown_state:
                 LOGGER.warning(
-                    "%s light %s reports unknown lighting WHAT %s; keeping its last state",
+                    "%s light %s reports unknown lighting WHAT %s; %s",
                     self._gateway_handler.log_id,
                     self._full_where,
                     unknown_state,
+                    "its state is unknown" if self._attr_is_on is None else "keeping its last state",
                 )
             self._attr_extra_state_attributes["unknown_state"] = unknown_state
         elif message.is_on is not None:

@@ -15,6 +15,7 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.const import CONF_NAME
+from homeassistant.core import State
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
     OWNEvent,
@@ -1840,4 +1841,57 @@ def test_mh200_what_19_reply_does_not_turn_the_light_on(hass):
     light.handle_event(OWNEvent.parse("*1*19*74##"))
 
     assert light.is_on is False
+    assert light.extra_state_attributes["unknown_state"] == 19
+
+
+def _fault_event(value=19):
+    event = MagicMock(spec=OWNLightingEvent, is_on=None, brightness=None, brightness_preset=None)
+    event.unknown_state = value
+    return event
+
+
+async def test_unknown_state_does_not_keep_a_restored_state(hass, caplog):
+    """A restored "on" may be the one the fault left behind: the next fault report makes it unknown."""
+    light = _unknown_state_light(hass)
+    await light.async_restore_last_state(State("light.light_74", "on"))
+    assert light.is_on is True
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.myhome"):
+        light.handle_event(_fault_event())
+    assert light.is_on is None
+    assert light.state is None  # Home Assistant shows "unknown"
+    assert light.extra_state_attributes["unknown_state"] == 19
+    assert any("its state is unknown" in r.getMessage() for r in caplog.records)
+
+    # the next real state from the bus is taken, and then kept against the fault
+    light.handle_event(MagicMock(spec=OWNLightingEvent, is_on=False, brightness=None, brightness_preset=None))
+    light.handle_event(_fault_event())
+    assert light.is_on is False
+
+
+async def test_unknown_state_keeps_a_state_set_from_home_assistant(hass):
+    light = _unknown_state_light(hass)
+    light.entity_id = "light.light_74"
+    light.async_write_ha_state = MagicMock()
+    light._gateway_handler.send = AsyncMock()
+    await light.async_restore_last_state(State("light.light_74", "off"))
+    await light.async_turn_on_timed(duration=60)
+    light.handle_event(_fault_event())
+    assert light.is_on is True
+
+
+@pytest.mark.xfail(
+    _OWND_WHAT_19_IS_ON,
+    reason="installed OWNd reports lighting WHAT 19 (outside the WHO 1 table) as on",
+    strict=True,
+)
+async def test_mh200_light_74_restored_on_after_the_fix(hass):
+    """Live 2026-09-24 17:16 on the MH200 test build: light.light_74 came back "on" from the
+    state the bug had left, and the bus only ever answered *1*19*74## (+ WHO 1001 DIMENSION 11)."""
+    light = _unknown_state_light(hass)
+    await light.async_restore_last_state(State("light.light_74", "on"))
+
+    light.handle_event(OWNEvent.parse("*1*19*74##"))
+
+    assert light.is_on is None
     assert light.extra_state_attributes["unknown_state"] == 19
