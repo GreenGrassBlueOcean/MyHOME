@@ -100,7 +100,8 @@
       "worker_count_above_gateway_limit": "De {model} accepteert maximaal {session_limit} gelijktijdige command sessie(s); met meer reageert hij niet meer.",
       "invalid_config_path": "Ongeldig path voor configuratie bestand",
       "invalid_password": "Ongeldig password",
-      "password_error": "Ongeldig password"
+      "password_error": "Ongeldig password",
+      "duplicate_decoder_source": "Elke decoder moet aangesloten zijn op een andere matrix broningang."
     }
   },
   "services": {
@@ -218,6 +219,9 @@
     },
     "decoder_incompatible_platform": {
       "message": "{entity_id}: decoder {decoder} ({platform}) ondersteunt geen streaming-URL's; configureer deze via DLNA DMR"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: decoder {decoder} werd niet binnen 5 seconden wakker"
     }
   }
 }

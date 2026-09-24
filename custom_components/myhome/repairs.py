@@ -143,10 +143,11 @@ def async_create_incompatible_decoder_issue(
     hass: HomeAssistant, entry_id: str, decoder_id: str, platform: str
 ) -> None:
     """Create a repair issue when a configured decoder platform does not support streaming URLs."""
+    slug_id = decoder_id.replace(".", "_")
     async_create_issue(
         hass,
         DOMAIN,
-        f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{decoder_id}",
+        f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}",
         is_fixable=False,
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_INCOMPATIBLE_DECODER,
@@ -159,4 +160,5 @@ def async_delete_incompatible_decoder_issue(
     hass: HomeAssistant, entry_id: str, decoder_id: str
 ) -> None:
     """Delete the incompatible decoder repair issue."""
-    async_delete_issue(hass, DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{decoder_id}")
+    slug_id = decoder_id.replace(".", "_")
+    async_delete_issue(hass, DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}")

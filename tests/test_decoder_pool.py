@@ -578,3 +578,23 @@ async def test_add_member_environment_busy_conflict_unassigned_owner(hass):
     assert exc_info.value.owner == "media_player.zone_unassigned"
 
 
+@pytest.mark.asyncio
+async def test_claim_detaches_member_role_even_if_already_assigned(hass):
+    """Calling claim() removes any lingering group membership even if the zone already has a claim."""
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    hass.states.async_set("media_player.dec1", "idle")
+
+    # Zone claims dec1
+    await pool.claim("media_player.zone1")
+    assert pool.get_assignment("media_player.zone1") == "media_player.dec1"
+
+    # Simulate an abnormal dual-role state where zone1 is also listed as a member in another group
+    pool._groups["media_player.other_leader"] = {"media_player.zone1"}
+
+    # Calling claim again reuses the claim, but detaches member role
+    claimed = await pool.claim("media_player.zone1")
+    assert claimed == ("media_player.dec1", 1)
+    assert "media_player.zone1" not in pool.get_members("media_player.other_leader")
+
+
+

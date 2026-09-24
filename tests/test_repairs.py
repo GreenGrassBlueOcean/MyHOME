@@ -150,7 +150,8 @@ async def test_incompatible_decoder_issue_lifecycle(hass: HomeAssistant) -> None
     decoder_id = "media_player.cambridge_cxn"
 
     async_create_incompatible_decoder_issue(hass, entry_id, decoder_id, "cambridge_audio")
-    issue_id = f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{decoder_id}"
+    slug_id = decoder_id.replace(".", "_")
+    issue_id = f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}"
     issue = issue_registry.async_get_issue(DOMAIN, issue_id)
     assert issue is not None
     assert issue.severity == ir.IssueSeverity.WARNING

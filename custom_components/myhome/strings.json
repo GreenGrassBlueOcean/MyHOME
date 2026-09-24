@@ -131,7 +131,8 @@
       "invalid_password": "Invalid password",
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
-      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead."
+      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
+      "duplicate_decoder_source": "Each decoder must be connected to a different matrix source input."
     }
   },
   "services": {
@@ -347,6 +348,9 @@
     },
     "foreign_entity_not_supported": {
       "message": "{entity_id}: cannot join foreign entity {member}; only MyHOME sound zones can be grouped"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: decoder {decoder} did not wake up within 5 seconds"
     }
   },
   "entity": {

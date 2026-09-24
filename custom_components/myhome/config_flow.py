@@ -755,8 +755,10 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             from homeassistant.helpers import entity_registry as er
             registry = er.async_get(self.hass)
 
+            seen_sources: dict[int, str] = {}
             for i in range(1, CONF_DECODER_SLOTS + 1):
                 entity_key = CONF_DECODER_ENTITY.format(i)
+                source_key = CONF_DECODER_SOURCE.format(i)
                 entity_val = user_input.get(entity_key, "").strip()
                 if entity_val:
                     if not entity_val.startswith("media_player."):
@@ -766,6 +768,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if entry and entry.platform == "mass":
                             # Prevent infinite loops by rejecting MA clones
                             errors[entity_key] = "mass_entity_not_allowed"
+
+                    src_val = int(user_input.get(source_key, i) or i)
+                    if src_val in seen_sources:
+                        errors[source_key] = "duplicate_decoder_source"
+                    else:
+                        seen_sources[src_val] = source_key
 
             limit_model = user_input.get(CONF_NAME, self.data.get(CONF_NAME))  # type: ignore
             session_limit = command_session_limit(limit_model)

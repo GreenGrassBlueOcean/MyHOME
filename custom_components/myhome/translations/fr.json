@@ -100,7 +100,8 @@
       "worker_count_above_gateway_limit": "Le {model} accepte au maximum {session_limit} session(s) de commande simultanée(s) ; au-delà, il cesse de répondre.",
       "invalid_config_path": "Fichier de configuration inexistant à ce chemin",
       "invalid_password": "Mot de passe invalide",
-      "password_error": "Mot de passe invalide"
+      "password_error": "Mot de passe invalide",
+      "duplicate_decoder_source": "Chaque décodeur doit être connecté à une entrée source de matrice différente."
     }
   },
   "services": {
@@ -218,6 +219,9 @@
     },
     "decoder_incompatible_platform": {
       "message": "{entity_id}: le décodeur {decoder} ({platform}) ne prend pas en charge les URL de flux ; configurez-le plutôt via DLNA DMR"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: le décodeur {decoder} ne s'est pas réveillé dans les 5 secondes"
     }
   }
 }

@@ -100,7 +100,8 @@
       "worker_count_above_gateway_limit": "Il {model} accetta al massimo {session_limit} sessione/i di comando contemporanee; oltre smette di rispondere.",
       "invalid_config_path": "Il file di configurazione non esiste in questo percorso",
       "invalid_password": "Password non valida",
-      "password_error": "Errore password"
+      "password_error": "Errore password",
+      "duplicate_decoder_source": "Ciascun decoder deve essere collegato a un ingresso sorgente della matrice diverso."
     }
   },
   "services": {
@@ -218,6 +219,9 @@
     },
     "decoder_incompatible_platform": {
       "message": "{entity_id}: il decoder {decoder} ({platform}) non supporta gli URL di streaming; configuralo invece tramite DLNA DMR"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: il decoder {decoder} non si è riattivato entro 5 secondi"
     }
   }
 }
