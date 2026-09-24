@@ -92,6 +92,22 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 | **HL4684** | OpenWebNet | 2 workers | 80 ms | ✅ SSDP | 10" Touch screen display IP gateway |
 | **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
 
+
+### 📊 Hardware Trace Availability Matrix
+
+<!-- TRACE_MATRIX_START -->
+| Gateway Model | WHO 1<br>Lights | WHO 2<br>Autom. | WHO 4<br>Climate | WHO 5<br>Alarm | WHO 9<br>Power | WHO 13<br>Gateway | WHO 14<br>Lock | WHO 16<br>Audio | WHO 18<br>Energy | WHO 25<br>Diag | WHO 1013<br>Diag |
+| :--- |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |
+| **F454** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |  |  | ✅ |
+| **F461** | ✅ |  | ✅ |  |  |  |  |  |  |  |  |
+| **MH200** | ✅ | ✅ |  |  |  | ✅ |  |  |  |  |  |
+| **MH201** | ✅ | ✅ | ✅ |  |  | ✅ |  | ✅ |  | ✅ |  |
+| **MH202** |  | ✅ | ✅ |  |  | ✅ |  |  |  |  | ✅ |
+| **MyHomeServer1** | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |
+<!-- TRACE_MATRIX_END -->
+
+*Checkmarks (✅) indicate that at least one `diagnostic_summary.json` or `.txt` bus capture in our test corpus contains frames for that subsystem from the specified gateway model. This matrix is automatically updated from the fixtures repository.*
+
 ### Supported Entity Domains & Automations
 
 | Domain | WHO | Capabilities |
