@@ -491,40 +491,47 @@ class MyHOMEGatewayHandler:
         """Run the event session, recreating it whenever it dies or stalls.
 
         OWNd re-establishes a dropped socket inside get_next(); this loop covers
-        the rest: an exception escaping the read loop, or a get_next() that stays
-        disconnected without returning. Before, either left the listener task
-        finished and the gateway unavailable until the entry was reloaded.
+        the rest: an exception escaping the read loop, or a connect() / get_next()
+        that stays disconnected without returning. Before, either left the listener
+        task finished and the gateway unavailable until the entry was reloaded.
         """
         self._terminate_listener = False
         self._event_session_ready.clear()
 
         LOGGER.debug("%s Creating listening worker.", self.log_id)
 
-        failures = 0
-        started = time.monotonic()
-        while await self._run_event_session():
-            self._on_event_connection_state_change(False)
-            failures = 1 if time.monotonic() - started >= EVENT_RESTART_BACKOFF_MAX else failures + 1
-            delay = min(EVENT_RESTART_BACKOFF_MAX, EVENT_RESTART_BACKOFF_MIN * 2 ** (failures - 1))
-            LOGGER.warning(
-                "%s Recreating the event session in %ss (attempt %d).",
-                self.log_id,
-                delay,
-                failures,
-            )
-            await asyncio.sleep(delay)
+        try:
+            failures = 0
             started = time.monotonic()
-
-        self._on_event_connection_state_change(False)
-
-        LOGGER.debug("%s Destroying listening worker.", self.log_id)
+            while await self._run_event_session():
+                self._on_event_connection_state_change(False)
+                failures = 1 if time.monotonic() - started >= EVENT_RESTART_BACKOFF_MAX else failures + 1
+                delay = min(EVENT_RESTART_BACKOFF_MAX, EVENT_RESTART_BACKOFF_MIN * 2 ** (failures - 1))
+                LOGGER.warning(
+                    "%s Recreating the event session in %ss (attempt %d).",
+                    self.log_id,
+                    delay,
+                    failures,
+                )
+                await asyncio.sleep(delay)
+                started = time.monotonic()
+        except asyncio.CancelledError:
+            # Unload or shutdown: the gateway is going away, not losing its
+            # connection, so no availability grace timer.
+            self._terminate_listener = True
+            raise
+        finally:
+            # Also when the task is cancelled mid back-off.
+            self._on_event_connection_state_change(False)
+            LOGGER.debug("%s Destroying listening worker.", self.log_id)
 
     async def _run_event_session(self) -> bool:
         """Open one event session and dispatch its frames until it ends.
 
-        Returns True when the session ended unexpectedly and should be recreated;
-        False when the listener is terminating, or when the gateway refused the
-        session outright (retrying could lock the client out).
+        Returns True when the session ended unexpectedly (an exception, or the
+        stall watchdog) and should be recreated; False when the listener is
+        terminating, or when the gateway refused the session outright
+        (retrying could lock the client out).
         """
         if self._terminate_listener:
             return False
@@ -537,8 +544,10 @@ class MyHOMEGatewayHandler:
         try:
             async with watchdog:
                 self._event_watchdog = watchdog
-                if not await self._read_event_session(_event_session):
-                    return False
+                # Armed before connect(): a connect that never returns is a stall too.
+                self._update_event_watchdog(progress=True)
+                await self._read_event_session(_event_session)
+            return False
         except Exception as err:
             if isinstance(err, TimeoutError) and watchdog.expired():
                 LOGGER.warning(
@@ -558,8 +567,12 @@ class MyHOMEGatewayHandler:
                 await asyncio.shield(_event_session.close())
         return not self._terminate_listener
 
-    async def _read_event_session(self, _event_session: OWNEventSession) -> bool:
-        """Connect ``_event_session`` and read it until the listener terminates."""
+    async def _read_event_session(self, _event_session: OWNEventSession) -> None:
+        """Connect ``_event_session`` and dispatch its frames.
+
+        Returns when the listener terminates or the gateway refuses the session;
+        any other end is an exception, which the caller answers by recreating it.
+        """
         res = await _event_session.connect()
         if (
             isinstance(res, dict)
@@ -579,7 +592,7 @@ class MyHOMEGatewayHandler:
                     res.get("Message"),
                 )
                 self._on_event_connection_state_change(False)
-                return False
+                return
         else:
             LOGGER.warning(
                 "%s Initial event session was not established; reconnecting "
@@ -588,17 +601,29 @@ class MyHOMEGatewayHandler:
             )
         self._update_event_watchdog(progress=True)
 
+        # Only the start and the end of an outage are logged at INFO, so a fast
+        # retry loop cannot flood the log.
+        was_reachable = True
         while not self._terminate_listener:
             message = await _event_session.get_next()
             self._update_event_watchdog(progress=True)
             if message is None:
                 # OWNd yields None once per reconnect cycle of the event socket
                 # (e.g. after a gateway-side close); nothing to dispatch.
-                LOGGER.info(
-                    "%s Event session reconnect attempt finished (%s).",
-                    self.log_id,
-                    "connected" if _session_is_open(_event_session) else "gateway not reachable",
-                )
+                reachable = _session_is_open(_event_session)
+                if reachable != was_reachable:
+                    LOGGER.info(
+                        "%s Event session %s.",
+                        self.log_id,
+                        "reconnected" if reachable else "lost; gateway not reachable, retrying",
+                    )
+                else:
+                    LOGGER.debug(
+                        "%s Event session reconnect cycle finished (%s).",
+                        self.log_id,
+                        "connected" if reachable else "gateway not reachable",
+                    )
+                was_reachable = reachable
                 continue
             self.bus_monitor.record_frame(
                 direction="rx",
@@ -612,7 +637,6 @@ class MyHOMEGatewayHandler:
                 # One frame the integration cannot handle must not end the listener
                 # (and with it every entity's availability).
                 LOGGER.exception("%s Failed to process `%s`.", self.log_id, message)
-        return True
 
     def _profile_supports_who(self, who: int) -> bool:
         """Return whether the gateway profile advertises a WHO subsystem (True when unknown)."""

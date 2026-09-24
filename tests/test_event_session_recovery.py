@@ -26,11 +26,15 @@ MAC = "00:03:50:00:00:01"
 
 Step = Callable[["FakeEventSession"], Awaitable[Any]]
 
+# A session script whose connect() never returns.
+HANG_CONNECT: list[Step] = []
+
 
 class FakeEventSession:
     """Stands in for OWNEventSession; each get_next() runs the next scripted step."""
 
     def __init__(self, steps: list[Step], *, gateway: Any, logger: Any, on_state_change: Callable[[bool], None]) -> None:
+        self._connect_hangs = steps is HANG_CONNECT
         self._steps = iter(steps)
         self.on_state_change = on_state_change
         self._stream_reader: object | None = None
@@ -38,6 +42,8 @@ class FakeEventSession:
         self.closed = False
 
     async def connect(self) -> dict[str, Any]:
+        if self._connect_hangs:
+            await asyncio.Event().wait()
         self._stream_reader = self._stream_writer = object()
         self.on_state_change(True)
         return {"Success": True}
@@ -81,6 +87,13 @@ def reconnect_failed(delay: float) -> Step:
         return None
 
     return step
+
+
+async def reconnected(session: FakeEventSession) -> Any:
+    """OWNd's get_next() after a reconnect cycle that succeeded."""
+    session._stream_reader = session._stream_writer = object()
+    session.on_state_change(True)
+    return None
 
 
 def terminate(handler: MyHOMEGatewayHandler) -> Step:
@@ -215,6 +228,36 @@ async def test_listener_recovers_when_get_next_hangs_after_close(hass: HomeAssis
     assert handler.bus_monitor.get_recent_frames()[-1]["raw"] == "*1*0*12##"
 
 
+async def test_listener_recovers_when_connect_never_returns(hass: HomeAssistant, handler: MyHOMEGatewayHandler, caplog: pytest.LogCaptureFixture):
+    """The watchdog is armed before connect(): a connect that hangs is recreated too."""
+    patcher, sessions = script_sessions(HANG_CONNECT, [frame("*1*1*12##"), terminate(handler)])
+
+    with patcher:
+        await run_listener(handler)
+
+    assert len(sessions) == 2
+    assert sessions[0].closed
+    assert "Event session stalled" in caplog.text
+    assert handler.bus_monitor.get_recent_frames()[-1]["raw"] == "*1*1*12##"
+
+
+async def test_general_lighting_frame_through_the_listener(
+    hass: HomeAssistant, entry: MockConfigEntry, handler: MyHOMEGatewayHandler, caplog: pytest.LogCaptureFixture
+):
+    """The live failure end to end: `*1*0*0##` through the real listener, dispatch and gateway object."""
+    er.async_get(hass).async_get_or_create("light", DOMAIN, f"{MAC}-1-12", config_entry=entry)
+    patcher, sessions = script_sessions([frame("*1*0*0##"), terminate(handler)])
+
+    with patcher:
+        await run_listener(handler)
+
+    assert len(sessions) == 1
+    assert [f["raw"] for f in handler.bus_monitor.get_recent_frames()] == ["*1*0*0##"]
+    assert list(handler._resync_timers) == ["1"]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert "Recreating the event session" not in caplog.text
+
+
 async def test_quiet_bus_does_not_trip_the_watchdog(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
     """While connected, a read may block far longer than the stall timeout."""
     patcher, sessions = script_sessions([quiet_bus, terminate(handler)])
@@ -228,15 +271,19 @@ async def test_quiet_bus_does_not_trip_the_watchdog(hass: HomeAssistant, handler
 async def test_failed_reconnect_cycles_count_as_progress(hass: HomeAssistant, handler: MyHOMEGatewayHandler, caplog: pytest.LogCaptureFixture):
     """OWNd retrying (get_next() returning None each cycle) is not a stall, and each cycle is logged."""
     caplog.set_level(logging.INFO)
-    patcher, sessions = script_sessions([reconnect_failed(0.06)] * 4 + [terminate(handler)])
+    patcher, sessions = script_sessions([reconnect_failed(0.06)] * 4 + [reconnected, terminate(handler)])
 
     with patcher:
         await run_listener(handler)
 
     assert len(sessions) == 1
     assert "Event session stalled" not in caplog.text
-    # Four failed cycles, plus the None the terminating step returns.
-    assert caplog.text.count("Event session reconnect attempt finished (gateway not reachable)") == 5
+    # One INFO line when the outage starts and one when it ends, however many cycles it took.
+    info = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO and "Event session" in r.getMessage()]
+    assert info == [
+        "[Generic gateway - 192.168.1.40] Event session lost; gateway not reachable, retrying.",
+        "[Generic gateway - 192.168.1.40] Event session reconnected.",
+    ]
 
 
 async def test_refused_session_is_not_recreated(hass: HomeAssistant, handler: MyHOMEGatewayHandler):
@@ -271,3 +318,27 @@ async def test_unload_during_restart_backoff_opens_no_new_session(
 
     assert len(sessions) == 1
     assert sessions[0].closed
+
+
+async def test_cancel_during_restart_backoff_still_releases_the_gateway(
+    hass: HomeAssistant, handler: MyHOMEGatewayHandler, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    """Cancelling the listener in the back-off still marks it disconnected and logs its end."""
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(gw_module, "EVENT_RESTART_BACKOFF_MIN", 5)
+    patcher, sessions = script_sessions([boom])
+
+    with patcher:
+        task = asyncio.create_task(handler.listening_loop())
+        async with asyncio.timeout(5):
+            while "Recreating the event session" not in caplog.text:
+                await asyncio.sleep(0.005)
+        handler._event_session_ready.set()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert len(sessions) == 1
+    assert not handler._event_session_ready.is_set()
+    assert handler._terminate_listener
+    assert "Destroying listening worker" in caplog.text
