@@ -1784,3 +1784,60 @@ async def test_dimmer_reboot_state_restoration(hass):
     assert light.brightness == 75
 
 
+
+
+def _unknown_state_light(hass):
+    gateway = MagicMock()
+    gateway.log_id = "[gw]"
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="74", who="1", where="74", interface=None, dimmable=False,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    return light
+
+
+def test_unknown_state_keeps_last_state_and_is_exposed(hass, caplog):
+    """A WHAT outside the WHO 1 table (MH200 WHAT 19) must not switch the light on."""
+    light = _unknown_state_light(hass)
+    off = MagicMock(spec=OWNLightingEvent, is_on=False, brightness=None, brightness_preset=None)
+    fault = MagicMock(spec=OWNLightingEvent, is_on=None, brightness=None, brightness_preset=None)
+    fault.unknown_state = 19
+
+    light.handle_event(off)
+    with caplog.at_level(logging.WARNING, logger="custom_components.myhome"):
+        light.handle_event(fault)
+        light.handle_event(fault)
+
+    assert light.is_on is False
+    assert light.icon == "mdi:lightbulb-off"
+    assert light.extra_state_attributes["unknown_state"] == 19
+    warnings = [r for r in caplog.records if "unknown lighting WHAT 19" in r.getMessage()]
+    assert len(warnings) == 1
+
+    light.handle_event(off)
+    assert "unknown_state" not in light.extra_state_attributes
+
+
+# OWNd up to 2.0.0b8 reports every lighting WHAT in 1..31 as on, WHAT 19
+# included.  Detect the fix instead of pinning a version; strict=True makes an
+# unexpected pass fail so the marker cannot outlive the old behaviour.
+_OWND_WHAT_19_IS_ON = OWNLightingEvent("*1*19*74##").is_on is True
+
+
+@pytest.mark.xfail(
+    _OWND_WHAT_19_IS_ON,
+    reason="installed OWNd reports lighting WHAT 19 (outside the WHO 1 table) as on",
+    strict=True,
+)
+def test_mh200_what_19_reply_does_not_turn_the_light_on(hass):
+    """MH200 live capture 2026-09-24: *#1*74## -> *1*19*74## + WHO 1001 DIMENSION 11."""
+    light = _unknown_state_light(hass)
+
+    light.handle_event(OWNEvent.parse("*1*0*74##"))
+    light.handle_event(OWNEvent.parse("*1*19*74##"))
+
+    assert light.is_on is False
+    assert light.extra_state_attributes["unknown_state"] == 19
