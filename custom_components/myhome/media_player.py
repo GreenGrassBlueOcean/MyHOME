@@ -84,7 +84,6 @@ from homeassistant.const import Platform
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -107,9 +106,9 @@ from .decoder_pool import DecoderPool, EnvironmentBusyError
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery
 from .myhome_device import MyHOMEEntity
 from .repairs import (
-    ISSUE_INCOMPATIBLE_DECODER,
     async_create_incompatible_decoder_issue,
     async_delete_incompatible_decoder_issue,
+    async_prune_incompatible_decoder_issues,
 )
 
 if TYPE_CHECKING:
@@ -170,16 +169,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
                 )
 
     # Clean up any previously flagged decoder issues that are no longer configured
-    issue_reg = ir.async_get(hass)
-    prefix = f"{ISSUE_INCOMPATIBLE_DECODER}_{config_entry.entry_id}_"
-    configured_slugs = {d.replace(".", "_") for d in decoder_map}
-    for domain, issue_id in list(issue_reg.issues.keys()):
-        if domain == DOMAIN and issue_id.startswith(prefix):
-            slug_id = issue_id[len(prefix):]
-            if slug_id not in configured_slugs:
-                async_delete_incompatible_decoder_issue(
-                    hass, config_entry.entry_id, slug_id
-                )
+    async_prune_incompatible_decoder_issues(hass, config_entry.entry_id, decoder_map)
 
     return DecoderPool(hass, decoder_map, pre_gain_map, stream_incompatible)
 
@@ -380,6 +370,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._pre_mute_volume: float | None = None  # volume to restore on unmute
         self._turning_off: bool = False          # guard flag — dampens bus-OFF echo loops
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
+        self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -422,11 +413,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         if pool:
             assigned = pool.get_assignment(self.entity_id)
             # A group member listens to the leader's decoder only while its
-            # environment is routed there; without automatic routing it may
-            # still be on another input, and mirroring would show a stream
-            # the room does not hear.
+            # environment is routed there. Without automatic routing it may
+            # still be on another input, and an input never reported on the
+            # bus is not evidence either way, so only a known match mirrors.
             current = self._source_number(self._attr_source) if self._attr_source else None
-            if assigned and current in (None, pool.decoder_source(assigned)):
+            if assigned and current is not None and current == pool.decoder_source(assigned):
                 return assigned
         if self._attr_state == MediaPlayerState.ON and self._attr_source:
             source_num = self._source_number(self._attr_source)
@@ -686,15 +677,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             runtime.media_players[self.entity_id] = self
 
         # ── Decoder state listener ────────────────────────────────────────
-        pool = self._get_pool()
-        if pool and pool.is_configured:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass,
-                    pool.decoder_entity_ids,
-                    self._async_decoder_state_changed,
-                )
-            )
+        self._track_decoders()
+        self.async_on_remove(self._untrack_decoders)
 
         # ── Pool rebuild listener (Options Flow saved) ────────────────────
         # When the user configures decoders via the UI, supported_features
@@ -702,8 +686,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # our features and discovers the new PLAY_MEDIA capability.
         @callback
         def _pool_updated(*args: Any) -> None:
-            """Re-publish state after decoder pool rebuild."""
+            """Follow the rebuilt pool and re-publish state."""
             LOGGER.debug("%s: decoder pool updated — re-publishing features", self.entity_id)
+            # Saving options rebuilds the pool without reloading the entry:
+            # the decoders to watch may have changed, and the new pool holds
+            # no claims, so a decoder remembered from the old one is not ours.
+            self._track_decoders()
+            self._active_decoder = None
             self.async_write_ha_state()
 
         self.async_on_remove(
@@ -713,6 +702,25 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 _pool_updated,
             )
         )
+
+    @callback
+    def _track_decoders(self) -> None:
+        """Watch the state of the current pool's decoders, replacing any earlier watch."""
+        self._untrack_decoders()
+        pool = self._get_pool()
+        if pool and pool.is_configured:
+            self._unsub_decoders = async_track_state_change_event(
+                self.hass,
+                pool.decoder_entity_ids,
+                self._async_decoder_state_changed,
+            )
+
+    @callback
+    def _untrack_decoders(self) -> None:
+        """Stop watching decoder state."""
+        if self._unsub_decoders is not None:
+            self._unsub_decoders()
+            self._unsub_decoders = None
 
     async def async_will_remove_from_hass(self) -> None:
         """Drop this zone from the pool's books when the entity goes away.
@@ -840,8 +848,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     self.entity_id,
                     decoder_id,
                 )
-                await pool.release(self.entity_id)
-                self._active_decoder = None
+                await self._async_release_after_failure(pool)
                 raise HomeAssistantError(
                     f"{self.entity_id}: decoder {decoder_id} did not wake up within 5 seconds",
                     translation_domain=DOMAIN,
@@ -913,8 +920,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 decoder_id,
                 err,
             )
-            await pool.release(self.entity_id)
-            self._active_decoder = None
+            await self._async_release_after_failure(pool)
             raise HomeAssistantError(
                 f"{self.entity_id}: decoder {decoder_id} failed to start playback: {err}",
                 translation_domain=DOMAIN,
@@ -925,6 +931,19 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             ) from err
 
         self.async_schedule_update_ha_state()
+
+    async def _async_release_after_failure(self, pool: DecoderPool) -> None:
+        """Give back a decoder that could not be started, and republish the group.
+
+        Releasing a leader disbands its group, so the members' ``group_members``
+        change as well as this zone's.
+        """
+        members = pool.get_members(self.entity_id)
+        await pool.release(self.entity_id)
+        self._active_decoder = None
+        self.async_write_ha_state()
+        for member_id in members:
+            self._write_zone_state(member_id)
 
     # ── Multi-room grouping ───────────────────────────────────────────────────
 
@@ -944,13 +963,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         pool = self._get_pool()
         if not pool:
             raise HomeAssistantError(
-                f"{self.entity_id}: audio grouping is unavailable (decoder pool not initialised)",
+                f"{self.entity_id}: audio grouping is not available yet; "
+                "the decoder pool has not been initialised",
                 translation_domain=DOMAIN,
-                translation_key="routing_unsupported",
-                translation_placeholders={
-                    "entity_id": str(self.entity_id),
-                    "where": str(self._where),
-                },
+                translation_key="grouping_unavailable",
+                translation_placeholders={"entity_id": str(self.entity_id)},
             )
 
         leader_env = _zone_environment(self._where)

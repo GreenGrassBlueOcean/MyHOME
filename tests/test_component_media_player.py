@@ -1576,8 +1576,9 @@ async def test_async_join_and_unjoin_edge_cases(hass, mock_gateway):
 
     # pool is None
     with patch.object(z, "_get_pool", return_value=None):
-        with pytest.raises(HomeAssistantError):
+        with pytest.raises(HomeAssistantError) as err:
             await z.async_join_players(["media_player.zone2"])
+        assert err.value.translation_key == "grouping_unavailable"
         await z.async_unjoin_player()
 
     # new_members empty (only contains self)
@@ -2355,6 +2356,12 @@ async def test_member_on_another_input_does_not_mirror_the_group(hass, mock_gate
     assert member.state == MediaPlayerState.ON
     assert member.media_title is None
 
+    # Joined without routing, before any routing frame: the input is unknown,
+    # which is no evidence the room hears the group, so nothing is mirrored.
+    member._attr_source = None
+    assert member.state == MediaPlayerState.ON
+    assert member.media_title is None
+
 
 @pytest.mark.asyncio
 async def test_play_media_passes_over_a_decoder_that_refuses_streams(hass, mock_gateway):
@@ -2408,3 +2415,87 @@ async def test_play_media_on_a_member_republishes_its_old_leader(hass, mock_gate
     assert pool.get_members("media_player.zone11") == []
     assert member._active_decoder == "media_player.dec2"
     leader.async_write_ha_state.assert_called()
+
+
+# ── Audit round 4: failed claims, listeners follow the pool ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_play_media_on_a_member_that_cannot_claim_stays_grouped(hass, mock_gateway):
+    """All decoders busy: the member gets decoders_busy and is still in its group."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec1", "idle")
+    _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    await pool.claim("media_player.zone11")
+    await pool.add_member("media_player.zone11", "media_player.zone22")
+
+    with pytest.raises(HomeAssistantError) as err:
+        await member.async_play_media("music", "http://stream")
+
+    assert err.value.translation_key == "decoders_busy"
+    assert member.group_members == ["media_player.zone11", "media_player.zone22"]
+    assert member._active_decoder is None
+
+
+@pytest.mark.asyncio
+async def test_failed_start_republishes_the_disbanded_group(hass, mock_gateway):
+    """A leader whose decoder never wakes gives it back, and its members show that."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec1", MediaPlayerState.OFF)
+    leader = _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    await pool.add_member("media_player.zone11", "media_player.zone22")
+    member.async_write_ha_state = MagicMock()
+
+    with patch("asyncio.sleep", return_value=None), patch(
+        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
+    ), pytest.raises(HomeAssistantError) as err:
+        await leader.async_play_media("music", "http://stream")
+
+    assert err.value.translation_key == "decoder_wake_timeout"
+    assert pool.get_assignment("media_player.zone11") is None
+    assert member.group_members is None
+    member.async_write_ha_state.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_decoder_watch_follows_the_rebuilt_pool(hass, player, mock_gateway):
+    """Saving options rebuilds the pool without a reload; the zone watches the new decoders.
+
+    A zone added before any decoder was configured watched nothing. After the
+    rebuild it must follow the new decoder, stop following a removed one, and
+    forget a claim the new pool does not hold.
+    """
+    _set_pool(player, DecoderPool(hass, {}))
+    player.async_write_ha_state = MagicMock()
+    player.async_schedule_update_ha_state = MagicMock()
+    await player.async_added_to_hass()
+    player._active_decoder = "media_player.old"
+
+    _set_pool(player, DecoderPool(hass, {"media_player.new": 1}))
+    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
+    assert player._active_decoder is None
+
+    # The zone streams from the new decoder; its state changes reach the zone.
+    player._active_decoder = "media_player.new"
+    hass.states.async_set("media_player.new", MediaPlayerState.PLAYING, {"media_title": "Song"})
+    await hass.async_block_till_done()
+    player.async_schedule_update_ha_state.assert_called()
+
+    # Decoder removed again: nothing is watched any more.
+    _set_pool(player, DecoderPool(hass, {}))
+    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
+    assert player._unsub_decoders is None
+
+    # The remove callback registered at add time drops whichever watch is current.
+    _set_pool(player, DecoderPool(hass, {"media_player.new": 1}))
+    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
+    assert player._unsub_decoders is not None
+    for remove in player._on_remove or []:
+        remove()
+    assert player._unsub_decoders is None

@@ -349,6 +349,9 @@
     "foreign_entity_not_supported": {
       "message": "{entity_id}: cannot join foreign entity {member}; only MyHOME sound zones can be grouped"
     },
+    "grouping_unavailable": {
+      "message": "{entity_id}: audio grouping is not available yet; the decoder pool has not been initialised"
+    },
     "decoder_wake_timeout": {
       "message": "{entity_id}: decoder {decoder} did not wake up within 5 seconds"
     }

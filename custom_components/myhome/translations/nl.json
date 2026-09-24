@@ -202,6 +202,9 @@
     "foreign_entity_not_supported": {
       "message": "{entity_id}: kan externe entiteit {member} niet koppelen; alleen MyHOME-audiozones kunnen worden gegroepeerd"
     },
+    "grouping_unavailable": {
+      "message": "{entity_id}: audiogroepering is nog niet beschikbaar; de decoderpool is nog niet geïnitialiseerd"
+    },
     "decoders_busy": {
       "message": "{entity_id}: alle audiomatrix-ingangen zijn momenteel in gebruik door andere kamers"
     },

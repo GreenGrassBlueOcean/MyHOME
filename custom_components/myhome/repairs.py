@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -162,3 +164,21 @@ def async_delete_incompatible_decoder_issue(
     """Delete the incompatible decoder repair issue."""
     slug_id = decoder_id.replace(".", "_")
     async_delete_issue(hass, DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}")
+
+
+def async_prune_incompatible_decoder_issues(
+    hass: HomeAssistant, entry_id: str, configured_decoders: Iterable[str]
+) -> None:
+    """Delete the incompatible-decoder issues of decoders that are no longer configured.
+
+    The issue id carries the decoder's entity_id with dots replaced, which
+    cannot be turned back into an entity_id; the comparison is therefore made
+    on issue ids, built here by the same rule the create helper uses.
+    """
+    prefix = f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_"
+    keep = {
+        f"{prefix}{decoder_id.replace('.', '_')}" for decoder_id in configured_decoders
+    }
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain == DOMAIN and issue_id.startswith(prefix) and issue_id not in keep:
+            async_delete_issue(hass, DOMAIN, issue_id)

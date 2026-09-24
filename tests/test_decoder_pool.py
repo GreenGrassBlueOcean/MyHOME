@@ -667,6 +667,43 @@ async def test_claim_skips_excluded_decoders(hass):
 
 
 @pytest.mark.asyncio
+async def test_failed_claim_keeps_the_member_in_its_group(hass):
+    """A member leaves its group only once it has a decoder of its own.
+
+    Both ways a claim fails (no idle decoder, environment already streaming)
+    must leave the group exactly as it was; a successful claim detaches.
+    """
+    pool = DecoderPool(hass, {"media_player.slot_one": 1, "media_player.slot_two": 2})
+    hass.states.async_set("media_player.slot_one", "idle")
+    hass.states.async_set("media_player.slot_two", "playing")  # busy elsewhere
+
+    await pool.claim("media_player.leader", environment="1")
+    await pool.add_member("media_player.leader", "media_player.member", environment="2")
+    await pool.add_member("media_player.leader", "media_player.neighbour", environment="3")
+    group = ["media_player.leader", "media_player.member", "media_player.neighbour"]
+
+    # No idle decoder left.
+    assert await pool.claim("media_player.member", environment="2") is None
+    assert pool.get_group_members("media_player.leader") == group
+
+    # A decoder is free, but a second member in environment 3 cannot take it:
+    # switching the environment would take the neighbour off the group stream.
+    hass.states.async_set("media_player.slot_two", "idle")
+    await pool.add_member("media_player.leader", "media_player.second", environment="3")
+    with pytest.raises(EnvironmentBusyError):
+        await pool.claim("media_player.second", environment="3")
+    assert pool.get_members("media_player.leader") == [
+        "media_player.member", "media_player.neighbour", "media_player.second",
+    ]
+    await pool.remove_member("media_player.second")
+
+    # Success: the member takes the free decoder and leaves.
+    assert await pool.claim("media_player.member", environment="2") == ("media_player.slot_two", 2)
+    assert pool.get_members("media_player.leader") == ["media_player.neighbour"]
+    assert pool.environment_owner("2") == "media_player.member"
+
+
+@pytest.mark.asyncio
 async def test_claim_detaches_member_role_even_if_already_assigned(hass):
     """Calling claim() removes any lingering group membership even if the zone already has a claim."""
     pool = DecoderPool(hass, {"media_player.dec1": 1})

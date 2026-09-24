@@ -202,6 +202,9 @@
     "foreign_entity_not_supported": {
       "message": "{entity_id}: impossibile unire l'entità esterna {member}; solo le zone audio MyHOME possono essere raggruppate"
     },
+    "grouping_unavailable": {
+      "message": "{entity_id}: il raggruppamento audio non è ancora disponibile; il pool di decoder non è stato inizializzato"
+    },
     "decoders_busy": {
       "message": "{entity_id}: tutti gli ingressi della matrice audio sono attualmente in uso da altre stanze"
     },

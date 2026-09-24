@@ -202,13 +202,14 @@ class DecoderPool:
             decoder_id, source_num = result
         """
         async with self._lock:
-            # If this zone was a member of a group, detach it before claiming its own decoder
-            self._remove_member_locked(zone_entity_id)
+            # A member playing on its own leaves its group, but only once it
+            # has a decoder: a refused or failed claim keeps it in the group.
 
             # If this zone already owns a decoder, reuse it (idempotent).
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
                     LOGGER.debug("Decoder %s already claimed by %s", dec_id, zone_entity_id)
+                    self._remove_member_locked(zone_entity_id)
                     return (dec_id, self._decoder_map[dec_id])
 
             if environment is not None:
@@ -239,6 +240,7 @@ class DecoderPool:
                 state_val = state.state if state else None
 
                 if state_val in self._IDLE_STATES:
+                    self._remove_member_locked(zone_entity_id)
                     self._assignments[dec_id] = zone_entity_id
                     if environment is not None:
                         self._environments[zone_entity_id] = environment
