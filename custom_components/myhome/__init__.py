@@ -501,8 +501,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     _session_limit = command_session_limit(gateway.model)
     if _session_limit is not None and _command_worker_count > _session_limit:
         LOGGER.warning(
-            "%s The %s accepts at most %d command session(s) but %d are configured; using %d. "
-            "Lower 'Number of concurrent command sessions' in the integration options to remove this warning.",
+            "%s The %s accepts at most %d command session(s) but %d were configured; "
+            "the option is lowered to %d.",
             gateway.log_id,
             gateway.model,
             _session_limit,
@@ -510,6 +510,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
             _session_limit,
         )
         _command_worker_count = _session_limit
+        # Stored, so diagnostics show what runs and the options form does not
+        # resubmit a count it would reject. The update listener is not yet
+        # registered, so this does not trigger it.
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_WORKER_COUNT: _session_limit}
+        )
 
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)

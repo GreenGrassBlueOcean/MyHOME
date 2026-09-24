@@ -837,6 +837,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         current_model = self.data.get(CONF_NAME, "MyHomeServer1")  # type: ignore
         if current_model not in model_options:
             model_options.insert(0, current_model)
+        # An entry that never finished setup since upgrading still stores a count
+        # above its gateway's limit; do not offer it back only to reject it.
+        suggested_workers = int(self.options.get(CONF_WORKER_COUNT, 1))  # type: ignore
+        current_limit = command_session_limit(current_model)
+        if current_limit is not None:
+            suggested_workers = min(suggested_workers, current_limit)
 
         schema_dict = {
             Required(
@@ -853,7 +859,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             ): str,
             Required(
                 CONF_WORKER_COUNT,
-                description={"suggested_value": self.options.get(CONF_WORKER_COUNT, 1)},  # type: ignore
+                description={"suggested_value": suggested_workers},
             ): All(Coerce(int), Range(min=1, max=10)),
             Required(
                 CONF_GENERATE_EVENTS,
