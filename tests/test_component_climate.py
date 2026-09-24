@@ -841,3 +841,82 @@ async def test_climate_antifreeze_status_sweep_preserves_target_and_comfort_setp
     assert climate_alt._local_target_temperature == 5.0
 
 
+
+
+def _zone_state_event(context, state, temperature=None):
+    event = MagicMock(spec=OWNHeatingEvent)
+    event.message_type = "zone_state"
+    event.zone_context = context
+    event.zone_state = state
+    event.set_temperature = temperature
+    event.human_readable_log = f"zone state {context} {state} {temperature}"
+    return event
+
+
+def _zone(hass, heating=True, cooling=True):
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    climate = MyHOMEClimate(
+        hass=hass, name="Zone 3", device_id="4-3", who="4", where="3", heating=heating, cooling=cooling,
+        fan=False, standalone=True, central=False, manufacturer="BTicino", model="Heating Zone", gateway=gateway,
+    )
+    climate.hass = hass
+    climate.async_write_ha_state = MagicMock()
+    return climate
+
+
+def test_zone_state_comfort_and_eco_set_the_mode_but_not_the_setpoint(hass):
+    """Dimension 7 comfort / eco carry no temperature (#429)."""
+    climate = _zone(hass)
+    climate.handle_event(_zone_state_event("heating", "setpoint", 21.0))
+    climate.handle_event(_zone_state_event("cooling", "comfort"))
+    assert (climate.hvac_mode, climate._target_temperature) == (HVACMode.COOL, 21.0)
+    climate.handle_event(_zone_state_event("automatic", "eco"))
+    assert climate.hvac_mode == HVACMode.AUTO
+
+
+def test_zone_state_protection_and_off_keep_the_nominal_setpoint(hass):
+    climate = _zone(hass)
+    climate.handle_event(_zone_state_event("heating", "setpoint", 20.5))
+    for state in ("protection", "off"):
+        climate.handle_event(_zone_state_event("heating", "setpoint", 20.5))
+        climate.handle_event(_zone_state_event("generic", state))
+        assert (climate.hvac_mode, climate.hvac_action) == (HVACMode.OFF, HVACAction.OFF)
+        assert climate._target_temperature == 20.5
+    # back on without a temperature: the kept setpoint is shown again
+    climate._local_target_temperature = 7.0
+    climate.handle_event(_zone_state_event("heating", "comfort"))
+    assert (climate.hvac_mode, climate.target_temperature) == (HVACMode.HEAT, 20.5)
+
+
+def test_zone_state_generic_and_unsupported_contexts_keep_the_mode(hass):
+    climate = _zone(hass, heating=True, cooling=False)
+    climate.handle_event(_zone_state_event("heating", "setpoint", 19.0))
+    climate.handle_event(_zone_state_event("generic", "setpoint", 19.5))
+    assert (climate.hvac_mode, climate.target_temperature) == (HVACMode.HEAT, 19.5)
+    # a heating-only zone cannot become COOL; the setpoint is still taken
+    climate.handle_event(_zone_state_event("cooling", "setpoint", 25.0))
+    assert (climate.hvac_mode, climate._target_temperature) == (HVACMode.HEAT, 25.0)
+
+
+def test_zone_state_setpoint_while_off_is_kept_but_not_shown(hass):
+    climate = _zone(hass)
+    climate.handle_event(_zone_state_event("heating", "off"))
+    climate._local_target_temperature = 7.0
+    climate.handle_event(_zone_state_event("generic", "setpoint", 22.0))
+    assert (climate.hvac_mode, climate._target_temperature, climate.target_temperature) == (HVACMode.OFF, 22.0, 7.0)
+
+
+def test_zone_state_unknown_values_change_nothing(hass):
+    climate = _zone(hass)
+    climate.handle_event(_zone_state_event("heating", "setpoint", 21.0))
+    climate.handle_event(_zone_state_event("heating", None))
+    climate.handle_event(_zone_state_event(None, "setpoint", None))
+    assert (climate.hvac_mode, climate.target_temperature) == (HVACMode.HEAT, 21.0)
+
+
+def test_zone_state_setpoint_includes_the_local_offset(hass):
+    climate = _zone(hass)
+    climate._local_offset = 1
+    climate.handle_event(_zone_state_event("heating", "setpoint", 20.0))
+    assert (climate._target_temperature, climate.target_temperature) == (20.0, 21.0)
