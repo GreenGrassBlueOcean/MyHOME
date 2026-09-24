@@ -324,10 +324,11 @@ class TestMockGatewayHarness:
                 gw.log_id, cmd,
             )
 
-            # An explicit NACK for status request does NOT retry or warn (logged at DEBUG)
+            # An explicit NACK for a status request does not warn (logged at DEBUG).
+            # OWNd <= 2.0.0b8 sends it twice; later OWNd once (OpenWebNet-HA/OWNd#57).
             status_cmd = OWNCommand.parse("*#16*0*5##")
             assert await session.send(status_cmd, is_status_request=True) is None
-            assert harness.received_messages.count("*#16*0*5##") == 2
+            assert harness.received_messages.count("*#16*0*5##") in (1, 2)
             mock_logger.debug.assert_any_call(
                 "%s Gateway rejected status request %s (NACK, %s response(s)). Subsystem or device may not be present.",
                 gw.log_id, status_cmd, 0,
