@@ -1,7 +1,7 @@
 """Config entry, entity registry, and device registry migration and cleanup helpers."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC
@@ -14,6 +14,16 @@ from homeassistant.helpers import (
 )
 
 from .const import DOMAIN, LOGGER
+
+
+class GatewayProtocol(Protocol):
+    """Protocol for gateway instances inspected during device pruning."""
+
+    @property
+    def unique_id(self) -> str | None: ...
+
+    @property
+    def id(self) -> str | None: ...
 
 
 def _device_for_identifier(
@@ -30,7 +40,7 @@ def _device_for_identifier(
     return None
 
 
-async def async_migrate_entry_and_registries(
+def migrate_entry_and_registries(
     hass: HomeAssistant,
     entry: ConfigEntry,
     configured_platforms: dict[str, dict[str, dict[str, Any]]],
@@ -247,16 +257,16 @@ async def async_migrate_entry_and_registries(
                     pass
 
 
-def async_prune_stale_devices(
+def prune_stale_devices(
     hass: HomeAssistant,
     entry: ConfigEntry,
     gateway_device_entry: dr.DeviceEntry | None = None,
-    gateway: Any = None,
+    gateway: GatewayProtocol | None = None,
 ) -> None:
     """Prune orphaned devices with 0 entities from the device registry."""
-    device_registry = dr.async_get(hass)
-    entity_registry = er.async_get(hass)
     try:
+        device_registry = dr.async_get(hass)
+        entity_registry = er.async_get(hass)
         gateway_dev_id = getattr(gateway_device_entry, "id", None)
         gateway_handler = gateway
         gateway_unique_id = getattr(gateway_handler, "unique_id", None)
@@ -297,3 +307,16 @@ def async_prune_stale_devices(
                 device_registry.async_remove_device(dev.id)
     except Exception as err:
         LOGGER.debug("Error during empty device pruning: %s", err)
+
+
+# Backwards compatibility aliases
+async def async_migrate_entry_and_registries(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    configured_platforms: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    """Async wrapper for migrate_entry_and_registries for backwards compatibility."""
+    migrate_entry_and_registries(hass, entry, configured_platforms)
+
+
+async_prune_stale_devices = prune_stale_devices
