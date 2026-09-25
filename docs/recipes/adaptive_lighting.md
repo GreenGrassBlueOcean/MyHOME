@@ -10,8 +10,8 @@ BTicino MyHOME lighting systems communicate over a physical SCS two-wire bus ope
 
 Starting in MyHOME v2, the integration incorporates specific bus-protection and optimization mechanisms designed for adaptive lighting:
 
-1. **Small-Delta Instant Dispatch & Step Clamping**: Brightness adjustments \<= 1% execute instantly without spawning a background fade task, and identical brightness writes on lights that are already on are skipped entirely. For adjustments \>= 2%, calculation steps are clamped to `delta_pct` and duplicate integer percentage frames are deduplicated. This eliminates bus flooding during periodic circadian adaptations (saving up to ~90% on-wire traffic compared to unclamped 25-step transitions).
-2. **Atomic Parameter Dispatch**: When Adaptive Lighting dispatches `brightness` and `color_temp_kelvin` together in a single service call, MyHOME dispatches both dimensions (Dimension 1 for dimming, Dimension 14 for tunable white) smoothly.
+1. **Small-Delta Instant Dispatch & Step Clamping**: For dimmers configured with `software_stepped` transitions, brightness adjustments \<= 1% execute instantly without spawning a background fade task, and identical brightness writes on lights that are already on are skipped entirely. For adjustments \>= 2%, calculation steps are clamped to `delta_pct` and duplicate integer percentage frames are deduplicated. (For fixtures configured in `native` transition mode, such as DALI gateways, commands already send a single hardware target frame per adaptation tick). This eliminates bus flooding during periodic circadian adaptations (saving up to ~90% on-wire traffic compared to unclamped 25-step transitions).
+2. **Unified Parameter Dispatch**: When Adaptive Lighting dispatches `brightness` and `color_temp_kelvin` together in a single service call, MyHOME dispatches both dimensions (Dimension 1 for dimming, Dimension 14 for tunable white) smoothly.
 3. **Graceful Group Transitions**: Both Home Assistant native `light.group` helpers and MyHOME SCS hardware groups (`MyHOMELightGroup`) tolerate `transition` parameters gracefully without raising configuration errors.
 4. **Optimistic State Tracking**: Native transition commands update Home Assistant's internal entity state immediately, preventing bouncing or visual flicker in circadian loops.
 
@@ -36,7 +36,7 @@ When configuring an Adaptive Lighting instance for MyHOME lights, use the follow
 | **`min_color_temp`** | `2000` K (or fixture min) | Sets the warmest evening/night color temperature. |
 | **`max_color_temp`** | `6535` K (or fixture max) | OpenWebNet Dimension 14 supports up to 6535 K (153 mireds). |
 | **`separate_turn_on_commands`** | `false` | MyHOME handles simultaneous brightness and color temperature in a unified call. |
-| **`detect_non_ha_changes`** | `false` (or test carefully) | Disabling helps prevent physical wall switch dimming from falsely triggering "manual control override" locks due to bus round-trip latency. |
+| **`detect_non_ha_changes`** | `false` (or test carefully) | Disabling prevents physical wall switch dimming from falsely triggering "manual control override" locks due to bus round-trip latency. **Trade-off note**: with `manual_control_on_external_turn_on: true`, toggling a light on or off at the physical wall switch still pauses circadian adaptation as expected, but physical dimmer adjustments made while the light is already on will not pause adaptation until the light is toggled off and back on. |
 | **`manual_control_on_external_turn_on`** | `true` | Allows physical BTicino wall switches to pause circadian adaptation when toggled manually. |
 | **`take_over_control`** | `true` | Resets manual override when turning on via Home Assistant UI or automations. |
 
@@ -83,16 +83,19 @@ In **Settings → Devices & Services → MyHOME → Configure**:
 Create a Light Group helper (**Settings → Devices & Services → Helpers → Create Helper → Light Group**) combining your MyHOME fixtures. Point Adaptive Lighting directly to the `light.group_...` entity. Home Assistant will distribute the target brightness and color temperature across all members. This is the recommended default because it maintains 100% accurate per-entity state tracking regardless of physical actuator model.
 
 ### Option B: MyHOME SCS Hardware Groups (`WHERE = '#G'`)
-If you define SCS groups in `/config/myhome.yaml`:
+If you define SCS groups in `/config/myhome.yaml` under your gateway MAC address:
 ```yaml
-groups:
-  living_room_dali_group:
-    where: '#1'
-    name: Living Room DALI Group
-    members:
-      - '11'
-      - '12'
-      - '13'
+00:03:50:xx:xx:xx:  # Your gateway MAC address
+  light:
+    living_room_dali_group:
+      where: '#1'
+      name: Living Room DALI Group
+      dimmable: true
+      color_temp: true
+      members:
+        - '11'
+        - '12'
+        - '13'
 ```
 Adaptive Lighting can control `light.living_room_dali_group` directly. MyHOME dispatches both brightness and color temperature across the group without transition errors. Targeting an SCS hardware group issues a single pair of frames on the bus for all ballasts, significantly cutting bus traffic compared to individually addressing many fixtures.
 

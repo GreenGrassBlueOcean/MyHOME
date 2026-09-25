@@ -24,7 +24,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
-from .const import DOMAIN
+from .const import DOMAIN, eight_bits_to_percent
 from .myhome_device import MyHOMEEntity
 
 LOGGER = logging.getLogger(__name__)
@@ -261,7 +261,8 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
                 kwargs["transition"],
             )
 
-        # Dispatch color temperature if specified
+        # Dispatch color temperature if specified (takes precedence over HS color
+        # if both are provided in a single service call, matching core behavior).
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
             mired = int(1000000 / kwargs[ATTR_COLOR_TEMP_KELVIN])
             await self._gateway_handler.send(
@@ -275,7 +276,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         elif ATTR_HS_COLOR in kwargs:
             h, s = kwargs[ATTR_HS_COLOR]
             if ATTR_BRIGHTNESS in kwargs:
-                v_level = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
+                v_level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
             else:
                 v_level = self._last_brightness_pct
             await self._gateway_handler.send(
@@ -293,7 +294,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
 
         # Dispatch brightness if specified (and not already included in HSV frame)
         if ATTR_BRIGHTNESS in kwargs and ATTR_HS_COLOR not in kwargs:
-            level = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
+            level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, level)
             )

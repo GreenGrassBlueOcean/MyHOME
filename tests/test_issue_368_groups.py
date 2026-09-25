@@ -648,3 +648,18 @@ async def test_group_turn_on_simultaneous_brightness_and_hs_color(hass: HomeAssi
     assert group.hs_color == (120.0, 50.0)
     assert group.is_on is True
 
+
+async def test_group_turn_on_brightness_rounding(hass: HomeAssistant):
+    """A lighting group rounds brightness to percent (half-to-even) rather than truncating."""
+    gateway = _gateway()
+    group = _group(hass, gateway, dimmable=True, color_temp=False, rgb=False)
+
+    # 254/255 = 99.6078% -> rounds to 100% -> dimension 1 level 200 (100+100)
+    await group.async_turn_on(**{ATTR_BRIGHTNESS: 254})
+
+    assert gateway.send.await_count == 1
+    sent = str(gateway.send.call_args[0][0])
+    assert sent == "*#1*#6*#1*200*0##"
+    assert group.brightness == 254
+
+

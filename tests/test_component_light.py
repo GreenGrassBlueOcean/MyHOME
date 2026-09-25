@@ -551,6 +551,53 @@ async def test_software_stepped_transition_only_same_brightness_skips_bus_send(h
     light.async_schedule_update_ha_state.assert_called_once()
 
 
+async def test_software_stepped_turn_off_delta_zero_or_one_instant_path(hass):
+    """Test async_turn_off with transition and delta <= 1% executes instant path."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    cfg = MagicMock()
+    cfg.options = {CONF_TRANSITION_MODE: TRANSITION_MODE_SOFTWARE}
+    gateway.config_entry = cfg
+
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="24off1", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 1
+
+    # 1% -> 0% (1% delta): instant turn off, no fade task spawned, exactly 1 send
+    await light.async_turn_off(**{ATTR_TRANSITION: 45.0})
+    assert light._fade_task is None
+    gateway.send.assert_called_once()
+    assert light.is_on is False
+    assert light._attr_brightness_pct == 0
+
+
+async def test_software_stepped_fade_to_instant_path_direct(hass):
+    """Test calling _async_fade_to directly with delta <= 1% triggers instant brightness."""
+    gateway = MagicMock()
+    gateway.send = AsyncMock()
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="fade_inst", who="1", where="24", interface=None, dimmable=True,
+        manufacturer="B", model="M", gateway=gateway
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._attr_is_on = True
+    light._attr_brightness_pct = 50
+    light._fade_id = 42
+
+    await light._async_fade_to(start_pct=50, target_pct=51, duration=2.0, fade_id=42)
+    assert light._fade_task is None
+    gateway.send.assert_called_once()
+    assert light._attr_brightness_pct == 51
+
+
 async def test_software_stepped_fade_with_color_temp(hass):
     """Test combined color_temp_kelvin and brightness with transition dispatches CT then fades."""
     gateway = MagicMock()
