@@ -88,11 +88,11 @@ def test_gateway_properties_standalone_and_secondary(hass: HomeAssistant) -> Non
     assert gw_primary.bus_topology == TOPOLOGY_STANDALONE
     assert gw_primary.gateway_role == ROLE_PRIMARY
     assert gw_primary.is_primary is True
-    assert gw_primary.is_secondary is False
+    assert gw_primary.is_follower is False
     assert gw_primary.primary_gateway_mac is None
     assert gw_primary.delegated_whos == set()
     assert entry_primary.runtime_data.is_primary is True
-    assert entry_primary.runtime_data.is_secondary is False
+    assert entry_primary.runtime_data.is_follower is False
 
     entry_secondary, gw_secondary = _create_mock_gateway(
         hass,
@@ -105,11 +105,11 @@ def test_gateway_properties_standalone_and_secondary(hass: HomeAssistant) -> Non
     assert gw_secondary.bus_topology == TOPOLOGY_SHARED
     assert gw_secondary.gateway_role == ROLE_SECONDARY
     assert gw_secondary.is_primary is False
-    assert gw_secondary.is_secondary is True
+    assert gw_secondary.is_follower is True
     assert gw_secondary.primary_gateway_mac == "00:03:50:aa:bb:01"
     assert gw_secondary.delegated_whos == {5, 16}
     assert entry_secondary.runtime_data.is_primary is False
-    assert entry_secondary.runtime_data.is_secondary is True
+    assert entry_secondary.runtime_data.is_follower is True
 
 
 @pytest.mark.asyncio
@@ -293,8 +293,10 @@ async def test_shared_bus_traffic_detection_tx_rx(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
-async def test_shared_bus_traffic_detection_concurrent_rx(hass: HomeAssistant) -> None:
-    """Detect unconfigured shared bus when Gateway A and B receive physical frames simultaneously."""
+async def test_shared_bus_traffic_detection_tx_echo(hass: HomeAssistant) -> None:
+    """Detect unconfigured shared bus when Gateway A transmits and Gateway B receives it."""
+    import time
+
     from OWNd.message import OWNLightingEvent
 
     _, gw_a = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
@@ -302,10 +304,11 @@ async def test_shared_bus_traffic_detection_concurrent_rx(hass: HomeAssistant) -
 
     with patch("custom_components.myhome.repairs.async_create_shared_bus_issue") as mock_issue:
         msg = OWNLightingEvent.parse("*1*1*61##")
-        for _ in range(3):
-            # Gateway A receives physical frame
-            await gw_a._process_message(msg)
-            # Gateway B receives physical frame shortly after
+        for i in range(3):
+            # Gateway A transmits frame
+            gw_a._record_tx(time.time() + i * 15 - 0.05, msg)
+            # Gateway B receives physical frame shortly after (echo)
+            msg.timestamp = time.time() + i * 15
             await gw_b._process_message(msg)
 
         mock_issue.assert_called_once_with(hass, "00:03:50:aa:bb:01", "00:03:50:aa:bb:02")
@@ -344,6 +347,14 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
     # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##); covers/climate are delegated away = 3
     assert gw_a.send.call_count == 3
+    assert gw_b.send.call_count == 0
+
+    gw_a.send.reset_mock()
+    gw_b.send.reset_mock()
+
+    # 4. targeted sweep hits the secondary
+    await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True)
+    assert gw_a.send.call_count == 0
     # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 16 = 6
     assert gw_b.send.call_count == 6
 
@@ -373,7 +384,7 @@ async def test_diagnostics_multi_gateway(hass: HomeAssistant) -> None:
     gw_data = diag["gateway"]
     assert gw_data["bus_topology"] == TOPOLOGY_SHARED
     assert gw_data["gateway_role"] == ROLE_SECONDARY
-    assert gw_data["is_secondary"] is True
+    assert gw_data["is_follower"] is True
     assert gw_data["primary_gateway"] == "00:03:50:aa:bb:01"
     assert gw_data["delegated_whos"] == [5]
 
@@ -422,7 +433,7 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
             CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
             CONF_GATEWAY_ROLE: ROLE_SECONDARY,
             CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-            CONF_DELEGATED_WHOS: ["5", "16", "invalid_non_int"],
+            CONF_DELEGATED_WHOS: ["2", "16", "invalid_non_int"],
         })
 
     assert res["type"] == FlowResultType.CREATE_ENTRY
@@ -430,7 +441,7 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
     assert options[CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
     assert options[CONF_GATEWAY_ROLE] == ROLE_SECONDARY
     assert options[CONF_PRIMARY_GATEWAY] == "00:03:50:aa:bb:01"
-    assert options[CONF_DELEGATED_WHOS] == [5, 16]
+    assert options[CONF_DELEGATED_WHOS] == [2, 16]
     # No reload from inside the flow: it would still see the old options (the listener reloads)
     assert not mock_reload.called
     # Verify repair issue was automatically cleared
@@ -449,12 +460,12 @@ def test_gateway_properties_standby(hass: HomeAssistant) -> None:
     assert gw_standby.bus_topology == TOPOLOGY_SHARED
     assert gw_standby.gateway_role == ROLE_STANDBY
     assert gw_standby.is_primary is False
-    assert gw_standby.is_secondary is True
+    assert gw_standby.is_follower is True
     assert gw_standby.is_standby is True
     assert gw_standby.primary_gateway_mac == "00:03:50:aa:bb:01"
     assert gw_standby.failover_active is False
     assert entry_standby.runtime_data.is_standby is True
-    assert entry_standby.runtime_data.is_secondary is True
+    assert entry_standby.runtime_data.is_follower is True
     assert entry_standby.runtime_data.is_primary is False
 
 
@@ -631,7 +642,7 @@ async def test_warm_standby_diagnostics_and_options_flow(hass: HomeAssistant) ->
     diag = await async_get_config_entry_diagnostics(hass, entry_sb)
     assert diag["gateway"]["bus_topology"] == TOPOLOGY_SHARED
     assert diag["gateway"]["gateway_role"] == ROLE_STANDBY
-    assert diag["gateway"]["is_secondary"] is True
+    assert diag["gateway"]["is_follower"] is True
     assert diag["gateway"]["is_standby"] is True
     assert diag["gateway"]["failover_active"] is False
 
@@ -965,8 +976,9 @@ def test_shared_bus_evidence_capping(hass: HomeAssistant) -> None:
 
         # Three inside the window do; the evidence then starts over
         start = 10 * 86400.0
-        for i in range(3):
+        for i in range(2):
             gw1._record_shared_bus_evidence(other_mac, start + i * SHARED_BUS_EVIDENCE_WINDOW_S / 3)
+        gw1._record_shared_bus_evidence(other_mac, start + 2 * SHARED_BUS_EVIDENCE_WINDOW_S / 3, is_tx_echo=True)
         mock_issue.assert_called_once_with(hass, *pair_key)
         assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 0
 

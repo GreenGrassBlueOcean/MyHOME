@@ -421,17 +421,17 @@ class PlatformDiscovery:
     # ── shared bus (#453) ───────────────────────────────────────────────
 
     @property
-    def _is_secondary(self) -> bool:
-        return getattr(self.runtime, "is_secondary", False) is True
+    def _is_follower(self) -> bool:
+        return getattr(self.runtime, "is_follower", False) is True
 
     def _runtime_whos(self, name: str) -> set[int]:
         whos = getattr(self.runtime, name, None)
         return set(whos) if isinstance(whos, (set, frozenset, list, tuple)) else set()
 
     def _owned_by_primary(self, registry: er.EntityRegistry, unique_id: str | None) -> bool:
-        """Whether this secondary's entity already exists on its primary gateway."""
+        """Whether this follower's entity already exists on its primary gateway."""
         primary_mac = getattr(self.runtime, "primary_gateway_mac", None)
-        if not unique_id or not isinstance(primary_mac, str) or not primary_mac or not self._is_secondary:
+        if not unique_id or not isinstance(primary_mac, str) or not primary_mac or not self._is_follower:
             return False
         peer = peer_unique_id(unique_id, self.mac, primary_mac)
         return peer is not None and registry.async_get_entity_id(self.platform, DOMAIN, peer) is not None
@@ -439,13 +439,13 @@ class PlatformDiscovery:
     def _discovers(self) -> bool:
         """Whether this gateway creates new entities of this platform's WHO from bus traffic.
 
-        On a shared bus each WHO has one discovering gateway: the secondary for the
+        On a shared bus each WHO has one discovering gateway: the follower for the
         WHOs delegated to it, the primary for the rest.
         """
         who = int(self.who) if str(self.who).isdigit() else None
         if who is None:
             return True
-        if self._is_secondary:
+        if self._is_follower:
             return who in self._runtime_whos("delegated_whos")
         return who not in self._runtime_whos("delegated_away_whos")
 
@@ -456,7 +456,7 @@ class PlatformDiscovery:
             return []
         created: list[MyHOMEEntity] = list(built) if isinstance(built, (list, tuple)) else [cast(MyHOMEEntity, built)]
         keys = list(self.known_keys(ctx))
-        if ctx.source == "bus" and self._is_secondary:
+        if ctx.source == "bus" and self._is_follower:
             # A delegated WHO: a device the primary found before the delegation stays there.
             registry, _entries = self.registry_entries()
             if registry is not None:

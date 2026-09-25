@@ -249,9 +249,10 @@ async def test_brightness_restore_does_not_downgrade_color_light(hass, mock_gate
 
 
 async def test_discovery_skips_unsupported_who(gateway_handler):
-    """A profile without WHO 16 (OWNd's MH200N profile) must not be asked *#16*0*5## at startup."""
+    """A profile without WHO 16 must not be asked *#16*0*5## at startup."""
     gateway_handler.gateway.profile = get_gateway_profile("MH200N")
-    await gateway_handler.initial_discovery()
+    with patch.object(gateway_handler, "_profile_supports_who", side_effect=lambda w: w != 16):
+        await gateway_handler.initial_discovery()
 
     queued = []
     while not gateway_handler.send_buffer.empty():

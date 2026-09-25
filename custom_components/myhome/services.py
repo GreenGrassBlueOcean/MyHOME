@@ -79,7 +79,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             cmd = OWNGatewayCommand.set_datetime_to_now(timezone)
             # Once per bus: a secondary/standby shares its primary's bus
             for gw_handler in gateways.values():
-                if getattr(gw_handler, "is_secondary", False) is not True:
+                if getattr(gw_handler, "is_follower", False) is not True:
                     await gw_handler.send(cmd)
             return
 
@@ -150,7 +150,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 _LOGGER.error("Gateway `%s` not found for sweep_bus.", gateway)
                 return
         else:
-            target_gateways = gateways
+            target_gateways = {mac: hw for mac, hw in gateways.items() if not hw.is_follower}
 
         if not target_gateways:
             _LOGGER.warning("No active MyHOME gateways found to sweep.")
@@ -163,7 +163,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 "*#13**15##",  # Gateway device model
                 "*#13**16##",  # Gateway firmware version
             ]
-            if getattr(handler, "is_secondary", False) is True:
+            if getattr(handler, "is_follower", False) is True:
                 delegated: set[int] = getattr(handler, "delegated_whos", set())
                 if 2 in delegated:
                     queries.append("*#2*0##")

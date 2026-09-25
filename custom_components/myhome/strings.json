@@ -144,7 +144,10 @@
       "primary_gateway_not_found": "The selected primary gateway could not be found.",
       "circular_gateway_reference": "Circular reference: the selected primary gateway already points to this gateway.",
       "primary_gateway_not_shared_primary": "The selected gateway must first be configured with bus topology Shared and role Primary.",
-      "gateway_has_dependents": "Other gateways use this gateway as their primary. Point them at another primary (or make them standalone) first."
+      "gateway_has_dependents": "Other gateways use this gateway as their primary. Point them at another primary (or make them standalone) first.",
+      "overlapping_delegated_whos": "One or more of the selected WHOs are already delegated to another secondary gateway on this bus.",
+      "who_not_supported_by_gateway": "One or more of the selected WHOs are not supported by this gateway model's profile.",
+      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary."
     }
   },
   "services": {

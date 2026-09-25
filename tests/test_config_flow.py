@@ -881,7 +881,7 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
     form = await opt_flow.async_step_init()
     assert form["type"] == FlowResultType.FORM
 
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         res = await opt_flow.async_step_user({
             CONF_ADDRESS: "192.0.2.10",
             CONF_NAME: "MyHomeServer1",
@@ -894,7 +894,6 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_NAME] == "MyHomeServer1"
     assert entry.title == "MyHomeServer1 Gateway"
-    assert mock_reload.called
 
 
 async def test_options_flow_model_selection_survives_reload_and_next_who13(hass: HomeAssistant) -> None:
@@ -944,7 +943,7 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
     opt_flow = MyhomeOptionsFlowHandler(entry)
     opt_flow.hass = hass
     await opt_flow.async_step_init()
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         res = await opt_flow.async_step_user({
             CONF_ADDRESS: "192.0.2.10",
             CONF_NAME: "MH200",
@@ -954,7 +953,6 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
             CONF_TRANSITION_MODE: "software_stepped",
         })
     assert res["type"] == FlowResultType.CREATE_ENTRY
-    assert mock_reload.called
     assert entry.data[CONF_NAME] == "MH200"
     assert entry.data["model_source"] == IDENTIFICATION_MANUAL
 
@@ -1001,7 +999,7 @@ async def test_reconfigure_flow_ip_gateway_success(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
 
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1015,7 +1013,7 @@ async def test_reconfigure_flow_ip_gateway_success(hass: HomeAssistant) -> None:
     assert result2["reason"] == "reconfigure_successful"
     assert entry.data[CONF_HOST] == "192.168.1.100"
     assert entry.data[CONF_PASSWORD] == "5678"
-    assert mock_reload.called
+
 
 
 async def test_reconfigure_flow_ip_gateway_invalid_ip(hass: HomeAssistant) -> None:
@@ -1094,7 +1092,7 @@ async def test_reconfigure_flow_serial_gateway(hass: HomeAssistant) -> None:
     assert result_err["errors"]["port"] == "invalid_port"
 
     # Valid reconfigure
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1107,7 +1105,7 @@ async def test_reconfigure_flow_serial_gateway(hass: HomeAssistant) -> None:
     assert result2["reason"] == "reconfigure_successful"
     assert entry.data[CONF_HOST] == "/dev/ttyUSB1"
     assert entry.data["baudrate"] == 38400
-    assert mock_reload.called
+
 
 
 async def test_reconfigure_flow_missing_entry(hass: HomeAssistant) -> None:

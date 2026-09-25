@@ -29,7 +29,7 @@ from .const import (
 def _setting(entry: Any, key: str) -> Any:
     """An entry setting, options first, then data."""
     for source in (getattr(entry, "options", None), getattr(entry, "data", None)):
-        if isinstance(source, Mapping) and source.get(key):
+        if isinstance(source, Mapping) and key in source:
             return source[key]
     return None
 
@@ -49,14 +49,19 @@ def entry_role(entry: Any) -> str:
     return str(_setting(entry, CONF_GATEWAY_ROLE) or ROLE_PRIMARY)
 
 
-def entry_is_secondary(entry: Any) -> bool:
+def entry_is_follower(entry: Any) -> bool:
     """Secondary or standby on a shared bus."""
     return entry_topology(entry) == TOPOLOGY_SHARED and entry_role(entry) in (ROLE_SECONDARY, ROLE_STANDBY)
 
 
+def entry_is_secondary(entry: Any) -> bool:
+    """Strictly a secondary on a shared bus (delegated WHOs, no failover)."""
+    return entry_topology(entry) == TOPOLOGY_SHARED and entry_role(entry) == ROLE_SECONDARY
+
+
 def entry_primary_mac(entry: Any) -> str | None:
     """The primary a secondary/standby entry points at."""
-    if not entry_is_secondary(entry):
+    if not entry_is_follower(entry):
         return None
     raw = _setting(entry, CONF_PRIMARY_GATEWAY)
     return dr.format_mac(str(raw)) if raw else None
@@ -112,7 +117,7 @@ def async_check_primary_links(hass: HomeAssistant, *, removed: str | None = None
             continue
         primary = entry_primary_mac(entry)
         target = entry_for_mac(hass, primary, exclude=removed) if primary else None
-        if not entry_is_secondary(entry) or (
+        if not entry_is_follower(entry) or (
             target is not None and entry_topology(target) == TOPOLOGY_SHARED and entry_role(target) == ROLE_PRIMARY
         ):
             async_delete_primary_missing_issue(hass, entry.entry_id)

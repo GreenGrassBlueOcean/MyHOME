@@ -83,7 +83,7 @@ async def async_get_config_entry_diagnostics(
             if isinstance(bus_topology, str):
                 gw_info["bus_topology"] = bus_topology
                 gw_info["gateway_role"] = str(getattr(gateway_handler, "gateway_role", "primary"))
-                gw_info["is_secondary"] = bool(getattr(gateway_handler, "is_secondary", False))
+                gw_info["is_follower"] = bool(getattr(gateway_handler, "is_follower", False))
                 gw_info["is_standby"] = bool(getattr(gateway_handler, "is_standby", False))
                 gw_info["failover_active"] = bool(getattr(gateway_handler, "failover_active", False))
                 gw_info["primary_gateway"] = getattr(gateway_handler, "primary_gateway_mac", None)

@@ -51,9 +51,9 @@ class MyHOMERuntimeData:
         return getattr(self.gateway, "is_primary", True) is True
 
     @property
-    def is_secondary(self) -> bool:
+    def is_follower(self) -> bool:
         """Whether this gateway is a secondary gateway sharing a bus."""
-        return getattr(self.gateway, "is_secondary", False) is True
+        return getattr(self.gateway, "is_follower", False) is True
 
     @property
     def is_standby(self) -> bool:

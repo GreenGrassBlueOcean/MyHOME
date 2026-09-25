@@ -75,6 +75,7 @@ from .const import (
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .topology import (
     dependents,
+    entry_delegated_whos,
     entry_for_mac,
     entry_mac,
     entry_primary_mac,
@@ -779,6 +780,46 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             elif entry_topology(target) != TOPOLOGY_SHARED or entry_role(target) != ROLE_PRIMARY:
                 # Otherwise the primary does not know it shares its bus and flags its own standby
                 errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_shared_primary"
+
+            if norm_pri and in_role == ROLE_STANDBY and CONF_PRIMARY_GATEWAY not in errors:
+                for other in dependents(self.hass, norm_pri):
+                    if getattr(self.config_entry, "entry_id", None) == other.entry_id:
+                        continue
+                    if entry_role(other) == ROLE_STANDBY:
+                        errors[CONF_GATEWAY_ROLE] = "multiple_standbys"
+                        break
+
+            if in_role == ROLE_SECONDARY and CONF_PRIMARY_GATEWAY not in errors:
+                delegated: list[int] = []
+                for item in user_input.get(CONF_DELEGATED_WHOS, []):
+                    try:
+                        delegated.append(int(item))
+                    except (ValueError, TypeError):
+                        pass
+
+                my_model = self.data.get(CONF_NAME)
+                if my_model:
+                    from OWNd.profiles import get_gateway_profile
+                    profile = get_gateway_profile(my_model)
+                    supports = getattr(profile, "supports_who", None)
+                    if callable(supports):
+                        for w in delegated:
+                            try:
+                                if not supports(int(w)):
+                                    errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"
+                                    break
+                            except ValueError:
+                                pass
+
+                if norm_pri and CONF_DELEGATED_WHOS not in errors:
+                    for other in dependents(self.hass, norm_pri):
+                        if getattr(self.config_entry, "entry_id", None) == other.entry_id:
+                            continue
+                        if entry_role(other) == ROLE_SECONDARY:
+                            if set(delegated) & entry_delegated_whos(other):
+                                errors[CONF_DELEGATED_WHOS] = "overlapping_delegated_whos"
+                                break
+
         if not (shared and in_role == ROLE_PRIMARY) and my_mac and dependents(self.hass, my_mac):
             errors[CONF_GATEWAY_ROLE] = "gateway_has_dependents"
         if errors:
@@ -791,7 +832,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         else:
             self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
         if follower and in_role == ROLE_SECONDARY:
-            delegated: list[int] = []
+            delegated = []
             for item in user_input.get(CONF_DELEGATED_WHOS, []):
                 try:
                     delegated.append(int(item))
@@ -896,9 +937,14 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if _model_update and self.config_entry.title.endswith("Gateway"):
                             update_kwargs["title"] = f"{user_input[CONF_NAME]} Gateway"  # type: ignore
                         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)  # type: ignore
-                        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-                    # A topology change is applied by the options listener, which runs
-                    # once these options are saved (a reload here would still see the old ones).
+
+                    # We must only reload once. The options flow listener triggers a reload
+                    # if the options dictionary actually changed. If data changed but options
+                    # did not, we must trigger the reload ourselves.
+                    options_changed = self.options != self.config_entry.options
+                    if _data_update and not options_changed:
+                        # Schedule a background reload so we can return the options form close event safely
+                        self.hass.async_create_task(self.hass.config_entries.async_reload(self.config_entry.entry_id))
 
                     return self.async_create_entry(title="", data=self.options)  # type: ignore
 
@@ -1075,7 +1121,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )
             schema_dict[vol.Optional(
                 CONF_PRIMARY_GATEWAY,
-                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY, gw_options[0]["value"])},  # type: ignore
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY) or gw_options[0]["value"]},  # type: ignore
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=gw_options,

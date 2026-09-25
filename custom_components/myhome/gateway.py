@@ -99,7 +99,7 @@ from .repairs import (
 from .topology import (
     delegated_away_whos,
     entry_delegated_whos,
-    entry_is_secondary,
+    entry_is_follower,
     entry_primary_mac,
     entry_role,
     entry_topology,
@@ -432,6 +432,15 @@ class MyHOMEGatewayHandler:
             return True
         return False
 
+    def is_who_available(self, who: str | int) -> bool:
+        """Return True if this gateway (or its failover) can currently handle the given WHO."""
+        if self._available:
+            return True
+        standby = self._get_standby_gateway()
+        if standby is not None and standby.available:
+            return standby._profile_supports_who(int(who))
+        return False
+
     @property
     def availability_signal(self) -> str:
         """Return the dispatcher signal for availability changes."""
@@ -448,9 +457,9 @@ class MyHOMEGatewayHandler:
         return entry_role(self.config_entry)
 
     @property
-    def is_secondary(self) -> bool:
+    def is_follower(self) -> bool:
         """Return True if this gateway is a secondary or standby gateway on a shared bus."""
-        return entry_is_secondary(self.config_entry)
+        return entry_is_follower(self.config_entry)
 
     @property
     def is_standby(self) -> bool:
@@ -460,7 +469,7 @@ class MyHOMEGatewayHandler:
     @property
     def is_primary(self) -> bool:
         """Return True if this gateway acts as primary (or standalone) on its bus."""
-        return not self.is_secondary
+        return not self.is_follower
 
     @property
     def failover_active(self) -> bool:
@@ -480,7 +489,7 @@ class MyHOMEGatewayHandler:
     @property
     def delegated_away_whos(self) -> set[int]:
         """Subsystems this primary leaves to its secondaries: no sweep, no new entities."""
-        if self.is_secondary or not getattr(self, "hass", None):
+        if self.is_follower or not getattr(self, "hass", None):
             return set()
         return delegated_away_whos(self.hass, self.mac)
 
@@ -862,31 +871,37 @@ class MyHOMEGatewayHandler:
         # 1. Another gateway wrote this exact frame just now (TX -> RX echo)
         for tx_time, tx_mac, tx_group, tx_frame in recent_tx:
             if tx_group != group and tx_frame == raw_msg and now - tx_time <= SHARED_BUS_TX_ECHO_S:
-                self._record_shared_bus_evidence(tx_mac, now)
+                self._record_shared_bus_evidence(tx_mac, now, is_tx_echo=True)
                 return
 
         # 2. Another gateway received this exact frame at the same moment (physical event)
         recent_rx = domain_data.setdefault("_recent_rx", collections.deque(maxlen=50))
         for rx_time, rx_mac, rx_group, rx_frame in recent_rx:
             if rx_group != group and rx_frame == raw_msg and now - rx_time <= SHARED_BUS_RX_WINDOW_S:
-                self._record_shared_bus_evidence(rx_mac, now)
+                self._record_shared_bus_evidence(rx_mac, now, is_tx_echo=False)
                 return
         recent_rx.append((now, self.mac, group, raw_msg))
 
-    def _record_shared_bus_evidence(self, other_mac: str, now: float) -> None:
+    def _record_shared_bus_evidence(self, other_mac: str, now: float, is_tx_echo: bool = False) -> None:
         """Count one correlated frame; raise the repair issue on enough recent ones."""
-        if not other_mac or other_mac == self.mac:
+        from homeassistant.helpers import device_registry as dr
+        my_mac = dr.format_mac(str(self.mac))
+        other_mac = dr.format_mac(str(other_mac))
+
+        if not other_mac or other_mac == my_mac:
             return
         domain_data = self.hass.data.setdefault(DOMAIN, {})
         evidence_map = domain_data.setdefault("_shared_bus_evidence", {})
-        pair_key = tuple(sorted([self.mac, other_mac]))
+        pair_key = tuple(sorted([my_mac, other_mac]))
         seen = evidence_map.setdefault(pair_key, collections.deque(maxlen=SHARED_BUS_EVIDENCE_COUNT))
-        seen.append(now)
+        seen.append((now, is_tx_echo))
         # Only evidence inside one window counts: coincidences spread over days do not add up.
-        if len(seen) == SHARED_BUS_EVIDENCE_COUNT and seen[-1] - seen[0] <= SHARED_BUS_EVIDENCE_WINDOW_S:
-            seen.clear()
-            from .repairs import async_create_shared_bus_issue
-            async_create_shared_bus_issue(self.hass, pair_key[0], pair_key[1])
+        # Require at least one TX->RX echo to prevent false positives on standalone buses (issue #459).
+        if len(seen) == SHARED_BUS_EVIDENCE_COUNT and seen[-1][0] - seen[0][0] <= SHARED_BUS_EVIDENCE_WINDOW_S:
+            if any(is_tx for _, is_tx in seen):
+                seen.clear()
+                from .repairs import async_create_shared_bus_issue
+                async_create_shared_bus_issue(self.hass, pair_key[0], pair_key[1])
 
     async def _process_message(self, message: Any) -> None:
         """Process a received message and dispatch to Home Assistant."""
@@ -1600,9 +1615,9 @@ class MyHOMEGatewayHandler:
         # The literal frame parses on every OWNd release; OWNSoundCommand.status() only emits
         # dimension 5 from OWNd#51 on. Subsystems the gateway profile does not advertise are skipped.
         for who, frame in ((2, "*#2*0##"), (4, "*#4*0##"), (16, "*#16*0*5##")):
-            if getattr(self, "is_secondary", False) is True and who not in getattr(self, "delegated_whos", set()):
+            if getattr(self, "is_follower", False) is True and who not in getattr(self, "delegated_whos", set()):
                 LOGGER.debug(
-                    "%s Skipping WHO=%s discovery: secondary gateway on shared bus.",
+                    "%s Skipping WHO=%s discovery: follower gateway on shared bus.",
                     self.log_id,
                     who,
                 )
@@ -1671,11 +1686,19 @@ class MyHOMEGatewayHandler:
 
     def _failover_target(self, message: OWNCommand) -> "MyHOMEGatewayHandler" | None:
         """The connected warm standby to send through while this primary is disconnected."""
+        msg_who = getattr(message, "who", getattr(message, "_who", None))
+        if msg_who in (13, 1013):
+            return None
+
         if self.is_connected:
             return None
         standby = self._get_standby_gateway()
         if standby is None or not standby.is_connected:
             return None
+
+        if msg_who is not None and not standby._profile_supports_who(int(msg_who)):
+            return None
+
         LOGGER.debug(
             "%s Primary gateway is disconnected; sending `%s` through standby gateway %s.",
             self.log_id,
