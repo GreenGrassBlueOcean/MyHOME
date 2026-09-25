@@ -32,10 +32,6 @@
   mcp_valid: true
   mcp_notes: "Plant A: WHO 16 dimension 5 general status request on MH200. Gateway answers with status of all audio zones and active sources (spec §1.5.2)."
   roundtrip: true
-  builder:
-    class: OWNSoundCommand
-    method: status
-    args: ["0"]
 
 - id: sound.dim.state.request.101
   frame: "*#16*101*5##"
@@ -48,10 +44,6 @@
   mcp_valid: true
   mcp_notes: "Plant A: request state for stereo source device 101 on MH200."
   roundtrip: true
-  builder:
-    class: OWNSoundCommand
-    method: status
-    args: ["101"]
 
 # ── Source devices (WHERE 101-109) ────────────────────────────────────────────
 

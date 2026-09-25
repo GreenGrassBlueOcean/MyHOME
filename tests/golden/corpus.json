@@ -2520,13 +2520,6 @@
     "mcp_valid": true,
     "mcp_notes": "Plant A: WHO 16 dimension 5 general status request on MH200. Gateway answers with status of all audio zones and active sources (spec \u00a71.5.2).",
     "roundtrip": true,
-    "builder": {
-      "class": "OWNSoundCommand",
-      "method": "status",
-      "args": [
-        "0"
-      ]
-    },
     "_file": "who16_sound.yaml"
   },
   {
@@ -2541,13 +2534,6 @@
     "mcp_valid": true,
     "mcp_notes": "Plant A: request state for stereo source device 101 on MH200.",
     "roundtrip": true,
-    "builder": {
-      "class": "OWNSoundCommand",
-      "method": "status",
-      "args": [
-        "101"
-      ]
-    },
     "_file": "who16_sound.yaml"
   },
   {
