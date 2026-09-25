@@ -66,7 +66,9 @@ from .const import (
     TRANSITION_MODE_NATIVE,
     TRANSITION_MODE_SOFTWARE,
     build_timed_turn_on_command,
+    eight_bits_to_percent,
     normalize_where,
+    percent_to_eight_bits,
 )
 from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery, parse_unique_id
@@ -274,13 +276,6 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: MyHOMEConfigEntr
     return True
 
 
-def eight_bits_to_percent(value: int) -> int:
-    return int(round((value * 100) / 255, 0))
-
-
-def percent_to_eight_bits(value: int) -> int:
-    return int(round((value * 255) / 100, 0))
-
 
 class MyHOMELight(MyHOMEEntity, LightEntity):
     def __init__(
@@ -382,6 +377,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._fade_task: asyncio.Task[None] | None = None
         self._fade_id: int = 0
         self._cmd_lock: asyncio.Lock = asyncio.Lock()
+        self._warned_multi_worker: bool = False
         self._last_brightness_pct: int = 100
 
     @property
@@ -530,6 +526,19 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 OWNLightingCommand.set_brightness(self._full_where, pct, 0)
             )
 
+    async def _maybe_instant_brightness(
+        self, start_pct: int, target_pct: int, is_on: bool | None = None
+    ) -> bool:
+        """Execute instant brightness if delta <= 1%, skipping bus if already at target."""
+        delta_pct = abs(target_pct - start_pct)
+        if delta_pct <= 1:
+            if not (self.is_on and target_pct == start_pct):
+                await self._set_brightness_instant(target_pct)
+            self._apply_brightness_state(target_pct, is_on=is_on)
+            self.async_schedule_update_ha_state()
+            return True
+        return False
+
     def _apply_brightness_state(self, pct: int, is_on: bool | None = None) -> None:
         pct = max(0, min(100, int(pct)))
         self._attr_brightness_pct = pct
@@ -557,6 +566,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if self._fade_task and not self._fade_task.done():
             self._fade_task.cancel()
             try:
+                # shield() prevents wait_for from double-cancelling the task
+                # when the 0.15 s timeout fires (we already called .cancel()).
                 await asyncio.wait_for(asyncio.shield(self._fade_task), timeout=0.15)
             except (Exception, asyncio.CancelledError):
                 pass
@@ -575,9 +586,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if fade_id != self._fade_id:
             return
 
-        # Warn if using multiple workers (can interleave steps for this light)
+        # Warn once if using multiple workers (can interleave steps for this light)
         try:
-            if self._gateway_handler and self._gateway_handler.config_entry:
+            if not self._warned_multi_worker and self._gateway_handler and self._gateway_handler.config_entry:
                 wc = self._gateway_handler.config_entry.options.get(CONF_WORKER_COUNT, 1)
                 if int(wc) > 1:
                     LOGGER.warning(
@@ -585,10 +596,16 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                         "Step reordering is possible. Recommend =1 for reliable fades.",
                         self._where, wc
                     )
+                    self._warned_multi_worker = True
         except Exception:
             pass
 
-        if duration < 0.05 or abs(target_pct - start_pct) < 1:
+        if await self._maybe_instant_brightness(start_pct, target_pct):
+            if fade_id == self._fade_id:
+                self._fade_task = None
+            return
+
+        if duration < 0.05:
             await self._set_brightness_instant(target_pct)
             self._apply_brightness_state(target_pct)
             self.async_schedule_update_ha_state()
@@ -596,16 +613,20 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._fade_task = None
             return
 
+        delta_pct = abs(target_pct - start_pct)
+        calc_steps = int(duration / SOFTWARE_TRANSITION_STEP_INTERVAL + 0.5)
         num_steps = max(
-            SOFTWARE_TRANSITION_MIN_STEPS,
+            min(SOFTWARE_TRANSITION_MIN_STEPS, delta_pct),
             min(
                 SOFTWARE_TRANSITION_MAX_STEPS,
-                int(duration / SOFTWARE_TRANSITION_STEP_INTERVAL + 0.5),
+                calc_steps,
+                delta_pct,
             ),
         )
         step_time = duration / num_steps
         delta = (target_pct - start_pct) / num_steps
 
+        last_sent = start_pct
         try:
             for i in range(1, num_steps + 1):
                 if fade_id != self._fade_id:
@@ -614,14 +635,18 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 current = int(round(start_pct + delta * i))
                 current = max(0, min(100, current))
 
-                await self._set_brightness_instant(current)
-                self._apply_brightness_state(current)
-                self.async_schedule_update_ha_state()
+                if current != last_sent:
+                    await self._set_brightness_instant(current)
+                    self._apply_brightness_state(current)
+                    self.async_schedule_update_ha_state()
+                    last_sent = current
 
                 if i < num_steps:
                     await asyncio.sleep(step_time)
 
             if fade_id == self._fade_id:
+                if last_sent != target_pct:  # pragma: no cover - defensive guarantee
+                    await self._set_brightness_instant(target_pct)
                 self._apply_brightness_state(target_pct)
                 self.async_schedule_update_ha_state()
         except asyncio.CancelledError:
@@ -786,6 +811,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 await self._cancel_fade_robustly()
 
                 if self._should_use_software_stepped(transition):
+                    if await self._maybe_instant_brightness(start_pct, target_pct, is_on=True):
+                        return
+
                     fid = self._next_fade_id()
                     self._fade_task = self.hass.async_create_task(
                         self._async_fade_to(start_pct, target_pct, transition, fid)
@@ -801,6 +829,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     await self._gateway_handler.send(OWNLightingCommand.set_brightness(self._full_where, target_pct))
                 if target_pct > 0:
                     self._last_brightness_pct = target_pct
+                self._apply_brightness_state(target_pct, is_on=True)
+                self.async_schedule_update_ha_state()
                 return
             else:
                 # transition-only (no brightness kwarg)
@@ -810,6 +840,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 await self._cancel_fade_robustly()
 
                 if self._should_use_software_stepped(transition):
+                    if await self._maybe_instant_brightness(start_pct, target_pct, is_on=True):
+                        return
+
                     fid = self._next_fade_id()
                     self._fade_task = self.hass.async_create_task(
                         self._async_fade_to(start_pct, target_pct, transition, fid)
@@ -818,6 +851,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
 
                 # native switch_on with speed
                 await self._gateway_handler.send(OWNLightingCommand.switch_on(self._full_where, int(transition)))
+                self._apply_brightness_state(target_pct, is_on=True)
+                self.async_schedule_update_ha_state()
                 return
         else:
             # plain on path (preserved)
@@ -840,6 +875,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             await self._cancel_fade_robustly()
 
             if self._should_use_software_stepped(transition):
+                if await self._maybe_instant_brightness(start_pct, 0, is_on=False):
+                    return
                 fid = self._next_fade_id()
                 self._fade_task = self.hass.async_create_task(
                     self._async_fade_to(start_pct, 0, transition, fid)

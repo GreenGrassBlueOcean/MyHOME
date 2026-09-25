@@ -145,6 +145,16 @@ RESYNC_DEBOUNCE_S = 0.5
 RESYNC_LEADING_WINDOW_S = 1.5
 
 
+def eight_bits_to_percent(value: int) -> int:
+    """Convert an 8-bit brightness (0-255) to percentage (0-100)."""
+    return int(round((value * 100) / 255, 0))
+
+
+def percent_to_eight_bits(value: int) -> int:
+    """Convert a percentage (0-100) to 8-bit brightness (0-255)."""
+    return int(round((value * 255) / 100, 0))
+
+
 def is_apl_address(base: str) -> bool:
     """Check if base address is a valid OpenWebNet Point-to-Point (APL) address.
 
