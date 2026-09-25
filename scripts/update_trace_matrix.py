@@ -46,9 +46,12 @@ def build_matrix():
                         w = get_who(frame_obj['raw'])
                         if w is not None:
                             whos.add(w)
-                    m = re.search(r'_trace_([A-Za-z0-9]+)_', p.name)
-                    if m:
-                        gateway = m.group(1)
+                    if 'gateway' in j and isinstance(j['gateway'], dict) and j['gateway'].get('model'):
+                        gateway = j['gateway']['model']
+                    else:
+                        m = re.search(r'_(?:trace|sweep)_([A-Za-z0-9]+)_', p.name)
+                        if m:
+                            gateway = m.group(1)
 
                 if whos:
                     if gateway not in gateways_data:

@@ -86,3 +86,16 @@
   mcp_notes: "Energy Management: Actuator channel 77#0 reports 415 Watts active power (issue #247 reporter plant)"
   roundtrip: true
 
+- id: energy.resp.cumulative_totalizer.meter51
+  frame: "*#18*51*51*23791364##"
+  direction: dimension_response
+  who: 18
+  what: null
+  where: "51"
+  dimension: 51
+  dimension_values: ["23791364"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Energy Management: Meter 51 reports 23791364 Wh cumulative energy (issue #466 capture)"
+  roundtrip: true
+

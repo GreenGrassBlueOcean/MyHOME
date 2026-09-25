@@ -140,6 +140,12 @@ authorities:
         date: "2026-09-24"
         gateway: "BTicino F454, firmware 2.0 (Home Assistant's gateway); MyHomeServer1 runs the program on the same bus"
         devices: "Seven heating zones: 13 h trace in which MyHomeServer1 writes *#4*Z*#7*1*1*TTTT## at each program step (06:00, 09:00), each zone answers with the dimension 7 status, and *#4*Z*#5*0## is re-asserted every ~794 s"
+      - name: "Physical Bus Capture (BTicino MH200N Sweep & Climate Interaction)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5834435606"
+        author: "@caiosweet"
+        date: "2026-09-25"
+        gateway: "BTicino MH200N, firmware 1.1.8"
+        devices: "Bus sweep (lights, covers, climate, gateway, energy) plus manual setpoint change (18 °C) and probe knob local offset cycle (-3 to +3 °C)"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 
