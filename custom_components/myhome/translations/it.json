@@ -418,5 +418,11 @@
         "25": "25 - Scenari CEN+"
       }
     }
+  },
+  "issues": {
+    "unconfigured_timezone": {
+      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
+      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
+    }
   }
 }
