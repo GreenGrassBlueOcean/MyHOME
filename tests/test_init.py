@@ -1276,3 +1276,54 @@ async def test_remove_config_entry_device_refuses_gateway_allows_others(hass: Ho
     entry.runtime_data = None
     assert await async_remove_config_entry_device(hass, entry, light_device) is True
     assert await async_remove_config_entry_device(hass, entry, gateway_device) is False
+
+
+async def test_options_update_flags_a_stream_incompatible_decoder(hass: HomeAssistant):
+    """Saving options raises the cambridge_audio repair at once, not after a restart."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.myhome.const import CONF_DECODER_ENTITY, CONF_DECODER_SOURCE
+
+    er.async_get(hass).async_get_or_create(
+        "media_player", "cambridge_audio", "unique_cxn", suggested_object_id="cxn"
+    )
+    with patch(
+        "custom_components.myhome.gateway.OWNSession.test_connection",
+        return_value={"Success": True, "Message": None}
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
+    ):
+        config_entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                "host": "192.168.0.35",
+                "port": 20000,
+                "password": "pass",
+                "mac": "00:03:50:00:12:34",
+            },
+            options={},
+            unique_id="00:03:50:00:12:34",
+        )
+        config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        issue_id = f"incompatible_decoder_platform_{config_entry.entry_id}_media_player_cxn"
+        hass.config_entries.async_update_entry(
+            config_entry,
+            options={
+                CONF_DECODER_ENTITY.format(1): "media_player.cxn",
+                CONF_DECODER_SOURCE.format(1): 1,
+            },
+        )
+        await hass.async_block_till_done()
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+        pool = config_entry.runtime_data.decoder_pool
+        assert pool.stream_incompatible == frozenset({"media_player.cxn"})
+
+        hass.config_entries.async_update_entry(config_entry, options={})
+        await hass.async_block_till_done()
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None

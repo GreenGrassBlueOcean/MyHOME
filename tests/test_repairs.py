@@ -135,3 +135,30 @@ async def test_unconfigured_timezone_issues_lifecycle(hass: HomeAssistant) -> No
 
     async_delete_unconfigured_timezone_issue(hass, entry_id)
     assert issue_registry.async_get_issue(DOMAIN, f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}") is None
+
+
+async def test_incompatible_decoder_issue_lifecycle(hass: HomeAssistant) -> None:
+    """Test the incompatible decoder repair issue lifecycle."""
+    from custom_components.myhome.repairs import (
+        ISSUE_INCOMPATIBLE_DECODER,
+        async_create_incompatible_decoder_issue,
+        async_delete_incompatible_decoder_issue,
+    )
+
+    issue_registry = ir.async_get(hass)
+    entry_id = "entry_dec"
+    decoder_id = "media_player.cambridge_cxn"
+
+    async_create_incompatible_decoder_issue(hass, entry_id, decoder_id, "cambridge_audio")
+    slug_id = decoder_id.replace(".", "_")
+    issue_id = f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}"
+    issue = issue_registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.severity == ir.IssueSeverity.WARNING
+    assert issue.translation_key == ISSUE_INCOMPATIBLE_DECODER
+    assert not issue.is_fixable
+    assert issue.translation_placeholders == {"decoder": decoder_id, "platform": "cambridge_audio"}
+    assert issue.learn_more_url == "https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant"
+
+    async_delete_incompatible_decoder_issue(hass, entry_id, decoder_id)
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None

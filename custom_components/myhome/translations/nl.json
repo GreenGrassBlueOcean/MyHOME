@@ -98,7 +98,8 @@
       "worker_count_above_gateway_limit": "De {model} accepteert maximaal {session_limit} gelijktijdige command sessie(s); met meer reageert hij niet meer.",
       "invalid_config_path": "Ongeldig path voor configuratie bestand",
       "invalid_password": "Ongeldig password",
-      "password_error": "Ongeldig password"
+      "password_error": "Ongeldig password",
+      "duplicate_decoder_source": "Elke decoder moet aangesloten zijn op een andere matrix broningang."
     }
   },
   "services": {
@@ -189,6 +190,39 @@
     "unknown_gateway_model": {
       "title": "Onbekende apparaattypecode voor gateway ({code})",
       "description": "De gateway heeft een hardware-apparaattypecode ({code}) gerapporteerd die onbekend is bij de MyHOME-integratie. Klik op 'Meer informatie' om een GitHub-issue te openen en een diagnostische trace bij te voegen, zodat we ondersteuning voor dit model kunnen toevoegen."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Decoder {decoder} gebruikt een niet-ondersteunde integratie ({platform})",
+      "description": "De geconfigureerde streaming-decoder {decoder} wordt geleverd door de {platform}-integratie, die geen HTTP-stream-URL's accepteert via play_media. Voor multi-room streaming (zoals Music Assistant), configureer deze hardware in plaats daarvan via de DLNA Digital Media Renderer (DMR) integratie."
+    }
+  },
+  "exceptions": {
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: kan externe entiteit {member} niet koppelen; alleen MyHOME-audiozones kunnen worden gegroepeerd"
+    },
+    "grouping_unavailable": {
+      "message": "{entity_id}: audiogroepering is nog niet beschikbaar; de decoderpool is nog niet geïnitialiseerd"
+    },
+    "decoders_busy": {
+      "message": "{entity_id}: alle audiomatrix-ingangen zijn momenteel in gebruik door andere kamers"
+    },
+    "decoder_start_failed": {
+      "message": "{entity_id}: decoder {decoder} kon het afspelen niet starten: {error}"
+    },
+    "unknown_source": {
+      "message": "{entity_id}: onbekende bron \"{source}\""
+    },
+    "environment_busy": {
+      "message": "{entity_id}: {owner} streamt al in omgeving {environment}; zones in dezelfde omgeving delen een matrixingang"
+    },
+    "routing_unsupported": {
+      "message": "{entity_id}: versterker {where} heeft geen matrix-routingadres (omgeving 0 of niet twee cijfers); wissel van bron via een wandpaneel"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: decoder {decoder} ({platform}) ondersteunt geen streaming-URL's; configureer deze via DLNA DMR"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: decoder {decoder} werd niet binnen 5 seconden wakker"
     }
   }
 }

@@ -779,6 +779,20 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
         })
         assert res_mass["errors"][CONF_DECODER_ENTITY.format(1)] == "mass_entity_not_allowed"
 
+        # Invalid: Duplicate decoder source input
+        res_dup_src = await opt_flow.async_step_user({
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software",
+            CONF_DECODER_ENTITY.format(1): "media_player.sonos_1",
+            CONF_DECODER_SOURCE.format(1): 1,
+            CONF_DECODER_PRE_GAIN.format(1): 0,
+            CONF_DECODER_ENTITY.format(2): "media_player.sonos_2",
+            CONF_DECODER_SOURCE.format(2): 1,
+            CONF_DECODER_PRE_GAIN.format(2): 0,
+        })
+        assert res_dup_src["errors"][CONF_DECODER_SOURCE.format(2)] == "duplicate_decoder_source"
+
         # Valid options submission (lines 536-550)
         res_valid = await opt_flow.async_step_user({
             CONF_ADDRESS: "192.168.1.50",
