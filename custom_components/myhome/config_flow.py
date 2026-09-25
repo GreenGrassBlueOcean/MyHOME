@@ -725,7 +725,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         try:
             registry = er.async_get(self.hass)
             entries = er.async_entries_for_config_entry(
-                registry, self.config_entry.entry_id  # type: ignore
+                registry, self.config_entry.entry_id
             )
         except Exception:  # pylint: disable=broad-except
             return []
