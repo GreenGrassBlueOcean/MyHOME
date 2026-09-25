@@ -326,7 +326,7 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
         topology=TOPOLOGY_SHARED,
         role=ROLE_SECONDARY,
         primary_gateway="00:03:50:aa:bb:01",
-        delegated_whos=[2, 4, 16],
+        delegated_whos=[2, 4, 5, 16],
     )
 
     gw_a.send = AsyncMock()
@@ -343,10 +343,10 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     gw_a.send.reset_mock()
     gw_b.send.reset_mock()
 
-    # 3. sweep_bus filters queries: WHO=2/4/16 are delegated, so only the secondary sweeps them
+    # 3. sweep_bus filters queries: WHO=2/4/5/16 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus non-delegated WHO=5 = 4
-    assert gw_a.send.call_count == 4
+    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus covers/climate are delegated away = 3
+    assert gw_a.send.call_count == 3
     assert gw_b.send.call_count == 0
 
     gw_a.send.reset_mock()
@@ -355,8 +355,8 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     # 4. targeted sweep hits the secondary
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True)
     assert gw_a.send.call_count == 0
-    # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 16 = 6
-    assert gw_b.send.call_count == 6
+    # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 5, 16 = 7
+    assert gw_b.send.call_count == 7
 
     # 4. _get_gateway_handler falls back to next(iter(gateways.values())) if no primary
     hass.config_entries.async_update_entry(
@@ -1082,3 +1082,46 @@ def test_golden_dual_gateway_traces_replay(hass: HomeAssistant) -> None:
     assert gw_mh202.bus_monitor.total_tx > 0
     assert len(gw_mh202.bus_monitor.get_recent_frames()) > 0
 
+
+@pytest.mark.asyncio
+async def test_gateway_availability_with_standby(hass: HomeAssistant) -> None:
+    """Test is_who_available delegates to standby when primary is offline."""
+    entry_a, gw_a = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    entry_b, gw_b = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_a.available = False
+    gw_b.available = True
+
+    with patch.object(gw_b, "_profile_supports_who", side_effect=lambda w: w == 16):
+        assert gw_a.is_who_available(16) is True
+        assert gw_a.is_who_available(2) is False
+
+@pytest.mark.asyncio
+async def test_standby_failover_outbound_unsupported_who(hass: HomeAssistant) -> None:
+    """Test outbound failover aborts if standby profile lacks support for the command's WHO."""
+    from OWNd.message import OWNCommand
+    entry_pri, gw_pri = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    entry_sec, gw_sec = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+    await async_setup_services(hass)
+
+    gw_pri.available = False
+    gw_sec.available = True
+    gw_sec.is_connected = True
+
+    with patch.object(gw_sec, "_profile_supports_who", side_effect=lambda w: w != 16):
+        # Sending WHO 16 command through standby should fail and return None
+        msg = OWNCommand.parse("*#16*0*5##")
+        result = await gw_pri.send(msg)
+        assert result is None

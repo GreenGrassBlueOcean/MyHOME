@@ -54,10 +54,6 @@ def entry_is_follower(entry: Any) -> bool:
     return entry_topology(entry) == TOPOLOGY_SHARED and entry_role(entry) in (ROLE_SECONDARY, ROLE_STANDBY)
 
 
-def entry_is_secondary(entry: Any) -> bool:
-    """Strictly a secondary on a shared bus (delegated WHOs, no failover)."""
-    return entry_topology(entry) == TOPOLOGY_SHARED and entry_role(entry) == ROLE_SECONDARY
-
 
 def entry_primary_mac(entry: Any) -> str | None:
     """The primary a secondary/standby entry points at."""
