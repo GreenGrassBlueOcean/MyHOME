@@ -169,13 +169,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     queries.append("*#2*0##")
                 if 4 in delegated:
                     queries.append("*#4*0##")
+                if 5 in delegated:
+                    queries.append("*#5*0##")
                 if 16 in delegated:
                     queries.append("*#16*0*5##")
             else:
                 delegated_away: object = getattr(handler, "delegated_away_whos", set())
                 if not isinstance(delegated_away, (set, frozenset, list, tuple)):
                     delegated_away = set()
-                queries.extend(q for who, q in ((2, "*#2*0##"), (4, "*#4*0##")) if who not in delegated_away)
+                queries.extend(q for who, q in ((2, "*#2*0##"), (4, "*#4*0##"), (5, "*#5*0##"), (16, "*#16*0*5##")) if who not in delegated_away)
 
             for query in queries:
                 msg = OWNMessage.parse(query)

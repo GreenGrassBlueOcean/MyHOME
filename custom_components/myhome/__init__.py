@@ -17,10 +17,6 @@ from .const import (
     BUS_ROUTING,
     CONF_BROADCAST_RESYNC,
     CONF_BUS_INTERFACE,
-    CONF_DECODER_ENTITY,
-    CONF_DECODER_PRE_GAIN,
-    CONF_DECODER_SLOTS,
-    CONF_DECODER_SOURCE,
     CONF_ENTITIES,
     CONF_ENTITY,
     CONF_FILE_PATH,
@@ -628,7 +624,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         A changed shared-bus role (#453) reloads the entry instead: the startup
         sweep and the duplicate pruning only run at setup.
         """
-        from .decoder_pool import DecoderPool
+        # The same builder as platform setup, so the incompatible-decoder
+        # repair issues follow the saved options straight away.
+        from .media_player import _build_pool
 
         if topology_signature(entry) != topology_at_setup:
             async_check_primary_links(hass)
@@ -641,22 +639,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         if old_pool:
             await old_pool.release_all()
 
-        options = entry.options
-        decoder_map: dict[str, int] = {}
-        pre_gain_map: dict[str, int] = {}
-        for i in range(1, CONF_DECODER_SLOTS + 1):
-            entity_id = options.get(CONF_DECODER_ENTITY.format(i), "").strip()
-            source_num = options.get(CONF_DECODER_SOURCE.format(i), i)
-            pre_gain = options.get(CONF_DECODER_PRE_GAIN.format(i), 0)
-            if entity_id and entity_id.startswith("media_player."):
-                decoder_map[entity_id] = int(source_num)
-                pre_gain_map[entity_id] = int(pre_gain)
-
-        pool = DecoderPool(hass, decoder_map, pre_gain_map)
+        pool = _build_pool(hass, entry)
         runtime_data.decoder_pool = pool
         LOGGER.info(
             "MyHOME: decoder pool rebuilt after options update — %d decoder(s) configured",
-            len(decoder_map),
+            len(pool.decoder_entity_ids),
         )
 
         # Signal all media player entities to re-publish supported_features

@@ -955,32 +955,31 @@ class MyHOMEGatewayHandler:
                             self._resync_group_echoes.pop(g, None)
 
                 if isinstance(message, OWNLightingEvent):
-                    if message.is_general:
+                    if message.is_on is not None:
                         event = "on" if message.is_on else "off"
-                        self.hass.bus.async_fire(
-                            "myhome_general_light_event",
-                            {"message": str(message), "event": event},
-                        )
-                    elif message.is_area:
-                        event = "on" if message.is_on else "off"
-                        self.hass.bus.async_fire(
-                            "myhome_area_light_event",
-                            {
-                                "message": str(message),
-                                "area": message.area,
-                                "event": event,
-                            },
-                        )
-                    elif message.is_group:
-                        event = "on" if message.is_on else "off"
-                        self.hass.bus.async_fire(
-                            "myhome_group_light_event",
-                            {
-                                "message": str(message),
-                                "group": message.group,
-                                "event": event,
-                            },
-                        )
+                        if message.is_general:
+                            self.hass.bus.async_fire(
+                                "myhome_general_light_event",
+                                {"message": str(message), "event": event},
+                            )
+                        elif message.is_area:
+                            self.hass.bus.async_fire(
+                                "myhome_area_light_event",
+                                {
+                                    "message": str(message),
+                                    "area": message.area,
+                                    "event": event,
+                                },
+                            )
+                        elif message.is_group:
+                            self.hass.bus.async_fire(
+                                "myhome_group_light_event",
+                                {
+                                    "message": str(message),
+                                    "group": message.group,
+                                    "event": event,
+                                },
+                            )
                     if getattr(message, "is_general", False) or getattr(message, "is_area", False) or getattr(message, "is_group", False):
                         self._schedule_resync(message)
                 elif isinstance(message, OWNAutomationEvent):

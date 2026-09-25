@@ -147,7 +147,8 @@
       "gateway_has_dependents": "Other gateways use this gateway as their primary. Point them at another primary (or make them standalone) first.",
       "overlapping_delegated_whos": "One or more of the selected WHOs are already delegated to another secondary gateway on this bus.",
       "who_not_supported_by_gateway": "One or more of the selected WHOs are not supported by this gateway model's profile.",
-      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary."
+      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary.",
+      "duplicate_decoder_source": "Each decoder must be connected to a different matrix source input."
     }
   },
   "services": {
@@ -306,6 +307,10 @@
     "primary_gateway_missing": {
       "title": "Primary gateway of {gateway} is missing",
       "description": "{gateway} is configured as a secondary or warm standby gateway for {primary}, but that gateway is no longer configured as a Shared Primary gateway (it was removed or reconfigured). {gateway} keeps suppressing discovery until it is reconfigured.\n\nOpen Configure on {gateway} and either select another Primary gateway or set its Bus Topology to Standalone."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Decoder {decoder} uses unsupported integration ({platform})",
+      "description": "The configured streaming decoder {decoder} is provided by the {platform} integration, which does not accept HTTP stream URLs via play_media. For multi-room streaming (e.g. Music Assistant), configure this hardware via the DLNA Digital Media Renderer (DMR) integration instead."
     }
   },
   "exceptions": {
@@ -365,6 +370,18 @@
     },
     "routing_unsupported": {
       "message": "{entity_id}: amplifier {where} has no matrix routing address (environment 0, or not a two-digit amplifier); switch its source at a wall panel"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: decoder {decoder} ({platform}) does not support streaming URLs; configure it via DLNA DMR instead"
+    },
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: cannot join foreign entity {member}; only MyHOME sound zones can be grouped"
+    },
+    "grouping_unavailable": {
+      "message": "{entity_id}: audio grouping is not available yet; the decoder pool has not been initialised"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: decoder {decoder} did not wake up within 5 seconds"
     }
   },
   "entity": {

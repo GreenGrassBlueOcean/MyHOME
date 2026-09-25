@@ -199,7 +199,7 @@ graph TD
         GW_F461["🟢 F461<br/>(DIN Web Server)"]
         GW_3578["🟡 Legrand 3578<br/>(Serial/ZigBee Loopback)"]
         GW_MH202["🔴 MH202 / MH201<br/>(Scenario Gateways)"]
-        GW_F455["🔴 F455<br/>(Dual-Bus Routing)"]
+        GW_F455["🔴 F455<br/>(Basic Gateway)"]
     end
 
     subgraph Subsystems["⚙️ Protocol Subsystems & Scenarios"]
@@ -257,7 +257,7 @@ graph TD
 | **F461 Web Server** | 🟢 **Covered** | Issue #273 capture (@lyubomirtraykov) | *None needed — DALI DT8 ballasts verified.* |
 | **Legrand 3578 USB/Serial** | 🟡 **Partial** | Unit test loopback in `tests/test_gateway.py` | **Real-world USB serial stream**: Raw byte capture from physical OpenZigBee installation (`WHERE=<id>#9`). |
 | **MH202 / MH201** | 🔴 **Needed** | Synthetic gateway profile tests only | **Production plant trace**: General residential traffic through an MH201/MH202 scenario programmer. |
-| **F455** | 🔴 **Needed** | Synthetic dual-bus profile tests only | **Dual-bus cross-routing trace**: Simultaneous traffic routing between Bus 1 and Bus 2. |
+| **F455** | 🔴 **Needed** | Synthetic gateway profile tests only | **Production plant trace**: General residential traffic through an F455 Basic Gateway. |
 | **F452 / F453AV / AM4890** | 🟡 **Synthetic** | Factory golden frames from `openwebnet4j` | **General trace**: Normal residential bus captures welcomed to expand gateway diversity. |
 
 ---

@@ -146,7 +146,8 @@
       "primary_gateway_not_found": "La passerelle principale sélectionnée est introuvable.",
       "circular_gateway_reference": "Référence circulaire : la passerelle principale sélectionnée pointe déjà vers cette passerelle.",
       "primary_gateway_not_shared_primary": "La passerelle sélectionnée doit d'abord être configurée avec la topologie de bus Partagé et le rôle Principale.",
-      "gateway_has_dependents": "D'autres passerelles utilisent cette passerelle comme principale. Faites-les d'abord pointer vers une autre principale (ou rendez-les autonomes)."
+      "gateway_has_dependents": "D'autres passerelles utilisent cette passerelle comme principale. Faites-les d'abord pointer vers une autre principale (ou rendez-les autonomes).",
+      "duplicate_decoder_source": "Chaque décodeur doit être connecté à une entrée source de matrice différente."
     }
   },
   "services": {
@@ -270,41 +271,17 @@
     }
   },
   "issues": {
-    "gateway_authentication_failed": {
-      "title": "Échec de l'authentification pour la passerelle MyHOME {gateway}",
-      "description": "La passerelle MyHOME a refusé le mot de passe OpenWebNet configuré ou la négociation HMAC. Vérifiez vos identifiants via la reconfiguration."
-    },
     "unconfigured_timezone": {
-      "title": "Fuseau horaire non configuré sur la passerelle MyHOME ({gateway})",
-      "description": "La passerelle MyHOME {gateway} signale un fuseau horaire non configuré (code réservé '999'). Cela peut entraîner des erreurs d'analyse de date et d'heure ou la perte de messages de diagnostic de la passerelle.\n\nVeuillez vous connecter à l'interface web de la passerelle (ou MyHOME_Suite / MyHOME_Up) pour définir un fuseau horaire valide, puis redémarrez la passerelle."
+      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
+      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
     },
     "unknown_gateway_model": {
       "title": "Code de type d'appareil de passerelle inconnu ({code})",
       "description": "La passerelle a signalé un code de type d'appareil matériel ({code}) inconnu pour l'intégration MyHOME. Veuillez cliquer sur « En savoir plus » pour ouvrir un ticket GitHub et joindre une trace de diagnostic afin que nous puissions ajouter la prise en charge de ce modèle."
     },
-    "bus_collision_storm": {
-      "title": "Taux élevé de collisions sur le bus SCS détecté ({count} NACK)",
-      "description": "Un taux anormalement élevé de collisions ou de trames NACK a été détecté sur le bus SCS. Vérifiez le câblage des actionneurs et la terminaison physique du bus."
-    },
-    "gateway_identity_mismatch": {
-      "title": "Incohérence du modèle de passerelle pour {configured}",
-      "description": "La passerelle est configurée comme {configured} (source : {source}) mais signale le type d'appareil OpenWebNet {code}, qui correspond à {reported} selon {basis}. Le modèle configuré est conservé ; les traces et les diagnostics contiennent les deux valeurs. Si vous possédez un {reported}, ouvrez les options de l'intégration (Configurer) et choisissez le bon modèle ; si {configured} est correct, ignorez ceci et joignez une trace à un ticket afin que le code puisse être documenté."
-    },
-    "gateway_identity_corrected": {
-      "title": "Modèle de passerelle corrigé en {corrected}",
-      "description": "La passerelle était configurée comme {previous} mais signale le code modèle {code}, que la table des types d'appareils OpenWebNet (WHO=13) ou le catalogue de diagnostic des passerelles (WHO=1013, codes préfixés 1013-1-) identifie comme {corrected}. Le modèle, le profil de passerelle et le registre des appareils ont été mis à jour en {corrected}. Si c'est incorrect, ouvrez les options de l'intégration (Configurer) et définissez le modèle explicitement."
-    },
-    "shared_bus_detected": {
-      "title": "Bus OpenWebNet partagé détecté ({gateway_a} & {gateway_b})",
-      "description": "Les passerelles {gateway_a} et {gateway_b} observent le même trafic sur le bus SCS, mais ne sont pas configurées sur le même bus. Utiliser plusieurs passerelles sur un bus sans cette configuration provoque des entités en double, des conflits de balayage au démarrage et des erreurs d'interrogation d'état.\n\nOuvrez Configurer sur la passerelle qui doit diriger, réglez sa topologie de bus sur Partagé et son rôle sur Principale. Ouvrez ensuite Configurer sur l'autre passerelle, réglez sa topologie de bus sur Partagé, son rôle sur Secondaire ou Secours à chaud, et sélectionnez la première passerelle comme passerelle principale."
-    },
-    "gateway_failover_active": {
-      "title": "Basculement haute disponibilité actif : {primary} hors ligne",
-      "description": "La passerelle MyHOME principale {primary} est actuellement hors ligne ou injoignable. Le basculement vers la passerelle de secours à chaud a automatiquement redirigé le trafic du bus et la surveillance d'état via la passerelle de secours {standby}.\n\nLorsque {primary} sera rétablie, Home Assistant reviendra automatiquement à la passerelle principale et résoudra ce problème."
-    },
-    "primary_gateway_missing": {
-      "title": "Passerelle principale de {gateway} manquante",
-      "description": "{gateway} est configurée comme passerelle secondaire ou de secours à chaud pour {primary}, mais cette passerelle n'est plus configurée comme passerelle principale partagée (elle a été supprimée ou reconfigurée). {gateway} continue de supprimer la découverte jusqu'à ce qu'elle soit reconfigurée.\n\nOuvrez Configurer sur {gateway} et sélectionnez une autre passerelle principale, ou réglez sa topologie de bus sur Autonome."
+    "incompatible_decoder_platform": {
+      "title": "Le décodeur {decoder} utilise une intégration non prise en charge ({platform})",
+      "description": "Le décodeur de streaming configuré {decoder} est fourni par l'intégration {platform}, qui n'accepte pas les URL de flux HTTP via play_media. Pour le streaming multi-pièces (par exemple Music Assistant), configurez ce matériel via l'intégration DLNA Digital Media Renderer (DMR) à la place."
     }
   },
   "exceptions": {
@@ -364,6 +341,18 @@
     },
     "routing_unsupported": {
       "message": "{entity_id} : l'amplificateur {where} n'a pas d'adresse de routage dans la matrice (environnement 0, ou amplificateur non à deux chiffres) ; changez sa source depuis un panneau mural"
+    },
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: impossible de rejoindre l'entité externe {member} ; seules les zones audio MyHOME peuvent être groupées"
+    },
+    "grouping_unavailable": {
+      "message": "{entity_id}: le regroupement audio n'est pas encore disponible ; le pool de décodeurs n'a pas été initialisé"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: le décodeur {decoder} ({platform}) ne prend pas en charge les URL de flux ; configurez-le plutôt via DLNA DMR"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: le décodeur {decoder} ne s'est pas réveillé dans les 5 secondes"
     }
   },
   "entity": {
@@ -417,12 +406,6 @@
         "22": "22 - Diffusion sonore (matrice audio)",
         "25": "25 - Scénarios CEN+"
       }
-    }
-  },
-  "issues": {
-    "unconfigured_timezone": {
-      "title": "Unconfigured timezone on MyHOME gateway ({gateway})",
-      "description": "The MyHOME gateway {gateway} is reporting an unconfigured timezone (999). This will cause incorrect timestamps in the bus monitor and potentially alarm logs.\\n\\nPlease log into the gateway web UI or MyHOME Suite and configure a valid timezone, then restart the gateway."
     }
   }
 }

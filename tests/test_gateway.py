@@ -318,6 +318,71 @@ async def test_listening_loop_lighting(gateway_handler):
 
 
 @pytest.mark.asyncio
+async def test_listening_loop_lighting_unknown_is_on_skips_event(gateway_handler):
+    """Lighting scope frames with is_on=None (unknown WHAT or motion) must not fire false off events."""
+    with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session.connect = AsyncMock(return_value={"Success": True})
+        mock_session.get_next = AsyncMock()
+
+        # Unknown WHAT on area 1 (*1*19*1##): is_area=True, is_on=None
+        msg_area_unknown = MagicMock(spec=OWNLightingEvent)
+        msg_area_unknown.is_translation = False
+        msg_area_unknown.is_general = False
+        msg_area_unknown.is_area = True
+        msg_area_unknown.is_on = None
+        msg_area_unknown.area = "1"
+        msg_area_unknown.human_readable_log = "Light 1 reports unknown lighting WHAT 19."
+
+        # Unknown WHAT on general (*1*19*0##): is_general=True, is_on=None
+        msg_gen_unknown = MagicMock(spec=OWNLightingEvent)
+        msg_gen_unknown.is_translation = False
+        msg_gen_unknown.is_general = True
+        msg_gen_unknown.is_on = None
+        msg_gen_unknown.human_readable_log = "Light 0 reports unknown lighting WHAT 19."
+
+        # Unknown WHAT on group 5 (*1*19*#5##): is_group=True, is_on=None
+        msg_group_unknown = MagicMock(spec=OWNLightingEvent)
+        msg_group_unknown.is_translation = False
+        msg_group_unknown.is_general = False
+        msg_group_unknown.is_area = False
+        msg_group_unknown.is_group = True
+        msg_group_unknown.is_on = None
+        msg_group_unknown.group = "5"
+        msg_group_unknown.human_readable_log = "Light #5 reports unknown lighting WHAT 19."
+
+        # Motion frame on area 2: is_area=True, is_on=None
+        msg_area_motion = MagicMock(spec=OWNLightingEvent)
+        msg_area_motion.is_translation = False
+        msg_area_motion.is_general = False
+        msg_area_motion.is_area = True
+        msg_area_motion.is_on = None
+        msg_area_motion.area = "2"
+        msg_area_motion.human_readable_log = "Light/motion sensor 2 detected motion"
+
+        mock_session.get_next.side_effect = [
+            msg_area_unknown,
+            msg_gen_unknown,
+            msg_group_unknown,
+            msg_area_motion,
+            asyncio.CancelledError(),
+        ]
+        mock_session_class.return_value = mock_session
+
+        gateway_handler.send_status_request = AsyncMock()
+
+        try:
+            await gateway_handler.listening_loop()
+        except asyncio.CancelledError:
+            pass
+
+        fired_events = [call.args[0] for call in gateway_handler.hass.bus.async_fire.call_args_list]
+        assert "myhome_general_light_event" not in fired_events
+        assert "myhome_area_light_event" not in fired_events
+        assert "myhome_group_light_event" not in fired_events
+
+
+@pytest.mark.asyncio
 async def test_listening_loop_automation(gateway_handler):
     with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
         mock_session = MagicMock()

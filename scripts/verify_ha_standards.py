@@ -468,12 +468,12 @@ def check_quality_scale_rules(checker: StandardsChecker):
                 strings_data = json.load(f)
             with open(en_file, "r", encoding="utf-8") as f:
                 en_data = json.load(f)
-            if set(strings_data.keys()) != set(en_data.keys()):
+            if strings_data != en_data:
                 checker.log_error(
                     "RULE_IQS_GOLD",
                     strings_file,
                     1,
-                    "Quality Scale Gold rule 'entity-translations': top-level keys in strings.json and translations/en.json do not match",
+                    "Quality Scale Gold rule 'entity-translations': strings.json and translations/en.json do not match. Run 'python scripts/manage_translations.py sync-en' to synchronize.",
                 )
             else:
                 checker.log_ok("[GOLD] entity-translations: strings.json and translations/en.json synchronized.")

@@ -1,3 +1,18 @@
+- id: alarm.req.status.cu
+  frame: "*#5*0##"
+  direction: status_request
+  who: 5
+  what: null
+  where: "0"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: Burglar Alarm status request for central unit (WHERE 0, captured on live MH200)"
+  roundtrip: true
+  builder:
+    class: OWNAlarmCommand
+    method: status
+    args: ["0"]
+
 - id: alarm.req.status.zone2
   frame: "*#5*2##"
   direction: status_request
