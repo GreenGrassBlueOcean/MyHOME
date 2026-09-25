@@ -23,16 +23,16 @@ from .const import (
     DOMAIN,
     INTEGRATION_VERSION,
     LOGGER,
+    PLATFORMS,
     get_ownd_version,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
-from .migrate import async_migrate_entry_and_registries, async_prune_stale_devices
+from .migrate import migrate_entry_and_registries, prune_stale_devices
 from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-PLATFORMS = ["light", "switch", "cover", "climate", "binary_sensor", "sensor", "media_player", "button", "alarm_control_panel"]
 
 
 def _get_card_url(card_path: str, base_url: str = "/myhome_static/myhome-bus-card.js") -> str:
@@ -211,7 +211,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     _broadcast_resync = entry.options.get(CONF_BROADCAST_RESYNC, True)
 
     # Migrations for config entry, entity registry, and device registry
-    await async_migrate_entry_and_registries(hass, entry, configured_platforms)
+    migrate_entry_and_registries(hass, entry, configured_platforms)
 
     gateway = MyHOMEGatewayHandler(
         hass=hass,
@@ -325,7 +325,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     )
 
     # Prune orphaned devices with 0 entities from the device registry
-    async_prune_stale_devices(hass, entry, gateway_device_entry, gateway)
+    prune_stale_devices(hass, entry, gateway_device_entry, gateway)
 
 
     # ── Register options reload listener (rebuilds decoder pool on UI save) ──
