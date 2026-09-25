@@ -80,7 +80,7 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 | Gateway Model | Protocol Support | Max Command Workers | Inter-Frame Delay | UPnP Discovery | Notes |
 |---|---|---|---|---|---|
 | **F454** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Full high-speed multi-session support |
-| **F455** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Dual-bus capable gateway |
+| **F455** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Basic gateway (single SCS bus) |
 | **F461** | OpenWebNet / HMAC | 4 workers | 20 ms | ❌ Manual | Compact DIN Ethernet Web Server |
 | **MH202** | OpenWebNet / HMAC | 3 workers | 30 ms | ✅ Port 49153 | Modern scenario programmer gateway |
 | **MH201** | OpenWebNet | 2 workers | 60 ms | ✅ Port 49153 | Second-generation scenario programmer |
