@@ -58,10 +58,6 @@ from .const import (
     SERVICE_STOP_COVER_CALIBRATION,
 )
 from .cover_calibration import (
-    _CALIBRATION_ACTIVE,
-    _CALIBRATION_LOCKS,
-    _CALIBRATION_QUEUED,
-    _LAST_CALIBRATION_TRACE,
     CalibrationInterrupted,
     CoverCalibrationHub,
     _calibration_lock,
@@ -98,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
 
     runtime = config_entry.runtime_data
     if runtime.calibration_hub is None:
-        runtime.calibration_hub = CoverCalibrationHub(runtime.gateway)
+        runtime.calibration_hub = get_calibration_hub(runtime.gateway)
     family = CoverFamily()
 
     def build(ctx: DeviceContext) -> MyHOMECover:
@@ -176,6 +172,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     runtime = getattr(config_entry, "runtime_data", None)
     if runtime is not None and runtime.calibration_hub is not None:
         runtime.calibration_hub.cleanup()
+        runtime.calibration_hub = None
     return True
 
 
@@ -1202,10 +1199,6 @@ __all__ = [
     "MyHOMECover",
     "MyHOMEScopeCover",
     "WRITE_TIMEOUT",
-    "_CALIBRATION_ACTIVE",
-    "_CALIBRATION_LOCKS",
-    "_CALIBRATION_QUEUED",
-    "_LAST_CALIBRATION_TRACE",
     "_calibration_lock",
     "_gateway_key",
     "_normalize_mac",

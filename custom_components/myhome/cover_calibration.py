@@ -20,7 +20,7 @@ from .data import MyHOMERuntimeData
 if TYPE_CHECKING:
     from .gateway import MyHOMEGatewayHandler
 
-# Legacy module globals for backward compatibility and test fixture resets
+# Deprecated module globals for backward compatibility; production state lives on CoverCalibrationHub
 _CALIBRATION_LOCKS: dict[str, asyncio.Lock] = {}
 _CALIBRATION_ACTIVE: dict[str, Any] = {}
 _CALIBRATION_QUEUED: dict[str, set[Any]] = {}
@@ -50,62 +50,39 @@ def _record_calibration_frame(gateway: Any, direction: str, raw: str, **extra: A
     hub.record_frame(direction, raw, **extra)
 
 
-def get_last_calibration_trace(gateway_mac: str | None = None) -> list[dict[str, Any]]:
+def get_last_calibration_trace(gateway_mac: str | None = None, hass: Any = None) -> list[dict[str, Any]]:
     """Return in-memory trace frames captured during recent cover calibrations.
 
-    The buffer is shared by every gateway; each frame carries the MAC of the
-    gateway that recorded it. With ``gateway_mac`` only that gateway's frames
-    are returned, so an export for one gateway never carries another's runs
-    (``None`` is the only unfiltered read; a gateway without a MAC gets the
-    frames recorded without one).
+    Traces are stored on each gateway's CoverCalibrationHub. When gateway_mac is
+    provided, only that gateway's trace is returned (None is the only unfiltered
+    read; a gateway without a MAC gets the frames recorded without one).
     """
+    hubs = CoverCalibrationHub.all_hubs(hass)
+
     if gateway_mac is None:
-        return list(_LAST_CALIBRATION_TRACE)
+        combined: list[dict[str, Any]] = []
+        for hub in hubs:
+            combined.extend(hub.get_trace())
+        combined.sort(key=lambda f: f.get("timestamp", 0.0))
+        return combined
+
     wanted = _normalize_mac(gateway_mac)
-    return [f for f in _LAST_CALIBRATION_TRACE if f.get("gateway_mac") == wanted]
+    for hub in hubs:
+        if hub.mac == wanted:
+            return hub.get_trace()
+    return []
 
 
-async def async_stop_cover_calibration(hass: Any, gateway_mac: str | None = None) -> bool:
+async def async_stop_cover_calibration(hass: Any = None, gateway_mac: str | None = None) -> bool:
     """Stop active and queued cover calibrations on one or all gateways."""
     stopped_any = False
     wanted_mac = _normalize_mac(gateway_mac) if gateway_mac else None
 
-    # Stop via registered hubs if hass config entries are available
-    if hass is not None and hasattr(hass, "config_entries"):
-        for entry in hass.config_entries.async_entries(DOMAIN):
-            runtime = getattr(entry, "runtime_data", None)
-            hub = getattr(runtime, "calibration_hub", None)
-            if isinstance(hub, CoverCalibrationHub):
-                if wanted_mac and hub.mac != wanted_mac:
-                    continue
-                if await hub.async_stop():
-                    stopped_any = True
-
-    # Also handle standalone mock gateways / legacy module globals
-    for gw_key, active_cover in list(_CALIBRATION_ACTIVE.items()):
-        if wanted_mac:
-            normalized_key = _normalize_mac(gw_key)
-            if normalized_key != wanted_mac and not gw_key.startswith(str(gateway_mac)):
-                continue
-        # Cancel queued covers waiting for the lock
-        queued_covers = list(_CALIBRATION_QUEUED.get(gw_key, set()))
-        _CALIBRATION_QUEUED.setdefault(gw_key, set()).clear()
-        for c in queued_covers:
-            c._calibration_interrupted = "Calibration stopped by user"
-            c._fire_calibration_event("failed", error="Calibration stopped by user")
+    for hub in CoverCalibrationHub.all_hubs(hass):
+        if wanted_mac and hub.mac != wanted_mac:
+            continue
+        if await hub.async_stop():
             stopped_any = True
-
-        # Stop currently running cover
-        if active_cover is not None and getattr(active_cover, "_calibrating", False):
-            active_cover._calibration_interrupted = "Calibration stopped by user"
-            active_cover._motor_started.set()
-            active_cover._stopped_event.set()
-            try:
-                await active_cover.async_stop_cover()
-            except Exception as err:
-                LOGGER.warning("Error stopping cover %s: %s", active_cover.entity_id, err)
-            stopped_any = True
-            _CALIBRATION_ACTIVE.pop(gw_key, None)
 
     return stopped_any
 
@@ -133,12 +110,54 @@ class CalibrationInterrupted(HomeAssistantError):
 class CoverCalibrationHub:
     """Encapsulates calibration state and serialization per gateway."""
 
+    _registry: dict[str, CoverCalibrationHub] = {}
+
     def __init__(self, gateway: Any) -> None:
         self.gateway: MyHOMEGatewayHandler = gateway
         self.trace: collections.deque[dict[str, Any]] = collections.deque(maxlen=1000)
         self._lock: asyncio.Lock | None = None
         self._active_cover: Any | None = None
         self._queued_covers: set[Any] = set()
+        self._register()
+
+    def _register(self) -> None:
+        CoverCalibrationHub._registry[self.key] = self
+        if self.mac:
+            CoverCalibrationHub._registry[self.mac] = self
+
+    def _unregister(self) -> None:
+        CoverCalibrationHub._registry.pop(self.key, None)
+        if self.mac:
+            CoverCalibrationHub._registry.pop(self.mac, None)
+
+    @classmethod
+    def all_hubs(cls, hass: Any = None) -> list[CoverCalibrationHub]:
+        """Return all active hubs from hass config entries and local registry."""
+        hubs: list[CoverCalibrationHub] = []
+        seen: set[int] = set()
+        if hass is not None and hasattr(hass, "config_entries"):
+            for entry in hass.config_entries.async_entries(DOMAIN):
+                runtime = getattr(entry, "runtime_data", None)
+                hub = getattr(runtime, "calibration_hub", None)
+                if isinstance(hub, CoverCalibrationHub) and id(hub) not in seen:
+                    hubs.append(hub)
+                    seen.add(id(hub))
+        for hub in list(cls._registry.values()):
+            if id(hub) not in seen:
+                hubs.append(hub)
+                seen.add(id(hub))
+        return hubs
+
+    @classmethod
+    def reset_for_tests(cls) -> None:
+        """Reset all hubs and clear the registry (for test fixtures)."""
+        for hub in list(cls._registry.values()):
+            hub.cleanup()
+        cls._registry.clear()
+        _CALIBRATION_LOCKS.clear()
+        _CALIBRATION_ACTIVE.clear()
+        _CALIBRATION_QUEUED.clear()
+        _LAST_CALIBRATION_TRACE.clear()
 
     @property
     def mac(self) -> str | None:
@@ -159,14 +178,9 @@ class CoverCalibrationHub:
             current_loop = None
 
         if self._lock is not None:
-            # If the lock was removed from legacy storage (e.g. test fixture reset), invalidate
-            if self.key not in _CALIBRATION_LOCKS and (not self.mac or self.mac not in _CALIBRATION_LOCKS):
-                self._lock = None
-
-        if self._lock is not None:
             bound_loop = getattr(self._lock, "_bound_loop", None) or getattr(self._lock, "_loop", None)
             if (bound_loop is not None and bound_loop.is_closed()) or (
-                current_loop is not None and bound_loop is not None and bound_loop is not current_loop
+                current_loop is not None and bound_loop is not current_loop
             ):
                 self._lock = None
 
@@ -174,48 +188,30 @@ class CoverCalibrationHub:
             self._lock = asyncio.Lock()
             if current_loop is not None:
                 setattr(self._lock, "_bound_loop", current_loop)
-            _CALIBRATION_LOCKS[self.key] = self._lock
-            if self.mac:
-                _CALIBRATION_LOCKS[self.mac] = self._lock
 
         return self._lock
 
     @property
     def active_cover(self) -> Any | None:
         """Return the currently calibrating cover for this gateway."""
-        if self._active_cover is not None:
-            return self._active_cover
-        return _CALIBRATION_ACTIVE.get(self.key) or (self.mac and _CALIBRATION_ACTIVE.get(self.mac)) or None
+        return self._active_cover
 
     @active_cover.setter
     def active_cover(self, cover: Any | None) -> None:
         self._active_cover = cover
-        if cover is None:
-            _CALIBRATION_ACTIVE.pop(self.key, None)
-            if self.mac:
-                _CALIBRATION_ACTIVE.pop(self.mac, None)
-        else:
-            _CALIBRATION_ACTIVE[self.key] = cover
-            if self.mac:
-                _CALIBRATION_ACTIVE[self.mac] = cover
 
     @property
     def is_calibrating(self) -> bool:
         """Return True if any cover on this gateway is actively calibrating."""
-        active = self.active_cover
-        return bool(active is not None and getattr(active, "_calibrating", False))
+        return bool(self._active_cover is not None and getattr(self._active_cover, "_calibrating", False))
 
     @property
     def queued_covers(self) -> set[Any]:
         """Return set of covers waiting for calibration lock on this gateway."""
-        legacy = _CALIBRATION_QUEUED.setdefault(self.key, self._queued_covers)
-        if legacy is not self._queued_covers:
-            self._queued_covers.update(legacy)
-            _CALIBRATION_QUEUED[self.key] = self._queued_covers
         return self._queued_covers
 
     def record_frame(self, direction: str, raw: str, **extra: Any) -> None:
-        """Record a calibration frame to this hub's trace buffer and legacy trace."""
+        """Record a calibration frame to this hub's trace buffer."""
         now = dt_util.utcnow()
         frame = {
             "timestamp": time.time(),
@@ -226,7 +222,6 @@ class CoverCalibrationHub:
             **extra,
         }
         self.trace.append(frame)
-        _LAST_CALIBRATION_TRACE.append(frame)
 
     def get_trace(self) -> list[dict[str, Any]]:
         """Return the in-memory trace frames recorded for this gateway."""
@@ -261,14 +256,8 @@ class CoverCalibrationHub:
         self._active_cover = None
         self._queued_covers.clear()
         self._lock = None
-        _CALIBRATION_LOCKS.pop(self.key, None)
-        _CALIBRATION_ACTIVE.pop(self.key, None)
-        _CALIBRATION_QUEUED.pop(self.key, None)
-        if self.mac:
-            _CALIBRATION_LOCKS.pop(self.mac, None)
-            _CALIBRATION_ACTIVE.pop(self.mac, None)
-            _CALIBRATION_QUEUED.pop(self.mac, None)
         self.trace.clear()
+        self._unregister()
 
 
 def get_calibration_hub(gateway: Any) -> CoverCalibrationHub:
@@ -277,7 +266,10 @@ def get_calibration_hub(gateway: Any) -> CoverCalibrationHub:
     runtime = getattr(entry, "runtime_data", None) if entry is not None else None
     if isinstance(runtime, MyHOMERuntimeData):
         if runtime.calibration_hub is None:
-            runtime.calibration_hub = CoverCalibrationHub(gateway)
+            hub = getattr(gateway, "_calibration_hub", None)
+            if not isinstance(hub, CoverCalibrationHub):
+                hub = CoverCalibrationHub(gateway)
+            runtime.calibration_hub = hub
         return runtime.calibration_hub
 
     if runtime is not None:

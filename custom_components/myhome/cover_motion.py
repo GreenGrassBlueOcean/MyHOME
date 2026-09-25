@@ -64,11 +64,16 @@ def compute_freeze_position(
     When stationary (move_start_time is None or neither opening nor closing),
     correctly preserves current_position or start_position.
     """
-    if move_start_time is not None and travel_time > 0 and (is_opening or is_closing):
-        elapsed = max(0.0, at - move_start_time)
-        delta = (elapsed / travel_time) * 100.0
-        if is_opening:
-            return min(100, int(round(start_position + delta)))
-        if is_closing:
-            return max(0, int(round(start_position - delta)))
+    pos = compute_interpolated_position(
+        current_position=current_position,
+        start_position=start_position,
+        move_start_time=move_start_time,
+        now=at,
+        travel_time=travel_time,
+        is_opening=is_opening,
+        is_closing=is_closing,
+    )
+    if pos is not None:
+        return pos
     return current_position if current_position is not None else start_position
+
