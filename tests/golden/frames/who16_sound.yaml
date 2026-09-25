@@ -19,6 +19,40 @@
 #
 # Frames are verbatim except where a note says otherwise.
 
+# ── Status discovery (DIMENSION 5) ────────────────────────────────────────────
+
+- id: sound.dim.state.request.0
+  frame: "*#16*0*5##"
+  direction: dimension_request
+  who: 16
+  what: null
+  where: "0"
+  dimension: 5
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: WHO 16 dimension 5 general status request on MH200. Gateway answers with status of all audio zones and active sources (spec §1.5.2)."
+  roundtrip: true
+  builder:
+    class: OWNSoundCommand
+    method: status
+    args: ["0"]
+
+- id: sound.dim.state.request.101
+  frame: "*#16*101*5##"
+  direction: dimension_request
+  who: 16
+  what: null
+  where: "101"
+  dimension: 5
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: request state for stereo source device 101 on MH200."
+  roundtrip: true
+  builder:
+    class: OWNSoundCommand
+    method: status
+    args: ["101"]
+
 # ── Source devices (WHERE 101-109) ────────────────────────────────────────────
 
 - id: sound.cmd.source.on.1
@@ -187,6 +221,28 @@
   mcp_notes: "Plant A: the same amplifier OFF."
   roundtrip: true
 
+- id: sound.event.zone.off.21
+  frame: "*16*13*21##"
+  direction: event
+  who: 16
+  what: 13
+  where: "21"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: amplifier 1 in environment 2 OFF (returned by MH200 during dimension 5 general sweep)."
+  roundtrip: true
+
+- id: sound.event.zone.on.22
+  frame: "*16*3*22##"
+  direction: event
+  who: 16
+  what: 3
+  where: "22"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: amplifier 2 in environment 2 ON."
+  roundtrip: true
+
 # ── Volume (DIMENSION 1) ──────────────────────────────────────────────────────
 
 - id: sound.dim.volume.response.11
@@ -228,6 +284,54 @@
     class: OWNSoundCommand
     method: set_volume
     args: ["23", 15]
+
+- id: sound.dim.volume.request.21
+  frame: "*#16*21*1##"
+  direction: dimension_request
+  who: 16
+  what: null
+  where: "21"
+  dimension: 1
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: request volume level for amplifier 21 on MH200."
+  roundtrip: true
+
+- id: sound.dim.volume.response.21
+  frame: "*#16*21*1*15##"
+  direction: dimension_response
+  who: 16
+  where: "21"
+  dimension: 1
+  dimension_values: ["15"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: amplifier 21 reports volume 15 of 31 on MH200."
+  roundtrip: true
+
+- id: sound.dim.volume.request.22
+  frame: "*#16*22*1##"
+  direction: dimension_request
+  who: 16
+  what: null
+  where: "22"
+  dimension: 1
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: request volume level for amplifier 22 on MH200."
+  roundtrip: true
+
+- id: sound.dim.volume.response.22
+  frame: "*#16*22*1*15##"
+  direction: dimension_response
+  who: 16
+  where: "22"
+  dimension: 1
+  dimension_values: ["15"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Plant A: amplifier 22 reports volume 15 of 31 on MH200."
+  roundtrip: true
 
 # ── RDS (DIMENSION 8) ─────────────────────────────────────────────────────────
 

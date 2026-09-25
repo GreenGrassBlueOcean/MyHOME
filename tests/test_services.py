@@ -114,6 +114,8 @@ async def test_sweep_bus_queries_sent(hass: HomeAssistant, attach_gateway) -> No
     assert "*#13**16##" in sent_raw
     assert "*#2*0##" in sent_raw
     assert "*#4*0##" in sent_raw
+    assert "*#5*0##" in sent_raw
+    assert "*#16*0*5##" in sent_raw
     assert "*#1*0##" not in sent_raw
 
 

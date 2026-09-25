@@ -62,6 +62,18 @@
   mcp_notes: "Gateway Management: Request gateway model / device type (physical MH200 check)"
   roundtrip: true
 
+- id: gateway.req.firmware_version
+  frame: "*#13**16##"
+  direction: dimension_request
+  who: 13
+  what: null
+  where: ""
+  dimension: 16
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Gateway Management: Request gateway firmware version (physical MH200 check)"
+  roundtrip: true
+
 # Regression (live 2026-09-23): a physical MH200, firmware 2.1.0, set up by hand as
 # MH200N. Code 4 must correct that label to MH200 - the MH200N has a code of its own
 # (44) - or the MH200N profile skips the startup WHO=16 sweep (identity.py).

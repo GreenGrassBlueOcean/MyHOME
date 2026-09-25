@@ -2062,6 +2062,26 @@
     "_file": "who04_thermo.yaml"
   },
   {
+    "id": "alarm.req.status.cu",
+    "frame": "*#5*0##",
+    "direction": "status_request",
+    "who": 5,
+    "what": null,
+    "where": "0",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: Burglar Alarm status request for central unit (WHERE 0, captured on live MH200)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNAlarmCommand",
+      "method": "status",
+      "args": [
+        "0"
+      ]
+    },
+    "_file": "who05_alarm.yaml"
+  },
+  {
     "id": "alarm.req.status.zone2",
     "frame": "*#5*2##",
     "direction": "status_request",
@@ -2357,6 +2377,20 @@
     "_file": "who13_gateway.yaml"
   },
   {
+    "id": "gateway.req.firmware_version",
+    "frame": "*#13**16##",
+    "direction": "dimension_request",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 16,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: Request gateway firmware version (physical MH200 check)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
     "id": "gateway.resp.model.device_type.mh200",
     "frame": "*#13**15*4##",
     "direction": "dimension_response",
@@ -2473,6 +2507,48 @@
     "mcp_notes": "CEN: Button 1 extended pressure on module 0001",
     "roundtrip": true,
     "_file": "who15_cen.yaml"
+  },
+  {
+    "id": "sound.dim.state.request.0",
+    "frame": "*#16*0*5##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "0",
+    "dimension": 5,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: WHO 16 dimension 5 general status request on MH200. Gateway answers with status of all audio zones and active sources (spec \u00a71.5.2).",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNSoundCommand",
+      "method": "status",
+      "args": [
+        "0"
+      ]
+    },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.state.request.101",
+    "frame": "*#16*101*5##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "101",
+    "dimension": 5,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request state for stereo source device 101 on MH200.",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNSoundCommand",
+      "method": "status",
+      "args": [
+        "101"
+      ]
+    },
+    "_file": "who16_sound.yaml"
   },
   {
     "id": "sound.cmd.source.on.1",
@@ -2671,6 +2747,32 @@
     "_file": "who16_sound.yaml"
   },
   {
+    "id": "sound.event.zone.off.21",
+    "frame": "*16*13*21##",
+    "direction": "event",
+    "who": 16,
+    "what": 13,
+    "where": "21",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 1 in environment 2 OFF (returned by MH200 during dimension 5 general sweep).",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.zone.on.22",
+    "frame": "*16*3*22##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "22",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 2 in environment 2 ON.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
     "id": "sound.dim.volume.response.11",
     "frame": "*#16*11*1*17##",
     "direction": "dimension_response",
@@ -2724,6 +2826,66 @@
         15
       ]
     },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.request.21",
+    "frame": "*#16*21*1##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "21",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request volume level for amplifier 21 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.21",
+    "frame": "*#16*21*1*15##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "21",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 21 reports volume 15 of 31 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.request.22",
+    "frame": "*#16*22*1##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "22",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request volume level for amplifier 22 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.22",
+    "frame": "*#16*22*1*15##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "22",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 22 reports volume 15 of 31 on MH200.",
+    "roundtrip": true,
     "_file": "who16_sound.yaml"
   },
   {

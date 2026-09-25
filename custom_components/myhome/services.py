@@ -151,6 +151,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "*#13**16##",  # Gateway firmware version
             "*#2*0##",     # All cover actuators
             "*#4*0##",     # Thermoregulation master status
+            "*#5*0##",     # Burglar alarm central unit status
+            "*#16*0*5##",  # Sound system status (lists all amplifiers & sources)
         ]
 
         for gw_mac, handler in target_gateways.items():
