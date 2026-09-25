@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -17,11 +16,11 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.connection import OWNCommandSession, OWNEventSession, OWNGateway
 from OWNd.message import OWNCommand, OWNMessage
 
+from .const import LOGGER
+
 if TYPE_CHECKING:
     from .bus_monitor import BusMonitor
     from .gateway import MyHOMEGatewayHandler
-
-LOGGER = logging.getLogger(__name__)
 
 EVENT_READY_TIMEOUT: float = 120.0
 COMMAND_SESSION_IDLE_TIMEOUT: float = 15.0
@@ -265,7 +264,9 @@ class EventSessionRunner:
         """Signal listener termination and unblock waiting workers."""
         self._terminate_listener = True
         self._event_session_ready.set()
-        self._event_watchdog = None
+        if self._event_watchdog is not None:
+            self._event_watchdog.reschedule(None)
+            self._event_watchdog = None
 
 
 class CommandWorkerPool:
@@ -369,8 +370,6 @@ class CommandWorkerPool:
         event_ready_timeout = float(getattr(gw_module, "EVENT_READY_TIMEOUT", EVENT_READY_TIMEOUT))
         session_is_open = getattr(gw_module, "_session_is_open", _session_is_open)
         dispatcher_send = getattr(gw_module, "async_dispatcher_send", async_dispatcher_send)
-
-        self._terminate_sender = False
 
         LOGGER.debug("%s Creating sending worker %s", self.log_id, worker_id)
         LOGGER.debug("%s Worker %s waiting for event session to be ready...", self.log_id, worker_id)
