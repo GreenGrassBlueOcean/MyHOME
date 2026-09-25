@@ -28,9 +28,7 @@
         "description": "Vul de informatie in voor uw gateway",
         "data": {
           "address": "IP address",
-          "port": "Port",
-          "serialNumber": "MAC address",
-          "modelName": "Device type"
+          "port": "Port"
         }
       },
       "custom_manual": {

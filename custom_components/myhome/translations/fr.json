@@ -28,9 +28,7 @@
         "description": "Remplissez les informations de votre serveur",
         "data": {
           "address": "Adresse IP",
-          "port": "Port",
-          "serialNumber": "Adresse MAC",
-          "modelName": "Type de serveur"
+          "port": "Port"
         }
       },
       "custom_manual": {
