@@ -1869,6 +1869,40 @@
     "_file": "who04_thermo.yaml"
   },
   {
+    "id": "thermo.resp.offset.zone4.plus1",
+    "frame": "*#4*4*13*01##",
+    "direction": "dimension_response",
+    "who": 4,
+    "what": null,
+    "where": "4",
+    "dimension": 13,
+    "dimension_values": [
+      "01"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Thermoregulation: Zone 4 local knob offset +1.0\u00b0C (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who04_thermo.yaml"
+  },
+  {
+    "id": "thermo.resp.offset.zone4.minus1",
+    "frame": "*#4*4*13*11##",
+    "direction": "dimension_response",
+    "who": 4,
+    "what": null,
+    "where": "4",
+    "dimension": 13,
+    "dimension_values": [
+      "11"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Thermoregulation: Zone 4 local knob offset -1.0\u00b0C (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who04_thermo.yaml"
+  },
+  {
     "id": "thermo.capture.dim7.cooling_setpoint.z2",
     "frame": "*#4*2*7*2*1*0260##",
     "direction": "dimension_response",
@@ -2238,6 +2272,25 @@
     "source": "openwebnet4j",
     "mcp_valid": true,
     "mcp_notes": "Gateway Management: Gateway reports firmware version 1.2.3",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
+    "id": "gateway.resp.firmware.version.mh200n",
+    "frame": "*#13**16*1*1*8##",
+    "direction": "dimension_response",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 16,
+    "dimension_values": [
+      "1",
+      "1",
+      "8"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: MH200N reports firmware version 1.1.8 (issue #466 capture)",
     "roundtrip": true,
     "_file": "who13_gateway.yaml"
   },
@@ -2803,6 +2856,23 @@
     "source": "community-plant-capture",
     "mcp_valid": true,
     "mcp_notes": "Energy Management: Actuator channel 77#0 reports 415 Watts active power (issue #247 reporter plant)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.resp.cumulative_totalizer.meter51",
+    "frame": "*#18*51*51*23791364##",
+    "direction": "dimension_response",
+    "who": 18,
+    "what": null,
+    "where": "51",
+    "dimension": 51,
+    "dimension_values": [
+      "23791364"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Meter 51 reports 23791364 Wh cumulative energy (issue #466 capture)",
     "roundtrip": true,
     "_file": "who18_energy.yaml"
   },

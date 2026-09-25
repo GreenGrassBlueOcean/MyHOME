@@ -284,6 +284,32 @@
   mcp_notes: "Thermoregulation: Zone 2 local knob offset 0.0°C"
   roundtrip: true
 
+- id: thermo.resp.offset.zone4.plus1
+  frame: "*#4*4*13*01##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "4"
+  dimension: 13
+  dimension_values: ["01"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Thermoregulation: Zone 4 local knob offset +1.0°C (issue #466 capture)"
+  roundtrip: true
+
+- id: thermo.resp.offset.zone4.minus1
+  frame: "*#4*4*13*11##"
+  direction: dimension_response
+  who: 4
+  what: null
+  where: "4"
+  dimension: 13
+  dimension_values: ["11"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Thermoregulation: Zone 4 local knob offset -1.0°C (issue #466 capture)"
+  roundtrip: true
+
 # ── DIMENSION 7 zone state and DIMENSION 5, MyHomeServer1 + Home+Control (MyHOME#429, OWNd#58) ──
 # Dimension 7 is not in WHO_4 2.pdf; openwebnet-mcp accepts the grammar and
 # warns that it is undocumented. Meaning per the MyHOME_Suite ScenarioDevices

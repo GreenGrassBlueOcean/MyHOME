@@ -11,6 +11,19 @@
   mcp_notes: "Gateway Management: Gateway reports firmware version 1.2.3"
   roundtrip: true
 
+- id: gateway.resp.firmware.version.mh200n
+  frame: "*#13**16*1*1*8##"
+  direction: dimension_response
+  who: 13
+  what: null
+  where: ""
+  dimension: 16
+  dimension_values: ["1", "1", "8"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Gateway Management: MH200N reports firmware version 1.1.8 (issue #466 capture)"
+  roundtrip: true
+
 - id: gateway.resp.internal.datetime
   frame: "*#13**22*09*37*30*102*03*01*05*2019##"
   direction: dimension_response

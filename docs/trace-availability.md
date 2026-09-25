@@ -8,6 +8,7 @@ This matrix documents the real-world physical gateways for which we have capture
 | **F454** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |  |  | ✅ |
 | **F461** | ✅ |  | ✅ |  |  |  |  |  |  |  |  |
 | **MH200** | ✅ | ✅ |  |  |  | ✅ |  |  |  |  |  |
+| **MH200N** | ✅ | ✅ | ✅ |  |  | ✅ |  |  | ✅ |  |  |
 | **MH201** | ✅ | ✅ | ✅ |  |  | ✅ |  | ✅ |  | ✅ |  |
 | **MH202** |  | ✅ | ✅ |  |  | ✅ |  |  |  |  | ✅ |
 | **MyHomeServer1** | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |
