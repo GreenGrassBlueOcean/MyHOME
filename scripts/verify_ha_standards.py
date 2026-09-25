@@ -28,6 +28,7 @@ RUNTIME_DATA_READERS = [
     "light.py", "switch.py", "cover.py", "climate.py", "binary_sensor.py", "sensor.py",
     "media_player.py", "button.py", "alarm_control_panel.py",
     "services.py", "websocket.py", "diagnostics.py", "myhome_device.py", "decoder_pool.py",
+    "cover_calibration.py",
 ]
 TRANSLATIONS_DIR = CUSTOM_COMPONENTS_DIR / "translations"
 

@@ -16,6 +16,7 @@ from .router import FrameRouter
 
 if TYPE_CHECKING:
     from .bus_monitor import BusMonitor
+    from .cover_calibration import CoverCalibrationHub
     from .decoder_pool import DecoderPool
     from .gateway import MyHOMEGatewayHandler
 
@@ -36,6 +37,8 @@ class MyHOMERuntimeData:
     media_players: dict[str, Any] = field(default_factory=dict)
     # Delivers bus frames to the entities owning their addresses (see router.py).
     router: FrameRouter = field(default_factory=FrameRouter)
+    # Cover calibration state and serialization per gateway
+    calibration_hub: CoverCalibrationHub | None = None
 
     @property
     def mac(self) -> str:
