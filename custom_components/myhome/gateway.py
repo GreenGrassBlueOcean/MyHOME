@@ -59,6 +59,22 @@ from .gateway_sessions import (
     _resolve_written,
     _session_is_open,
 )
+from .identity import (
+    GatewayIdentityEvidence,
+    GatewayIdentityResolution,
+    read_who13,
+    read_who1013,
+    resolve_gateway_identity,
+)
+from .repairs import (
+    async_create_identity_corrected_issue,
+    async_create_identity_issue,
+    async_create_unconfigured_timezone_issue,
+    async_create_unknown_model_issue,
+    async_delete_identity_issue,
+    async_delete_unconfigured_timezone_issue,
+    async_delete_unknown_model_issue,
+)
 
 __all__ = [
     "AVAILABILITY_GRACE",
@@ -90,22 +106,6 @@ __all__ = [
     "get_gateway_profile",
     "time",
 ]
-from .identity import (
-    GatewayIdentityEvidence,
-    GatewayIdentityResolution,
-    read_who13,
-    read_who1013,
-    resolve_gateway_identity,
-)
-from .repairs import (
-    async_create_identity_corrected_issue,
-    async_create_identity_issue,
-    async_create_unconfigured_timezone_issue,
-    async_create_unknown_model_issue,
-    async_delete_identity_issue,
-    async_delete_unconfigured_timezone_issue,
-    async_delete_unknown_model_issue,
-)
 
 _orig_gw_tz = _ownd_msg._gateway_timezone
 

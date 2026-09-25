@@ -20,7 +20,9 @@ from .data import MyHOMERuntimeData
 if TYPE_CHECKING:
     from .gateway import MyHOMEGatewayHandler
 
-# Legacy module globals for backward compatibility and test fixture resets
+# Transitional compatibility shims: retained to support existing test fixtures and
+# legacy mock gateway access without breaking backward compatibility. These module globals
+# will be deprecated and removed once test fixtures talk directly to CoverCalibrationHub.
 _CALIBRATION_LOCKS: dict[str, asyncio.Lock] = {}
 _CALIBRATION_ACTIVE: dict[str, Any] = {}
 _CALIBRATION_QUEUED: dict[str, set[Any]] = {}
