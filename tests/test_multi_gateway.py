@@ -345,8 +345,8 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
 
     # 3. sweep_bus filters queries: WHO=2/4/16 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##); covers/climate are delegated away = 3
-    assert gw_a.send.call_count == 3
+    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus non-delegated WHO=5 = 4
+    assert gw_a.send.call_count == 4
     assert gw_b.send.call_count == 0
 
     gw_a.send.reset_mock()
