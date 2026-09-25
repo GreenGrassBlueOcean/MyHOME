@@ -2138,3 +2138,14 @@ async def test_mh200_light_74_restored_on_after_the_fix(hass):
 
     assert light.is_on is None
     assert light.extra_state_attributes["unknown_state"] == 19
+
+
+def test_light_backward_compatibility_shims(hass):
+    """Test backward-compatibility properties and shims on MyHOMELight."""
+    light = _unknown_state_light(hass)
+    assert light._warned_multi_worker is False
+    light._warned_multi_worker = True
+    assert light._warned_multi_worker is True
+    assert light._next_fade_id() == 1
+    assert light._next_fade_id() == 2
+

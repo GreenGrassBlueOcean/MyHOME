@@ -8,7 +8,7 @@ import pytest
 from homeassistant.components.light import ColorMode
 from homeassistant.core import State
 from OWNd.message import OWNEvent, OWNHeatingEvent, OWNLightingEvent
-from OWNd.profiles import MH200NProfile, get_gateway_profile
+from OWNd.profiles import GatewayProfile, MH200NProfile, get_gateway_profile
 
 from custom_components.myhome.const import DOMAIN
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
@@ -249,8 +249,11 @@ async def test_brightness_restore_does_not_downgrade_color_light(hass, mock_gate
 
 
 async def test_discovery_skips_unsupported_who(gateway_handler):
-    """A profile without WHO 16 (OWNd's MH200N profile) must not be asked *#16*0*5## at startup."""
-    gateway_handler.gateway.profile = get_gateway_profile("MH200N")
+    """A profile without WHO 16 must not be asked *#16*0*5## at startup."""
+    gateway_handler.gateway.profile = GatewayProfile(
+        model_name="NoAudioBox",
+        supported_who=(2, 4),
+    )
     await gateway_handler.initial_discovery()
 
     queued = []
