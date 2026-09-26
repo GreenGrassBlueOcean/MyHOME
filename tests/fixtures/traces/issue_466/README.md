@@ -145,6 +145,20 @@ Verbatim bus traces contributed by **@anotherjulien** on [#466 (comment 58490275
   - WHO 13 Device Type Code: `200`
   - Connection: TCP OpenWebNet (Port 20000)
 
+---
+
+# #466 MH200 Gateway Traces (Live Bus Monitor & Subsystem Sweep)
+
+Authentic on-wire bus trace captured from a physical BTicino MH200 scenario programmer via the `myhome-gateway` live session.
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino MH200 (1st Generation Scenario Programmer)
+- **Firmware**: 2.0.0
+- **WHO 13 Device Type Code**: `4` (`*#13**15*4##`)
+- **WHO 1013 Object Model**: `4` (`*#1013**1*4##`)
+- **Connection**: TCP OpenWebNet (Port 20000)
+
 ## Contributed Files
 
 | File | Type | Description |
@@ -186,3 +200,48 @@ Verbatim bus traces contributed by **@anotherjulien** on [#466 (comment 58490275
 
 - **F454**: WHO 1 (Lights & Dimmers), WHO 2 (Covers), WHO 4 (Climate), WHO 9 (Power/Aux), WHO 13 (Gateway), WHO 14 (Lock), WHO 18 (Energy), WHO 25 (CEN+ / Diag).
 - **MH202**: WHO 1 (Lights & Dimmers), WHO 2 (Covers), WHO 4 (Climate), WHO 9 (Power/Aux), WHO 13 (Gateway), WHO 14 (Lock), WHO 18 (Energy), WHO 25 (CEN+ / Diag).
+
+---
+
+| `myhome_trace_MH200_all_2026-09-26T21-00-00.json` | Bus Monitor Trace (144 frames) | Authentic physical capture across WHO 1, 2, 5, 9, 13, 16, 17, 1001, and 1013, closing key hardware gaps in the test matrix. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Gateway Identification & Diagnostics (WHO 13 & WHO 1013)**:
+   - Device model query `*#13**15##` -> `*#13**15*4##` (MH200).
+   - Clock broadcasts `*#13**22*...##`.
+   - Gateway object model diagnostic `*#1013*0*1##` -> `*#1013**1*4##`.
+
+2. **Auxiliary Subsystem Verification (WHO 9)**:
+   - Status requests for auxiliary channels 0, 1, and 2 (`*#9*0##`, `*#9*1##`, `*#9*2##`).
+   - Hardware responses confirming channel states: `*9*0*0##`, `*9*0*1##`, `*9*0*2##`.
+
+3. **Advanced Scenario Module (WHO 17)**:
+   - Querying programmed scenarios (`*#17*0##`, `*#17*30##`, `*#17*137##`).
+   - Hardware replies confirming resident scenarios 30 and 137 (`*17*2*30##`, `*17*3*30##`, `*17*2*137##`, `*17*3*137##`).
+
+4. **Burglar Alarm Interaction (WHO 5)**:
+   - Status poll `*#5*0##` -> returns empty-WHERE status frames (`*5*0*##`, `*5*9*##`, `*5*5*##`, `*5*7*##`) and active zones 1 through 8 (`*5*11*#1##` to `*5*11*#8##`).
+
+5. **Audio System (WHO 16)**:
+   - Status polls and zone event broadcasts across amplifiers and sources: `*16*13*21##`, `*16*3*101##`, `*16*3*102##`, `*16*3*122##`, and zone 23 volume reports (`*#16*23*1*28##`, `*#16*23*1*10##`).
+
+6. **Physical Layer Lighting Diagnostic (WHO 1001)**:
+   - Bus diagnostic emission from lighting node 74: `*#1001*74*11*111110111111111111110111##`.
+
+7. **Automation & Lighting (WHO 1 & WHO 2)**:
+   - Interface 02 shutter status frames (`*2*0*WHERE#4#02##`).
+   - Comprehensive lighting sweeps across standard and dimmable loads.
+
+## Subsystems Verified (MH200)
+
+- **WHO 1 (Lighting)**: Multi-point on/off and dimmer level events.
+- **WHO 2 (Automation)**: Covers on interface 02 and local actuators.
+- **WHO 5 (Burglar Alarm)**: System status flags and zones 1–8.
+- **WHO 9 (Power / Auxiliary)**: Auxiliary channels 0, 1, and 2.
+- **WHO 13 (Gateway Management)**: Device type `4` and datetime broadcasts.
+- **WHO 16 (Sound System / Audio)**: Zones 14, 17, 18, 21, 22, 23, 35, 36, 122 and volume feedback.
+- **WHO 17 (Advanced Scenarios)**: Resident scenario states for 30 and 137.
+- **WHO 1001 (Lighting Diagnostic)**: Node 74 diagnostic bitmask.
+- **WHO 1013 (Gateway Diagnostics)**: Object model `4`.
+
