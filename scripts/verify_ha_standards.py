@@ -592,6 +592,34 @@ def check_ownd_library_standards(checker: StandardsChecker):
         checker.log_ok(f"[OWND] Client library verification skipped (OWNd not in path: {err}).")
 
 
+def check_supported_domains_rule(checker: StandardsChecker):
+    """Rule: Verify README.md Supported Entity Domains table is calibrated and in sync."""
+    try:
+        try:
+            from scripts.update_supported_domains import check_readme_in_sync
+        except ImportError:
+            from update_supported_domains import check_readme_in_sync
+
+        in_sync, msg = check_readme_in_sync()
+        if not in_sync:
+            checker.log_error(
+                "RULE_DOCS_SUPPORTED_DOMAINS",
+                ROOT_DIR / "README.md",
+                1,
+                f"Supported Entity Domains table in README.md is out of sync: {msg}. "
+                f"Run 'python scripts/update_supported_domains.py' to update.",
+            )
+        else:
+            checker.log_ok("README.md Supported Entity Domains & Automations table is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_SUPPORTED_DOMAINS",
+            ROOT_DIR / "README.md",
+            1,
+            f"Failed verifying supported domains: {err}",
+        )
+
+
 def main():
     print("=" * 70)
     print("Running Home Assistant Architectural Standards Validator")
@@ -606,6 +634,7 @@ def main():
     check_manifest_requirements_rule(checker)
     check_quality_scale_rules(checker)
     check_ownd_library_standards(checker)
+    check_supported_domains_rule(checker)
 
     print("=" * 70)
     if checker.errors:
