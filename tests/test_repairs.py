@@ -1,4 +1,5 @@
 """Test repair issues management for MyHOME integration."""
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
@@ -156,9 +157,81 @@ async def test_incompatible_decoder_issue_lifecycle(hass: HomeAssistant) -> None
     assert issue is not None
     assert issue.severity == ir.IssueSeverity.WARNING
     assert issue.translation_key == ISSUE_INCOMPATIBLE_DECODER
-    assert not issue.is_fixable
+    assert issue.is_fixable
     assert issue.translation_placeholders == {"decoder": decoder_id, "platform": "cambridge_audio"}
     assert issue.learn_more_url == "https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant"
 
     async_delete_incompatible_decoder_issue(hass, entry_id, decoder_id)
     assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+@pytest.mark.asyncio
+async def test_incompatible_decoder_repair_flow_confirm(hass: HomeAssistant) -> None:
+    """Test the repair flow auto-swaps to DLNA DMR companion when present."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import CONF_DECODER_ENTITY
+    from custom_components.myhome.repairs import async_create_fix_flow
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    device = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "cxn_id")},
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "cambridge_audio", "cxn_id", device_id=device.id, suggested_object_id="streamer"
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "dlna_dmr", "cxn_dlna_id", device_id=device.id, suggested_object_id="streamer_dlna"
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MyHome Gateway",
+        options={CONF_DECODER_ENTITY.format(1): "media_player.streamer"},
+    )
+    entry.add_to_hass(hass)
+
+    flow = await async_create_fix_flow(
+        hass,
+        "incompatible_decoder_platform_test_gw",
+        {"entry_id": entry.entry_id, "decoder_id": "media_player.streamer", "platform": "cambridge_audio"},
+    )
+    result = await flow.async_step_init()
+    assert result["type"] == "form"
+    assert result["step_id"] == "confirm_companion"
+    assert result["description_placeholders"]["companion"] == "media_player.streamer_dlna"
+
+    # User confirms the fix
+    fix_result = await flow.async_step_confirm_companion(user_input={})
+    assert fix_result["type"] == "create_entry"
+
+    # Verify options entry was updated to the DLNA companion
+    assert entry.options[CONF_DECODER_ENTITY.format(1)] == "media_player.streamer_dlna"
+
+
+@pytest.mark.asyncio
+async def test_incompatible_decoder_repair_flow_missing_companion(hass: HomeAssistant) -> None:
+    """Test the repair flow shows missing instructions when no DLNA companion is found."""
+    from custom_components.myhome.repairs import async_create_fix_flow
+
+    flow = await async_create_fix_flow(
+        hass,
+        "incompatible_decoder_platform_test_gw",
+        {"entry_id": "mock_entry", "decoder_id": "media_player.unknown", "platform": "cambridge_audio"},
+    )
+    result = await flow.async_step_init()
+    assert result["type"] == "form"
+    assert result["step_id"] == "missing_companion"
+
+    # Submitting without DLNA configured aborts with companion_still_missing
+    abort_result = await flow.async_step_missing_companion(user_input={})
+    assert abort_result["type"] == "abort"
+    assert abort_result["reason"] == "companion_still_missing"

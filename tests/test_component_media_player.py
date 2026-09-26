@@ -1456,6 +1456,61 @@ async def test_cambridge_audio_incompatible_warning_and_error(hass, mock_gateway
 
 
 @pytest.mark.asyncio
+async def test_cambridge_audio_with_companion_dlna_bridges_stream(hass, mock_gateway):
+    """When a cambridge_audio entity has a companion DLNA entity, play_media bridges seamlessly."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    device = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "cxn_hw")},
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "cambridge_audio", "cxn_hw", device_id=device.id, suggested_object_id="cambridge_cxn"
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "dlna_dmr", "cxn_hw_dlna", device_id=device.id, suggested_object_id="cambridge_cxn_dlna"
+    )
+
+    entry = MagicMock()
+    entry.entry_id = "test_gw"
+    entry.options = {
+        CONF_DECODER_ENTITY.format(1): "media_player.cambridge_cxn",
+        CONF_DECODER_SOURCE.format(1): 2,
+    }
+
+    with patch("custom_components.myhome.media_player.async_create_incompatible_decoder_issue") as mock_issue:
+        pool = _build_pool(hass, entry)
+        # Repair issue is NOT created because companion is detected!
+        mock_issue.assert_not_called()
+
+    assert pool.companion_map == {"media_player.cambridge_cxn": "media_player.cambridge_cxn_dlna"}
+    assert "media_player.cambridge_cxn" not in pool.stream_incompatible
+
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.cambridge_cxn", "idle")
+    hass.states.async_set("media_player.cambridge_cxn_dlna", "idle")
+    z22 = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.audio_zone_22")
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_call:
+        await z22.async_play_media("music", "http://stream")
+
+        # Verify play_media was forwarded to the companion DLNA entity
+        calls = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "play_media"]
+        assert len(calls) == 1
+        assert calls[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert calls[0].args[2]["media_content_id"] == "http://stream"
+
+
+@pytest.mark.asyncio
 async def test_passive_metadata_mirroring_and_transport(hass, mock_gateway):
     """A zone turned on and routed to a decoder source passively mirrors track info and transport."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from typing import Any
 
+from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import (
@@ -150,12 +152,100 @@ def async_create_incompatible_decoder_issue(
         hass,
         DOMAIN,
         f"{ISSUE_INCOMPATIBLE_DECODER}_{entry_id}_{slug_id}",
-        is_fixable=False,
+        is_fixable=True,
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_INCOMPATIBLE_DECODER,
         translation_placeholders={"decoder": decoder_id, "platform": platform},
         learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant",
+        data={"entry_id": entry_id, "decoder_id": decoder_id, "platform": platform},
     )
+
+
+class IncompatibleDecoderRepairFlow(RepairsFlow):
+    """Handler for fixing an incompatible streaming decoder."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        """Initialize the flow."""
+        self._entry_id: str = str(data.get("entry_id") or "")
+        self._decoder_id: str = str(data.get("decoder_id") or "")
+        self._platform: str = str(data.get("platform") or "")
+        self._companion_id: str | None = None
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Handle the first step of the repair flow."""
+        from .decoder_companion import async_find_streaming_companion
+
+        self._companion_id = async_find_streaming_companion(self.hass, self._decoder_id)
+
+        if self._companion_id:
+            return await self.async_step_confirm_companion()
+        return await self.async_step_missing_companion()
+
+    async def async_step_confirm_companion(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Confirm replacing the incompatible decoder with its DLNA companion."""
+        if user_input is not None:
+            from .const import CONF_DECODER_ENTITY, CONF_DECODER_SLOTS
+
+            entry = self.hass.config_entries.async_get_entry(self._entry_id)
+            if entry and self._companion_id:
+                new_options = dict(entry.options)
+                for i in range(1, CONF_DECODER_SLOTS + 1):
+                    key = CONF_DECODER_ENTITY.format(i)
+                    if new_options.get(key) == self._decoder_id:
+                        new_options[key] = self._companion_id
+                self.hass.config_entries.async_update_entry(entry, options=new_options)
+            return self.async_create_entry(data={})
+
+        return self.async_show_form(
+            step_id="confirm_companion",
+            description_placeholders={
+                "decoder": self._decoder_id,
+                "platform": self._platform,
+                "companion": self._companion_id or "",
+            },
+        )
+
+    async def async_step_missing_companion(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Inform the user how to configure DLNA DMR for this device."""
+        if user_input is not None:
+            from .decoder_companion import async_find_streaming_companion
+
+            companion = async_find_streaming_companion(self.hass, self._decoder_id)
+            if companion:
+                self._companion_id = companion
+                return await self.async_step_confirm_companion()
+            return self.async_abort(reason="companion_still_missing")
+
+        return self.async_show_form(
+            step_id="missing_companion",
+            description_placeholders={
+                "decoder": self._decoder_id,
+                "platform": self._platform,
+            },
+        )
+
+
+async def async_create_fix_flow(
+    hass: HomeAssistant,
+    issue_id: str,
+    data: dict[str, Any] | None,
+) -> RepairsFlow:
+    """Create a repair fix flow."""
+    if issue_id.startswith(f"{ISSUE_INCOMPATIBLE_DECODER}_"):
+        flow: RepairsFlow = IncompatibleDecoderRepairFlow(data or {})
+        flow.hass = hass
+        return flow
+    from homeassistant.components.repairs import ConfirmRepairFlow
+
+    confirm_flow: RepairsFlow = ConfirmRepairFlow()
+    confirm_flow.hass = hass
+    return confirm_flow
 
 
 def async_delete_incompatible_decoder_issue(

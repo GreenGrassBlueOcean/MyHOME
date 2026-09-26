@@ -100,6 +100,7 @@ class DecoderPool:
         decoder_map: dict[str, int],
         pre_gain_map: dict[str, int] | None = None,
         stream_incompatible: Collection[str] = (),
+        companion_map: Mapping[str, str] | None = None,
     ) -> None:
         """Initialise the decoder pool.
 
@@ -127,6 +128,10 @@ class DecoderPool:
                 They stay in the pool for passive mirroring and for the
                 media types they do accept, but a URL stream skips them.
 
+            companion_map: Optional mapping of ``{decoder_id: streaming_companion_id}``
+                where a hardware decoder (e.g. ``cambridge_audio``) is dynamically
+                bridged to its companion DLNA DMR entity for URL streaming.
+
         Example::
 
             pool = DecoderPool(
@@ -144,6 +149,7 @@ class DecoderPool:
         self._groups: dict[str, set[str]] = {}                   # leader_entity_id → set of member_entity_ids
         self._environments: dict[str, str] = {}                   # zone_entity_id → environment
         self._stream_incompatible: frozenset[str] = frozenset(stream_incompatible)
+        self._companion_map: dict[str, str] = dict(companion_map or {})
         self._lock = asyncio.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -157,6 +163,15 @@ class DecoderPool:
     def stream_incompatible(self) -> frozenset[str]:
         """Return the decoders that cannot be handed a stream URL."""
         return self._stream_incompatible
+
+    @property
+    def companion_map(self) -> dict[str, str]:
+        """Return mapping of decoder_id -> streaming companion entity_id."""
+        return dict(self._companion_map)
+
+    def get_streaming_decoder(self, decoder_id: str) -> str:
+        """Return the streaming companion entity for decoder_id if one exists, else decoder_id."""
+        return self._companion_map.get(decoder_id, decoder_id)
 
     async def claim(
         self,
@@ -607,8 +622,12 @@ class DecoderPool:
 
     @property
     def decoder_entity_ids(self) -> list[str]:
-        """Return all configured decoder entity IDs."""
-        return list(self._decoder_map.keys())
+        """Return all configured decoder entity IDs, including any companions."""
+        ids = list(self._decoder_map.keys())
+        for comp in self._companion_map.values():
+            if comp not in ids:
+                ids.append(comp)
+        return ids
 
     def __repr__(self) -> str:  # pragma: no cover
         busy = sum(1 for v in self._assignments.values() if v is not None)
