@@ -45,10 +45,42 @@ Verbatim bus traces contributed by **@caiosweet** on [#466 (comment 5834435606)]
      - `*#4*4*13*12##` (-2 °C)
      - `*#4*4*13*11##` (-1 °C)
 
-## Subsystems Verified
+## Subsystems Verified (MH200N)
 
 - **WHO 1 (Lighting)**: 21 lighting endpoints reporting OFF / ON status during sweep.
 - **WHO 2 (Automation)**: 6 shutter/blind endpoints reporting stopped state (`*2*0*WHERE##`).
 - **WHO 4 (Thermoregulation)**: 4 climate zones, external temperature probe 105, heating actuator valves, manual setpoints, and local knob offsets (Dimension 13).
 - **WHO 13 (Gateway Management)**: Firmware version query/response (`1.1.8`) and internal date/time broadcasts.
 - **WHO 18 (Energy Management)**: Cumulative energy meter totalizers on addresses 51 through 57.
+
+---
+
+# #466 H4890 Touch Screen Gateway Traces (Bus Sweep, Burglar Alarm, Audio Diffusion)
+
+Verbatim bus traces contributed by **@nicolacavallo84** on [#466 (comment 5846053726)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5846053726).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino H4890 (Axolute 3.5" Color Touch Screen with integrated LAN OpenWebNet server; shares board architecture with `AM4890`, `LN4890`, and `LN4890A`)
+- **Firmware**: 4.0.15
+- **WHO 13 Device Type Code**: `200`
+- **WHO 1013 Object Model**: `30`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_sweep_H4890_all_2026-09-26T11-48-10.json` | Bus Card Export (200 frames) | Full bus sweep capture via `<myhome-bus-card>` covering lights, covers, power, audio, sound diffusion, energy, and CEN+. |
+| `myhome_trace_H4890_all_2026-09-26T11-51-26.json` | Bus Monitor Trace (51 frames) | Real-world WHO 5 Burglar Alarm events (`*5*9*0##` disarm, `*5*1*0##` arm away, zone statuses), power, energy, and CEN+. |
+| `myhome_trace_H4890_all_2026-09-26T11-52-48.json` | Bus Monitor Trace (32 frames) | Sound diffusion (WHO 16 / WHO 22) and power control traffic. |
+
+## Subsystems Verified (H4890)
+
+- **WHO 1 (Lighting)**: Points reporting on/off status.
+- **WHO 2 (Automation)**: Cover/shutter states.
+- **WHO 5 (Burglar Alarm)**: System arm/disarm transitions and zone status reporting (`*5*11*#1##` through `#6##`, `*5*18*#7##`, `#8##`).
+- **WHO 9 (Power / Auxiliary)**: Auxiliary load control events.
+- **WHO 16 & 22 (Sound & Audio Diffusion)**: Multi-source audio control and diffusion events.
+- **WHO 18 (Energy Management)**: Cumulative energy meter reports.
+- **WHO 25 (CEN+ / Dry Contact)**: CEN+ pushbutton / scenario status events.

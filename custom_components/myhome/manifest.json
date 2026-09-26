@@ -32,6 +32,21 @@
     {
       "st": "upnp:rootdevice",
       "manufacturer": "BTicino S.p.A.",
+      "modelName": "H4890"
+    },
+    {
+      "st": "upnp:rootdevice",
+      "manufacturer": "BTicino S.p.A.",
+      "modelName": "LN4890"
+    },
+    {
+      "st": "upnp:rootdevice",
+      "manufacturer": "BTicino S.p.A.",
+      "modelName": "LN4890A"
+    },
+    {
+      "st": "upnp:rootdevice",
+      "manufacturer": "BTicino S.p.A.",
       "modelName": "MyHomeServer1"
     },
     {

@@ -86,8 +86,9 @@ def build_matrix():
     whos_list = sorted(list(all_whos_found))
 
     who_names = {
-        1: 'Lights', 2: 'Autom.', 4: 'Climate', 5: 'Alarm', 9: 'Power',
-        13: 'Gateway', 14: 'Lock', 16: 'Audio', 18: 'Energy', 25: 'Diag', 1013: 'Diag'
+        0: 'Scenario', 1: 'Lights', 2: 'Autom.', 4: 'Climate', 5: 'Alarm', 9: 'Power',
+        13: 'Gateway', 14: 'Lock', 15: 'CEN', 16: 'Audio', 17: 'Scenario', 18: 'Energy',
+        22: 'Audio Diff.', 25: 'Diag', 1013: 'Diag', 1022: 'Diag'
     }
 
     header = "| Gateway Model | " + " | ".join([f"WHO {w}<br>{who_names.get(w, '')}" for w in whos_list]) + " |"
