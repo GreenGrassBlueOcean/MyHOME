@@ -1,6 +1,7 @@
 """Test the MyHOME config flow."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -1286,3 +1287,249 @@ async def test_options_flow_environments_without_registry(hass: HomeAssistant) -
     flow.hass = None  # entity_registry.async_get raises without a hass
 
     assert flow._audio_environments() == []
+
+@pytest.mark.asyncio
+async def test_config_flow_options_data_only_update(hass: HomeAssistant) -> None:
+    """Test options flow where only data changes, but not options."""
+    from homeassistant.data_entry_flow import FlowResultType
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_GATEWAY_ROLE,
+        CONF_GENERATE_EVENTS,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
+        DOMAIN,
+        ROLE_PRIMARY,
+        TOPOLOGY_SHARED,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:08",
+        title="Primary",
+        data={"host": "192.168.1.8", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:08", "name": "MyHomeServer1"},
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software_stepped",
+            "broadcast_resync": True,
+            "source_defaults": {},
+            **{f"source_{i}_name": "" for i in range(1, 5)},
+            **{f"decoder_{i}_entity": "" for i in range(1, 5)},
+            **{f"decoder_{i}_source": i for i in range(1, 5)},
+            **{f"decoder_{i}_pre_gain": 0 for i in range(1, 5)},
+        }
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+
+        # Change address (data) but keep options the same
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.99",
+                "name": "MyHomeServer1",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+            }
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+
+@pytest.mark.asyncio
+async def test_config_flow_delegated_whos_validation(hass: HomeAssistant) -> None:
+    """Test validation of delegated WHOs in options flow."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={"host": "192.168.1.1", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:01"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+    pri.add_to_hass(hass)
+
+    sec1 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Secondary 1",
+        data={"host": "192.168.1.2", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:02", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_SECONDARY, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01", CONF_DELEGATED_WHOS: ["1"]}
+    )
+    sec1.add_to_hass(hass)
+
+    sec2 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:03",
+        title="Secondary 2",
+        data={"host": "192.168.1.3", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:03", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_SECONDARY, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01"}
+    )
+    sec2.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
+        result = await hass.config_entries.options.async_init(sec2.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.3",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["1"],
+            }
+        )
+        assert result["errors"] == {CONF_DELEGATED_WHOS: "overlapping_delegated_whos"}
+
+@pytest.mark.asyncio
+async def test_config_flow_multiple_standbys(hass: HomeAssistant) -> None:
+    """Test rejection of multiple standbys."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_STANDBY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={"host": "192.168.1.1", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:01"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+    pri.add_to_hass(hass)
+
+    stb1 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Standby 1",
+        data={"host": "192.168.1.2", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:02", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_STANDBY, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01"}
+    )
+    stb1.add_to_hass(hass)
+
+    stb2 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:03",
+        title="Standby 2",
+        data={"host": "192.168.1.3", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:03", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_STANDBY, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01"}
+    )
+    stb2.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
+        result = await hass.config_entries.options.async_init(stb2.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.3",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_STANDBY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            }
+        )
+        assert result["errors"] == {CONF_GATEWAY_ROLE: "multiple_standbys"}
+
+@pytest.mark.asyncio
+async def test_config_flow_who_not_supported(hass: HomeAssistant) -> None:
+    """Test rejection of unsupported WHO for delegated WHOs."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={"host": "192.168.1.1", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:01"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+    pri.add_to_hass(hass)
+
+    sec = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:04",
+        title="Secondary",
+        data={"host": "192.168.1.4", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:04", "name": "MyHomeServer1"},
+    )
+    sec.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()), patch("OWNd.profiles.get_gateway_profile") as mock_get_profile:
+        mock_profile = type("MockProfile", (), {"supports_who": lambda self, w: False})()
+        mock_get_profile.return_value = mock_profile
+        result = await hass.config_entries.options.async_init(sec.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.4",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["2"],
+            }
+        )
+        assert result["errors"] == {CONF_DELEGATED_WHOS: "who_not_supported_by_gateway"}
+
+@pytest.mark.asyncio
+async def test_config_flow_unknown_model(hass: HomeAssistant) -> None:
+    """Test options flow with an unknown model gracefully falling back."""
+    from homeassistant.data_entry_flow import FlowResultType
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:08",
+        data={"host": "192.168.1.8", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:08", "name": "Unknown Gateway"},
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] == FlowResultType.FORM
