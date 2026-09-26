@@ -297,8 +297,9 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Tune by station number or by frequency.
 
-        ``media_id`` of ``"1"`` to ``"5"`` selects that stored station; anything
-        else is read as a frequency in MHz, so ``"107.0"`` tunes to 107.0 MHz.
+        ``media_id`` matching an integer from ``"1"`` up to the available station
+        count (1–5 for F500, up to 15 for F500N) selects that stored station;
+        anything else is read as a frequency in MHz, so ``"107.0"`` tunes to 107.0 MHz.
 
         Raises:
             HomeAssistantError: If ``media_id`` is neither.
@@ -370,10 +371,6 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             if station > self._station_count:
                 self._station_count = station
             self._attr_source = f"Station {station}"
-
-    def _publish_state(self) -> None:
-        """Push the current state to Home Assistant."""
-        self.async_schedule_update_ha_state()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

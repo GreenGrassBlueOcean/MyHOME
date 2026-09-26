@@ -134,6 +134,7 @@ input, alongside the amplifier zones.
 | On / off | `*16*3*10S##` / `*16*13*10S##` |
 | Next / previous track | next / previous station (`*16*6001*10S##` / `*16*6101*10S##`) |
 | Source list | stored stations (defaults to 1–5 for F500, dynamically expands up to 1–15 for F500N: `*#16*10S*#7*<N>##`) |
+| Seek up / down | `myhome.tuner_seek_up` / `myhome.tuner_seek_down` (`*16*5000*10S##` / `*16*5100*10S##`) |
 | `play_media`, content type `channel` | `"1"`–`"15"` selects a station; anything else is read as MHz, so `"107.5"` tunes there |
 | `media_title` | RDS text, reported as eight ASCII codes on `DIMENSION 8` |
 | `frequency` attribute | `DIMENSION 6`, in MHz |

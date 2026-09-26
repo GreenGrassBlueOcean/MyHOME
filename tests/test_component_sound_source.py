@@ -288,13 +288,24 @@ async def test_setup_entry_adds_and_subscribes_declared_tuners(hass, mock_gatewa
     entry.runtime_data.gateway = mock_gateway
     router = entry.runtime_data.router
 
-    with patch("homeassistant.helpers.entity_registry.async_get"), \
-         patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]):
-        await async_setup_entry(hass, entry, lambda entities, *a, **k: added.extend(entities))
+    from homeassistant.helpers import entity_platform
+
+    mock_platform = MagicMock()
+    platform_token = entity_platform.current_platform.set(mock_platform)
+    try:
+        with patch("homeassistant.helpers.entity_registry.async_get"), \
+             patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]):
+            await async_setup_entry(hass, entry, lambda entities, *a, **k: added.extend(entities))
+    finally:
+        entity_platform.current_platform.reset(platform_token)
 
     assert [type(e).__name__ for e in added] == ["MyHOMESoundSource"]
     # Subscribed under its own key, so source frames reach it
     assert router.subscribers("16", "101#16") == 1
+    # Both tuner_seek_up and tuner_seek_down registered as entity services
+    registered_services = [call[0][0] for call in mock_platform.async_register_entity_service.call_args_list]
+    assert "tuner_seek_up" in registered_services
+    assert "tuner_seek_down" in registered_services
 
     # A source frame now lands on the entity
     tuner = added[0]
@@ -305,3 +316,31 @@ async def test_setup_entry_adds_and_subscribes_declared_tuners(hass, mock_gatewa
         spec=OWNSoundEvent, dimension=None, dimension_value=[], is_on=True, is_off=False,
     ))
     assert tuner.state == MediaPlayerState.ON
+
+
+@pytest.mark.asyncio
+async def test_zone_player_rejects_seek(hass, mock_gateway):
+    """An audio zone entity is not a tuner and rejects seek up / down."""
+    from custom_components.myhome.media_player import MyHOMEMediaPlayer
+
+    player = MyHOMEMediaPlayer(
+        hass=hass,
+        name="Audio Zone 1",
+        entity_name=None,
+        device_id="1#16",
+        who="16",
+        where="1",
+        manufacturer="BTicino",
+        model="Audio System",
+        gateway=mock_gateway,
+    )
+    player.entity_id = "media_player.audio_zone_1"
+
+    with pytest.raises(HomeAssistantError) as err_up:
+        await player.async_seek_up()
+    assert err_up.value.translation_key == "seek_not_supported"
+
+    with pytest.raises(HomeAssistantError) as err_down:
+        await player.async_seek_down()
+    assert err_down.value.translation_key == "seek_not_supported"
+

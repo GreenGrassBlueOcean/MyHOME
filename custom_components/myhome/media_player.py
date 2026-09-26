@@ -83,6 +83,7 @@ from homeassistant.components.media_player.const import (
 from homeassistant.const import Platform
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -100,6 +101,8 @@ from .const import (
     CONF_SOURCE_TUNER,
     DOMAIN,
     LOGGER,
+    SERVICE_TUNER_SEEK_DOWN,
+    SERVICE_TUNER_SEEK_UP,
     SOURCE_UNCONFIGURED_SUFFIX,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData, get_runtime_data
@@ -225,6 +228,19 @@ async def async_setup_entry(
     )
     # Audio zones are keyed "<zone>#16" in unique ids; the registry restore reads that key back.
     discovery.start()
+
+    platform = entity_platform.current_platform.get()
+    if platform is not None:
+        platform.async_register_entity_service(
+            SERVICE_TUNER_SEEK_UP,
+            {},
+            "async_seek_up",
+        )
+        platform.async_register_entity_service(
+            SERVICE_TUNER_SEEK_DOWN,
+            {},
+            "async_seek_down",
+        )
 
 
 def _zone_address(message: Any) -> Address | None:
@@ -1672,3 +1688,21 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 self._attr_is_volume_muted = False
 
         self._publish_state()
+
+    async def async_seek_up(self) -> None:
+        """Seek forward on the tuner; only valid on tuner source entities."""
+        raise HomeAssistantError(
+            f"{self.entity_id}: seek is only supported on tuner source entities",
+            translation_domain=DOMAIN,
+            translation_key="seek_not_supported",
+            translation_placeholders={"entity_id": str(self.entity_id)},
+        )
+
+    async def async_seek_down(self) -> None:
+        """Seek backward on the tuner; only valid on tuner source entities."""
+        raise HomeAssistantError(
+            f"{self.entity_id}: seek is only supported on tuner source entities",
+            translation_domain=DOMAIN,
+            translation_key="seek_not_supported",
+            translation_placeholders={"entity_id": str(self.entity_id)},
+        )

@@ -184,6 +184,14 @@
           "description": "Indirizzo MAC del gateway (opzionale; predefinito per tutti i gateway attivi)."
         }
       }
+    },
+    "tuner_seek_up": {
+      "name": "Ricerca frequenza successiva sintonizzatore",
+      "description": "Cerca in avanti la frequenza radio FM ricevibile successiva su una sorgente sintonizzatore F500."
+    },
+    "tuner_seek_down": {
+      "name": "Ricerca frequenza precedente sintonizzatore",
+      "description": "Cerca all'indietro la frequenza radio FM ricevibile precedente su una sorgente sintonizzatore F500."
     }
   },
   "issues": {
@@ -227,6 +235,10 @@
     },
     "decoder_wake_timeout": {
       "message": "{entity_id}: il decoder {decoder} non si è riattivato entro 5 secondi"
+    },
+    "seek_not_supported": {
+      "message": "{entity_id}: la ricerca di frequenza è supportata solo sulle entità sintonizzatore"
     }
   }
 }
+

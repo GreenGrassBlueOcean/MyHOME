@@ -184,6 +184,14 @@
           "description": "Adresse MAC de la passerelle (facultatif ; par défaut pour toutes les passerelles actives)."
         }
       }
+    },
+    "tuner_seek_up": {
+      "name": "Recherche fréquence avant du tuner",
+      "description": "Recherche la fréquence radio FM captable suivante sur une source tuner F500."
+    },
+    "tuner_seek_down": {
+      "name": "Recherche fréquence arrière du tuner",
+      "description": "Recherche la fréquence radio FM captable précédente sur une source tuner F500."
     }
   },
   "issues": {
@@ -227,6 +235,10 @@
     },
     "decoder_wake_timeout": {
       "message": "{entity_id}: le décodeur {decoder} ne s'est pas réveillé dans les 5 secondes"
+    },
+    "seek_not_supported": {
+      "message": "{entity_id} : la recherche de fréquence n'est prise en charge que sur les entités tuner"
     }
   }
 }
+

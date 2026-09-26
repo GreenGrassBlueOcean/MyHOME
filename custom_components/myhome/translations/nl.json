@@ -184,6 +184,14 @@
           "description": "MAC-adres van de gateway (optioneel; standaard voor alle actieve gateways)."
         }
       }
+    },
+    "tuner_seek_up": {
+      "name": "Tuner vooruit zoeken",
+      "description": "Zoek vooruit naar de volgende ontvangbare FM-frequentie op een F500-tunerbron."
+    },
+    "tuner_seek_down": {
+      "name": "Tuner achteruit zoeken",
+      "description": "Zoek achteruit naar de vorige ontvangbare FM-frequentie op een F500-tunerbron."
     }
   },
   "issues": {
@@ -227,6 +235,10 @@
     },
     "decoder_wake_timeout": {
       "message": "{entity_id}: decoder {decoder} werd niet binnen 5 seconden wakker"
+    },
+    "seek_not_supported": {
+      "message": "{entity_id}: frequentie zoeken wordt alleen ondersteund op tunerbron-entiteiten"
     }
   }
 }
+

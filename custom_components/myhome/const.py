@@ -138,6 +138,8 @@ CONF_SOURCE_TUNER = "source_{}_tuner"
 #: Stored stations a WHO=16 tuner exposes (5 for F500, up to 15 for F500N).
 TUNER_STATION_COUNT = 5
 TUNER_MAX_STATION_COUNT = 15
+SERVICE_TUNER_SEEK_UP = "tuner_seek_up"
+SERVICE_TUNER_SEEK_DOWN = "tuner_seek_down"
 
 # Default source per environment. The F441M routes per output and an output
 # serves one environment, so a default belongs to an environment, not to a
