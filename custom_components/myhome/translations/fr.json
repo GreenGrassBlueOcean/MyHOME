@@ -204,8 +204,7 @@
       "description": "La passerelle a signalé un code de type d'appareil matériel ({code}) inconnu pour l'intégration MyHOME. Veuillez cliquer sur « En savoir plus » pour ouvrir un ticket GitHub et joindre une trace de diagnostic afin que nous puissions ajouter la prise en charge de ce modèle."
     },
     "incompatible_decoder_platform": {
-      "title": "Le décodeur {decoder} utilise une intégration non prise en charge ({platform})",
-      "description": "Le décodeur de streaming configuré {decoder} est fourni par l'intégration {platform}, qui n'accepte pas les URL de flux HTTP via play_media. Pour le streaming multi-pièces (par exemple Music Assistant), configurez ce matériel via l'intégration DLNA Digital Media Renderer (DMR) à la place."
+      "title": "Le décodeur {decoder} utilise une intégration non prise en charge ({platform})"
     }
   },
   "exceptions": {

@@ -136,6 +136,7 @@
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
       "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
+      "myhome_entity_not_allowed": "Do not select MyHOME sound zones as decoders! Select the underlying physical streaming player instead.",
       "duplicate_decoder_source": "Each decoder must be connected to a different matrix source input."
     }
   },
@@ -294,7 +295,21 @@
     },
     "incompatible_decoder_platform": {
       "title": "Decoder {decoder} uses unsupported integration ({platform})",
-      "description": "The configured streaming decoder {decoder} is provided by the {platform} integration, which does not accept HTTP stream URLs via play_media. For multi-room streaming (e.g. Music Assistant), configure this hardware via the DLNA Digital Media Renderer (DMR) integration instead."
+      "fix_flow": {
+        "step": {
+          "confirm_companion": {
+            "title": "Use DLNA streaming companion",
+            "description": "The configured decoder `{decoder}` ({platform}) does not support direct HTTP stream URLs. However, a compatible DLNA Digital Media Renderer was detected for this device: `{companion}`.\n\nClick **Submit** to automatically update your MyHOME decoder configuration to use `{companion}`."
+          },
+          "missing_companion": {
+            "title": "DLNA renderer not found",
+            "description": "The configured decoder `{decoder}` ({platform}) requires the DLNA Digital Media Renderer integration to accept stream URLs from Music Assistant.\n\nHome Assistant has not yet configured DLNA for this device. Please go to **Settings → Devices & Services**, add the **DLNA Digital Media Renderer** integration for your device, and click **Submit** to finish."
+          }
+        },
+        "abort": {
+          "companion_still_missing": "A DLNA Digital Media Renderer entity was not found for this device. Please configure DLNA and try again."
+        }
+      }
     }
   },
   "exceptions": {

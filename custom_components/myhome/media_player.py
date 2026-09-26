@@ -106,6 +106,7 @@ from .const import (
     SOURCE_UNCONFIGURED_SUFFIX,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData, get_runtime_data
+from .decoder_companion import async_find_streaming_companion
 from .decoder_pool import DecoderPool, EnvironmentBusyError
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery
 from .myhome_device import MyHOMEEntity
@@ -152,6 +153,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
     decoder_map: dict[str, int] = {}
     pre_gain_map: dict[str, int] = {}
     stream_incompatible: set[str] = set()
+    companion_map: dict[str, str] = {}
     ent_reg = er.async_get(hass)
 
     for i in range(1, CONF_DECODER_SLOTS + 1):
@@ -164,10 +166,23 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
             pre_gain_map[entity_id] = int(pre_gain)
             reg_entry = ent_reg.async_get(entity_id)
             if reg_entry and reg_entry.platform in _STREAM_INCOMPATIBLE_PLATFORMS:
-                stream_incompatible.add(entity_id)
-                async_create_incompatible_decoder_issue(
-                    hass, config_entry.entry_id, entity_id, reg_entry.platform
-                )
+                companion = async_find_streaming_companion(hass, entity_id)
+                if companion:
+                    LOGGER.info(
+                        "MyHOME media player: decoder %s (%s) has streaming companion %s — dynamic DLNA bridge enabled",
+                        entity_id,
+                        reg_entry.platform,
+                        companion,
+                    )
+                    companion_map[entity_id] = companion
+                    async_delete_incompatible_decoder_issue(
+                        hass, config_entry.entry_id, entity_id
+                    )
+                else:
+                    stream_incompatible.add(entity_id)
+                    async_create_incompatible_decoder_issue(
+                        hass, config_entry.entry_id, entity_id, reg_entry.platform
+                    )
             else:
                 async_delete_incompatible_decoder_issue(
                     hass, config_entry.entry_id, entity_id
@@ -176,8 +191,13 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
     # Clean up any previously flagged decoder issues that are no longer configured
     async_prune_incompatible_decoder_issues(hass, config_entry.entry_id, decoder_map)
 
-    return DecoderPool(hass, decoder_map, pre_gain_map, stream_incompatible)
-
+    return DecoderPool(
+        hass,
+        decoder_map,
+        pre_gain_map,
+        stream_incompatible=stream_incompatible,
+        companion_map=companion_map,
+    )
 
 
 async def async_setup_entry(
@@ -436,6 +456,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._turning_off: bool = False          # guard flag — dampens bus-OFF echo loops
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
+        self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -677,15 +698,29 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         runtime = get_runtime_data(entry) if entry is not None else None
         return runtime.decoder_pool if runtime is not None else None
 
+    def _streaming_target(self, decoder_id: str | None) -> str | None:
+        """Return the streaming decoder target (companion if present, else decoder_id)."""
+        if not decoder_id:
+            return None
+        if hasattr(self, "_companion_cache") and self._companion_cache:
+            return self._companion_cache.get(decoder_id, decoder_id)
+        pool = self._get_pool()
+        if pool and hasattr(pool, "companion_map") and isinstance(pool.companion_map, dict):
+            return pool.companion_map.get(decoder_id, decoder_id)
+        return decoder_id
+
     def _decoder_platform(self, decoder_id: str) -> str | None:
         """Return the integration providing ``decoder_id``, from the entity registry."""
         reg_entry = er.async_get(self.hass).async_get(decoder_id)
         return reg_entry.platform if reg_entry else None
 
     def _decoders_refusing(self, pool: DecoderPool, media_type: str) -> set[str]:
-        """Return the decoders whose integration cannot play ``media_type``."""
+        """Return the decoders whose integration cannot play media_type."""
         refusing: set[str] = set()
         for decoder_id in pool.stream_incompatible:
+            companion_id = self._streaming_target(decoder_id)
+            if companion_id and companion_id != decoder_id:
+                continue
             accepted = _STREAM_INCOMPATIBLE_PLATFORMS.get(
                 self._decoder_platform(decoder_id) or "", frozenset()
             )
@@ -773,6 +808,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Watch the state of the current pool's decoders, replacing any earlier watch."""
         self._untrack_decoders()
         pool = self._get_pool()
+        if pool and hasattr(pool, "companion_map") and isinstance(pool.companion_map, dict):
+            self._companion_cache = dict(pool.companion_map)
+        else:
+            self._companion_cache = {}
         if pool and pool.is_configured:
             self._unsub_decoders = async_track_state_change_event(
                 self.hass,
@@ -895,32 +934,40 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         decoder_id, source_num = result
         self._active_decoder = decoder_id
 
-        # 2. Wake an off decoder. IDLE decoders are already ready to play.
-        dec_state = self.hass.states.get(decoder_id)
+        target_decoder = decoder_id
+        companion_id = self._streaming_target(decoder_id)
+        if companion_id and companion_id != decoder_id:
+            platform = self._decoder_platform(decoder_id)
+            accepted = _STREAM_INCOMPATIBLE_PLATFORMS.get(platform or "", frozenset())
+            if media_type not in accepted:
+                target_decoder = companion_id
+
+        # 2. Wake the target decoder. IDLE decoders are already ready to play.
+        dec_state = self.hass.states.get(target_decoder)
         if dec_state and dec_state.state == MediaPlayerState.OFF:
             await self.hass.services.async_call(
-                "media_player", "turn_on", {"entity_id": decoder_id}
+                "media_player", "turn_on", {"entity_id": target_decoder}
             )
             # Poll until the decoder wakes up (max 5 seconds)
             for _ in range(10):
                 await asyncio.sleep(0.5)
-                dec_state = self.hass.states.get(decoder_id)
+                dec_state = self.hass.states.get(target_decoder)
                 if dec_state and dec_state.state != MediaPlayerState.OFF:
                     break
             else:
                 LOGGER.warning(
                     "%s: decoder %s did not wake up within 5 s",
                     self.entity_id,
-                    decoder_id,
+                    target_decoder,
                 )
                 await self._async_release_after_failure(pool)
                 raise HomeAssistantError(
-                    f"{self.entity_id}: decoder {decoder_id} did not wake up within 5 seconds",
+                    f"{self.entity_id}: decoder {target_decoder} did not wake up within 5 seconds",
                     translation_domain=DOMAIN,
                     translation_key="decoder_wake_timeout",
                     translation_placeholders={
                         "entity_id": str(self.entity_id),
-                        "decoder": str(decoder_id),
+                        "decoder": str(target_decoder),
                     },
                 )
 
@@ -964,9 +1011,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     await member_ent._async_wake_zone()
                     member_ent.async_write_ha_state()
 
-        # 4. Forward the stream URL to the backend decoder
+        # 4. Forward the stream URL to the target decoder (companion or primary)
         service_data: dict[str, Any] = {
-            "entity_id": decoder_id,
+            "entity_id": target_decoder,
             "media_content_type": media_type,
             "media_content_id": media_id,
         }
@@ -982,16 +1029,16 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             LOGGER.error(
                 "%s: failed to forward play_media to %s: %s — releasing decoder",
                 self.entity_id,
-                decoder_id,
+                target_decoder,
                 err,
             )
             await self._async_release_after_failure(pool)
             raise HomeAssistantError(
-                f"{self.entity_id}: decoder {decoder_id} failed to start playback: {err}",
+                f"{self.entity_id}: decoder {target_decoder} failed to start playback: {err}",
                 translation_domain=DOMAIN,
                 translation_key="decoder_start_failed",
                 translation_placeholders={
-                    "entity_id": str(self.entity_id), "decoder": str(decoder_id), "error": str(err),
+                    "entity_id": str(self.entity_id), "decoder": str(target_decoder), "error": str(err),
                 },
             ) from err
 
@@ -1191,9 +1238,22 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         eff_dec = self._effective_decoder
         if eff_dec:
+            target_dec = self._streaming_target(eff_dec) or eff_dec
             await self.hass.services.async_call(
-                "media_player", service, {"entity_id": eff_dec}
+                "media_player", service, {"entity_id": target_dec}
             )
+            if target_dec != eff_dec and service == "media_stop":
+                try:
+                    await self.hass.services.async_call(
+                        "media_player", service, {"entity_id": eff_dec}
+                    )
+                except Exception as err:
+                    LOGGER.debug(
+                        "%s: failed to forward stop to hardware decoder %s: %s",
+                        self.entity_id,
+                        eff_dec,
+                        err,
+                    )
 
     async def async_media_pause(self) -> None:
         """Pause playback on the active decoder."""
@@ -1268,12 +1328,30 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             runtime = self._runtime_data
 
             if self._active_decoder:
+                target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
                 try:
                     await self.hass.services.async_call(
-                        "media_player", "media_stop", {"entity_id": self._active_decoder}
+                        "media_player", "media_stop", {"entity_id": target_dec}
                     )
-                except Exception:
-                    pass
+                except Exception as err:
+                    LOGGER.debug(
+                        "%s: failed to stop streaming decoder %s: %s",
+                        self.entity_id,
+                        target_dec,
+                        err,
+                    )
+                if target_dec != self._active_decoder:
+                    try:
+                        await self.hass.services.async_call(
+                            "media_player", "media_stop", {"entity_id": self._active_decoder}
+                        )
+                    except Exception as err:
+                        LOGGER.debug(
+                            "%s: failed to stop hardware decoder %s: %s",
+                            self.entity_id,
+                            self._active_decoder,
+                            err,
+                        )
 
             if pool:
                 members = pool.get_members(self.entity_id)
@@ -1474,6 +1552,42 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
     # ── State and metadata mirroring ──────────────────────────────────────────
 
+    def _resolve_playback_state(
+        self, decoder_id: str, allow_idle: bool = False
+    ) -> MediaPlayerState | None:
+        """Resolve playback state from decoder and optional streaming companion."""
+        if not self.hass:
+            return None
+        companion = self._streaming_target(decoder_id)
+        if companion and companion != decoder_id:
+            comp_state = self.hass.states.get(companion)
+            if comp_state and comp_state.state in (
+                MediaPlayerState.PLAYING,
+                MediaPlayerState.PAUSED,
+                MediaPlayerState.BUFFERING,
+            ):
+                return MediaPlayerState(comp_state.state)
+
+        dec_state = self.hass.states.get(decoder_id)
+        if dec_state:
+            valid_states = (
+                (
+                    MediaPlayerState.PLAYING,
+                    MediaPlayerState.PAUSED,
+                    MediaPlayerState.BUFFERING,
+                    MediaPlayerState.IDLE,
+                )
+                if allow_idle
+                else (
+                    MediaPlayerState.PLAYING,
+                    MediaPlayerState.PAUSED,
+                    MediaPlayerState.BUFFERING,
+                )
+            )
+            if dec_state.state in valid_states:
+                return MediaPlayerState(dec_state.state)
+        return None
+
     @property
     def state(self) -> MediaPlayerState | None:
         """Mirror the decoder's playback state when streaming.
@@ -1485,24 +1599,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         if self._attr_state == MediaPlayerState.OFF:
             return MediaPlayerState.OFF
-        if self._active_decoder and self.hass:
-            dec_state = self.hass.states.get(self._active_decoder)
-            if dec_state and dec_state.state in (
-                MediaPlayerState.PLAYING,
-                MediaPlayerState.PAUSED,
-                MediaPlayerState.BUFFERING,
-                MediaPlayerState.IDLE,
-            ):
-                return MediaPlayerState(dec_state.state)
+        if self._active_decoder:
+            active_state = self._resolve_playback_state(self._active_decoder, allow_idle=True)
+            if active_state is not None:
+                return active_state
         eff_dec = self._effective_decoder
-        if eff_dec and self.hass:
-            dec_state = self.hass.states.get(eff_dec)
-            if dec_state and dec_state.state in (
-                MediaPlayerState.PLAYING,
-                MediaPlayerState.PAUSED,
-                MediaPlayerState.BUFFERING,
-            ):
-                return MediaPlayerState(dec_state.state)
+        if eff_dec:
+            eff_state = self._resolve_playback_state(eff_dec, allow_idle=False)
+            if eff_state is not None:
+                return eff_state
         return self._attr_state
 
     @property
@@ -1541,6 +1646,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         eff_dec = self._effective_decoder
         if eff_dec and self.hass:
+            companion = self._streaming_target(eff_dec)
+            if companion and companion != eff_dec:
+                comp_state = self.hass.states.get(companion)
+                if comp_state and comp_state.attributes.get(attr) is not None:
+                    return comp_state.attributes.get(attr)
             dec_state = self.hass.states.get(eff_dec)
             if dec_state:
                 return dec_state.attributes.get(attr)
@@ -1569,7 +1679,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         eff_dec = self._effective_decoder
         if not eff_dec:
             return
-        if event.data.get("entity_id") != eff_dec:
+        companion = self._streaming_target(eff_dec)
+        event_entity = event.data.get("entity_id")
+        if event_entity != eff_dec and event_entity != companion:
             return
 
         if self._active_decoder and not self._syncing_volume:
@@ -1578,7 +1690,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 ext_vol = new_state.attributes.get("volume_level")
                 if ext_vol is not None and self._attr_volume_level != ext_vol:
                     pool = self._get_pool()
-                    if pool:
+                    if pool and event_entity == eff_dec:
                         pre_gain_pct = pool.get_pre_gain(eff_dec)
                         # Reverse the pre_gain offset to get approximate zone volume
                         zone_vol = max(0.0, float(ext_vol) - pre_gain_pct / 100.0)

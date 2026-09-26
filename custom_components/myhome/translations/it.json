@@ -204,8 +204,7 @@
       "description": "Il gateway ha segnalato un codice del tipo di dispositivo hardware ({code}) sconosciuto all'integrazione MyHOME. Fai clic su 'Ulteriori informazioni' per aprire una segnalazione su GitHub e allegare una traccia diagnostica per consentirci di aggiungere il supporto per questo modello."
     },
     "incompatible_decoder_platform": {
-      "title": "Il decoder {decoder} usa un'integrazione non supportata ({platform})",
-      "description": "Il decoder di streaming configurato {decoder} è fornito dall'integrazione {platform}, che non accetta URL di streaming HTTP tramite play_media. Per lo streaming multi-room (es. Music Assistant), configura questo hardware tramite l'integrazione DLNA Digital Media Renderer (DMR)."
+      "title": "Il decoder {decoder} usa un'integrazione non supportata ({platform})"
     }
   },
   "exceptions": {

@@ -23,6 +23,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from OWNd.connection import OWNGateway, OWNSession
 from OWNd.discovery import find_gateways, get_gateway
@@ -64,6 +65,7 @@ from .const import (
     LOGGER,
     SUPPORTED_GATEWAY_MODELS,
 )
+from .decoder_companion import async_get_excluded_decoders
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 
 
@@ -720,8 +722,6 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         be ``10S``, which is the source device itself, so it cannot be routed.
         So is any zone that is not a two-digit amplifier address.
         """
-        from homeassistant.helpers import entity_registry as er
-
         environments: set[str] = set()
         try:
             registry = er.async_get(self.hass)
@@ -753,7 +753,6 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
 
         if user_input is not None:
             # ── Validate decoder entity IDs ───────────────────────────────
-            from homeassistant.helpers import entity_registry as er
             registry = er.async_get(self.hass)
 
             seen_sources: dict[int, str] = {}
@@ -769,6 +768,8 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if entry and entry.platform == "mass":
                             # Prevent infinite loops by rejecting MA clones
                             errors[entity_key] = "mass_entity_not_allowed"
+                        elif entry and entry.platform == "myhome":
+                            errors[entity_key] = "myhome_entity_not_allowed"
 
                     src_val = int(user_input.get(source_key, i) or i)
                     if src_val in seen_sources:
@@ -953,6 +954,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             for i in range(1, CONF_SOURCE_SLOTS + 1)
         ]
 
+        # Exclude internal MyHOME zones and Music Assistant clones from decoder choices
+        _decoder_selector_cfg = selector.EntitySelectorConfig(
+            domain=["media_player"],
+            exclude_entities=async_get_excluded_decoders(self.hass),
+        )
+
         # Decoder slots 1–4
         for i in range(1, CONF_DECODER_SLOTS + 1):
             entity_key = CONF_DECODER_ENTITY.format(i)
@@ -964,13 +971,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 schema_dict[vol.Optional(
                     entity_key,
                     description={"suggested_value": _entity_val},
-                )] = selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["media_player"])
-                )
+                )] = selector.EntitySelector(_decoder_selector_cfg)
             else:
-                schema_dict[vol.Optional(entity_key)] = selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["media_player"])
-                )
+                schema_dict[vol.Optional(entity_key)] = selector.EntitySelector(_decoder_selector_cfg)
 
             _source_val = int(self.options.get(source_key, i) or i)  # type: ignore
             schema_dict[vol.Required(

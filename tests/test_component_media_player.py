@@ -1456,6 +1456,113 @@ async def test_cambridge_audio_incompatible_warning_and_error(hass, mock_gateway
 
 
 @pytest.mark.asyncio
+async def test_cambridge_audio_with_companion_dlna_bridges_stream(hass, mock_gateway):
+    """When a cambridge_audio entity has a companion DLNA entity, play_media bridges seamlessly."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    device = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "cxn_hw")},
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "cambridge_audio", "cxn_hw", device_id=device.id, suggested_object_id="cambridge_cxn"
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "dlna_dmr", "cxn_hw_dlna", device_id=device.id, suggested_object_id="cambridge_cxn_dlna"
+    )
+
+    entry = MagicMock()
+    entry.entry_id = "test_gw"
+    entry.options = {
+        CONF_DECODER_ENTITY.format(1): "media_player.cambridge_cxn",
+        CONF_DECODER_SOURCE.format(1): 2,
+    }
+
+    with patch("custom_components.myhome.media_player.async_create_incompatible_decoder_issue") as mock_issue:
+        pool = _build_pool(hass, entry)
+        # Repair issue is NOT created because companion is detected!
+        mock_issue.assert_not_called()
+
+    assert pool.companion_map == {"media_player.cambridge_cxn": "media_player.cambridge_cxn_dlna"}
+    assert "media_player.cambridge_cxn" not in pool.stream_incompatible
+
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.cambridge_cxn", "idle")
+    hass.states.async_set("media_player.cambridge_cxn_dlna", "idle")
+    z22 = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.audio_zone_22")
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_call:
+        await z22.async_play_media("music", "http://stream")
+
+        # Verify play_media was forwarded to the companion DLNA entity
+        calls = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "play_media"]
+        assert len(calls) == 1
+        assert calls[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert calls[0].args[2]["media_content_id"] == "http://stream"
+
+        # Verify streaming target null and cache branches
+        assert z22._streaming_target(None) is None
+        z22._companion_cache = {"media_player.cambridge_cxn": "media_player.cambridge_cxn_dlna"}
+        assert z22._streaming_target("media_player.cambridge_cxn") == "media_player.cambridge_cxn_dlna"
+
+        # Verify media_stop signals companion, then signals hardware decoder
+        mock_call.reset_mock()
+        await z22.async_media_stop()
+        stop_calls = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "media_stop"]
+        assert len(stop_calls) == 2
+        assert stop_calls[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert stop_calls[1].args[2]["entity_id"] == "media_player.cambridge_cxn"
+
+        # Verify exception during secondary hardware stop is safely caught and logged
+        mock_call.reset_mock()
+        mock_call.side_effect = [None, RuntimeError("Secondary stop failed")]
+        await z22.async_media_stop()
+
+        # Verify turn_off stops companion and hardware decoder
+        mock_call.reset_mock()
+        mock_call.side_effect = None
+        z22._attr_state = MediaPlayerState.ON
+        await z22.async_turn_off()
+        turn_off_stops = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "media_stop"]
+        assert len(turn_off_stops) == 2
+        assert turn_off_stops[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert turn_off_stops[1].args[2]["entity_id"] == "media_player.cambridge_cxn"
+
+        # Verify exception during secondary hardware stop in turn_off is safely caught
+        mock_call.reset_mock()
+        mock_call.side_effect = [None, RuntimeError("Secondary turn_off stop failed")]
+        z22._attr_state = MediaPlayerState.ON
+        z22._active_decoder = "media_player.cambridge_cxn"
+        await z22.async_turn_off()
+
+        # Test _resolve_playback_state with companion in playing state
+        hass.states.async_set("media_player.cambridge_cxn_dlna", "playing")
+        assert z22._resolve_playback_state("media_player.cambridge_cxn") == MediaPlayerState.PLAYING
+
+        # Test _resolve_playback_state with no hass
+        with patch.object(z22, "hass", None):
+            assert z22._resolve_playback_state("media_player.cambridge_cxn") is None
+
+        # Test _get_decoder_attr with companion metadata
+        z22._active_decoder = "media_player.cambridge_cxn"
+        hass.states.async_set(
+            "media_player.cambridge_cxn_dlna",
+            "playing",
+            {"media_title": "Direct Companion Title"},
+        )
+        assert z22._get_decoder_attr("media_title") == "Direct Companion Title"
+
+
+@pytest.mark.asyncio
 async def test_passive_metadata_mirroring_and_transport(hass, mock_gateway):
     """A zone turned on and routed to a decoder source passively mirrors track info and transport."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
@@ -2499,3 +2606,34 @@ async def test_decoder_watch_follows_the_rebuilt_pool(hass, player, mock_gateway
     for remove in player._on_remove or []:
         remove()
     assert player._unsub_decoders is None
+
+@pytest.mark.asyncio
+async def test_decoders_refusing_companion_coverage(hass, mock_gateway):
+    """Test coverage for _decoders_refusing when a companion exists."""
+    from custom_components.myhome.decoder_pool import DecoderPool
+    from custom_components.myhome.media_player import MyHOMEMediaPlayer
+
+    pool = DecoderPool(hass, {})
+    pool._stream_incompatible = frozenset(["media_player.cambridge_cxn"])
+    pool.companion_map["media_player.cambridge_cxn"] = "media_player.cambridge_dlna"
+
+    p = MyHOMEMediaPlayer(
+        hass=hass,
+        name="Test",
+        entity_name=None,
+        device_id="22#16",
+        who="16",
+        where="22",
+        manufacturer="BTicino",
+        model="Audio System",
+        gateway=mock_gateway,
+    )
+    # mock the runtime data so pool is found
+    from custom_components.myhome.data import MyHOMERuntimeData
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    runtime.decoder_pool = pool
+    p._companion_cache = {"media_player.cambridge_cxn": "media_player.cambridge_dlna"}
+    p.hass = hass
+
+    refusing = p._decoders_refusing(pool, "music")
+    assert "media_player.cambridge_cxn" not in refusing

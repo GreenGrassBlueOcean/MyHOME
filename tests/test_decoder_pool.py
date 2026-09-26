@@ -722,4 +722,18 @@ async def test_claim_detaches_member_role_even_if_already_assigned(hass):
     assert "media_player.zone1" not in pool.get_members("media_player.other_leader")
 
 
+@pytest.mark.asyncio
+async def test_companion_map_and_streaming_decoder(hass):
+    """Test companion_map property, get_streaming_decoder, and decoder_entity_ids with companions."""
+    pool = DecoderPool(
+        hass,
+        decoder_map={"media_player.cxn": 1},
+        companion_map={"media_player.cxn": "media_player.cxn_dlna"},
+    )
+    assert pool.companion_map == {"media_player.cxn": "media_player.cxn_dlna"}
+    assert pool.get_streaming_decoder("media_player.cxn") == "media_player.cxn_dlna"
+    assert pool.get_streaming_decoder("media_player.other") == "media_player.other"
+    assert pool.decoder_entity_ids == ["media_player.cxn", "media_player.cxn_dlna"]
+
+
 
