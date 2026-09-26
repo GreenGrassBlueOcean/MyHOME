@@ -7,7 +7,6 @@ import logging
 import time
 from typing import Any, cast
 
-import OWNd.message as _ownd_msg
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_FRIENDLY_NAME,
@@ -95,7 +94,6 @@ __all__ = [
     "OWNSession",
     "_StatusRequestLogFilter",
     "_cancel_written",
-    "_compat_gateway_timezone",
     "_resolve_written",
     "_session_is_open",
     "async_call_later",
@@ -106,18 +104,6 @@ __all__ = [
     "get_gateway_profile",
     "time",
 ]
-
-_orig_gw_tz = _ownd_msg._gateway_timezone
-
-
-def _compat_gateway_timezone(values: list[str]) -> str:
-    """Compatibility wrapper for OWNd < 2.0.0b7: accept 999 as unconfigured timezone."""
-    if len(values) > 3 and values[3] == "999":
-        return ""
-    return str(_orig_gw_tz(values))
-
-
-_ownd_msg._gateway_timezone = _compat_gateway_timezone
 
 
 class _StatusRequestLogFilter(logging.Filter):
