@@ -226,3 +226,39 @@ def test_mh200n_energy_meter_readings() -> None:
         assert msg.where == where
         assert msg.dimension == 51
         assert getattr(msg, "_dimension_value", None) == [value]
+
+
+@pytest.mark.parametrize(
+    "trace_file",
+    [
+        f
+        for f in TRACES_DIR.glob("*.json")
+        if f.name
+        not in (
+            "myhome_sweep_MH200N_all_2026-09-25T14-40-10.json",
+            "config_entry-myhome-80a1577fb7ae6f68f05e0cc5a1ead27d.json",
+        )
+    ],
+)
+def test_new_trace_payload_parsing(trace_file: Path) -> None:
+    """Verify that all new traces from issue 466 parse without exceptions."""
+    with open(trace_file, "r", encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    raw_frames = trace_data.get("frames", trace_data.get("history", []))
+    assert len(raw_frames) > 0
+
+    parsed_count = 0
+    for item in raw_frames:
+        raw = item.get("raw") or item.get("frame")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+            assert msg is not None
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic frame {raw!r} in {trace_file.name}: {exc}")
+        parsed_count += 1
+
+    assert parsed_count > 0

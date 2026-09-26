@@ -4,6 +4,8 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from homeassistant.const import Platform
+
 LOGGER = logging.getLogger(__package__)
 DOMAIN = "myhome"
 
@@ -35,6 +37,17 @@ CONF_ENTITY_NAME = "entity_name"
 CONF_ICON = "icon"
 CONF_ICON_ON = "icon_on"
 CONF_PLATFORMS = "platforms"
+PLATFORMS: tuple[Platform, ...] = (
+    Platform.LIGHT,
+    Platform.SWITCH,
+    Platform.COVER,
+    Platform.CLIMATE,
+    Platform.BINARY_SENSOR,
+    Platform.SENSOR,
+    Platform.MEDIA_PLAYER,
+    Platform.BUTTON,
+    Platform.ALARM_CONTROL_PANEL,
+)
 CONF_ADDRESS = "address"
 CONF_OWN_PASSWORD = "password"
 CONF_FIRMWARE = "firmware"

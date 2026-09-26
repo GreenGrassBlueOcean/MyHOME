@@ -385,6 +385,10 @@ class MyHOMEGatewayHandler:
         return self.mac
 
     @property
+    def id(self) -> str | None:
+        return self.mac
+
+    @property
     def log_id(self) -> str:
         return str(self.gateway.log_id)
 
