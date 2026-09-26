@@ -77,12 +77,7 @@ async def async_setup_entry(
         """
         if ctx.source != "bus":
             return True
-        if ctx.address.where.startswith("#"):
-            return False
-        msg = ctx.message
-        if getattr(msg, "state_code", None) == 11 or getattr(msg, "what", None) == 11:
-            return False
-        return True
+        return not ctx.address.where.startswith("#")
 
     def reject_registry_entry(entry: er.RegistryEntry, ctx: DeviceContext) -> bool:
         """Purge phantom zone partition entities previously created from status dumps."""
