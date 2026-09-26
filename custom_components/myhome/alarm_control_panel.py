@@ -11,6 +11,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
     OWNAlarmCommand,
@@ -65,10 +66,38 @@ async def async_setup_entry(
             gateway=runtime.gateway,
         )
 
+    def accept(ctx: DeviceContext) -> bool:
+        """Filter alarm device discovery from the bus.
+
+        Individual zones/partitions (WHERE starting with '#', e.g. '#1'..'#8') are
+        not independent alarm control panels (as documented in known limitations),
+        and status telemetry (*5*11*#...##, 'active zone') emitted by gateways
+        such as the MH200N when polled with '*#5*0##' must not trigger autonomous
+        entity discovery when no central alarm unit is installed.
+        """
+        if ctx.source != "bus":
+            return True
+        if ctx.address.where.startswith("#"):
+            return False
+        msg = ctx.message
+        if getattr(msg, "state_code", None) == 11 or getattr(msg, "what", None) == 11:
+            return False
+        return True
+
+    def reject_registry_entry(entry: er.RegistryEntry, ctx: DeviceContext) -> bool:
+        """Purge phantom zone partition entities previously created from status dumps."""
+        if ctx.source == "yaml" or ctx.cfg:
+            return False
+        return ctx.address.where.startswith("#") or (
+            ctx.device_id is not None and str(ctx.device_id).startswith("#")
+        )
+
     # WHERE=0 is the central unit, a real device on this subsystem.
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="5", event_type=OWNAlarmEvent, build=build, general_is_device=True,
+        accept=accept,
+        reject_registry_entry=reject_registry_entry,
         # WHERE=0 is the central unit, and every panel follows its broadcasts
         known_keys=lambda ctx: [*default_known_keys(ctx), "0"],
     ).start()

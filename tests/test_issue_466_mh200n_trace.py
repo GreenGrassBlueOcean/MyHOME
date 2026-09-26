@@ -355,4 +355,8 @@ async def test_mh200n_alarm_diagnostic_and_timed_turn_on_trace_replay(hass: Home
     assert handler._who1013["brand"] == "0"
     assert handler._who1013["line"] == "0"
 
+    # Verify no phantom alarm partition entities were created from the MH200N's WHO 5 zone frames
+    alarm_entities = hass.states.async_entity_ids("alarm_control_panel")
+    assert len(alarm_entities) == 0, f"Expected 0 alarm panels on MH200N without alarm, found: {alarm_entities}"
+
     await hass.config_entries.async_unload(entry.entry_id)

@@ -102,9 +102,73 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         async_dispatcher_send(hass, f"myhome_message_{mac}", new_alarm_msg)
         assert len(added_entities) == 3
 
+        # Zone status frames (*5*11*#1##..*5*11*#8##) from empty gateways do NOT discover phantom alarms
+        for zone in range(1, 9):
+            phantom_zone_msg = OWNEvent.parse(f"*5*11*#{zone}##")
+            assert isinstance(phantom_zone_msg, OWNAlarmEvent)
+            async_dispatcher_send(hass, f"myhome_message_{mac}", phantom_zone_msg)
+        assert len(added_entities) == 3
+
         # Unload
         attach_runtime(hass, config_entry)
         assert await async_unload_entry(hass, config_entry) is True
+
+
+async def test_alarm_registry_cleanup_purges_phantom_zones(hass: HomeAssistant, mock_gateway):
+    """Test that phantom zone partition entries in the registry are purged on startup."""
+    mac = mock_gateway.mac
+    hass.data = {
+        DOMAIN: {
+            mac: {
+                "entity": mock_gateway,
+                CONF_PLATFORMS: {},
+            }
+        }
+    }
+
+    config_entry = MagicMock()
+    config_entry.data = {"mac": mac}
+    config_entry.entry_id = "alarm_cleanup_entry"
+
+    mock_er = MagicMock()
+    # Central unit (should NOT be removed)
+    reg_central = MagicMock()
+    reg_central.domain = PLATFORM
+    reg_central.unique_id = f"{mac}-5-0"
+    reg_central.entity_id = "alarm_control_panel.alarm_0"
+
+    # Phantom zones #1 and #2 (SHOULD be removed)
+    reg_zone1 = MagicMock()
+    reg_zone1.domain = PLATFORM
+    reg_zone1.unique_id = f"{mac}-5-#1"
+    reg_zone1.entity_id = "alarm_control_panel.alarm_1"
+
+    reg_zone2 = MagicMock()
+    reg_zone2.domain = PLATFORM
+    reg_zone2.unique_id = f"{mac}-5-#2"
+    reg_zone2.entity_id = "alarm_control_panel.alarm_2"
+
+    entries = [reg_central, reg_zone1, reg_zone2]
+
+    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er), \
+         patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=entries):
+
+        added_entities = []
+
+        def fake_add_entities(entities):
+            added_entities.extend(entities)
+
+        attach_runtime(hass, config_entry)
+        await async_setup_entry(hass, config_entry, fake_add_entities)
+
+        # Only the central unit (0) should be restored
+        assert len(added_entities) == 1
+        assert added_entities[0]._where == "0"
+
+        # Phantom zones should have been removed from registry
+        mock_er.async_remove.assert_any_call("alarm_control_panel.alarm_1")
+        mock_er.async_remove.assert_any_call("alarm_control_panel.alarm_2")
+        assert mock_er.async_remove.call_count == 2
 
 
 class TestMyHOMEAlarmEntity:
