@@ -135,8 +135,9 @@ SOURCE_UNCONFIGURED_SUFFIX = " (not configured)"
 # messages that an RCA interface does not. The user declares it, because a
 # source device that has not spoken yet is indistinguishable on the bus.
 CONF_SOURCE_TUNER = "source_{}_tuner"
-#: Stored stations a WHO=16 tuner exposes (F500; the F500N range is untested).
+#: Stored stations a WHO=16 tuner exposes (5 for F500, up to 15 for F500N).
 TUNER_STATION_COUNT = 5
+TUNER_MAX_STATION_COUNT = 15
 
 # Default source per environment. The F441M routes per output and an output
 # serves one environment, so a default belongs to an environment, not to a

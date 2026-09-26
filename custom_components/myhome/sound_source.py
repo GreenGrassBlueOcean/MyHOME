@@ -41,10 +41,19 @@ module follows the examples, as the Encyclopedia does.
 
 Scope
 -----
-None of this has been exercised against a tuner with an antenna connected. The
-frames come from the specification, and the RDS report shape is confirmed by a
-capture contributed on a live installation. Everything else is unverified on
-hardware.
+Tested against a live installation (MH200N gateway + F500N tuner with antenna,
+contributed by @manfredgittmaier-afk on PR #427):
+* Power on/off (``*16*3*10S##`` / ``*16*13*10S##``)
+* Next / previous station advance (``*16*6001*10S##`` / ``*16*6101*10S##``)
+* Station selection without leading zero (``*#16*10S*#7*<STATION>##``)
+* Station report with leading zero (``*#16*10S*7*0*<STATION>##``)
+* Frequency report in kHz (``*#16*10S*6*0*<KHZ>##``)
+* Autonomous RDS station name reporting (``*#16*10S*8*...##``)
+* Dynamic station list expansion up to 15 presets for F500N
+
+Direct frequency write (``*#16*10S*#6*0*<KHZ>##`` vs ``*#16*10S*#6*<KHZ>##``)
+and hardware seek commands (``*16*5000*10S##`` / ``*16*5100*10S##``) remain from
+the OpenWebNet WHO 16 specification and await live bus confirmation.
 """
 from __future__ import annotations
 
@@ -64,7 +73,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
 
-from .const import DOMAIN, LOGGER, TUNER_STATION_COUNT
+from .const import DOMAIN, LOGGER, TUNER_MAX_STATION_COUNT, TUNER_STATION_COUNT
 from .myhome_device import MyHOMEEntity
 
 if TYPE_CHECKING:
@@ -149,13 +158,14 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         self._attr_media_title: str | None = None
         self._frequency_khz: int | None = None
         self._station: int | None = None
+        self._station_count: int = TUNER_STATION_COUNT
 
     # ── Presentation ──────────────────────────────────────────────────────────
 
     @property
     def source_list(self) -> list[str]:
         """Return the stored stations this tuner can be switched to."""
-        return [f"Station {n}" for n in range(1, TUNER_STATION_COUNT + 1)]
+        return [f"Station {n}" for n in range(1, self._station_count + 1)]
 
     @property
     def media_content_type(self) -> str | None:
@@ -234,11 +244,23 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         await self.async_select_station(station)
 
     async def async_select_station(self, station: int) -> None:
-        """Switch to stored station ``station`` (1-5)."""
+        """Switch to stored station ``station`` (1-15)."""
+        if not 1 <= int(station) <= TUNER_MAX_STATION_COUNT:
+            raise HomeAssistantError(
+                f"{self.entity_id}: station {station} is outside the valid range (1-{TUNER_MAX_STATION_COUNT})",
+                translation_domain=DOMAIN,
+                translation_key="unknown_station",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id),
+                    "station": str(station),
+                },
+            )
         await self._gateway_handler.send(
             OWNSoundCommand(f"*#16*{self._where}*#7*{station}##")
         )
         self._station = station
+        if station > self._station_count:
+            self._station_count = station
         self._attr_source = f"Station {station}"
         self.async_schedule_update_ha_state()
 
@@ -274,7 +296,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             HomeAssistantError: If ``media_id`` is neither.
         """
         candidate = str(media_id).strip()
-        if candidate.isdigit() and 1 <= int(candidate) <= TUNER_STATION_COUNT:
+        if candidate.isdigit() and 1 <= int(candidate) <= self._station_count:
             await self.async_select_station(int(candidate))
             return
         try:
@@ -332,8 +354,10 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         if not raw.isdigit():
             return
         station = int(raw)
-        if 1 <= station <= TUNER_STATION_COUNT:
+        if 1 <= station <= TUNER_MAX_STATION_COUNT:
             self._station = station
+            if station > self._station_count:
+                self._station_count = station
             self._attr_source = f"Station {station}"
 
     def _publish_state(self) -> None:
@@ -342,12 +366,11 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _station_number(source: str) -> int | None:
+    def _station_number(self, source: str) -> int | None:
         """Resolve a station label such as ``"Station 3"`` to its number."""
         prefix = "Station "
         if source.startswith(prefix):
             candidate = source[len(prefix):].strip()
-            if candidate.isdigit() and 1 <= int(candidate) <= TUNER_STATION_COUNT:
+            if candidate.isdigit() and 1 <= int(candidate) <= self._station_count:
                 return int(candidate)
         return None

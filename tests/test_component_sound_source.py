@@ -185,7 +185,7 @@ def test_handle_event_ignores_impossible_payloads(hass, tuner):
         ))
     assert "frequency" not in tuner.extra_state_attributes
 
-    for payload in (["0", "0"], ["0", "9"], ["0", "x"]):
+    for payload in (["0", "0"], ["0", "16"], ["0", "x"]):
         tuner.handle_event(MagicMock(
             spec=OWNSoundEvent, dimension=7, dimension_value=payload,
             is_on=False, is_off=False,
