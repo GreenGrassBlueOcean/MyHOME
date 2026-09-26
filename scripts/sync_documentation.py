@@ -79,7 +79,7 @@ def get_gateway_block() -> str:
         from scripts.update_gateway_profiles import build_block
     except ImportError:
         from update_gateway_profiles import build_block
-    return build_block(CONST_PY)
+    return build_block(CONST_PY, CUSTOM_COMPONENTS_DIR / "manifest.json")
 
 
 def sync_gateway_profiles(update: bool = False) -> tuple[bool, list[str]]:
@@ -154,14 +154,35 @@ def sync_supported_domains(update: bool = False) -> tuple[bool, list[str]]:
             messages.append("Updated Supported Entity Domains table in README.md")
         else:
             messages.append("Supported Entity Domains table in README.md is already up to date")
-        return True, messages
+    else:
+        in_sync, msg = check_readme_in_sync(README_MD)
+        if not in_sync:
+            messages.append(f"Supported Entity Domains table out of sync: {msg}")
+            return False, messages
+        messages.append("Supported Entity Domains table in sync: README.md")
 
-    in_sync, msg = check_readme_in_sync(README_MD)
-    if not in_sync:
-        messages.append(f"Supported Entity Domains table out of sync: {msg}")
-        return False, messages
+    # Also verify that every platform in PLATFORMS (const.py) is documented in supported_functions.md
+    supported_functions_doc = DOCS_DIR / "configuration" / "supported_functions.md"
+    if supported_functions_doc.exists():
+        content = supported_functions_doc.read_text(encoding="utf-8")
+        try:
+            from scripts.update_supported_domains import extract_platforms_from_const
+        except ImportError:
+            from update_supported_domains import extract_platforms_from_const
+        platforms = extract_platforms_from_const()
+        missing_platforms = []
+        for p in platforms:
+            pattern = re.compile(rf"###\s+`?{re.escape(p)}`?", re.IGNORECASE)
+            if not pattern.search(content):
+                missing_platforms.append(p)
+        if missing_platforms:
+            messages.append(
+                f"Platforms from const.py missing sections in supported_functions.md: {missing_platforms}"
+            )
+            return False, messages
+        else:
+            messages.append(f"All {len(platforms)} platforms are documented in supported_functions.md")
 
-    messages.append("Supported Entity Domains table in sync: README.md")
     return True, messages
 
 
@@ -267,9 +288,9 @@ def generate_services_summary_table(services_data: dict[str, Any]) -> str:
             elif service_name in ("start_sending_instant_power",):
                 target = "`sensor`"
 
-            description = s_data.get("description", "").strip().split("\n")[0]
-            # Strip trailing markdown if any
-            if not description.endswith("."):
+            raw_desc = s_data.get("description", "").strip()
+            description = " ".join(raw_desc.splitlines()).strip()
+            if description and not description.endswith("."):
                 description = f"{description}."
         else:
             description = ""
@@ -311,6 +332,13 @@ def sync_services(update: bool = False) -> tuple[bool, list[str]]:
         all_ok = False
     else:
         messages.append(f"All {len(services_data)} services have documented sections in services.md")
+
+    # Check for orphaned service headings in services.md that are not in services.yaml
+    documented_services = set(re.findall(r"##\s+(?:\d+\.\s+)?`?myhome\.([a-zA-Z0-9_]+)`?", doc_content))
+    orphaned_services = sorted(documented_services - set(services_data.keys()))
+    if orphaned_services:
+        messages.append(f"Documented services not found in services.yaml: {orphaned_services}")
+        all_ok = False
 
     # 2. Check all parameter fields are documented
     missing_fields: list[str] = []
@@ -451,16 +479,176 @@ def sync_mkdocs_nav(update: bool = False) -> tuple[bool, list[str]]:
     return all_ok, messages
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Integration & Dependency Version Synchronization
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_integration_version_from_const() -> str:
+    """Extract INTEGRATION_VERSION from custom_components/myhome/const.py."""
+    if not CONST_PY.exists():
+        return ""
+    tree = ast.parse(CONST_PY.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "INTEGRATION_VERSION":
+                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                        return node.value.value
+    return ""
+
+
+def extract_manifest_version_info() -> tuple[str, str]:
+    """Extract (version, ownd_req) from custom_components/myhome/manifest.json."""
+    manifest_path = CUSTOM_COMPONENTS_DIR / "manifest.json"
+    if not manifest_path.exists():
+        return "", ""
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        version = data.get("version", "")
+        reqs = data.get("requirements", [])
+        ownd_req = next((r for r in reqs if r.startswith("OWNd==")), "")
+        return version, ownd_req
+    except Exception:
+        return "", ""
+
+
+def sync_version_references(update: bool = False) -> tuple[bool, list[str]]:
+    """Verify and synchronize integration version and OWNd requirements across documentation."""
+    messages: list[str] = []
+    all_ok = True
+
+    const_version = extract_integration_version_from_const()
+    manifest_version, ownd_req = extract_manifest_version_info()
+
+    if not const_version:
+        return False, ["Could not read INTEGRATION_VERSION from const.py"]
+    if not manifest_version:
+        return False, ["Could not read version from manifest.json"]
+
+    if const_version != manifest_version:
+        messages.append(
+            f"Version mismatch: const.py has '{const_version}' but manifest.json has '{manifest_version}'"
+        )
+        all_ok = False
+    else:
+        messages.append(f"Integration version '{const_version}' verified across const.py and manifest.json")
+
+    ownd_version = ownd_req.replace("OWNd==", "").strip() if ownd_req else ""
+
+    # 1. Check docs/architecture/anti-drift-safeguards.md
+    safeguards_doc = DOCS_DIR / "architecture" / "anti-drift-safeguards.md"
+    if safeguards_doc.exists() and ownd_req:
+        content = safeguards_doc.read_text(encoding="utf-8")
+        if ownd_req not in content:
+            if update:
+                new_content = re.sub(r"OWNd==[0-9a-zA-Z\.\-_+]+", ownd_req, content)
+                safeguards_doc.write_text(new_content, encoding="utf-8")
+                messages.append(f"Updated OWNd pin to '{ownd_req}' in {rel_path(safeguards_doc)}")
+            else:
+                messages.append(
+                    f"Outdated OWNd reference in {rel_path(safeguards_doc)} (expected '{ownd_req}')"
+                )
+                all_ok = False
+        else:
+            messages.append(f"OWNd requirement '{ownd_req}' in sync: {rel_path(safeguards_doc)}")
+
+    # 2. Check docs/getting-started/installation.md
+    install_doc = DOCS_DIR / "getting-started" / "installation.md"
+    if install_doc.exists():
+        content = install_doc.read_text(encoding="utf-8")
+        expected_tag = f'TAG="{const_version}"'
+        if expected_tag not in content:
+            if update:
+                new_content = re.sub(r'TAG=["\'][0-9a-zA-Z\.\-_+]+["\']', expected_tag, content)
+                install_doc.write_text(new_content, encoding="utf-8")
+                messages.append(f"Updated release tag to '{const_version}' in {rel_path(install_doc)}")
+            else:
+                messages.append(f"Outdated release tag in {rel_path(install_doc)} (expected '{expected_tag}')")
+                all_ok = False
+        else:
+            messages.append(f"Release tag in sync: {rel_path(install_doc)}")
+
+    # 3. Check docs/migration/upgrade-from-094.md
+    upgrade_doc = DOCS_DIR / "migration" / "upgrade-from-094.md"
+    if upgrade_doc.exists():
+        content = upgrade_doc.read_text(encoding="utf-8")
+        expected_tag = f'TAG="{const_version}"'
+        if expected_tag not in content:
+            if update:
+                new_content = re.sub(r'TAG=["\'][0-9a-zA-Z\.\-_+]+["\']', expected_tag, content)
+                upgrade_doc.write_text(new_content, encoding="utf-8")
+                messages.append(f"Updated release tag to '{const_version}' in {rel_path(upgrade_doc)}")
+            else:
+                messages.append(f"Outdated release tag in {rel_path(upgrade_doc)} (expected '{expected_tag}')")
+                all_ok = False
+        else:
+            messages.append(f"Release tag in sync: {rel_path(upgrade_doc)}")
+
+    # 4. Check docs/roadmap.md
+    roadmap_doc = DOCS_DIR / "roadmap.md"
+    if roadmap_doc.exists() and ownd_version:
+        content = roadmap_doc.read_text(encoding="utf-8")
+        needs_update = False
+        if f"v{const_version}" not in content or f"OWNd {ownd_version}" not in content:
+            needs_update = True
+        if needs_update:
+            if update:
+                new_content = re.sub(
+                    r"Unified Beta v[0-9a-zA-Z\.\-_+]+",
+                    f"Unified Beta v{const_version}",
+                    content,
+                )
+                new_content = re.sub(
+                    r"v[0-9a-zA-Z\.\-_+]+ Unified Beta",
+                    f"v{const_version} Unified Beta",
+                    new_content,
+                )
+                new_content = re.sub(
+                    r"Delivered in v[0-9a-zA-Z\.\-_+]+",
+                    f"Delivered in v{const_version}",
+                    new_content,
+                )
+                new_content = re.sub(
+                    r"Operational in v[0-9a-zA-Z\.\-_+]+",
+                    f"Operational in v{const_version}",
+                    new_content,
+                )
+                new_content = re.sub(
+                    r"OWNd [0-9a-zA-Z\.\-_+]+",
+                    f"OWNd {ownd_version}",
+                    new_content,
+                )
+                roadmap_doc.write_text(new_content, encoding="utf-8")
+                messages.append(f"Updated release and OWNd versions in {rel_path(roadmap_doc)}")
+            else:
+                messages.append(
+                    f"Outdated version references in {rel_path(roadmap_doc)} (expected v{const_version} and OWNd {ownd_version})"
+                )
+                all_ok = False
+        else:
+            messages.append(f"Roadmap versions in sync: {rel_path(roadmap_doc)}")
+
+    return all_ok, messages
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Link & Anchor Health
+# ─────────────────────────────────────────────────────────────────────────────
+
 def check_markdown_link_health() -> tuple[bool, list[str]]:
-    """Check for malformed anchor links (e.g. emoji prefixes '#-') across docs/."""
+    """Check for malformed anchor links, empty targets, and broken relative links across docs/."""
     messages: list[str] = []
     all_ok = True
 
     # Pattern for anchor links with emoji-stripped leading hyphen like '#-'
     bad_anchor_pattern = re.compile(r"\[([^\]]+)\]\((\S*?#-[\w-]+)\)")
+    # Pattern for markdown links
+    link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
-    for md_file in DOCS_DIR.rglob("*.md"):
+    for md_file in sorted(DOCS_DIR.rglob("*.md")):
         content = md_file.read_text(encoding="utf-8")
+
+        # 1. Emoji-stripped leading hyphen
         matches = bad_anchor_pattern.findall(content)
         if matches:
             for text, link in matches:
@@ -469,8 +657,35 @@ def check_markdown_link_health() -> tuple[bool, list[str]]:
                 )
                 all_ok = False
 
+        # 2. Empty links and broken local file links
+        for text, url in link_pattern.findall(content):
+            url_clean = url.strip()
+            if not url_clean or url_clean == "#":
+                messages.append(f"Empty link target in {rel_path(md_file)}: [{text}]({url})")
+                all_ok = False
+                continue
+
+            # Ignore external URLs and Mike multi-version paths
+            if (
+                url_clean.startswith("http://")
+                or url_clean.startswith("https://")
+                or url_clean.startswith("mailto:")
+                or "0.9.4" in url_clean
+            ):
+                continue
+
+            # Check local file existence if link has a path component
+            target_path_str = url_clean.split("#")[0].strip()
+            if target_path_str:
+                resolved = (md_file.parent / target_path_str).resolve()
+                if not resolved.exists():
+                    messages.append(
+                        f"Broken relative file link in {rel_path(md_file)}: [{text}]({url_clean})"
+                    )
+                    all_ok = False
+
     if all_ok:
-        messages.append("All markdown anchor links validated cleanly (0 malformed emoji anchors).")
+        messages.append("All markdown links and anchors validated cleanly (0 broken links).")
 
     return all_ok, messages
 
@@ -512,12 +727,17 @@ def check_all_documentation(update: bool = False) -> tuple[bool, list[str]]:
     overall_ok = overall_ok and ok_rep
     all_messages.extend(msgs_rep)
 
-    # 6. MkDocs nav
+    # 6. Version references across docs
+    ok_ver, msgs_ver = sync_version_references(update=update)
+    overall_ok = overall_ok and ok_ver
+    all_messages.extend(msgs_ver)
+
+    # 7. MkDocs nav
     ok_nav, msgs_nav = sync_mkdocs_nav(update=update)
     overall_ok = overall_ok and ok_nav
     all_messages.extend(msgs_nav)
 
-    # 7. Anchor links
+    # 8. Link & anchor health
     ok_anchors, msgs_anchors = check_markdown_link_health()
     overall_ok = overall_ok and ok_anchors
     all_messages.extend(msgs_anchors)

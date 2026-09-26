@@ -191,10 +191,10 @@ def test_sync_mkdocs_nav():
 
 
 def test_check_markdown_link_health():
-    """Verify all markdown links have clean anchors without malformed emoji prefixes."""
+    """Verify all markdown links have clean anchors and valid relative targets."""
     ok, messages = syncdoc.check_markdown_link_health()
     assert ok is True
-    assert any("0 malformed emoji anchors" in m for m in messages)
+    assert any("0 broken links" in m for m in messages)
 
 
 def test_check_markdown_link_health_detects_malformed(tmp_path, monkeypatch):
@@ -206,6 +206,134 @@ def test_check_markdown_link_health_detects_malformed(tmp_path, monkeypatch):
     ok, messages = syncdoc.check_markdown_link_health()
     assert ok is False
     assert any("Malformed anchor" in m for m in messages)
+
+
+def test_check_markdown_link_health_detects_empty_and_broken(tmp_path, monkeypatch):
+    """Verify check_markdown_link_health detects empty link targets and broken local file links."""
+    doc = tmp_path / "links.md"
+    doc.write_text(
+        "Line with [empty link]() and [hash link](#) and [broken](./missing_page.md).\n"
+        "And a valid relative link [self](links.md).\n"
+        "And an external link [github](https://github.com).\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(syncdoc, "DOCS_DIR", tmp_path)
+    ok, messages = syncdoc.check_markdown_link_health()
+    assert ok is False
+    assert any("Empty link target" in m for m in messages)
+    assert any("Broken relative file link" in m and "missing_page.md" in m for m in messages)
+
+
+def test_sync_version_references_clean():
+    """Verify sync_version_references passes cleanly on current repository."""
+    ok, messages = syncdoc.sync_version_references(update=False)
+    assert ok is True
+    assert any("Integration version" in m for m in messages)
+    assert any("OWNd requirement" in m for m in messages)
+
+
+def test_sync_version_references_detects_drift_and_updates(tmp_path, monkeypatch):
+    """Verify sync_version_references detects outdated versions and updates them in place."""
+    (tmp_path / "architecture").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "getting-started").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "migration").mkdir(parents=True, exist_ok=True)
+
+    safeguards = tmp_path / "architecture" / "anti-drift-safeguards.md"
+    safeguards.write_text("Pinned to OWNd==1.0.0 in manifest.\n", encoding="utf-8")
+
+    install = tmp_path / "getting-started" / "installation.md"
+    install.write_text('Download TAG="1.0.0" release.\n', encoding="utf-8")
+
+    upgrade = tmp_path / "migration" / "upgrade-from-094.md"
+    upgrade.write_text('Upgrade with TAG="1.0.0" release.\n', encoding="utf-8")
+
+    roadmap = tmp_path / "roadmap.md"
+    roadmap.write_text(
+        "Current Delivery Status (Unified Beta v1.0.0)\n"
+        "Operational in v1.0.0 with OWNd 1.0.0\n"
+        "section Delivered in v1.0.0\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(syncdoc, "DOCS_DIR", tmp_path)
+
+    # Check mode detects drift
+    ok, messages = syncdoc.sync_version_references(update=False)
+    assert ok is False
+    assert any("Outdated OWNd reference" in m for m in messages)
+    assert any("Outdated release tag" in m for m in messages)
+    assert any("Outdated version references in" in m for m in messages)
+
+    # Update mode fixes drift
+    ok_up, messages_up = syncdoc.sync_version_references(update=True)
+    assert ok_up is True
+    assert any("Updated OWNd pin" in m for m in messages_up)
+    assert any("Updated release tag" in m for m in messages_up)
+    assert any("Updated release and OWNd versions" in m for m in messages_up)
+
+    # Subsequent check passes
+    ok_after, messages_after = syncdoc.sync_version_references(update=False)
+    assert ok_after is True
+
+
+def test_sync_version_references_mismatch_const_manifest(monkeypatch):
+    """Verify version mismatch between const.py and manifest.json is detected."""
+    monkeypatch.setattr(
+        syncdoc,
+        "extract_manifest_version_info",
+        lambda: ("9.9.9", "OWNd==2.0.0b8"),
+    )
+    ok, messages = syncdoc.sync_version_references(update=False)
+    assert ok is False
+    assert any("Version mismatch" in m for m in messages)
+
+
+def test_sync_supported_domains_missing_platform(tmp_path, monkeypatch):
+    """Verify sync_supported_domains flags missing platforms in supported_functions.md."""
+    (tmp_path / "configuration").mkdir(parents=True, exist_ok=True)
+    func_doc = tmp_path / "configuration" / "supported_functions.md"
+    func_doc.write_text(
+        "### `light`\n### `switch`\n### `cover`\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(syncdoc, "DOCS_DIR", tmp_path)
+    ok, messages = syncdoc.sync_supported_domains(update=False)
+    assert ok is False
+    assert any("Platforms from const.py missing sections in supported_functions.md" in m for m in messages)
+
+
+def test_sync_services_detects_orphaned_service(tmp_path, monkeypatch):
+    """Verify sync_services detects services documented in markdown that do not exist in services.yaml."""
+    real_doc = syncdoc.DOCS_DIR / "configuration" / "services.md"
+    content = real_doc.read_text(encoding="utf-8")
+    content += "\n## 10. `myhome.phantom_nonexistent_service`\n"
+
+    (tmp_path / "configuration").mkdir(parents=True, exist_ok=True)
+    test_doc = tmp_path / "configuration" / "services.md"
+    test_doc.write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(syncdoc, "DOCS_DIR", tmp_path)
+    ok, messages = syncdoc.sync_services(update=False)
+    assert ok is False
+    assert any("Documented services not found in services.yaml" in m for m in messages)
+    assert any("phantom_nonexistent_service" in m for m in messages)
+
+
+def test_sync_services_missing_field(tmp_path, monkeypatch):
+    """Verify sync_services detects when service fields are not documented."""
+    (tmp_path / "configuration").mkdir(parents=True, exist_ok=True)
+    test_doc = tmp_path / "configuration" / "services.md"
+    # Document all service names but omit their field parameters
+    services_data = syncdoc.parse_services_yaml()
+    headings = "\n".join(f"## `myhome.{s}`\nSome description without field names.\n" for s in services_data)
+    test_doc.write_text(headings, encoding="utf-8")
+
+    monkeypatch.setattr(syncdoc, "DOCS_DIR", tmp_path)
+    ok, messages = syncdoc.sync_services(update=False)
+    assert ok is False
+    assert any("Service fields missing in services.md" in m for m in messages)
 
 
 def test_check_all_documentation():

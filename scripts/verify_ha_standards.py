@@ -659,8 +659,24 @@ def check_documentation_anti_drift_rule(checker: StandardsChecker):
         in_sync, messages = check_all_documentation(update=False)
         if not in_sync:
             drift_details = "\n".join(
-                f"  - {m}" for m in messages if any(k in m for k in ("out of sync", "missing", "Malformed", "not found"))
+                f"  - {m}"
+                for m in messages
+                if not any(
+                    ok_kw in m
+                    for ok_kw in (
+                        "in sync",
+                        "verified",
+                        "validated cleanly",
+                        "All documentation pages are referenced",
+                        "All 9 platforms are documented",
+                        "All 9 services have documented",
+                        "All service parameter fields are documented",
+                        "repair issues are documented",
+                    )
+                )
             )
+            if not drift_details.strip():
+                drift_details = "\n".join(f"  - {m}" for m in messages)
             checker.log_error(
                 "RULE_DOCS_ANTI_DRIFT",
                 ROOT_DIR / "docs",

@@ -33,51 +33,57 @@ GATEWAY_METADATA: list[dict[str, object]] = [
     {
         "model": "**F454**",
         "const_models": ["F454"],
+        "profile_name": "F454",
         "protocol": "OpenWebNet / HMAC",
         "max_workers": "4 workers",
-        "delay": "20 ms",
+        "delay": "50 ms",
         "upnp": "✅ Port 49153",
         "notes": "Full high-speed multi-session support",
     },
     {
         "model": "**F455**",
         "const_models": ["F455"],
+        "profile_name": "F455",
         "protocol": "OpenWebNet / HMAC",
         "max_workers": "4 workers",
-        "delay": "20 ms",
+        "delay": "50 ms",
         "upnp": "✅ Port 49153",
         "notes": "Basic gateway (single SCS bus)",
     },
     {
         "model": "**F461**",
         "const_models": ["F461"],
+        "profile_name": "F461",
         "protocol": "OpenWebNet / HMAC",
         "max_workers": "4 workers",
-        "delay": "20 ms",
+        "delay": "50 ms",
         "upnp": "❌ Manual",
         "notes": "Compact DIN Ethernet Web Server",
     },
     {
         "model": "**MH202**",
         "const_models": ["MH202"],
+        "profile_name": "MH202",
         "protocol": "OpenWebNet / HMAC",
-        "max_workers": "3 workers",
-        "delay": "30 ms",
+        "max_workers": "2 workers",
+        "delay": "100 ms",
         "upnp": "✅ Port 49153",
         "notes": "Modern scenario programmer gateway",
     },
     {
         "model": "**MH201**",
         "const_models": ["MH201"],
+        "profile_name": "MH201",
         "protocol": "OpenWebNet",
-        "max_workers": "2 workers",
-        "delay": "60 ms",
+        "max_workers": "1 worker",
+        "delay": "100 ms",
         "upnp": "✅ Port 49153",
         "notes": "Second-generation scenario programmer",
     },
     {
         "model": "**MyHomeServer1**",
         "const_models": ["MyHomeServer1"],
+        "profile_name": "MyHomeServer1",
         "protocol": "OpenWebNet / HMAC",
         "max_workers": "4 workers",
         "delay": "20 ms",
@@ -87,35 +93,39 @@ GATEWAY_METADATA: list[dict[str, object]] = [
     {
         "model": "**MH200N**",
         "const_models": ["MH200N"],
+        "profile_name": "MH200N",
         "protocol": "OpenWebNet",
-        "max_workers": "2 workers",
-        "delay": "80 ms",
-        "upnp": "❌ Manual",
+        "max_workers": "1 worker",
+        "delay": "150 ms",
+        "upnp": "✅ SSDP",
         "notes": "Second-generation scenario programmer",
     },
     {
         "model": "**MH200** *(Legacy)*",
         "const_models": ["MH200"],
+        "profile_name": "MH200",
         "protocol": "OpenWebNet",
         "max_workers": "1 worker",
         "delay": "150 ms",
-        "upnp": "❌ Manual",
+        "upnp": "✅ SSDP",
         "notes": "Strict single-session pacing; watchdog hardened",
     },
     {
         "model": "**H4890 / AM4890**",
         "const_models": ["AM4890", "H4890", "LN4890"],
+        "profile_name": "Generic",
         "protocol": "OpenWebNet",
-        "max_workers": "2 workers",
-        "delay": "100 ms",
-        "upnp": "❌ Manual",
+        "max_workers": "1 worker",
+        "delay": "50 ms",
+        "upnp": "✅ SSDP",
         "notes": '3.5" Touch screen display IP gateway (Axolute / Livinglight)',
     },
     {
         "model": "**F452 / F453AV**",
         "const_models": ["F453AV", "F452"],
+        "profile_name": "Generic",
         "protocol": "OpenWebNet",
-        "max_workers": "2 workers",
+        "max_workers": "1 worker",
         "delay": "50 ms",
         "upnp": "✅ Port 49153",
         "notes": "Audio/video & web server gateway",
@@ -123,17 +133,19 @@ GATEWAY_METADATA: list[dict[str, object]] = [
     {
         "model": "**HL4684**",
         "const_models": [],
+        "profile_name": "Generic",
         "protocol": "OpenWebNet",
-        "max_workers": "2 workers",
-        "delay": "80 ms",
+        "max_workers": "1 worker",
+        "delay": "50 ms",
         "upnp": "✅ SSDP",
         "notes": '10" Touch screen display IP gateway',
     },
     {
         "model": "**Legrand 3578**",
         "const_models": [],
+        "profile_name": "Generic",
         "protocol": "OpenWebNet (Serial)",
-        "max_workers": "2 workers",
+        "max_workers": "1 worker",
         "delay": "50 ms",
         "upnp": "❌ Manual (Serial)",
         "notes": "USB / Serial gateway & OpenZigBee interface",
@@ -182,8 +194,57 @@ def extract_ssdp_models_from_manifest(manifest_path: Path = MANIFEST_JSON) -> se
         return set()
 
 
-def generate_gateway_profiles_table(const_path: Path = CONST_PY) -> str:
+def calibrate_metadata_with_ownd(manifest_path: Path = MANIFEST_JSON) -> None:
+    """Dynamically calibrate GATEWAY_METADATA against OWNd.profiles and manifest.json."""
+    try:
+        from OWNd.profiles import get_gateway_profile
+    except ImportError:
+        get_gateway_profile = None
+
+    ssdp_models = extract_ssdp_models_from_manifest(manifest_path)
+
+    for gw in GATEWAY_METADATA:
+        prof_name = gw.get("profile_name")
+        if prof_name and get_gateway_profile:
+            try:
+                prof = get_gateway_profile(str(prof_name))
+                if prof:
+                    workers = int(prof.max_command_sessions)
+                    gw["max_workers"] = f"{workers} {'workers' if workers > 1 else 'worker'}"
+                    gw["delay"] = f"{int(round(prof.command_queue_delay * 1000))} ms"
+                    if "Serial" not in str(gw.get("protocol", "")):
+                        gw["protocol"] = (
+                            "OpenWebNet / HMAC"
+                            if getattr(prof, "supports_hmac", False)
+                            else "OpenWebNet"
+                        )
+            except Exception:
+                pass
+
+        # Cross-reference UPnP / SSDP discovery
+        const_models = gw.get("const_models", [])
+        has_ssdp = (
+            isinstance(const_models, list)
+            and any(m in ssdp_models for m in const_models)
+        ) or any(m in str(gw["model"]) for m in ssdp_models)
+
+        if "Serial" in str(gw.get("protocol", "")):
+            gw["upnp"] = "❌ Manual (Serial)"
+        elif has_ssdp:
+            if "Port 49153" in str(gw.get("upnp", "")):
+                gw["upnp"] = "✅ Port 49153"
+            else:
+                gw["upnp"] = "✅ SSDP"
+        else:
+            gw["upnp"] = "❌ Manual"
+
+
+def generate_gateway_profiles_table(
+    const_path: Path = CONST_PY,
+    manifest_path: Path = MANIFEST_JSON,
+) -> str:
     """Generate the markdown table for supported gateway profiles."""
+    calibrate_metadata_with_ownd(manifest_path)
     if const_path.exists():
         supported_models = extract_gateway_models_from_const(const_path)
         # Exclude generic fallback placeholder
@@ -217,15 +278,19 @@ def generate_gateway_profiles_table(const_path: Path = CONST_PY) -> str:
     return "\n".join(lines)
 
 
-def build_block(const_path: Path = CONST_PY) -> str:
+def build_block(
+    const_path: Path = CONST_PY,
+    manifest_path: Path = MANIFEST_JSON,
+) -> str:
     """Return the complete marker-wrapped table block."""
-    table = generate_gateway_profiles_table(const_path)
+    table = generate_gateway_profiles_table(const_path, manifest_path)
     return f"{START_MARKER}\n{table}\n{END_MARKER}"
 
 
 def check_readme_in_sync(
     readme_path: Path = README_MD,
     const_path: Path = CONST_PY,
+    manifest_path: Path = MANIFEST_JSON,
 ) -> tuple[bool, str]:
     """Check if the README.md table is in sync with the generated table."""
     if not readme_path.exists():
@@ -240,7 +305,7 @@ def check_readme_in_sync(
     if not match:
         return False, f"Could not find marker block in {readme_path.name}"
 
-    expected_block = build_block(const_path)
+    expected_block = build_block(const_path, manifest_path)
     actual_block = match.group(0)
     if actual_block.strip() != expected_block.strip():
         return False, f"Table content in {readme_path.name} differs from generated table"
@@ -251,6 +316,7 @@ def check_readme_in_sync(
 def update_readme(
     readme_path: Path = README_MD,
     const_path: Path = CONST_PY,
+    manifest_path: Path = MANIFEST_JSON,
 ) -> bool:
     """Update README.md with the generated gateway profiles table.
 
@@ -260,7 +326,7 @@ def update_readme(
         raise FileNotFoundError(f"{readme_path} not found")
 
     content = readme_path.read_text(encoding="utf-8")
-    expected_block = build_block(const_path)
+    expected_block = build_block(const_path, manifest_path)
 
     if START_MARKER in content and END_MARKER in content:
         pattern = re.compile(rf"{re.escape(START_MARKER)}.*?{re.escape(END_MARKER)}", re.DOTALL)

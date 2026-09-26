@@ -56,9 +56,13 @@ def test_generate_gateway_profiles_table():
     """Verify markdown table format and content."""
     table = generate_gateway_profiles_table()
     assert "| Gateway Model | Protocol Support | Max Command Workers | Inter-Frame Delay | UPnP Discovery | Notes |" in table
-    assert "| **F454** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 |" in table
-    assert "| **H4890 / AM4890** | OpenWebNet | 2 workers | 100 ms | ❌ Manual |" in table
-    assert "| **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) |" in table
+    assert "| **F454** | OpenWebNet / HMAC | 4 workers | 50 ms | ✅ Port 49153 |" in table
+    assert "| **MH202** | OpenWebNet / HMAC | 2 workers | 100 ms | ✅ Port 49153 |" in table
+    assert "| **MH201** | OpenWebNet | 1 worker | 100 ms | ✅ Port 49153 |" in table
+    assert "| **MH200N** | OpenWebNet | 1 worker | 150 ms | ✅ SSDP |" in table
+    assert "| **MH200** *(Legacy)* | OpenWebNet | 1 worker | 150 ms | ✅ SSDP |" in table
+    assert "| **H4890 / AM4890** | OpenWebNet | 1 worker | 50 ms | ✅ SSDP |" in table
+    assert "| **Legrand 3578** | OpenWebNet (Serial) | 1 worker | 50 ms | ❌ Manual (Serial) |" in table
 
     for gw in GATEWAY_METADATA:
         assert gw["model"] in table
@@ -125,3 +129,22 @@ def test_unmapped_model_raises_error(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Gateway models defined in const.py missing from GATEWAY_METADATA"):
         generate_gateway_profiles_table(dummy_const)
+
+
+def test_calibrate_metadata_with_ownd():
+    """Verify dynamic calibration against OWNd profiles and manifest.json."""
+    ugp.calibrate_metadata_with_ownd()
+    f454 = next(gw for gw in ugp.GATEWAY_METADATA if "F454" in str(gw["model"]))
+    assert f454["max_workers"] == "4 workers"
+    assert f454["delay"] == "50 ms"
+    assert f454["upnp"] == "✅ Port 49153"
+
+    mh202 = next(gw for gw in ugp.GATEWAY_METADATA if "MH202" in str(gw["model"]))
+    assert mh202["max_workers"] == "2 workers"
+    assert mh202["delay"] == "100 ms"
+
+    mh200n = next(gw for gw in ugp.GATEWAY_METADATA if "MH200N" in str(gw["model"]))
+    assert mh200n["max_workers"] == "1 worker"
+    assert mh200n["delay"] == "150 ms"
+    assert mh200n["upnp"] == "✅ SSDP"
+
