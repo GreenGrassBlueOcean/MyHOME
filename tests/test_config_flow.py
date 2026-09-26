@@ -754,7 +754,11 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
     mock_reg = MagicMock()
     mass_entry = MagicMock()
     mass_entry.platform = "mass"
-    mock_reg.async_get.side_effect = lambda eid: mass_entry if "mass" in eid else MagicMock(platform="sonos")
+    myhome_entry = MagicMock()
+    myhome_entry.platform = "myhome"
+    mock_reg.async_get.side_effect = (
+        lambda eid: mass_entry if "mass" in eid else (myhome_entry if "myhome" in eid else MagicMock(platform="sonos"))
+    )
 
     with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_reg):
         # Invalid: not starting with media_player.
@@ -778,6 +782,17 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
             CONF_DECODER_PRE_GAIN.format(1): 0,
         })
         assert res_mass["errors"][CONF_DECODER_ENTITY.format(1)] == "mass_entity_not_allowed"
+
+        # Invalid: MyHOME matrix zone entity (cannot be used as source decoder)
+        res_myhome = await opt_flow.async_step_user({
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software",
+            CONF_DECODER_ENTITY.format(1): "media_player.myhome_zone",
+            CONF_DECODER_SOURCE.format(1): 1,
+            CONF_DECODER_PRE_GAIN.format(1): 0,
+        })
+        assert res_myhome["errors"][CONF_DECODER_ENTITY.format(1)] == "myhome_entity_not_allowed"
 
         # Invalid: Duplicate decoder source input
         res_dup_src = await opt_flow.async_step_user({

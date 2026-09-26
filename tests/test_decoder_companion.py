@@ -1,4 +1,6 @@
 """Test decoder companion resolution and discovery."""
+from unittest.mock import patch
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -115,6 +117,42 @@ async def test_find_streaming_companion_not_found(hass: HomeAssistant) -> None:
 
     companion = async_find_streaming_companion(hass, "media_player.solo_audio")
     assert companion is None
+
+    # Test entity with no device_id
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cambridge_audio",
+        "no_device_unique",
+        device_id=None,
+        suggested_object_id="no_device_audio",
+    )
+    assert async_find_streaming_companion(hass, "media_player.no_device_audio") is None
+
+
+@pytest.mark.asyncio
+async def test_find_streaming_companion_device_not_found(hass: HomeAssistant) -> None:
+    """Test returning None when the entity registry device_id does not exist in device registry."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+
+    device = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "ghost_dev")},
+    )
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cambridge_audio",
+        "ghost_unique",
+        device_id=device.id,
+        suggested_object_id="ghost_streamer",
+    )
+
+    with patch.object(dev_reg, "async_get", return_value=None):
+        companion = async_find_streaming_companion(hass, "media_player.ghost_streamer")
+        assert companion is None
 
 
 @pytest.mark.asyncio

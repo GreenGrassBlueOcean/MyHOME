@@ -1,4 +1,6 @@
 """Test repair issues management for MyHOME integration."""
+from unittest.mock import patch
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
@@ -235,3 +237,53 @@ async def test_incompatible_decoder_repair_flow_missing_companion(hass: HomeAssi
     abort_result = await flow.async_step_missing_companion(user_input={})
     assert abort_result["type"] == "abort"
     assert abort_result["reason"] == "companion_still_missing"
+
+    # Retrying when companion is now discovered transitions to confirm_companion
+    with patch(
+        "custom_components.myhome.decoder_companion.async_find_streaming_companion",
+        return_value="media_player.found_dlna",
+    ):
+        retry_result = await flow.async_step_missing_companion(user_input={})
+        assert retry_result["type"] == "form"
+        assert retry_result["step_id"] == "confirm_companion"
+
+
+@pytest.mark.asyncio
+async def test_create_fix_flow_fallback_confirm(hass: HomeAssistant) -> None:
+    """Test creating fix flow for non-decoder issue falls back to ConfirmRepairFlow."""
+    from homeassistant.components.repairs import ConfirmRepairFlow
+
+    from custom_components.myhome.repairs import async_create_fix_flow
+
+    flow = await async_create_fix_flow(hass, "other_generic_issue", None)
+    assert isinstance(flow, ConfirmRepairFlow)
+    assert flow.hass is hass
+
+
+@pytest.mark.asyncio
+async def test_prune_incompatible_decoder_issues(hass: HomeAssistant) -> None:
+    """Test pruning incompatible decoder issues for decoders no longer configured."""
+    from custom_components.myhome.repairs import (
+        async_create_incompatible_decoder_issue,
+        async_prune_incompatible_decoder_issues,
+    )
+    issue_registry = ir.async_get(hass)
+    entry_id = "test_entry_prune"
+
+    # Create issues for decoder_1 and decoder_2
+    async_create_incompatible_decoder_issue(
+        hass, entry_id, "media_player.dec1", "cambridge_audio"
+    )
+    async_create_incompatible_decoder_issue(
+        hass, entry_id, "media_player.dec2", "cambridge_audio"
+    )
+
+    issue1_id = f"incompatible_decoder_platform_{entry_id}_media_player_dec1"
+    issue2_id = f"incompatible_decoder_platform_{entry_id}_media_player_dec2"
+    assert issue_registry.async_get_issue(DOMAIN, issue1_id) is not None
+    assert issue_registry.async_get_issue(DOMAIN, issue2_id) is not None
+
+    # Prune keeping only dec1
+    async_prune_incompatible_decoder_issues(hass, entry_id, ["media_player.dec1"])
+    assert issue_registry.async_get_issue(DOMAIN, issue1_id) is not None
+    assert issue_registry.async_get_issue(DOMAIN, issue2_id) is None

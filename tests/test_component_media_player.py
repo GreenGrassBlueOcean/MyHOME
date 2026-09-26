@@ -1509,6 +1509,58 @@ async def test_cambridge_audio_with_companion_dlna_bridges_stream(hass, mock_gat
         assert calls[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
         assert calls[0].args[2]["media_content_id"] == "http://stream"
 
+        # Verify streaming target null and cache branches
+        assert z22._streaming_target(None) is None
+        z22._companion_cache = {"media_player.cambridge_cxn": "media_player.cambridge_cxn_dlna"}
+        assert z22._streaming_target("media_player.cambridge_cxn") == "media_player.cambridge_cxn_dlna"
+
+        # Verify media_stop signals companion, then signals hardware decoder
+        mock_call.reset_mock()
+        await z22.async_media_stop()
+        stop_calls = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "media_stop"]
+        assert len(stop_calls) == 2
+        assert stop_calls[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert stop_calls[1].args[2]["entity_id"] == "media_player.cambridge_cxn"
+
+        # Verify exception during secondary hardware stop is safely caught and logged
+        mock_call.reset_mock()
+        mock_call.side_effect = [None, RuntimeError("Secondary stop failed")]
+        await z22.async_media_stop()
+
+        # Verify turn_off stops companion and hardware decoder
+        mock_call.reset_mock()
+        mock_call.side_effect = None
+        z22._attr_state = MediaPlayerState.ON
+        await z22.async_turn_off()
+        turn_off_stops = [c for c in mock_call.call_args_list if c.args[0] == "media_player" and c.args[1] == "media_stop"]
+        assert len(turn_off_stops) == 2
+        assert turn_off_stops[0].args[2]["entity_id"] == "media_player.cambridge_cxn_dlna"
+        assert turn_off_stops[1].args[2]["entity_id"] == "media_player.cambridge_cxn"
+
+        # Verify exception during secondary hardware stop in turn_off is safely caught
+        mock_call.reset_mock()
+        mock_call.side_effect = [None, RuntimeError("Secondary turn_off stop failed")]
+        z22._attr_state = MediaPlayerState.ON
+        z22._active_decoder = "media_player.cambridge_cxn"
+        await z22.async_turn_off()
+
+        # Test _resolve_playback_state with companion in playing state
+        hass.states.async_set("media_player.cambridge_cxn_dlna", "playing")
+        assert z22._resolve_playback_state("media_player.cambridge_cxn") == MediaPlayerState.PLAYING
+
+        # Test _resolve_playback_state with no hass
+        with patch.object(z22, "hass", None):
+            assert z22._resolve_playback_state("media_player.cambridge_cxn") is None
+
+        # Test _get_decoder_attr with companion metadata
+        z22._active_decoder = "media_player.cambridge_cxn"
+        hass.states.async_set(
+            "media_player.cambridge_cxn_dlna",
+            "playing",
+            {"media_title": "Direct Companion Title"},
+        )
+        assert z22._get_decoder_attr("media_title") == "Direct Companion Title"
+
 
 @pytest.mark.asyncio
 async def test_passive_metadata_mirroring_and_transport(hass, mock_gateway):
