@@ -7,6 +7,7 @@ from scripts.verify_ha_standards import (
     check_manifest_requirements_rule,
     check_no_blocking_calls,
     check_ruff_standards,
+    check_supported_domains_rule,
     check_translation_coverage,
 )
 
@@ -51,4 +52,12 @@ def test_manifest_requirements_consistency():
     checker = StandardsChecker()
     check_manifest_requirements_rule(checker)
     assert not checker.errors, f"Manifest requirements violations found: {checker.errors}"
+
+
+def test_supported_domains_readme_calibrated():
+    """Verify README.md Supported Entity Domains table is calibrated and in sync."""
+    checker = StandardsChecker()
+    check_supported_domains_rule(checker)
+    assert not checker.errors, f"Supported domains README violations found: {checker.errors}"
+
 
