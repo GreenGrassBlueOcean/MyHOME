@@ -152,12 +152,11 @@ Why declare it instead of detecting it: a source device that has not spoken is
 indistinguishable from one that is not there, and a tuner in standby says
 nothing at all.
 
-> **Tested to here.** Station stepping (`*16*6001*10S##` / `*16*6101*10S##`),
-> station selection (`*#16*10S*#7*<N>##`), kHz frequency parsing, and autonomous
-> RDS text (`DIMENSION 8`) are hardware-verified against a live MH200N + F500N
-> tuner with antenna (contributed by `@manfredgittmaier-afk` on PR #427). Direct
-> frequency write without zero vs with zero and hardware seek commands remain
-> from the specification and await live bus confirmation.
+> **Tested on real hardware.** Frequency tuning (`*#16*10S*#6*0*<kHz>##` with leading zero;
+> write without zero is ignored), hardware seek up / down (`*16*5000*10S##` / `*16*5100*10S##`),
+> station stepping (`*16*6001*10S##` / `*16*6101*10S##`), station selection (`*#16*10S*#7*<N>##`),
+> kHz frequency parsing, and autonomous RDS text (`DIMENSION 8`) are hardware-verified
+> against a live MH200N + F500N tuner with antenna (contributed by `@manfredgittmaier-afk` on PR #427).
 
 ### The "Hardware Routing First" Model
 

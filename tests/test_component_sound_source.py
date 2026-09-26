@@ -106,11 +106,23 @@ async def test_select_source_rejects_an_unknown_station(hass, tuner, mock_gatewa
 
 
 @pytest.mark.asyncio
+async def test_seek_commands(hass, tuner, mock_gateway):
+    """Hardware seek up and down commands send *16*5000*101## and *16*5100*101##."""
+    await tuner.async_seek_up()
+    await tuner.async_seek_down()
+    assert _sent(mock_gateway) == ["*16*5000*101##", "*16*5100*101##"]
+
+
+@pytest.mark.asyncio
 async def test_set_frequency(hass, tuner, mock_gateway):
     """Frequency is written as six digits in kHz, per the specification's examples."""
+    tuner._station = 1
+    tuner._attr_source = "Station 1"
     await tuner.async_set_frequency(107.0)
     assert _sent(mock_gateway) == ["*#16*101*#6*0*107000##"]
     assert tuner.extra_state_attributes["frequency"] == 107.0
+    assert "station" not in tuner.extra_state_attributes
+    assert tuner.source is None
 
 
 @pytest.mark.asyncio
@@ -174,6 +186,15 @@ def test_handle_event_reads_frequency_station_and_rds(hass, tuner):
         is_on=False, is_off=False,
     ))
     assert tuner.media_title == "Radio 1"
+
+    # A subsequent frequency report to a new frequency clears the stored station
+    tuner.handle_event(MagicMock(
+        spec=OWNSoundEvent, dimension=6, dimension_value=["0", "96200"],
+        is_on=False, is_off=False,
+    ))
+    assert tuner.extra_state_attributes["frequency"] == 96.2
+    assert "station" not in tuner.extra_state_attributes
+    assert tuner.source is None
 
 
 def test_handle_event_ignores_impossible_payloads(hass, tuner):

@@ -29,6 +29,14 @@ FIXTURE_PATH = (
     / "myhome_trace_MH200N_f500n_tuner.json"
 )
 
+FIXTURE_SEEK_FREQ_PATH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "traces"
+    / "f500_tuner"
+    / "myhome_trace_MH200N_f500n_tuner_seek_and_frequency.json"
+)
+
 
 @pytest.fixture
 def mock_gateway():
@@ -165,3 +173,85 @@ async def test_f500n_extended_presets_and_dynamic_expansion(tuner, mock_gateway)
     # Out of range station (16) raises error on select_station
     with pytest.raises(HomeAssistantError):
         await tuner.async_select_station(16)
+
+
+async def test_f500n_seek_and_frequency_trace_replay(tuner, mock_gateway):
+    """Replay direct frequency tuning, seek up/down, RDS blanking and dynamic station title."""
+    assert FIXTURE_SEEK_FREQ_PATH.is_file(), f"Missing trace fixture: {FIXTURE_SEEK_FREQ_PATH}"
+
+    with open(FIXTURE_SEEK_FREQ_PATH, encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    frames = trace_data["frames"]
+    assert len(frames) == 23
+
+    # Initially at Station 1
+    tuner.handle_event(MagicMock(
+        spec=OWNSoundEvent, dimension=6, dimension_value=["0", "88800"],
+        is_on=False, is_off=False,
+    ))
+    tuner.handle_event(MagicMock(
+        spec=OWNSoundEvent, dimension=7, dimension_value=["0", "1"],
+        is_on=False, is_off=False,
+    ))
+    assert tuner.extra_state_attributes["station"] == 1
+    assert tuner.source == "Station 1"
+    assert tuner.extra_state_attributes["frequency"] == 88.8
+
+    for frame in frames:
+        raw = frame["raw"]
+        who = frame.get("who")
+        dimension = frame.get("dimension")
+        values = frame.get("dimension_values", [])
+
+        if who == "16" and frame.get("where") == "101" and frame["direction"] == "rx":
+            event = MagicMock(spec=OWNSoundEvent)
+            event.raw = raw
+            event.who = "16"
+            event.where = "101"
+            event.dimension = int(dimension) if dimension is not None else None
+            event.dimension_value = values
+            event.is_on = False
+            event.is_off = False
+            tuner.handle_event(event)
+
+            if raw == "*#16*101*6*0*96200##":
+                # Direct frequency write to 96.2 MHz clears station preset
+                assert tuner.extra_state_attributes["frequency"] == 96.2
+                assert "station" not in tuner.extra_state_attributes
+                assert tuner.source is None
+
+            elif raw == "*#16*101*8*32*32*32*32*32*32*32*32##":
+                # Blank RDS transition frame
+                assert tuner.media_title is None
+
+            elif raw == "*#16*101*8*107*114*111*110*101*104*105*116##":
+                # "kronehit"
+                assert tuner.media_title == "kronehit"
+
+            elif raw == "*#16*101*6*0*89500##":
+                # Seek up locked on 89.5 MHz (unstored)
+                assert tuner.extra_state_attributes["frequency"] == 89.5
+                assert "station" not in tuner.extra_state_attributes
+                assert tuner.source is None
+
+            elif raw == "*#16*101*8*66*97*121*101*114*110*32*50##":
+                # "Bayern 2"
+                assert tuner.media_title == "Bayern 2"
+
+            elif raw == "*#16*101*7*0*1##":
+                # Seek down locked on 88.8 MHz (stored as station 1)
+                assert tuner.extra_state_attributes["station"] == 1
+                assert tuner.source == "Station 1"
+
+            elif raw == "*#16*101*8*32*32*79*69*32*51*32*32##":
+                # "  OE 3  " stripped to "OE 3"
+                assert tuner.media_title == "OE 3"
+
+    # Test seek up and seek down command methods
+    await tuner.async_seek_up()
+    assert str(mock_gateway.send.call_args.args[0]) == "*16*5000*101##"
+
+    await tuner.async_seek_down()
+    assert str(mock_gateway.send.call_args.args[0]) == "*16*5100*101##"
+

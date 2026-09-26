@@ -45,15 +45,13 @@ Tested against a live installation (MH200N gateway + F500N tuner with antenna,
 contributed by @manfredgittmaier-afk on PR #427):
 * Power on/off (``*16*3*10S##`` / ``*16*13*10S##``)
 * Next / previous station advance (``*16*6001*10S##`` / ``*16*6101*10S##``)
+* Hardware seek up / down (``*16*5000*10S##`` / ``*16*5100*10S##``)
+* Direct frequency write with leading zero (``*#16*10S*#6*0*<KHZ>##``; write without zero is ignored)
 * Station selection without leading zero (``*#16*10S*#7*<STATION>##``)
 * Station report with leading zero (``*#16*10S*7*0*<STATION>##``)
 * Frequency report in kHz (``*#16*10S*6*0*<KHZ>##``)
-* Autonomous RDS station name reporting (``*#16*10S*8*...##``)
+* Autonomous RDS station name reporting (``*#16*10S*8*...##``) and blanking transition
 * Dynamic station list expansion up to 15 presets for F500N
-
-Direct frequency write (``*#16*10S*#6*0*<KHZ>##`` vs ``*#16*10S*#6*<KHZ>##``)
-and hardware seek commands (``*16*5000*10S##`` / ``*16*5100*10S##``) remain from
-the OpenWebNet WHO 16 specification and await live bus confirmation.
 """
 from __future__ import annotations
 
@@ -225,6 +223,14 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         """Return to the previous station."""
         await self._gateway_handler.send(OWNSoundCommand(f"*16*6101*{self._where}##"))
 
+    async def async_seek_up(self) -> None:
+        """Seek forward to the next receivable FM frequency."""
+        await self._gateway_handler.send(OWNSoundCommand(f"*16*5000*{self._where}##"))
+
+    async def async_seek_down(self) -> None:
+        """Seek backward to the previous receivable FM frequency."""
+        await self._gateway_handler.send(OWNSoundCommand(f"*16*5100*{self._where}##"))
+
     async def async_select_source(self, source: str) -> None:
         """Switch to a stored station.
 
@@ -284,6 +290,8 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz:06d}##")
         )
         self._frequency_khz = kilohertz
+        self._station = None
+        self._attr_source = None
         self.async_schedule_update_ha_state()
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
@@ -341,7 +349,10 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             return
         kilohertz = int(raw)
         if FM_MIN_KHZ <= kilohertz <= FM_MAX_KHZ:
-            self._frequency_khz = kilohertz
+            if self._frequency_khz != kilohertz:
+                self._frequency_khz = kilohertz
+                self._station = None
+                self._attr_source = None
         else:
             LOGGER.debug(
                 "%s: ignoring reported frequency %s kHz, outside the FM band",
