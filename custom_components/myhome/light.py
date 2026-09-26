@@ -445,21 +445,6 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         """Set current fade ID on engine (compatibility shim)."""
         self._fade_engine.fade_id = val
 
-    @property
-    def _cmd_lock(self) -> asyncio.Lock:
-        """Return command lock from engine (compatibility shim)."""
-        return self._fade_engine.cmd_lock
-
-    @property
-    def _warned_multi_worker(self) -> bool:
-        """Return whether multi-worker warning was logged (compatibility shim)."""
-        return self._fade_engine.warned_multi_worker
-
-    @_warned_multi_worker.setter
-    def _warned_multi_worker(self, val: bool) -> None:
-        """Set whether multi-worker warning was logged (compatibility shim)."""
-        self._fade_engine.warned_multi_worker = val
-
     def _is_mode_forbidden(self, mode: ColorMode) -> bool:
         """Return whether lock_features keeps this light from adopting ``mode``."""
         return self._feature_lock.is_mode_forbidden(mode)
@@ -635,9 +620,6 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._is_on_restored = False
         if pct > 0:
             self._last_brightness_pct = pct
-
-    def _next_fade_id(self) -> int:
-        return self._fade_engine.next_fade_id()
 
     def _cancel_fade_if_active(self) -> None:
         self._fade_engine.cancel_fade_if_active()

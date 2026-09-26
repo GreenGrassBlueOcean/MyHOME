@@ -2138,3 +2138,8 @@ async def test_mh200_light_74_restored_on_after_the_fix(hass):
 
     assert light.is_on is None
     assert light.extra_state_attributes["unknown_state"] == 19
+def test_light_worker_count_fallback(hass: HomeAssistant):
+    light = _unknown_state_light(hass)
+    light._gateway_handler = None
+    assert light._get_worker_count_config() == 1
+
