@@ -77,6 +77,7 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 
 ### Gateway Profiles
 
+<!-- GATEWAY_PROFILES_START -->
 | Gateway Model | Protocol Support | Max Command Workers | Inter-Frame Delay | UPnP Discovery | Notes |
 |---|---|---|---|---|---|
 | **F454** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Full high-speed multi-session support |
@@ -91,21 +92,24 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 | **F452 / F453AV** | OpenWebNet | 2 workers | 50 ms | ✅ Port 49153 | Audio/video & web server gateway |
 | **HL4684** | OpenWebNet | 2 workers | 80 ms | ✅ SSDP | 10" Touch screen display IP gateway |
 | **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
+<!-- GATEWAY_PROFILES_END -->
+
+*This table is automatically updated from gateway profile definitions and hardware specifications.*
 
 
 ### 📊 Hardware Trace Availability Matrix
 
 <!-- TRACE_MATRIX_START -->
-| Gateway Model | WHO 0<br>Scenario | WHO 1<br>Lights | WHO 2<br>Autom. | WHO 4<br>Climate | WHO 5<br>Alarm | WHO 9<br>Power | WHO 13<br>Gateway | WHO 14<br>Lock | WHO 15<br>CEN | WHO 16<br>Audio | WHO 17<br>Scenario | WHO 18<br>Energy | WHO 22<br>Audio Diff. | WHO 25<br>Diag | WHO 1013<br>Diag | WHO 1022<br>Diag |
-| :--- |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |
-| **F454** |  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  |  | ✅ |  |  |  |  | ✅ |  |
-| **F461** |  | ✅ |  | ✅ |  |  |  |  |  |  |  |  |  |  |  |  |
-| **H4890 / AM4890** |  | ✅ | ✅ |  | ✅ | ✅ |  |  |  | ✅ |  | ✅ | ✅ | ✅ |  |  |
-| **MH200** |  | ✅ | ✅ |  | ✅ |  | ✅ |  |  | ✅ |  |  |  |  |  |  |
-| **MH200N** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **MH201** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  |
-| **MH202** |  |  | ✅ | ✅ |  |  | ✅ |  |  |  |  |  |  |  | ✅ |  |
-| **MyHomeServer1** |  | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  | ✅ |  |
+| Gateway Model | WHO 0<br>Scenario | WHO 1<br>Lights | WHO 2<br>Autom. | WHO 4<br>Climate | WHO 5<br>Alarm | WHO 9<br>Power | WHO 13<br>Gateway | WHO 14<br>Lock | WHO 15<br>CEN | WHO 16<br>Audio | WHO 17<br>Scenario | WHO 18<br>Energy | WHO 22<br>Audio Diff. | WHO 25<br>Diag | WHO 1001<br>Diag | WHO 1013<br>Diag | WHO 1022<br>Diag |
+| :--- |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |
+| **F454** |  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  |  | ✅ |  |  |  |  |  | ✅ |  |
+| **F461** |  | ✅ |  | ✅ |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| **H4890 / AM4890** |  | ✅ | ✅ |  | ✅ | ✅ |  |  |  | ✅ |  | ✅ | ✅ | ✅ |  |  |  |
+| **MH200** |  | ✅ | ✅ |  | ✅ | ✅ | ✅ |  |  | ✅ | ✅ |  |  |  | ✅ | ✅ |  |
+| **MH200N** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ |  | ✅ | ✅ |  |  |  |  | ✅ |
+| **MH201** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  |  |
+| **MH202** |  |  | ✅ | ✅ |  |  | ✅ |  |  |  |  |  |  |  |  | ✅ |  |
+| **MyHomeServer1** |  | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  |  | ✅ |  |
 <!-- TRACE_MATRIX_END -->
 
 *Checkmarks (✅) indicate that at least one `diagnostic_summary.json` or `.txt` bus capture in our test corpus contains frames for that subsystem from the specified gateway model. This matrix is automatically updated from the fixtures repository.*

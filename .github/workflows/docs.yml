@@ -48,6 +48,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Validate documentation synchronization against codebase
+        run: |
+          python scripts/sync_documentation.py --check
+
       - name: Deploy versioned docs via mike
         run: |
           # 1. Deploy the v0.9.4 legacy documentation (production master)

@@ -6,21 +6,23 @@ This document provides a comprehensive reference for all custom services registe
 
 ## 📋 Services Summary
 
+<!-- SERVICES_TABLE_START -->
 | Service | Target | Description |
 | :--- | :--- | :--- |
-| [`myhome.send_message`](#myhomesend_message) | Gateway | Send an arbitrary, validated OpenWebNet frame to the SCS bus. |
-| [`myhome.turn_on_timed`](#myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
-| [`myhome.sync_time`](#myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
-| [`myhome.start_sending_instant_power`](#myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
-| [`myhome.sweep_bus`](#myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
-| [`myhome.calibrate_cover`](#myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
-| [`myhome.stop_cover_calibration`](#myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
-| [`myhome.set_cover_travel_time`](#myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
-| [`myhome.reset_cover_travel_time`](#myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
+| [`myhome.calibrate_cover`](#myhomecalibrate_cover) | `cover` | Measures a timed cover's up and down travel times on the SCS bus and stores them. The cover is driven fully up, then fully down (timed), then fully up again (timed). Covers are calibrated one at a time per gateway. Do not run while the shutter must stay put. |
+| [`myhome.reset_cover_travel_time`](#myhomereset_cover_travel_time) | `cover` | Forgets the measured or manually set travel times of a timed cover and returns to the myhome.yaml travel_time or the 25 s default. |
+| [`myhome.send_message`](#myhomesend_message) | Gateway | Send an arbitrary (but valid) OpenWebNet message to the gateway. |
+| [`myhome.set_cover_travel_time`](#myhomeset_cover_travel_time) | `cover` | Stores the physical travel times of a timed cover by hand (measured with a stopwatch) instead of calibrating on the bus. Values are kept in the config entry, survive restarts and apply to discovered covers without YAML. |
+| [`myhome.start_sending_instant_power`](#myhomestart_sending_instant_power) | `sensor` | Get automatic instant power draw updates for a sensor. |
+| [`myhome.stop_cover_calibration`](#myhomestop_cover_calibration) | Gateway | Stops the running travel-time calibration and cancels the queued ones. The moving cover is stopped; nothing is stored. Without a gateway every gateway is stopped. |
+| [`myhome.sweep_bus`](#myhomesweep_bus) | Gateway | Triggers an active read-only status query across all bus subsystems (lighting, covers, thermoregulation, clock, and gateway diagnostics) to populate the diagnostic bus monitor ring buffer. |
+| [`myhome.sync_time`](#myhomesync_time) | Gateway | Syncronize gateway's time to HA local time. |
+| [`myhome.turn_on_timed`](#myhometurn_on_timed) | `light`, `switch` | Turn on a light or switch with a hardware-offloaded SCS bus timer that turns off automatically even if Home Assistant restarts. |
+<!-- SERVICES_TABLE_END -->
 
 ---
 
-## 1. `myhome.send_message`
+## 1. `myhome.send_message` {: #myhomesend_message }
 
 Sends an arbitrary, valid OpenWebNet message through the gateway command session. The integration validates syntax, dispatches the frame, and logs the transaction to the Bus Monitor.
 
@@ -40,7 +42,7 @@ data:
 
 ---
 
-## 2. `myhome.turn_on_timed`
+## 2. `myhome.turn_on_timed` {: #myhometurn_on_timed }
 
 Turns on a light or switch with a **hardware-offloaded SCS timer**. 
 
@@ -72,7 +74,7 @@ data:
 
 ---
 
-## 3. `myhome.sync_time`
+## 3. `myhome.sync_time` {: #myhomesync_time }
 
 Synchronizes the gateway's real-time clock (RTC) with Home Assistant's local time using `WHO = 13` dimension frames. This ensures scheduled events programmed directly inside physical gateways (e.g. MH200N/MH202 schedules) run in lockstep with real time.
 
@@ -90,7 +92,7 @@ data:
 
 ---
 
-## 4. `myhome.start_sending_instant_power`
+## 4. `myhome.start_sending_instant_power` {: #myhomestart_sending_instant_power }
 
 By default, MyHOME energy meters (F520, F521, F522, F523) transmit energy readings periodically to conserve bus bandwidth. Calling this service causes the meter to continuously stream high-frequency instant power updates for a defined duration.
 
@@ -110,7 +112,7 @@ data:
 
 ---
 
-## 5. `myhome.sweep_bus`
+## 5. `myhome.sweep_bus` {: #myhomesweep_bus }
 
 Actively queries status across all configured subsystems (lighting, automation, thermoregulation, and gateway diagnostics). It is used to refresh entity states and populate the in-band **Bus Monitor** with fresh data for troubleshooting.
 
@@ -126,7 +128,7 @@ action: myhome.sweep_bus
 
 ---
 
-## 6. `myhome.calibrate_cover`
+## 6. `myhome.calibrate_cover` {: #myhomecalibrate_cover }
 
 Measures a timed cover's travel times **on the bus** and stores them, replacing the guessed `travel_time`. The cover is driven fully **up** (so its position is known), then fully **down** (timed), then fully **up** again (timed). Covers of one gateway are calibrated **one at a time** — a single-session gateway cannot drive two motors reliably and overlapping runs would confuse the timing. The shutter moves for about three full travels; do not run it while the shutter must stay put.
 
@@ -154,7 +156,7 @@ target:
 
 ---
 
-## 7. `myhome.stop_cover_calibration`
+## 7. `myhome.stop_cover_calibration` {: #myhomestop_cover_calibration }
 
 Stops the calibration that is running and cancels every cover still queued behind it. The moving cover receives a stop command, its calibration event reports `phase: failed` with *Calibration stopped by user*, and nothing is stored. Without a `gateway` every gateway's queue is cleared. Also available as an entity service on any cover (targets that cover's gateway).
 
@@ -170,7 +172,7 @@ action: myhome.stop_cover_calibration
 
 ---
 
-## 8. `myhome.set_cover_travel_time`
+## 8. `myhome.set_cover_travel_time` {: #myhomeset_cover_travel_time }
 
 Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch and pass them here. `travel_time` fills whichever direction has no explicit value; note that `travel_time_down` on its own also sets the up time (the two are assumed equal unless `travel_time_up` is given), whereas `travel_time_up` on its own leaves the stored down time untouched — pass both when you only want to change one. Values must lie between 1 s and 180 s; anything else is rejected before the entity is touched. The result is stored exactly like a measured calibration (`calibration_source: manual`).
 
@@ -197,7 +199,7 @@ data:
 
 ---
 
-## 9. `myhome.reset_cover_travel_time`
+## 9. `myhome.reset_cover_travel_time` {: #myhomereset_cover_travel_time }
 
 Forgets the measured or manually set travel times of a timed cover. The cover returns to the `travel_time` from `myhome.yaml` when one is configured, otherwise to the 25 s default, and `calibration_source` reports `yaml` / `default` again.
 

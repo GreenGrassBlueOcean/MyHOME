@@ -112,3 +112,29 @@ An unusually high rate of NACK frames or bus collisions was detected on the SCS 
 1. Verify physical bus wiring and ensure proper line termination (line end-resistors).
 2. Ensure multiple command sessions or third-party gateways are not flooding the bus simultaneously.
 3. Check the **Lovelace Bus Monitor Card** to identify which device address (`WHERE`) is generating frequent NACKs.
+
+---
+
+## Incompatible Streaming Decoder Platform
+
+**Repair Key**: `incompatible_decoder_platform`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes  
+**Fixable via UI**: Yes (Interactive Repair Flow)
+
+### What it means
+A configured streaming decoder (e.g. `media_player.cambridge_audio_cxn`) belongs to an integration (such as `cambridge_audio`) that does not accept direct HTTP streaming URLs via Home Assistant's `media_player.play_media` service. This prevents multi-room streaming engines (such as Music Assistant or Spotify Connect) from routing audio to that player.
+
+### How to resolve
+1. **Interactive Repair Flow (Recommended)**:
+   - Click **Submit** on the Repair issue card.
+   - If Home Assistant detects an active **DLNA Digital Media Renderer (DMR)** companion entity for the same physical player (e.g., `media_player.cxn_v2_dlna`), the repair flow automatically updates your MyHOME decoder configuration to use the DLNA companion entity in 1 click.
+2. **Manual Configuration**:
+   - If the DLNA companion is not yet discovered or configured:
+     - Enable UPnP / DLNA in the streamer's mobile app settings (e.g., Cambridge StreamMagic app).
+     - In Home Assistant, go to **Settings → Devices & Services → Add Integration** and add the **DLNA Digital Media Renderer** integration for your device.
+     - Return to the Repair issue and click **Submit**, or update the entity mapping in **Settings → Devices & Services → MyHOME → Configure**.
+
+### How it clears
+The repair issue automatically withdraws and deletes once the decoder entity is updated to a streaming-compatible entity (e.g. DLNA DMR), or when the decoder is removed from the MyHOME Options Flow.
+

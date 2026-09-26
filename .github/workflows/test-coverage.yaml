@@ -41,11 +41,13 @@ jobs:
           python scripts/update_readme_coverage.py
           python scripts/update_trace_matrix.py
           python scripts/update_supported_domains.py
+          python scripts/update_gateway_profiles.py
+          python scripts/sync_documentation.py --update
           if [ "${{ github.event_name }}" = "push" ] && ([ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ] || echo "${{ github.ref }}" | grep -q "refs/heads/v2-"); then
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add coverage.svg || true
-            git add README.md docs/trace-availability.md || true
+            git add README.md docs/ || true
             if ! git diff --staged --quiet; then
               git commit -m "chore: auto-generate coverage badge & README table [skip ci]"
               git push || echo "No files pushed"

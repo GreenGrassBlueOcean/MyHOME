@@ -21,7 +21,7 @@ If you are a **certified BTicino / Legrand installer**, **system integrator**, o
 ### 🔍 Remaining Specifications & Items Under Review:
 
 1. **Document Versions & Revision Dates**:
-   - Compare your PDF archive against the [Master WHO Family Inventory](#-master-who-family-inventory) table below.
+   - Compare your PDF archive against the [Master WHO Family Inventory](#master-who-family-inventory) table below.
    - Look at the cover page and revision history (e.g. *Last date modify*, *Version number*). If your copy is newer than what is listed, please share the version details!
 
 2. **Remaining Missing / Legacy Specifications**:

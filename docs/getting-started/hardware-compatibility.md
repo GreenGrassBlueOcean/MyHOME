@@ -6,18 +6,22 @@ The MyHOME integration supports all official BTicino and Legrand OpenWebNet gate
 
 ## Supported Gateways
 
-| Gateway Model | Manufacturer | Connection Type | Port / Baud | Max Sockets | HMAC / SHA Auth | Recommended Profile |
-| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **MyHomeServer1** | BTicino | Ethernet (IP) | `20000` | 4 | **Yes** (required) | `MyHomeServer1Profile` |
-| **F454** | BTicino / Legrand | Ethernet (IP) | `20000` | 2–3 | Optional | `F454Profile` |
-| **F455** | BTicino | Ethernet (IP) | `20000` | 2–3 | Optional | `F455Profile` |
-| **MH200N** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH200NProfile` |
-| **MH201** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH201Profile` |
-| **MH202** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH202Profile` |
-| **F452 / F452V** | BTicino | Ethernet (IP) | `20000` | 1 | No | `F452Profile` |
-| **MHServer / MHServer2** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MHServerProfile` |
-| **F461** | BTicino | Ethernet (IP) | `20000` | 2 | No | `F461Profile` |
-| **Legrand 3578** | Legrand | USB / RS232 Serial | `57600` | 1 | N/A | `SerialProfile` |
+<!-- GATEWAY_PROFILES_START -->
+| Gateway Model | Protocol Support | Max Command Workers | Inter-Frame Delay | UPnP Discovery | Notes |
+|---|---|---|---|---|---|
+| **F454** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Full high-speed multi-session support |
+| **F455** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Basic gateway (single SCS bus) |
+| **F461** | OpenWebNet / HMAC | 4 workers | 20 ms | ❌ Manual | Compact DIN Ethernet Web Server |
+| **MH202** | OpenWebNet / HMAC | 3 workers | 30 ms | ✅ Port 49153 | Modern scenario programmer gateway |
+| **MH201** | OpenWebNet | 2 workers | 60 ms | ✅ Port 49153 | Second-generation scenario programmer |
+| **MyHomeServer1** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ SSDP | Cloud/local hybrid gateway |
+| **MH200N** | OpenWebNet | 2 workers | 80 ms | ❌ Manual | Second-generation scenario programmer |
+| **MH200** *(Legacy)* | OpenWebNet | 1 worker | 150 ms | ❌ Manual | Strict single-session pacing; watchdog hardened |
+| **H4890 / AM4890** | OpenWebNet | 2 workers | 100 ms | ❌ Manual | 3.5" Touch screen display IP gateway (Axolute / Livinglight) |
+| **F452 / F453AV** | OpenWebNet | 2 workers | 50 ms | ✅ Port 49153 | Audio/video & web server gateway |
+| **HL4684** | OpenWebNet | 2 workers | 80 ms | ✅ SSDP | 10" Touch screen display IP gateway |
+| **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
+<!-- GATEWAY_PROFILES_END -->
 
 > [!NOTE]
 > Gateways with only **1 concurrent command session** (such as the MH200N or MH201) are automatically tuned with command pacing (150 ms) to avoid queue flooding. Modern multi-session gateways (F454, MyHomeServer1) use 20 ms pacing with worker pools.

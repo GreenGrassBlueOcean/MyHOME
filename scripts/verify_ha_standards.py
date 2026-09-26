@@ -620,6 +620,65 @@ def check_supported_domains_rule(checker: StandardsChecker):
         )
 
 
+def check_gateway_profiles_rule(checker: StandardsChecker):
+    """Rule: Verify README.md Gateway Profiles table is calibrated and in sync."""
+    try:
+        try:
+            from scripts.update_gateway_profiles import check_readme_in_sync
+        except ImportError:
+            from update_gateway_profiles import check_readme_in_sync
+
+        in_sync, msg = check_readme_in_sync()
+        if not in_sync:
+            checker.log_error(
+                "RULE_DOCS_GATEWAY_PROFILES",
+                ROOT_DIR / "README.md",
+                1,
+                f"Gateway Profiles table in README.md is out of sync: {msg}. "
+                f"Run 'python scripts/update_gateway_profiles.py' to update.",
+            )
+        else:
+            checker.log_ok("README.md Gateway Profiles table is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_GATEWAY_PROFILES",
+            ROOT_DIR / "README.md",
+            1,
+            f"Failed verifying gateway profiles: {err}",
+        )
+
+
+def check_documentation_anti_drift_rule(checker: StandardsChecker):
+    """Rule: Verify all documentation (README.md and docs/ MkDocs site) is in sync with codebase."""
+    try:
+        try:
+            from scripts.sync_documentation import check_all_documentation
+        except ImportError:
+            from sync_documentation import check_all_documentation
+
+        in_sync, messages = check_all_documentation(update=False)
+        if not in_sync:
+            drift_details = "\n".join(
+                f"  - {m}" for m in messages if any(k in m for k in ("out of sync", "missing", "Malformed", "not found"))
+            )
+            checker.log_error(
+                "RULE_DOCS_ANTI_DRIFT",
+                ROOT_DIR / "docs",
+                1,
+                f"Documentation drift detected across support website / README:\n{drift_details}\n"
+                f"Run 'python scripts/sync_documentation.py --update' to synchronize.",
+            )
+        else:
+            checker.log_ok("Complete documentation suite (README.md & docs/ site) is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_ANTI_DRIFT",
+            ROOT_DIR / "docs",
+            1,
+            f"Failed verifying documentation synchronization: {err}",
+        )
+
+
 def main():
     print("=" * 70)
     print("Running Home Assistant Architectural Standards Validator")
@@ -635,6 +694,8 @@ def main():
     check_quality_scale_rules(checker)
     check_ownd_library_standards(checker)
     check_supported_domains_rule(checker)
+    check_gateway_profiles_rule(checker)
+    check_documentation_anti_drift_rule(checker)
 
     print("=" * 70)
     if checker.errors:
