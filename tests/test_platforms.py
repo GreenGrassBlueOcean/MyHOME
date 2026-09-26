@@ -23,7 +23,12 @@ def mock_hass():
     """Create a minimal mock Home Assistant instance."""
     hass = MagicMock()
     hass.data = {}
-    hass.async_create_task = MagicMock()
+    def _create_task(coro, *args, **kwargs):
+        if hasattr(coro, 'close'):
+            coro.close()
+        return MagicMock()
+
+    hass.async_create_task = MagicMock(side_effect=_create_task)
     return hass
 
 
