@@ -87,7 +87,7 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 | **MyHomeServer1** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ SSDP | Cloud/local hybrid gateway |
 | **MH200N** | OpenWebNet | 2 workers | 80 ms | ❌ Manual | Second-generation scenario programmer |
 | **MH200** *(Legacy)* | OpenWebNet | 1 worker | 150 ms | ❌ Manual | Strict single-session pacing; watchdog hardened |
-| **AM4890** | OpenWebNet | 2 workers | 100 ms | ❌ Manual | Compact residential gateway |
+| **H4890 / AM4890** | OpenWebNet | 2 workers | 100 ms | ❌ Manual | 3.5" Touch screen display IP gateway (Axolute / Livinglight) |
 | **F452 / F453AV** | OpenWebNet | 2 workers | 50 ms | ✅ Port 49153 | Audio/video & web server gateway |
 | **HL4684** | OpenWebNet | 2 workers | 80 ms | ✅ SSDP | 10" Touch screen display IP gateway |
 | **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
@@ -100,7 +100,7 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 | :--- |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |
 | **F454** |  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  |  | ✅ |  |  |  |  | ✅ |  |
 | **F461** |  | ✅ |  | ✅ |  |  |  |  |  |  |  |  |  |  |  |  |
-| **H4890** |  | ✅ | ✅ |  | ✅ | ✅ |  |  |  | ✅ |  | ✅ | ✅ | ✅ |  |  |
+| **H4890 / AM4890** |  | ✅ | ✅ |  | ✅ | ✅ |  |  |  | ✅ |  | ✅ | ✅ | ✅ |  |  |
 | **MH200** |  | ✅ | ✅ |  | ✅ |  | ✅ |  |  | ✅ |  |  |  |  |  |  |
 | **MH200N** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ |  | ✅ | ✅ |  |  |  | ✅ |
 | **MH201** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  |
