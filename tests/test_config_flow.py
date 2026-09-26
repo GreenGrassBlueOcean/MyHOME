@@ -1534,3 +1534,47 @@ async def test_config_flow_unknown_model(hass: HomeAssistant) -> None:
     with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
         result = await hass.config_entries.options.async_init(entry.entry_id)
         assert result["type"] == FlowResultType.FORM
+
+
+    \
+
+@pytest.mark.asyncio
+async def test_options_flow_update_delegated_whos_self_skip(hass: HomeAssistant) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from custom_components.myhome.const import CONF_BUS_TOPOLOGY, CONF_GATEWAY_ROLE, CONF_PRIMARY_GATEWAY, CONF_DELEGATED_WHOS, TOPOLOGY_SHARED, ROLE_SECONDARY, ROLE_PRIMARY
+    
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={"host": "192.168.1.1", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:01", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+    pri.add_to_hass(hass)
+    
+    sec = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Secondary",
+        data={"host": "192.168.1.2", "port": 20000, "password": "abc", "serialNumber": "00:03:50:aa:bb:02", "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_SECONDARY, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01", CONF_DELEGATED_WHOS: ["1"]}
+    )
+    sec.add_to_hass(hass)
+
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()):
+        result = await hass.config_entries.options.async_init(sec.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.2",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["1"],
+            }
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
