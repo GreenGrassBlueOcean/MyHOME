@@ -238,7 +238,7 @@ def test_mh200_lighting_and_automation_subsystem_frames() -> None:
     assert isinstance(light, OWNLightingEvent)
     assert light.who == 1
     assert str(light.where) == "11"
-    assert light.is_off is True
+    assert light.is_on is False
 
     cover = OWNMessage.parse("*2*0*85##")
     assert cover is not None
