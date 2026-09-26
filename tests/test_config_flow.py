@@ -1254,15 +1254,16 @@ async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssi
     # Environment 1 has no zones, so it is not offered
     assert CONF_SOURCE_DEFAULT_FIELD.format(1) not in keys
 
-    result = await flow.async_step_user({
-        "address": "192.168.1.50",
-        "password": "12345",
-        "command_worker_count": 1,
-        "generate_events": False,
-        CONF_SOURCE_NAME.format(2): "  Cambridge  ",
-        CONF_SOURCE_DEFAULT_FIELD.format(2): "2",
-        CONF_SOURCE_DEFAULT_FIELD.format(3): "none",
-    })
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result = await flow.async_step_user({
+            "address": "192.168.1.50",
+            "password": "12345",
+            "command_worker_count": 1,
+            "generate_events": False,
+            CONF_SOURCE_NAME.format(2): "  Cambridge  ",
+            CONF_SOURCE_DEFAULT_FIELD.format(2): "2",
+            CONF_SOURCE_DEFAULT_FIELD.format(3): "none",
+        })
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     options = result["data"]
