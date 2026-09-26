@@ -81,7 +81,7 @@ async def async_setup_entry(
 
     def reject_registry_entry(entry: er.RegistryEntry, ctx: DeviceContext) -> bool:
         """Purge phantom zone partition entities previously created from status dumps."""
-        if ctx.source == "yaml" or ctx.cfg:
+        if ctx.cfg:
             return False
         return ctx.address.where.startswith("#") or (
             ctx.device_id is not None and str(ctx.device_id).startswith("#")
