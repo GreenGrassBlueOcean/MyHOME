@@ -102,7 +102,7 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         async_dispatcher_send(hass, f"myhome_message_{mac}", new_alarm_msg)
         assert len(added_entities) == 3
 
-        # Zone status frames (*5*11*#1##..*5*11*#8##) from empty gateways do NOT discover phantom alarms
+        # Zone status frames (*5*11*#1##..*5*11*#8##) from empty gateways (MH200 / MH200N) do NOT discover phantom alarms
         for zone in range(1, 9):
             phantom_zone_msg = OWNEvent.parse(f"*5*11*#{zone}##")
             assert isinstance(phantom_zone_msg, OWNAlarmEvent)

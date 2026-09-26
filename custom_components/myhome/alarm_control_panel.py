@@ -72,7 +72,7 @@ async def async_setup_entry(
         Individual zones/partitions (WHERE starting with '#', e.g. '#1'..'#8') are
         not independent alarm control panels (as documented in known limitations),
         and status telemetry (*5*11*#...##, 'active zone') emitted by gateways
-        such as the MH200N when polled with '*#5*0##' must not trigger autonomous
+        such as the MH200 and MH200N when polled with '*#5*0##' must not trigger autonomous
         entity discovery when no central alarm unit is installed.
         """
         if ctx.source != "bus":
