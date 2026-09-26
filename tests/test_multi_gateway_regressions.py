@@ -250,6 +250,36 @@ def _replay(hass: HomeAssistant, first, second) -> None:
                 gw._correlate_shared_bus_traffic(OWNMessage.parse(frame["raw"]))
 
 
+
+def test_passive_golden_traces_do_not_flag_shared_bus(hass: HomeAssistant) -> None:
+    """Replay MHS1 and H4890 traces that contain 87 concurrent RX frames but no cross-gateway TX echoes."""
+    _, gw_a = _create_mock_gateway(hass, PRI)
+    _, gw_b = _create_mock_gateway(hass, SB)
+
+    events = []
+    import json
+
+    for gw, name in ((gw_a, "myhome_trace_MyHomeServer1_all_2026-09-25T19-40-15.json"),
+                     (gw_b, "myhome_trace_H4890_all_2026-09-25T19-40-19.json")):
+        for frame in json.loads((TRACES / name).read_text(encoding="utf-8"))["frames"]:
+            events.append((frame["timestamp"], gw, frame))
+    events.sort(key=lambda e: e[0])
+
+    with patch("custom_components.myhome.gateway.time") as clock:
+        for ts, gw, frame in events:
+            clock.monotonic.return_value = ts
+            from OWNd.message import OWNMessage
+            if frame["direction"] == "tx":
+                gw._record_tx(ts, frame["raw"])
+            elif frame["direction"] == "rx":
+                gw._correlate_shared_bus_traffic(OWNMessage.parse(frame["raw"]))
+
+    # Even though they share 87 frames identically timed, there were no TX->RX echoes
+    # from HA (the user just pressed physical buttons), so we MUST NOT flag it.
+    from custom_components.myhome.const import ISSUE_SHARED_BUS_DETECTED
+    assert _issue(hass, f"{ISSUE_SHARED_BUS_DETECTED}_{gw_a.mac.replace(":", "")}_{gw_b.mac.replace(":", "")}") is None
+    assert _issue(hass, f"{ISSUE_SHARED_BUS_DETECTED}_{gw_b.mac.replace(":", "")}_{gw_a.mac.replace(":", "")}") is None
+
 def test_golden_traces_flag_an_unconfigured_shared_bus(hass: HomeAssistant) -> None:
     _, gw_a = _create_mock_gateway(hass, PRI)
     _, gw_b = _create_mock_gateway(hass, SB)
