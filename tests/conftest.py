@@ -43,10 +43,9 @@ if not os.environ.get("OWND_SMOKE_TEST"):
     except (ImportError, AttributeError):
         installed = False
         if os.environ.get("GITHUB_ACTIONS"):
-            branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or "v2-phase2-architecture"
+            branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or "master"
             for target in [
                 f"git+https://github.com/OpenWebNet-HA/OWNd.git@{branch}",
-                "git+https://github.com/OpenWebNet-HA/OWNd.git@v2-phase2-architecture",
                 "git+https://github.com/OpenWebNet-HA/OWNd.git@master",
             ]:
                 try:
