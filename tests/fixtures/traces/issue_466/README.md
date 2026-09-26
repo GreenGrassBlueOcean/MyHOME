@@ -84,3 +84,46 @@ Verbatim bus traces contributed by **@nicolacavallo84** on [#466 (comment 584605
 - **WHO 16 & 22 (Sound & Audio Diffusion)**: Multi-source audio control and diffusion events.
 - **WHO 18 (Energy Management)**: Cumulative energy meter reports.
 - **WHO 25 (CEN+ / Dry Contact)**: CEN+ pushbutton / scenario status events.
+
+---
+
+# #466 MH200N Gateway Traces (Burglar Alarm Discovery, WHO 1013 Diagnostic, CEN+ Dry Contact, Timed Turn-On)
+
+Verbatim bus traces contributed by **@manfredgittmaier-afk** on [#466 (comment 5848807742)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5848807742).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino MH200N (2nd Generation Scenario Programmer)
+- **Firmware**: 1.0 (WHO 1013: N_CONF 15, BRAND 0, LINE 0)
+- **WHO 1013 Object Model**: `44`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MH200N_all_2026-09-26T18-32-34.json` | Bus Monitor Trace (37 frames) | Targeted diagnostic capture covering WHO 5 burglar alarm query behavior, WHO 1013 gateway diagnostic identification, F428 dry contact events, auxiliary query, timed light turn-on, and scenario module notifications. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Burglar Alarm (WHO 5)**:
+   - Query `*#5*0##` on a bus **without an alarm central unit**: the MH200N answers anyway after ~2.5s with `*5*0*##`, `*5*9*##`, `*5*5*##`, `*5*7*##` (empty-where frames) followed by partition statuses `*5*11*#1##` through `*5*11*#8##` (reporting full 8-zone alarm status).
+   - Partition status query `*#5*#1##` -> reports `*5*11*#1##`.
+   - Confirms that MH200N gateways answer WHO 5 queries even without alarm hardware, creating phantom alarm partitions if discovery relies solely on query response.
+
+2. **Gateway Diagnostic (WHO 1013)**:
+   - Query `*#1013*0*1##` -> reports `*#1013**1*44*15*0*0##`.
+   - Confirms OBJECT_MODEL `44` (MH200N), `N_CONF` 15, `BRAND` 0, and `LINE` 0.
+
+3. **CEN+ Dry Contact (WHO 25) & Auxiliary (WHO 9)**:
+   - F428 contact interface in "contact status" mode emits dry contact frame `*25*32#1*31##` (motion detector with normally-closed output configured with inverted logic).
+   - Auxiliary channel query `*#9*0##` -> reports no auxiliary channels `*9*0*0##`.
+
+4. **Hardware Timer & Scenario Module (WHO 1 / WHO 17)**:
+   - Timed turn-on command `*#1*65*#2*2*0*0##` (2 hours) confirmed by `*1*1*65##`.
+   - Scenario module reports reactions `*17*1*4##` and `*17*2*4##` to the light event.
+
+5. **Audio & Other Subsystems (WHO 16, WHO 22, WHO 13, WHO 4)**:
+   - Audio diffusion frames `*#16*101*8*...##` and `*#22*5#2#1*10*...##`.
+   - Real-time clock broadcast `*#13**22*...##`.
+   - Climate valve actuator status `*#4*4#1*20*0##`.

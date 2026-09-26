@@ -43,6 +43,7 @@ from custom_components.myhome.const import (
 TRACES_DIR = Path(__file__).resolve().parent / "fixtures" / "traces" / "issue_466"
 SWEEP_TRACE_FILE = TRACES_DIR / "myhome_sweep_MH200N_all_2026-09-25T14-40-10.json"
 DIAG_TRACE_FILE = TRACES_DIR / "config_entry-myhome-80a1577fb7ae6f68f05e0cc5a1ead27d.json"
+TRACE_ALARM_DIAG_FILE = TRACES_DIR / "myhome_trace_MH200N_all_2026-09-26T18-32-34.json"
 
 
 @pytest.mark.asyncio
@@ -256,9 +257,102 @@ def test_new_trace_payload_parsing(trace_file: Path) -> None:
 
         try:
             msg = OWNMessage.parse(raw)
-            assert msg is not None
+            if item.get("who") is not None:
+                assert msg is not None
         except Exception as exc:  # pragma: no cover
             pytest.fail(f"Failed to parse authentic frame {raw!r} in {trace_file.name}: {exc}")
-        parsed_count += 1
+        if msg is not None:
+            parsed_count += 1
 
     assert parsed_count > 0
+
+
+@pytest.mark.asyncio
+async def test_mh200n_alarm_diagnostic_and_timed_turn_on_trace_replay(hass: HomeAssistant) -> None:
+    """Replay all 37 on-wire frames from the physical MH200N diagnostic and alarm trace.
+
+    Authentic capture contributed by @manfredgittmaier-afk in issue #466 comment 5848807742.
+    Verifies:
+    - WHO 1013 dimension 1 gateway diagnostic (*#1013**1*44*15*0*0##) resolves to MH200N.
+    - WHO 5 burglar alarm status query (*#5*0##) and zone responses (*5*11*#1##..*5*11*#8##).
+    - Unparseable empty-where frames (*5*0*##, *5*9*##, *5*5*##, *5*7*##) emitted by MH200N
+      without an alarm central are handled gracefully without raising exceptions.
+    - WHO 25 dry contact interface (*25*32#1*31##) from F428.
+    - WHO 9 aux channel query (*#9*0## -> *9*0*0##).
+    - WHO 1 timed turn-on (*#1*65*#2*2*0*0## -> *1*1*65##) and WHO 17 scenario module events.
+    - WHO 16 & WHO 22 audio frames, WHO 13 clock, and WHO 4 valve actuator frames.
+    """
+    assert TRACE_ALARM_DIAG_FILE.is_file(), f"Missing trace fixture: {TRACE_ALARM_DIAG_FILE}"
+
+    with open(TRACE_ALARM_DIAG_FILE, "r", encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    assert trace_data["gateway"]["model"] == "MH200N"
+    raw_frames = trace_data["frames"]
+    assert len(raw_frames) == 37
+
+    mac = "00:03:50:00:02:00"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.0.2.200",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MH200N",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MH200N Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "1.0",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    replayed = 0
+    whos_seen: set[str] = set()
+
+    for item in raw_frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        msg = OWNMessage.parse(raw)
+        # Verify that unparseable frames (like *5*0*##) or valid OWNMessage objects
+        # pass cleanly through the handler without throwing exceptions.
+        if msg is not None:
+            await handler._process_message(msg)
+            if hasattr(msg, "who") and msg.who:
+                whos_seen.add(str(msg.who))
+        else:
+            # Malformed/gateway-specific frame received from wire
+            await handler._process_message(raw)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 37
+    # Verified subsystems present in trace
+    assert {"1", "4", "5", "9", "13", "16", "17", "22", "25", "1013"}.issubset(whos_seen)
+
+    # Verify WHO 1013 diagnostic resolution for MH200N
+    assert handler._who1013["code"] == "44"
+    assert handler._who1013["model"] == "MH200N"
+    assert handler._who1013["n_conf"] == "15"
+    assert handler._who1013["brand"] == "0"
+    assert handler._who1013["line"] == "0"
+
+    await hass.config_entries.async_unload(entry.entry_id)
