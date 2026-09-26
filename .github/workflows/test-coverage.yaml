@@ -17,6 +17,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
 
       # Home Assistant >= 2026.3 requires Python 3.14.2; pytest-homeassistant-custom-component
       # pins the exact core release it was built for, so the suite runs on the core users run.
@@ -31,6 +34,24 @@ jobs:
           pip install pytest-homeassistant-custom-component pytest-cov pytest-socket time-machine python-dateutil pytz freezegun requests-mock respx paho-mqtt tqdm jsonschema pyyaml
           python -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
 
+      - name: Proactively synchronize documentation and tables
+        run: |
+          python scripts/update_gateway_profiles.py
+          python scripts/update_supported_domains.py
+          python scripts/update_trace_matrix.py
+          python scripts/sync_documentation.py --update
+
+      - name: Auto-commit documentation updates on PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(docs): auto-sync documentation with codebase [skip ci]"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
+
       - name: Verify Home Assistant Architectural Standards
         run: |
           python scripts/verify_ha_standards.py
@@ -39,10 +60,6 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/ --cov=custom_components.myhome --cov-report=xml --cov-report=html --cov-report=term --junitxml=junit.xml
           python scripts/update_readme_coverage.py
-          python scripts/update_trace_matrix.py
-          python scripts/update_supported_domains.py
-          python scripts/update_gateway_profiles.py
-          python scripts/sync_documentation.py --update
           if [ "${{ github.event_name }}" = "push" ] && ([ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ] || echo "${{ github.ref }}" | grep -q "refs/heads/v2-"); then
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"

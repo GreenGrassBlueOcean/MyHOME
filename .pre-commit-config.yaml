@@ -8,6 +8,11 @@ repos:
         language: system
         files: ^tests/
         pass_filenames: true
+      - id: sync-docs
+        name: sync documentation with codebase
+        entry: python scripts/sync_documentation.py --update
+        language: system
+        pass_filenames: false
       - id: ruff
         name: ruff
         entry: ruff check
