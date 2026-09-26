@@ -999,7 +999,7 @@ def test_every_raised_translation_key_is_defined():
 
 def test_calibration_lock_outside_an_event_loop(gateway):
     """The per-gateway lock can be created from sync code (no running loop)."""
-    from custom_components.myhome.cover import _calibration_lock, get_calibration_hub
+    from custom_components.myhome.cover_calibration import _calibration_lock, get_calibration_hub
 
     hub = get_calibration_hub(gateway)
     hub._lock = None
@@ -1223,7 +1223,7 @@ async def test_cover_calibration_hub_lifecycle_and_methods(hass, gateway):
 
 async def test_calibration_lock_dynamic_loop_rebinding(gateway):
     """Event loop rebinding in _calibration_lock creates a fresh lock for a new running loop."""
-    from custom_components.myhome.cover import _calibration_lock, get_calibration_hub
+    from custom_components.myhome.cover_calibration import _calibration_lock, get_calibration_hub
 
     hub = get_calibration_hub(gateway)
     # First acquire in current loop
@@ -1254,7 +1254,7 @@ async def test_calibration_lock_dynamic_loop_rebinding(gateway):
 
 async def test_multi_gateway_calibration_isolation(hass):
     """Active calibration on Gateway A does not cause Gateway B frames to be recorded or leak."""
-    from custom_components.myhome.cover import (
+    from custom_components.myhome.cover_calibration import (
         CoverCalibrationHub,
         async_stop_cover_calibration,
     )
@@ -1370,7 +1370,7 @@ def test_compute_freeze_position_motion_helpers():
 
 async def test_concurrent_two_gateway_async_calibrate(hass):
     """Concurrently calibrating two covers on separate gateways runs independently without lock contention or trace leakage."""
-    from custom_components.myhome.cover import (
+    from custom_components.myhome.cover_calibration import (
         CoverCalibrationHub,
         async_stop_cover_calibration,
         get_last_calibration_trace,

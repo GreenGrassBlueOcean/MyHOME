@@ -21,10 +21,10 @@ if TYPE_CHECKING:
     from .gateway import MyHOMEGatewayHandler
 
 # Deprecated module globals for backward compatibility; production state lives on CoverCalibrationHub
-_CALIBRATION_LOCKS: dict[str, asyncio.Lock] = {}
-_CALIBRATION_ACTIVE: dict[str, Any] = {}
-_CALIBRATION_QUEUED: dict[str, set[Any]] = {}
-_LAST_CALIBRATION_TRACE: collections.deque[dict[str, Any]] = collections.deque(maxlen=1000)
+
+
+
+
 
 
 def _gateway_key(gateway: Any) -> str:
@@ -126,8 +126,9 @@ class CoverCalibrationHub:
             CoverCalibrationHub._registry[self.mac] = self
 
     def _unregister(self) -> None:
-        CoverCalibrationHub._registry.pop(self.key, None)
-        if self.mac:
+        if CoverCalibrationHub._registry.get(self.key) is self:
+            CoverCalibrationHub._registry.pop(self.key, None)
+        if self.mac and CoverCalibrationHub._registry.get(self.mac) is self:
             CoverCalibrationHub._registry.pop(self.mac, None)
 
     @classmethod
@@ -154,10 +155,10 @@ class CoverCalibrationHub:
         for hub in list(cls._registry.values()):
             hub.cleanup()
         cls._registry.clear()
-        _CALIBRATION_LOCKS.clear()
-        _CALIBRATION_ACTIVE.clear()
-        _CALIBRATION_QUEUED.clear()
-        _LAST_CALIBRATION_TRACE.clear()
+
+
+
+
 
     @property
     def mac(self) -> str | None:
