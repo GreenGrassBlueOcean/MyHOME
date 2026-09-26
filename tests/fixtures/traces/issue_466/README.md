@@ -127,3 +127,62 @@ Verbatim bus traces contributed by **@manfredgittmaier-afk** on [#466 (comment 5
    - Audio diffusion frames `*#16*101*8*...##` and `*#22*5#2#1*10*...##`.
    - Real-time clock broadcast `*#13**22*...##`.
    - Climate valve actuator status `*#4*4#1*20*0##`.
+
+---
+
+# #466 F454 & MH202 Gateway Traces (Bus Sweep, Dimmer Progression, Advanced Covers, CEN+, F520 Energy & Actuator Lock)
+
+Verbatim bus traces contributed by **@anotherjulien** on [#466 (comment 5849027587)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5849027587).
+
+## Hardware Profile
+
+- **Gateway 1**: BTicino F454
+  - Firmware: 2.0.51
+  - WHO 13 Device Type Code: `200`
+  - Connection: TCP OpenWebNet (Port 20000)
+- **Gateway 2**: BTicino MH202 (Scenario Programmer)
+  - Firmware: 1.0.21
+  - WHO 13 Device Type Code: `200`
+  - Connection: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_sweep_F454_all_2026-09-26T16-59-13.json` | Bus Card Export (238 frames) | Full bus sweep initiated on F454 and captured via `<myhome-bus-card>` covering lights, dimmers, covers, auxiliary, actuator lock, F520 energy totalizers, and CEN+. |
+| `myhome_trace_MH202_all_2026-09-26T16-59-17.json` | Bus Monitor Trace (314 frames) | Live bus traffic captured concurrently on MH202 observing the sweep, physical switch dimmer interactions, advanced cover positioning, actuator lock/unlock, and dry contacts. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Lighting & Physical Switch Dimmer Progression (WHO 1 - Resolves Issue #434)**:
+   - Physical wall switch dimming up and down: `*1*1000#30*14##` (dim up) and `*1*1000#31*14##` (dim down).
+   - Physical switch direct turn-on: `*1*1000#1*14##` (turn on to 100%) and `*1*1000#0*14##` (turn off).
+   - Dimmers emit Dimension 1 level reports (`*#1*14*1*130*5##` through `*#1*14*1*200*5##`) confirming physical 100-level dimmers emit Dimension 1 status with speed parameter rather than Dimension 4.
+
+2. **Advanced Automation & Shutter Positioning (WHO 2)**:
+   - Shutter movement: UP (`*2*1*31##`), DOWN (`*2*2*31##`), and STOP (`*2*0*31##`).
+   - Preset height commands (`*#2*31*#11#001*40##` and `*#2*31*#11#001#1*40##`).
+   - Dimension 10 multi-parameter position and status feedback (`*#2*31*10*10*40*001*0##`, `*#2*31*10*11*40*001*0##`, `*#2*31*10*12*66*001*0##`, `*#2*31*10*10*57*001*0##`, `*#2*31*10*10*30*001*0##`).
+
+3. **Actuator Lock / Unlock (WHO 14)**:
+   - Actuator lock engagement: `*14*1*32##`.
+   - Actuator lock release: `*14*0*32##`.
+   - Closes critical hardware matrix blind spot for both F454 and MH202.
+
+4. **Energy Management (WHO 18 - F520 Energy Meter)**:
+   - Totalizer telemetry on meter 52: `*#18*52*51##` -> `*#18*52*51*14159553##`.
+   - Dimension 113 daily/monthly totalizer requests and responses (`*#18*52*113*1##`, `*#18*53*113*0##`, `*#18*52*53*1##`).
+
+5. **CEN+ Pushbuttons & Dry Contact Interfaces (WHO 25)**:
+   - Pushbutton short press: `*25*21#1*21##`.
+   - Pushbutton release after long press: `*25*21#2*21##`.
+   - Pushbutton long press progression: `*25*21#8*233##`, `*25*22#8*233##`, `*25*23#8*233##`, `*25*24#8*233##`.
+   - Dry contact transitions: `*25*32#1*33##` (active) and `*25*31#1*33##` (inactive).
+
+6. **Auxiliary Subsystem (WHO 9)**:
+   - Periodic AUX relay events: `*9*1*4##` (relay ON) and `*9*0*4##` (relay OFF).
+
+## Subsystems Verified Summary
+
+- **F454**: WHO 1 (Lights & Dimmers), WHO 2 (Covers), WHO 4 (Climate), WHO 9 (Power/Aux), WHO 13 (Gateway), WHO 14 (Lock), WHO 18 (Energy), WHO 25 (CEN+ / Diag).
+- **MH202**: WHO 1 (Lights & Dimmers), WHO 2 (Covers), WHO 4 (Climate), WHO 9 (Power/Aux), WHO 13 (Gateway), WHO 14 (Lock), WHO 18 (Energy), WHO 25 (CEN+ / Diag).
