@@ -1537,17 +1537,29 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
 
 
 def test_compat_gateway_timezone():
-    """Verify OWNd compatibility timezone patch handles F454 '999' sentinel."""
-    from custom_components.myhome.gateway import _compat_gateway_timezone
+    """Verify native OWNd handles F454 '999' unconfigured timezone frames directly."""
+    import datetime
 
     # 1. Unconfigured F454 timezone sentinel '999'
-    assert _compat_gateway_timezone(["23", "06", "59", "999"]) == ""
+    cmd_999 = OWNCommand.parse("*#13**#0*23*06*59*999##")
+    assert cmd_999 is not None
+    assert cmd_999._timezone == ""
+    assert cmd_999._time == datetime.time(23, 6, 59)
+    assert "23:06:59" in cmd_999.human_readable_log
 
     # 2. Standard timezone offset (001 -> +01:00)
-    assert _compat_gateway_timezone(["23", "06", "59", "001"]) == "+01:00"
+    cmd_valid = OWNCommand.parse("*#13**#0*23*06*59*001##")
+    assert cmd_valid is not None
+    assert cmd_valid._timezone == "+01:00"
+    assert cmd_valid._time == datetime.time(
+        23, 6, 59, tzinfo=datetime.timezone(datetime.timedelta(hours=1))
+    )
 
     # 3. Short values list without timezone element
-    assert _compat_gateway_timezone(["23", "06", "59"]) == ""
+    cmd_short = OWNCommand.parse("*#13**#0*23*06*59##")
+    assert cmd_short is not None
+    assert cmd_short._timezone == ""
+    assert cmd_short._time == datetime.time(23, 6, 59)
 
 
 def test_status_request_log_filter():
