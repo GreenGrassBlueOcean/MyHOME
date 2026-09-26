@@ -91,14 +91,19 @@ def build_matrix():
         22: 'Audio Diff.', 25: 'Diag', 1013: 'Diag', 1022: 'Diag'
     }
 
+    GATEWAY_DISPLAY_NAMES = {
+        "H4890": "H4890 / AM4890",
+    }
+
     header = "| Gateway Model | " + " | ".join([f"WHO {w}<br>{who_names.get(w, '')}" for w in whos_list]) + " |"
     separator = "| :--- | " + " | ".join([" :---: " for _ in whos_list]) + " |"
 
     rows = []
     # Sort gateways
-    sorted_gateways = sorted(gateways_data.keys())
+    sorted_gateways = sorted(gateways_data.keys(), key=lambda g: GATEWAY_DISPLAY_NAMES.get(g, g))
     for gw in sorted_gateways:
-        row = f"| **{gw}** | "
+        disp_name = GATEWAY_DISPLAY_NAMES.get(gw, gw)
+        row = f"| **{disp_name}** | "
         cols = []
         for w in whos_list:
             if w in gateways_data[gw]:
@@ -126,11 +131,74 @@ def update_file(filepath, new_content):
     else:
         print(f"Markers not found in {filepath.name}")
 
+def sync_github_issue(issue_number=466, new_table=None):
+    """Sync the updated trace matrix table to the community tracking issue description."""
+    import os
+    import urllib.request
+
+    token = os.environ.get("GITHUB_PAT") or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        print("No GitHub token (GITHUB_PAT/GITHUB_TOKEN) found; skipping GitHub issue sync.")
+        return
+
+    # In CI, only sync on push to main/master/v2 branches, not on pull_request runs
+    event_name = os.environ.get("GITHUB_EVENT_NAME")
+    if event_name and event_name != "push":
+        print(f"Skipping GitHub issue sync for event '{event_name}' (only syncs on push).")
+        return
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "OpenWebNet-HA/MyHOME")
+    url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "MyHOME-TraceMatrixSync",
+    }
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Failed to fetch issue #{issue_number}: {e}")
+        return
+
+    body = data.get("body", "")
+    pattern = re.compile(f"{START_MARKER}.*?{END_MARKER}", re.DOTALL)
+    replacement = f"{START_MARKER}\n{new_table}\n{END_MARKER}"
+
+    if pattern.search(body):
+        new_body = pattern.sub(replacement, body)
+    else:
+        # If markers are not yet in the issue body, match the existing markdown table
+        table_pattern = re.compile(r"(\| Gateway Model \|.*?\n\| :---.*?\n(?:\|.*?\n)+)", re.MULTILINE)
+        if table_pattern.search(body):
+            new_body = table_pattern.sub(f"{START_MARKER}\n{new_table}\n{END_MARKER}\n", body, count=1)
+        else:
+            print(f"Could not locate trace matrix table or markers in issue #{issue_number}")
+            return
+
+    if new_body == body:
+        print(f"Issue #{issue_number} description is already up to date.")
+        return
+
+    patch_data = json.dumps({"body": new_body}).encode("utf-8")
+    patch_req = urllib.request.Request(url, data=patch_data, headers=headers, method="PATCH")
+    try:
+        with urllib.request.urlopen(patch_req) as resp:
+            if resp.status == 200:
+                print(f"Successfully updated issue #{issue_number} description on GitHub.")
+            else:
+                print(f"Updating issue #{issue_number} returned status {resp.status}")
+    except Exception as e:
+        print(f"Failed to update issue #{issue_number}: {e}")
+
 if __name__ == '__main__':
     matrix_md = build_matrix()
     print("Generated Matrix:")
     print("Done")
     update_file(README_MD, matrix_md)
     update_file(DOCS_MD, matrix_md)
+    sync_github_issue(issue_number=466, new_table=matrix_md)
 
 
