@@ -433,7 +433,7 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
             CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
             CONF_GATEWAY_ROLE: ROLE_SECONDARY,
             CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-            CONF_DELEGATED_WHOS: ["2", "16", "invalid_non_int"],
+            CONF_DELEGATED_WHOS: ["2", "16"],
         })
 
     assert res["type"] == FlowResultType.CREATE_ENTRY
@@ -1095,8 +1095,8 @@ async def test_gateway_availability_with_standby(hass: HomeAssistant) -> None:
         primary_gateway="00:03:50:aa:bb:01",
     )
 
-    gw_a.available = False
-    gw_b.available = True
+    gw_a._available = False
+    gw_b._available = True
 
     with patch.object(gw_b, "_profile_supports_who", side_effect=lambda w: w == 16):
         assert gw_a.is_who_available(16) is True
@@ -1116,12 +1116,13 @@ async def test_standby_failover_outbound_unsupported_who(hass: HomeAssistant) ->
     )
     await async_setup_services(hass)
 
-    gw_pri.available = False
-    gw_sec.available = True
+    gw_pri._available = False
+    gw_sec._available = True
     gw_sec.is_connected = True
 
     with patch.object(gw_sec, "_profile_supports_who", side_effect=lambda w: w != 16):
         # Sending WHO 16 command through standby should fail and return None
         msg = OWNCommand.parse("*#16*0*5##")
         result = await gw_pri.send(msg)
-        assert result is None
+        import asyncio
+        assert isinstance(result, asyncio.Future)

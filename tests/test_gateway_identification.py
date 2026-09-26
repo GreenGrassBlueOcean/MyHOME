@@ -91,8 +91,8 @@ def test_official_table_is_the_2006_document_verbatim():
     assert "MH200N" not in {GATEWAY_DEVICE_TYPE_MAP[c] for c in WHO13_OFFICIAL_DEVICE_TYPES}
     assert GATEWAY_DEVICE_TYPE_MAP["44"] == "MH200N"
     # code 200: observed on F454 (#370, #420), MyHOMEServer1 (#292 / #297, #420), MH202 (#420);
-    # reported for F461 (#370)
-    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": ("F454", "MyHomeServer1", "MH202", "F461")}
+    # reported for F461 (#370), observed on H4890 (#466)
+    assert WHO13_OBSERVED_DEVICE_TYPES == {"200": ("F454", "MyHomeServer1", "MH202", "F461", "H4890")}
     assert WHO13_SHARED_DEVICE_TYPES == {"200"}
     assert WHO13_SHARED_DEVICE_TYPES <= set(WHO13_OBSERVED_DEVICE_TYPES)
     # every model a shared WHO=13 code may stand for has a WHO=1013 code that settles it
@@ -465,10 +465,10 @@ def test_ssdp_model_never_relabelled_and_conflict_raises_repair(dev_reg, issues)
     ident = h.identification()
     assert ident["who13_code"] == "200"
     assert ident["who13_model_official"] is None
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461 / H4890"
     assert ident["conflict"] is None
     # ...and, the code being shared, WHO=1013 is asked to cross-check the announcement
-    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
+    assert str(h._command_pool.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
 
     # a code outside both tables: conflict cleared, issue deleted, model kept
     delete.reset_mock()
@@ -494,7 +494,7 @@ def test_f454_and_mhs1_with_code_200_have_no_conflict(dev_reg, issues):
         corrected.assert_not_called()
         ident = h.identification()
         assert ident["who13_code"] == "200"
-        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
+        assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461 / H4890"
         assert ident["conflict"] is None
 
 
@@ -529,11 +529,11 @@ def test_manual_model_with_unverified_observed_code_keeps_model_without_conflict
     create.assert_not_called()
     assert h._identity_conflict is None
     ident = h.identification()
-    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
+    assert ident["who13_model_official"] is None and ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461 / H4890"
     assert ident["conflict"] is None
     assert ident["who1013_code"] is None and ident["who1013_model"] is None
     # the shared code is the cue to ask WHO=1013, whatever the source
-    queued = h.send_buffer.get_nowait()
+    queued = h._command_pool.send_buffer.get_nowait()
     assert str(queued["message"]) == "*#1013*0*1##" and queued["is_status_request"] is True
 
 
@@ -554,7 +554,7 @@ def test_manual_model_confirmed_by_who1013_is_kept(dev_reg, issues):
     assert ident["conflict"] is None
     # answered: a repeat of the shared code does not ask again
     _who13(h, "200")
-    assert h.send_buffer.qsize() == 1
+    assert h._command_pool.send_buffer.qsize() == 1
 
 
 def test_manual_model_contradicted_by_who1013_is_corrected(dev_reg, issues):
@@ -589,9 +589,9 @@ def test_ssdp_model_with_unverified_observed_code_keeps_model_without_conflict(d
     create.assert_not_called()
     corrected.assert_not_called()
     ident = h.identification()
-    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461"
+    assert ident["who13_model_observed"] == "F454 / MyHomeServer1 / MH202 / F461 / H4890"
     assert ident["conflict"] is None
-    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
+    assert str(h._command_pool.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
 
 
 def test_ssdp_model_cross_checked_by_who1013(dev_reg, issues):
@@ -623,10 +623,10 @@ def test_ssdp_model_cross_checked_by_who1013(dev_reg, issues):
 
     # the gateway broadcasts 200 again: no new request (answered), conflict untouched, no flapping issue
     delete.reset_mock()
-    while not h.send_buffer.empty():
-        h.send_buffer.get_nowait()
+    while not h._command_pool.send_buffer.empty():
+        h._command_pool.send_buffer.get_nowait()
     _who13(h, "200")
-    assert h.send_buffer.empty()
+    assert h._command_pool.send_buffer.empty()
     assert h._identity_conflict is not None
     delete.assert_not_called()
     create.assert_called_once()
@@ -648,7 +648,7 @@ def test_serial_model_cross_checked_by_who1013(dev_reg, issues):
     h.gateway.model_name = "MH200"
     dev_reg.async_get.return_value = MagicMock(model="MH200")
     _who13(h, "200")  # no serial gateway is known to answer this; the path must still be sound
-    assert str(h.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
+    assert str(h._command_pool.send_buffer.get_nowait()["message"]) == "*#1013*0*1##"
     _who1013(h, "4")  # MH200: corroborated
     assert h._identity_conflict is None
     _who1013(h, "44")  # MH200N: same family, but a product with a code of its own
@@ -708,17 +708,17 @@ def test_unknown_entry_with_ambiguous_code_stays_generic(dev_reg, issues):
     corrected.assert_not_called()
     assert h._identity_conflict is None
     # Verify the diagnostic request is queued to disambiguate the gateway.
-    queued = h.send_buffer.get_nowait()
+    queued = h._command_pool.send_buffer.get_nowait()
     assert str(queued["message"]) == "*#1013*0*1##"
     assert queued["is_status_request"] is True
     # unanswered: the request is pending, a re-broadcast does not repeat it
     _who13(h, "200")
-    assert h.send_buffer.empty()
+    assert h._command_pool.send_buffer.empty()
     # ...until the event session reconnects
     h._on_event_connection_state_change(True)
     _who13(h, "200")
-    assert h.send_buffer.qsize() == 1
-    h.send_buffer.get_nowait()
+    assert h._command_pool.send_buffer.qsize() == 1
+    h._command_pool.send_buffer.get_nowait()
     # answered: labelled from the catalogue, and no further request
     _who1013(h, "51")
     assert h.gateway.model_name == "F454"
@@ -727,7 +727,7 @@ def test_unknown_entry_with_ambiguous_code_stays_generic(dev_reg, issues):
     assert kwargs["title"] == "F454 Gateway"
     corrected.assert_not_called()  # nothing was corrected: there was no model
     _who13(h, "200")
-    assert h.send_buffer.empty()
+    assert h._command_pool.send_buffer.empty()
 
 def test_mh200_unambiguous_who13_skips_who1013(dev_reg, issues):
     """Anonymous golden sample: a physical MH200 correctly returning WHO=13 DIM=15 value 4
@@ -742,7 +742,7 @@ def test_mh200_unambiguous_who13_skips_who1013(dev_reg, issues):
     assert h.gateway.model_name == "MH200"
 
     # Verify we did NOT query WHO=1013 DIM=1.
-    assert h.send_buffer.empty()
+    assert h._command_pool.send_buffer.empty()
 
 
 
@@ -921,8 +921,8 @@ def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, fi
             h._handle_gateway_diagnostics(msg)
         else:
             h._handle_gateway_identity_diagnostics(msg)
-        while not h.send_buffer.empty():
-            item = h.send_buffer.get_nowait()
+        while not h._command_pool.send_buffer.empty():
+            item = h._command_pool.send_buffer.get_nowait()
             assert item["is_status_request"] is True
             queued.append(str(item["message"]))
     # one request, the same frame the reporter sent by hand to produce the reply
@@ -1076,7 +1076,7 @@ def test_who1013_unknown_code_is_reported_like_an_unknown_who13_code(dev_reg, is
         assert ident["who1013_code"] == "999" and ident["who1013_model"] is None
         # the shared WHO=13 code that keeps being broadcast neither re-asks nor withdraws the request
         _who13(h, "200")
-        assert h.send_buffer.empty()
+        assert h._command_pool.send_buffer.empty()
         known.assert_not_called()
         unknown.assert_called_with(h.hass, "entry_ident", "1013-1-999")
         # a recognised reply afterwards clears the request for a trace
@@ -1114,12 +1114,12 @@ async def test_who1013_is_dispatched(dev_reg, issues):
     h = _handler({"name": "Generic"}, title="Generic Gateway")
     h.gateway.model_name = "Generic"
     # Valid dimension 1
-    await h._process_message(OWNEvent.parse("*#1013**1*5##"))
+    await h._event_dispatcher.process_message(OWNEvent.parse("*#1013**1*5##"))
     assert h.gateway.model_name == "MH202"
     # Unhandled dimension
-    await h._process_message(OWNEvent.parse("*#1013**2*5##"))
+    await h._event_dispatcher.process_message(OWNEvent.parse("*#1013**2*5##"))
     # Unsupported who fallback (covered elsewhere typically, but good to ensure no crash)
-    await h._process_message(OWNEvent.parse("*#9999**1*5##"))
+    await h._event_dispatcher.process_message(OWNEvent.parse("*#9999**1*5##"))
 
 def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
     """Cover the QueueFull exception when dispatching the WHO=1013 diagnostic."""
@@ -1128,23 +1128,23 @@ def test_who13_ambiguous_handles_queue_full(dev_reg, issues):
     h.gateway.model_name = "Generic"
 
     # Fill the queue (maxsize is 0 by default, let us replace it with maxsize 1 and fill it)
-    h.send_buffer = asyncio.Queue(maxsize=1)
-    h.send_buffer.put_nowait({"message": "filler"})
+    h._command_pool.send_buffer = asyncio.Queue(maxsize=1)
+    h._command_pool.send_buffer.put_nowait({"message": "filler"})
 
     # This will attempt to queue *#1013*0*1## but fail with QueueFull
     _who13(h, "200")
     assert h._who1013["pending"] is False  # nothing left the handler: the next broadcast retries
     # and the parse guard: a request that cannot be built is skipped, not queued
-    h.send_buffer = asyncio.Queue()
+    h._command_pool.send_buffer = asyncio.Queue()
     with patch("custom_components.myhome.gateway.OWNCommand.parse", return_value=None):
         h._request_object_model()
-    assert h.send_buffer.empty() and h._who1013["pending"] is False
-    h.send_buffer = asyncio.Queue(maxsize=1)
-    h.send_buffer.put_nowait({"message": "filler"})
+    assert h._command_pool.send_buffer.empty() and h._who1013["pending"] is False
+    h._command_pool.send_buffer = asyncio.Queue(maxsize=1)
+    h._command_pool.send_buffer.put_nowait({"message": "filler"})
 
     # It should still remain Generic and not crash
     assert h.gateway.model_name == "Generic"
-    assert h.send_buffer.qsize() == 1
+    assert h._command_pool.send_buffer.qsize() == 1
 
 def test_who1013_invalid_dimension_value(dev_reg, issues):
     """Cover the early return when dimension value is missing."""

@@ -790,12 +790,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         break
 
             if in_role == ROLE_SECONDARY and CONF_PRIMARY_GATEWAY not in errors:
-                delegated: list[int] = []
-                for item in user_input.get(CONF_DELEGATED_WHOS, []):
-                    try:
-                        delegated.append(int(item))
-                    except (ValueError, TypeError):
-                        pass
+                delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, [])]
 
                 my_model = self.data.get(CONF_NAME)
                 if my_model:
@@ -804,12 +799,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     supports = getattr(profile, "supports_who", None)
                     if callable(supports):
                         for w in delegated:
-                            try:
-                                if not supports(int(w)):
-                                    errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"
-                                    break
-                            except ValueError:
-                                pass
+                            if not supports(int(w)):
+                                errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"
+                                break
 
                 if norm_pri and CONF_DELEGATED_WHOS not in errors:
                     for other in dependents(self.hass, norm_pri):
@@ -832,12 +824,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         else:
             self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
         if follower and in_role == ROLE_SECONDARY:
-            delegated = []
-            for item in user_input.get(CONF_DELEGATED_WHOS, []):
-                try:
-                    delegated.append(int(item))
-                except (ValueError, TypeError):
-                    pass
+            delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, [])]
             self.options[CONF_DELEGATED_WHOS] = delegated  # type: ignore
         else:
             self.options.pop(CONF_DELEGATED_WHOS, None)  # type: ignore

@@ -291,6 +291,8 @@ SUPPORTED_GATEWAY_MODELS = [
     "F452",
     "F461",
     "AM4890",
+    "H4890",
+    "LN4890",
     "Generic",
 ]
 
@@ -314,14 +316,14 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 # tuple of every name the code has been seen answering to; the first entry is
 # the name a gateway gets labelled with.
 #   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
-#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21)
-#        and MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
-#        #292/#297); reported for F461 in issue #370, no diagnostics yet. Shared
-#        across modern Linux-based gateway families, so it identifies none of them
-#        (see WHO13_SHARED_DEVICE_TYPES). It contradicts legacy gateways (e.g.
-#        MH200/F452), but only as field evidence.
+#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21),
+#        MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
+#        #292/#297), and H4890 (issue #466 sweep, firmware 4.0.15); reported for
+#        F461 in issue #370, no diagnostics yet. Shared across modern Linux-based
+#        gateway families, so it identifies none of them (see WHO13_SHARED_DEVICE_TYPES).
+#        It contradicts legacy gateways (e.g. MH200/F452), but only as field evidence.
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MyHomeServer1", "MH202", "F461"),
+    "200": ("F454", "MyHomeServer1", "MH202", "F461", "H4890"),
 }
 # Codes from an independent implementation: the `device` table of Nmap's
 # openwebnet-discovery.nse, whose `device_dimension["Device Type"] = "15"` is this

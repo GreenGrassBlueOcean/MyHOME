@@ -1,4 +1,5 @@
 """Support for MyHome lights."""
+
 import asyncio
 from typing import Any, cast
 
@@ -59,9 +60,6 @@ from .const import (
     DEFAULT_TRANSITION_MODE,
     LOGGER,
     SERVICE_TURN_ON_TIMED,
-    SOFTWARE_TRANSITION_MAX_STEPS,
-    SOFTWARE_TRANSITION_MIN_STEPS,
-    SOFTWARE_TRANSITION_STEP_INTERVAL,
     TRANSITION_MODE_AUTO,
     TRANSITION_MODE_NATIVE,
     TRANSITION_MODE_SOFTWARE,
@@ -73,6 +71,8 @@ from .const import (
 from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery, parse_unique_id
 from .gateway import MyHOMEGatewayHandler
+from .light_dali import DaliFeatureLock
+from .light_fade import SoftwareFadeEngine
 from .light_group import MyHOMELightGroup, _color_modes_from_flags
 from .myhome_device import MyHOMEEntity
 
@@ -130,7 +130,10 @@ async def async_setup_entry(
             # Not is_apl_address(): plenty of real point-to-point WHEREs (F422
             # sub-bus addresses like "02") are not full APL-feasible and must
             # still build a light (see #256/#257, #288).
-            LOGGER.warning("Refusing to create a light entity for broadcast WHERE %s (must be group or point-to-point)", where)
+            LOGGER.warning(
+                "Refusing to create a light entity for broadcast WHERE %s (must be group or point-to-point)",
+                where,
+            )
             return None
 
         # With lock_features the light is exactly what myhome.yaml declares and
@@ -139,10 +142,15 @@ async def async_setup_entry(
         dimmable = cfg.get(CONF_DIMMABLE, False)
         if ctx.source == "bus" and not dimmable and not lock_features:
             # Auto-detect a dimmer from the first frame that carries a level
-            dimmable = ctx.message.brightness is not None or ctx.message.brightness_preset is not None
+            dimmable = (
+                ctx.message.brightness is not None or ctx.message.brightness_preset is not None
+            )
         kwargs = {"lock_features": lock_features}
         if ctx.source != "bus":
-            kwargs |= {"color_temp": cfg.get(CONF_COLOR_TEMP, False), "rgb": cfg.get(CONF_RGB, False) or cfg.get(CONF_HS, False)}
+            kwargs |= {
+                "color_temp": cfg.get(CONF_COLOR_TEMP, False),
+                "rgb": cfg.get(CONF_RGB, False) or cfg.get(CONF_HS, False),
+            }
         return MyHOMELight(
             hass=hass,
             name=cfg.get(CONF_NAME, f"Light {ctx.suffix}"),
@@ -180,14 +188,24 @@ async def async_setup_entry(
             known.discard(address.key)
             return True
         if foreign.owns(address, address.key):
-            runtime.router.publish("1", (address.key, address.where, normalize_where(address.where)), message)
+            runtime.router.publish(
+                "1", (address.key, address.where, normalize_where(address.where)), message
+            )
             return True
         return False
 
     PlatformDiscovery(
-        hass, config_entry, async_add_entities,
-        platform=PLATFORM, who="1", event_type=OWNLightingEvent, build=build, announce=True,
-        reject_registry_entry=ghost, accept=accept, pre_message=route_foreign,
+        hass,
+        config_entry,
+        async_add_entities,
+        platform=PLATFORM,
+        who="1",
+        event_type=OWNLightingEvent,
+        build=build,
+        announce=True,
+        reject_registry_entry=ghost,
+        accept=accept,
+        pre_message=route_foreign,
     ).start()
 
     platform = entity_platform.current_platform.get()
@@ -196,29 +214,42 @@ async def async_setup_entry(
             SERVICE_TURN_ON_TIMED,
             {
                 vol.Optional("duration"): vol.Coerce(float),
-                vol.Optional("hours", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
-                vol.Optional("minutes", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=59)),
-                vol.Optional("seconds", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=59)),
+                vol.Optional("hours", default=0): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=255)
+                ),
+                vol.Optional("minutes", default=0): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=59)
+                ),
+                vol.Optional("seconds", default=0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=59)
+                ),
             },
             "async_turn_on_timed",
         )
 
 
-
-
 class _ForeignAddresses:
     """WHO=1 addresses that belong to the switch or sensor platforms, not to a light."""
 
-    SENSOR_MESSAGE_TYPES = ("motion_detected", "illuminance_value", "pir_sensitivity", "motion_timeout")
+    SENSOR_MESSAGE_TYPES = (
+        "motion_detected",
+        "illuminance_value",
+        "pir_sensitivity",
+        "motion_timeout",
+    )
 
-    def __init__(self, hass: HomeAssistant, config_entry: MyHOMEConfigEntry, gateway_mac: str, entry_mac: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: MyHOMEConfigEntry, gateway_mac: str, entry_mac: str
+    ) -> None:
         runtime = config_entry.runtime_data
         self.switches: set[str] = set()
         self.sensors: set[str] = set()
 
         for dev_id, cfg in runtime.platforms.get("switch", {}).items():
             address = Address.from_config(dev_id, cfg)
-            self.switches.update({str(dev_id), address.where, address.clean_key, address.clean_where})
+            self.switches.update(
+                {str(dev_id), address.where, address.clean_key, address.clean_where}
+            )
         for platform, default_who in (("binary_sensor", "25"), ("sensor", "1")):
             for dev_id, cfg in runtime.platforms.get(platform, {}).items():
                 if str(cfg.get(CONF_WHO, default_who)) != "1":
@@ -239,7 +270,11 @@ class _ForeignAddresses:
                 if who == "1":
                     dev = device_id.split("-")[0]
                 elif "-motion" in entry.unique_id or "-illuminance" in entry.unique_id:
-                    dev = (entry.unique_id.replace(f"{gateway_mac}-", "", 1).replace(f"{entry_mac}-", "", 1)).split("-")[0]
+                    dev = (
+                        entry.unique_id.replace(f"{gateway_mac}-", "", 1).replace(
+                            f"{entry_mac}-", "", 1
+                        )
+                    ).split("-")[0]
                 else:
                     continue
                 self._add_sensor(dev, dev.split("#4#")[0].split("-")[-1])
@@ -276,7 +311,6 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: MyHOMEConfigEntr
     return True
 
 
-
 class MyHOMELight(MyHOMEEntity, LightEntity):
     def __init__(
         self,
@@ -311,27 +345,34 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         )
 
         self._interface = interface
-        self._full_where = f"{self._where}#4#{self._interface}" if self._interface is not None else self._where
+        self._full_where = (
+            f"{self._where}#4#{self._interface}" if self._interface is not None else self._where
+        )
 
         # With lock_features the configuration is authoritative: the light
         # supports exactly the modes declared (rgb / color_temp / dimmable) and
-        # never learns another one from the bus or from a restored state.  This
+        # never learns another one from the bus or from a restored state. This
         # is the answer to DALI gateways that keep replaying an HSV or tunable
         # white value that was once written to a fixture that cannot use it
         # (issue #288).
-        self._lock_features = bool(lock_features)
-        self._allowed_color_modes: set[ColorMode] = set()
-        if self._lock_features:
-            if rgb:
-                self._allowed_color_modes.add(ColorMode.HS)
-            if color_temp:
-                self._allowed_color_modes.add(ColorMode.COLOR_TEMP)
-            if dimmable or rgb or color_temp:
-                # A colour mode implies brightness in the HA light model, and
-                # the level arrives on Dimension 1 whatever the colour mode.
-                self._allowed_color_modes.add(ColorMode.BRIGHTNESS)
-            if not self._allowed_color_modes:
-                self._allowed_color_modes.add(ColorMode.ONOFF)
+        self._feature_lock = DaliFeatureLock(
+            lock_features=lock_features,
+            dimmable=dimmable,
+            color_temp=color_temp,
+            rgb=rgb,
+        )
+        self._fade_engine = SoftwareFadeEngine(
+            where=self._where,
+            create_task_cb=lambda coro: self.hass.async_create_task(coro),
+            send_instant_cb=lambda pct: self._set_brightness_instant(pct),
+            apply_state_cb=lambda pct, is_on: self._apply_brightness_state(pct, is_on),
+            update_ha_state_cb=lambda: self.async_schedule_update_ha_state(),
+            get_worker_count_cb=lambda: self._get_worker_count_config(),
+            get_transition_mode_cb=lambda: self._get_transition_mode_config(),
+            is_on_cb=lambda: bool(self._attr_is_on),
+        )
+        self._lock_features = self._feature_lock.lock_features
+        self._allowed_color_modes: set[ColorMode] = self._feature_lock.allowed_color_modes
 
         self._attr_supported_features = LightEntityFeature(0)
         self._attr_supported_color_modes: set[ColorMode] = set()
@@ -373,11 +414,6 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         self._attr_brightness: int | None = None
         self._attr_brightness_pct: int | None = None
 
-        # Software stepped transition support
-        self._fade_task: asyncio.Task[None] | None = None
-        self._fade_id: int = 0
-        self._cmd_lock: asyncio.Lock = asyncio.Lock()
-        self._warned_multi_worker: bool = False
         self._last_brightness_pct: int = 100
 
     @property
@@ -389,48 +425,83 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         """
         return self._attr_color_temp
 
+    @property
+    def _fade_task(self) -> asyncio.Task[None] | None:
+        """Return active fade task from engine (compatibility shim)."""
+        return self._fade_engine.fade_task
+
+    @_fade_task.setter
+    def _fade_task(self, task: asyncio.Task[None] | None) -> None:
+        """Set active fade task on engine (compatibility shim)."""
+        self._fade_engine.fade_task = task
+
+    @property
+    def _fade_id(self) -> int:
+        """Return current fade ID from engine (compatibility shim)."""
+        return self._fade_engine.fade_id
+
+    @_fade_id.setter
+    def _fade_id(self, val: int) -> None:
+        """Set current fade ID on engine (compatibility shim)."""
+        self._fade_engine.fade_id = val
+
+    @property
+    def _cmd_lock(self) -> asyncio.Lock:
+        """Return command lock from engine (compatibility shim)."""
+        return self._fade_engine.cmd_lock
+
+    @property
+    def _warned_multi_worker(self) -> bool:
+        """Return whether multi-worker warning was logged (compatibility shim)."""
+        return self._fade_engine.warned_multi_worker
+
+    @_warned_multi_worker.setter
+    def _warned_multi_worker(self, val: bool) -> None:
+        """Set whether multi-worker warning was logged (compatibility shim)."""
+        self._fade_engine.warned_multi_worker = val
 
     def _is_mode_forbidden(self, mode: ColorMode) -> bool:
         """Return whether lock_features keeps this light from adopting ``mode``."""
-        return self._lock_features and mode not in self._allowed_color_modes
+        return self._feature_lock.is_mode_forbidden(mode)
 
     def _log_locked_out(self, message: OWNLightingEvent, dimension: str) -> None:
-        LOGGER.debug(
-            "%s light %s is locked to %s; ignoring Dimension %s frame %s",
+        """Log that an incoming frame is ignored because the mode is locked out."""
+        self._feature_lock.log_locked_out(
             self._gateway_handler.log_id,
             self._full_where,
-            sorted(mode.value for mode in self._allowed_color_modes),
+            str(message),
             dimension,
-            message,
         )
-    def _promote_color_mode(self, mode: ColorMode) -> None:
-        """Add a color capability learned from the bus without dropping others.
 
-        DALI DT8 drivers report both HSV (dimension 12) and tunable white
-        (dimension 14); HS and COLOR_TEMP therefore coexist.  BRIGHTNESS and
-        ONOFF are subsumed by any color mode per the HA light model.
-        """
-        if self._is_mode_forbidden(mode):
-            return
-        if mode in (ColorMode.HS, ColorMode.COLOR_TEMP):
-            self._attr_supported_color_modes.discard(ColorMode.BRIGHTNESS)
-            self._attr_supported_color_modes.discard(ColorMode.ONOFF)
-        elif mode == ColorMode.BRIGHTNESS:
-            self._attr_supported_color_modes.discard(ColorMode.ONOFF)
-        self._attr_supported_color_modes.add(mode)
-        self._attr_color_mode = mode
-        self._attr_supported_features |= LightEntityFeature.TRANSITION
-        self._attr_supported_features &= ~LightEntityFeature.FLASH
+    def _promote_color_mode(self, mode: ColorMode) -> None:
+        """Add a color capability learned from the bus without dropping others."""
+        new_modes, new_mode, add_feat, rm_feat = self._feature_lock.promote_color_mode(
+            self._attr_supported_color_modes, mode
+        )
+        if new_mode is not None:
+            self._attr_supported_color_modes = new_modes
+            self._attr_color_mode = new_mode
+            self._attr_supported_features |= add_feat
+            self._attr_supported_features &= ~rm_feat
 
     async def async_restore_last_state(self, last_state: State) -> None:
         """Restore previous state attributes and color modes."""
         # 1. Restore color modes and features (all of them, not just the "best")
         last_modes = last_state.attributes.get("supported_color_modes") or []
-        if (ColorMode.HS in last_modes or "hs" in last_modes or ColorMode.RGB in last_modes or "rgb" in last_modes) and not self._is_mode_forbidden(ColorMode.HS):
+        if (
+            ColorMode.HS in last_modes
+            or "hs" in last_modes
+            or ColorMode.RGB in last_modes
+            or "rgb" in last_modes
+        ) and not self._is_mode_forbidden(ColorMode.HS):
             self._promote_color_mode(ColorMode.HS)
-        if (ColorMode.COLOR_TEMP in last_modes or "color_temp" in last_modes) and not self._is_mode_forbidden(ColorMode.COLOR_TEMP):
+        if (
+            ColorMode.COLOR_TEMP in last_modes or "color_temp" in last_modes
+        ) and not self._is_mode_forbidden(ColorMode.COLOR_TEMP):
             self._promote_color_mode(ColorMode.COLOR_TEMP)
-        if (ColorMode.BRIGHTNESS in last_modes or "brightness" in last_modes) and not self._is_mode_forbidden(ColorMode.BRIGHTNESS):
+        if (
+            ColorMode.BRIGHTNESS in last_modes or "brightness" in last_modes
+        ) and not self._is_mode_forbidden(ColorMode.BRIGHTNESS):
             if not self._attr_supported_color_modes & {ColorMode.HS, ColorMode.COLOR_TEMP}:
                 self._promote_color_mode(ColorMode.BRIGHTNESS)
         last_mode = last_state.attributes.get("color_mode")
@@ -480,64 +551,78 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
 
         Only used by the generic entity update service.
         """
-        if ColorMode.HS in self._attr_supported_color_modes or ColorMode.RGB in self._attr_supported_color_modes:
-            await self._gateway_handler.send_status_request(OWNLightingCommand.get_brightness(self._full_where))
+        if (
+            ColorMode.HS in self._attr_supported_color_modes
+            or ColorMode.RGB in self._attr_supported_color_modes
+        ):
+            await self._gateway_handler.send_status_request(
+                OWNLightingCommand.get_brightness(self._full_where)
+            )
             if hasattr(OWNLightingCommand, "get_hsv_color"):
-                await self._gateway_handler.send_status_request(OWNLightingCommand.get_hsv_color(self._full_where))
+                await self._gateway_handler.send_status_request(
+                    OWNLightingCommand.get_hsv_color(self._full_where)
+                )
             elif hasattr(OWNLightingCommand, "get_rgb_color"):  # pragma: no cover
-                await self._gateway_handler.send_status_request(OWNLightingCommand.get_rgb_color(self._full_where))
+                await self._gateway_handler.send_status_request(
+                    OWNLightingCommand.get_rgb_color(self._full_where)
+                )
             if ColorMode.COLOR_TEMP in self._attr_supported_color_modes:
-                await self._gateway_handler.send_status_request(OWNLightingCommand.get_color_temperature(self._full_where))
+                await self._gateway_handler.send_status_request(
+                    OWNLightingCommand.get_color_temperature(self._full_where)
+                )
         elif ColorMode.COLOR_TEMP in self._attr_supported_color_modes:
-            await self._gateway_handler.send_status_request(OWNLightingCommand.get_brightness(self._full_where))
-            await self._gateway_handler.send_status_request(OWNLightingCommand.get_color_temperature(self._full_where))
+            await self._gateway_handler.send_status_request(
+                OWNLightingCommand.get_brightness(self._full_where)
+            )
+            await self._gateway_handler.send_status_request(
+                OWNLightingCommand.get_color_temperature(self._full_where)
+            )
         elif ColorMode.BRIGHTNESS in self._attr_supported_color_modes:
-            await self._gateway_handler.send_status_request(OWNLightingCommand.get_brightness(self._full_where))
+            await self._gateway_handler.send_status_request(
+                OWNLightingCommand.get_brightness(self._full_where)
+            )
         else:
-            await self._gateway_handler.send_status_request(OWNLightingCommand.status(self._full_where))
+            await self._gateway_handler.send_status_request(
+                OWNLightingCommand.status(self._full_where)
+            )
 
     # ── Transition helpers (software stepped dimming) ────────────────────────
 
-    def _get_transition_mode(self) -> str:
+    def _get_transition_mode_config(self) -> str:
         if not self._gateway_handler or not self._gateway_handler.config_entry:
             return DEFAULT_TRANSITION_MODE
         raw = str(
             self._gateway_handler.config_entry.options.get(
                 CONF_TRANSITION_MODE, DEFAULT_TRANSITION_MODE
             )
-        )
+        ).lower()
         if raw == TRANSITION_MODE_AUTO:
             return TRANSITION_MODE_SOFTWARE
         if raw not in (TRANSITION_MODE_SOFTWARE, TRANSITION_MODE_NATIVE):
             return DEFAULT_TRANSITION_MODE
         return raw
 
+    def _get_worker_count_config(self) -> int:
+        if not self._gateway_handler or not self._gateway_handler.config_entry:
+            return 1
+        return int(self._gateway_handler.config_entry.options.get(CONF_WORKER_COUNT, 1))
+
+    def _get_transition_mode(self) -> str:
+        return self._fade_engine.get_transition_mode()
+
     def _should_use_software_stepped(self, transition: float | None) -> bool:
-        if transition is None or transition <= 0:
-            return False
-        mode = self._get_transition_mode()
-        return mode != TRANSITION_MODE_NATIVE
+        return self._fade_engine.should_use_software_stepped(transition)
 
     async def _set_brightness_instant(self, pct: int) -> None:
-        """Send set_brightness with transition=0. Uses per-light lock to help ordering."""
-        pct = max(0, min(100, int(pct)))
-        async with self._cmd_lock:
-            await self._gateway_handler.send(
-                OWNLightingCommand.set_brightness(self._full_where, pct, 0)
-            )
+        """Send set_brightness with transition=0."""
+        await self._gateway_handler.send(
+            OWNLightingCommand.set_brightness(self._full_where, pct, 0)
+        )
 
     async def _maybe_instant_brightness(
         self, start_pct: int, target_pct: int, is_on: bool | None = None
     ) -> bool:
-        """Execute instant brightness if delta <= 1%, skipping bus if already at target."""
-        delta_pct = abs(target_pct - start_pct)
-        if delta_pct <= 1:
-            if not (self.is_on and target_pct == start_pct):
-                await self._set_brightness_instant(target_pct)
-            self._apply_brightness_state(target_pct, is_on=is_on)
-            self.async_schedule_update_ha_state()
-            return True
-        return False
+        return await self._fade_engine.maybe_instant_brightness(start_pct, target_pct, is_on=is_on)
 
     def _apply_brightness_state(self, pct: int, is_on: bool | None = None) -> None:
         pct = max(0, min(100, int(pct)))
@@ -552,111 +637,22 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             self._last_brightness_pct = pct
 
     def _next_fade_id(self) -> int:
-        self._fade_id += 1
-        return self._fade_id
+        return self._fade_engine.next_fade_id()
 
     def _cancel_fade_if_active(self) -> None:
-        """Simple cancel for @callback contexts (e.g. handle_event)."""
-        if self._fade_task and not self._fade_task.done():
-            self._fade_task.cancel()
-            self._fade_task = None
+        self._fade_engine.cancel_fade_if_active()
 
     async def _cancel_fade_robustly(self) -> None:
-        """Robust cancel + drain for async contexts."""
-        if self._fade_task and not self._fade_task.done():
-            self._fade_task.cancel()
-            try:
-                # shield() prevents wait_for from double-cancelling the task
-                # when the 0.15 s timeout fires (we already called .cancel()).
-                await asyncio.wait_for(asyncio.shield(self._fade_task), timeout=0.15)
-            except (Exception, asyncio.CancelledError):
-                pass
-            self._fade_task = None
+        await self._fade_engine.cancel_fade_robustly()
 
     async def async_will_remove_from_hass(self) -> None:
         await self._cancel_fade_robustly()
         await super().async_will_remove_from_hass()
 
-    async def _async_fade_to(self, start_pct: int, target_pct: int, duration: float, fade_id: int) -> None:
-        """Background software stepped fade using instant brightness commands."""
-        start_pct = max(0, min(100, int(start_pct or 0)))
-        target_pct = max(0, min(100, int(target_pct or 0)))
-        duration = max(0.0, float(duration))
-
-        if fade_id != self._fade_id:
-            return
-
-        # Warn once if using multiple workers (can interleave steps for this light)
-        try:
-            if not self._warned_multi_worker and self._gateway_handler and self._gateway_handler.config_entry:
-                wc = self._gateway_handler.config_entry.options.get(CONF_WORKER_COUNT, 1)
-                if int(wc) > 1:
-                    LOGGER.warning(
-                        "%s: Using software stepped fade with command_worker_count=%s. "
-                        "Step reordering is possible. Recommend =1 for reliable fades.",
-                        self._where, wc
-                    )
-                    self._warned_multi_worker = True
-        except Exception:
-            pass
-
-        if await self._maybe_instant_brightness(start_pct, target_pct):
-            if fade_id == self._fade_id:
-                self._fade_task = None
-            return
-
-        if duration < 0.05:
-            await self._set_brightness_instant(target_pct)
-            self._apply_brightness_state(target_pct)
-            self.async_schedule_update_ha_state()
-            if fade_id == self._fade_id:
-                self._fade_task = None
-            return
-
-        delta_pct = abs(target_pct - start_pct)
-        calc_steps = int(duration / SOFTWARE_TRANSITION_STEP_INTERVAL + 0.5)
-        num_steps = max(
-            min(SOFTWARE_TRANSITION_MIN_STEPS, delta_pct),
-            min(
-                SOFTWARE_TRANSITION_MAX_STEPS,
-                calc_steps,
-                delta_pct,
-            ),
-        )
-        step_time = duration / num_steps
-        delta = (target_pct - start_pct) / num_steps
-
-        last_sent = start_pct
-        try:
-            for i in range(1, num_steps + 1):
-                if fade_id != self._fade_id:
-                    LOGGER.debug("%s Aborting stale fade step", self._where)
-                    return
-                current = int(round(start_pct + delta * i))
-                current = max(0, min(100, current))
-
-                if current != last_sent:
-                    await self._set_brightness_instant(current)
-                    self._apply_brightness_state(current)
-                    self.async_schedule_update_ha_state()
-                    last_sent = current
-
-                if i < num_steps:
-                    await asyncio.sleep(step_time)
-
-            if fade_id == self._fade_id:
-                if last_sent != target_pct:  # pragma: no cover - defensive guarantee
-                    await self._set_brightness_instant(target_pct)
-                self._apply_brightness_state(target_pct)
-                self.async_schedule_update_ha_state()
-        except asyncio.CancelledError:
-            LOGGER.debug("%s Software fade cancelled (id=%s)", self._where, fade_id)
-            raise
-        except Exception as err:  # prevent "Task exception was never retrieved"
-            LOGGER.warning("%s Fade task error (id=%s): %s", self._where, fade_id, err)
-        finally:
-            if fade_id == self._fade_id:
-                self._fade_task = None
+    async def _async_fade_to(
+        self, start_pct: int, target_pct: int, duration: float, fade_id: int
+    ) -> None:
+        await self._fade_engine.async_fade_to(start_pct, target_pct, duration, fade_id)
 
     async def async_turn_on_timed(
         self,
@@ -676,11 +672,15 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         elif brightness is not None:
             target_pct = eight_bits_to_percent(brightness)
 
-        if target_pct is not None and target_pct > 0 and (
-            ColorMode.BRIGHTNESS in self._attr_supported_color_modes
-            or ColorMode.COLOR_TEMP in self._attr_supported_color_modes
-            or ColorMode.HS in self._attr_supported_color_modes
-            or ColorMode.RGB in self._attr_supported_color_modes
+        if (
+            target_pct is not None
+            and target_pct > 0
+            and (
+                ColorMode.BRIGHTNESS in self._attr_supported_color_modes
+                or ColorMode.COLOR_TEMP in self._attr_supported_color_modes
+                or ColorMode.HS in self._attr_supported_color_modes
+                or ColorMode.RGB in self._attr_supported_color_modes
+            )
         ):
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, target_pct)
@@ -723,9 +723,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 return
 
         # HS / HSV color control (DALI F429)
-        if (
-            ATTR_HS_COLOR in kwargs or ATTR_RGB_COLOR in kwargs
-        ) and (
+        if (ATTR_HS_COLOR in kwargs or ATTR_RGB_COLOR in kwargs) and (
             ColorMode.HS in self._attr_supported_color_modes
             or ColorMode.RGB in self._attr_supported_color_modes
         ):
@@ -791,8 +789,17 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 return
 
         # Original combined condition preserved for compatibility
-        if ((ATTR_BRIGHTNESS in kwargs or ATTR_BRIGHTNESS_PCT in kwargs) and (ColorMode.BRIGHTNESS in self._attr_supported_color_modes or ColorMode.COLOR_TEMP in self._attr_supported_color_modes or ColorMode.HS in self._attr_supported_color_modes or ColorMode.RGB in self._attr_supported_color_modes)) or (
-            ATTR_TRANSITION in kwargs and self._attr_supported_features & LightEntityFeature.TRANSITION
+        if (
+            (ATTR_BRIGHTNESS in kwargs or ATTR_BRIGHTNESS_PCT in kwargs)
+            and (
+                ColorMode.BRIGHTNESS in self._attr_supported_color_modes
+                or ColorMode.COLOR_TEMP in self._attr_supported_color_modes
+                or ColorMode.HS in self._attr_supported_color_modes
+                or ColorMode.RGB in self._attr_supported_color_modes
+            )
+        ) or (
+            ATTR_TRANSITION in kwargs
+            and self._attr_supported_features & LightEntityFeature.TRANSITION
         ):
             transition = float(kwargs.get(ATTR_TRANSITION, 0.0))
 
@@ -806,7 +813,11 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 if target_pct == 0:
                     await self.async_turn_off(**kwargs)
                     return
-                start_pct = (self._attr_brightness_pct if self._attr_is_on and self._attr_brightness_pct is not None else 0)
+                start_pct = (
+                    self._attr_brightness_pct
+                    if self._attr_is_on and self._attr_brightness_pct is not None
+                    else 0
+                )
 
                 await self._cancel_fade_robustly()
 
@@ -814,19 +825,20 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     if await self._maybe_instant_brightness(start_pct, target_pct, is_on=True):
                         return
 
-                    fid = self._next_fade_id()
-                    self._fade_task = self.hass.async_create_task(
-                        self._async_fade_to(start_pct, target_pct, transition, fid)
-                    )
+                    self._fade_engine.start_fade(start_pct, target_pct, transition)
                     return
 
                 # native path (exact pre-existing)
                 if ATTR_TRANSITION in kwargs:
                     await self._gateway_handler.send(
-                        OWNLightingCommand.set_brightness(self._full_where, target_pct, int(transition))
+                        OWNLightingCommand.set_brightness(
+                            self._full_where, target_pct, int(transition)
+                        )
                     )
                 else:
-                    await self._gateway_handler.send(OWNLightingCommand.set_brightness(self._full_where, target_pct))
+                    await self._gateway_handler.send(
+                        OWNLightingCommand.set_brightness(self._full_where, target_pct)
+                    )
                 if target_pct > 0:
                     self._last_brightness_pct = target_pct
                 self._apply_brightness_state(target_pct, is_on=True)
@@ -835,7 +847,11 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             else:
                 # transition-only (no brightness kwarg)
                 target_pct = self._last_brightness_pct or 100
-                start_pct = (self._attr_brightness_pct if self._attr_is_on and self._attr_brightness_pct is not None else 0)
+                start_pct = (
+                    self._attr_brightness_pct
+                    if self._attr_is_on and self._attr_brightness_pct is not None
+                    else 0
+                )
 
                 await self._cancel_fade_robustly()
 
@@ -843,14 +859,13 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     if await self._maybe_instant_brightness(start_pct, target_pct, is_on=True):
                         return
 
-                    fid = self._next_fade_id()
-                    self._fade_task = self.hass.async_create_task(
-                        self._async_fade_to(start_pct, target_pct, transition, fid)
-                    )
+                    self._fade_engine.start_fade(start_pct, target_pct, transition)
                     return
 
                 # native switch_on with speed
-                await self._gateway_handler.send(OWNLightingCommand.switch_on(self._full_where, int(transition)))
+                await self._gateway_handler.send(
+                    OWNLightingCommand.switch_on(self._full_where, int(transition))
+                )
                 self._apply_brightness_state(target_pct, is_on=True)
                 self.async_schedule_update_ha_state()
                 return
@@ -868,23 +883,29 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
 
-        if ATTR_TRANSITION in kwargs and self._attr_supported_features & LightEntityFeature.TRANSITION:
+        if (
+            ATTR_TRANSITION in kwargs
+            and self._attr_supported_features & LightEntityFeature.TRANSITION
+        ):
             transition = float(kwargs[ATTR_TRANSITION])
-            start_pct = (self._attr_brightness_pct if self._attr_is_on and self._attr_brightness_pct is not None else 0)
+            start_pct = (
+                self._attr_brightness_pct
+                if self._attr_is_on and self._attr_brightness_pct is not None
+                else 0
+            )
 
             await self._cancel_fade_robustly()
 
             if self._should_use_software_stepped(transition):
                 if await self._maybe_instant_brightness(start_pct, 0, is_on=False):
                     return
-                fid = self._next_fade_id()
-                self._fade_task = self.hass.async_create_task(
-                    self._async_fade_to(start_pct, 0, transition, fid)
-                )
+                self._fade_engine.start_fade(start_pct, 0, transition)
                 return
 
             # native
-            await self._gateway_handler.send(OWNLightingCommand.switch_off(self._full_where, int(transition)))
+            await self._gateway_handler.send(
+                OWNLightingCommand.switch_off(self._full_where, int(transition))
+            )
             return
 
         if ATTR_FLASH in kwargs and self._attr_supported_features & LightEntityFeature.FLASH:
@@ -933,13 +954,15 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     self._gateway_handler.log_id,
                     self._full_where,
                     unknown_state,
-                    "its state is unknown" if self._attr_is_on is None else "keeping its last state",
+                    "its state is unknown"
+                    if self._attr_is_on is None
+                    else "keeping its last state",
                 )
             self._attr_extra_state_attributes["unknown_state"] = unknown_state
         elif message.is_on is not None:
             self._attr_extra_state_attributes.pop("unknown_state", None)
 
-        is_fading = bool(self._fade_task and not self._fade_task.done())
+        is_fading = self._fade_engine.is_fading
 
         # Always cancel fade on physical off (pure on/off events or brightness=0)
         if is_fading and not self._attr_is_on:
@@ -975,13 +998,20 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 )
             self._promote_color_mode(ColorMode.HS)
             if has_hs:
-                self._attr_hs_color = (float(cast(int, message.hue)), float(cast(int, message.saturation)))
+                self._attr_hs_color = (
+                    float(cast(int, message.hue)),
+                    float(cast(int, message.saturation)),
+                )
                 if has_rgb:
-                    self._attr_rgb_color = cast("tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb)))
+                    self._attr_rgb_color = cast(
+                        "tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb))
+                    )
                 else:
                     self._attr_rgb_color = color_hs_to_RGB(*self._attr_hs_color)
             else:
-                self._attr_rgb_color = cast("tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb)))
+                self._attr_rgb_color = cast(
+                    "tuple[int, int, int]", tuple(cast("tuple[int, int, int]", message.rgb))
+                )
                 self._attr_hs_color = color_RGB_to_hs(*self._attr_rgb_color)
 
             if isinstance(getattr(message, "value", None), (int, float)):
@@ -1000,7 +1030,9 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 )
             self._promote_color_mode(ColorMode.COLOR_TEMP)
             self._attr_color_temp = cast(int, message.color_temp)
-            self._attr_color_temp_kelvin = color_temperature_mired_to_kelvin(cast(int, message.color_temp))
+            self._attr_color_temp_kelvin = color_temperature_mired_to_kelvin(
+                cast(int, message.color_temp)
+            )
 
         # Auto-promote to dimmable when brightness data is received (always)
         elif has_level:
@@ -1017,11 +1049,15 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._promote_color_mode(ColorMode.BRIGHTNESS)
 
         if (
-            ColorMode.BRIGHTNESS in self._attr_supported_color_modes
-            or ColorMode.COLOR_TEMP in self._attr_supported_color_modes
-            or ColorMode.HS in self._attr_supported_color_modes
-            or ColorMode.RGB in self._attr_supported_color_modes
-        ) and has_level and message.brightness is not None:
+            (
+                ColorMode.BRIGHTNESS in self._attr_supported_color_modes
+                or ColorMode.COLOR_TEMP in self._attr_supported_color_modes
+                or ColorMode.HS in self._attr_supported_color_modes
+                or ColorMode.RGB in self._attr_supported_color_modes
+            )
+            and has_level
+            and message.brightness is not None
+        ):
             if is_fading:
                 # Precise policy during fade: only apply significant physical changes
                 current_opt = self._attr_brightness_pct or 0
