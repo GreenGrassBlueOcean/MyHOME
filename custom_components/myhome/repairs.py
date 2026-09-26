@@ -186,18 +186,15 @@ class IncompatibleDecoderRepairFlow(RepairsFlow):
     async def async_step_confirm_companion(
         self, user_input: dict[str, Any] | None = None
     ) -> RepairsFlowResult:
-        """Confirm replacing the incompatible decoder with its DLNA companion."""
+        """Confirm adopting the DLNA companion for the incompatible decoder."""
         if user_input is not None:
-            from .const import CONF_DECODER_ENTITY, CONF_DECODER_SLOTS
-
             entry = self.hass.config_entries.async_get_entry(self._entry_id)
             if entry and self._companion_id:
-                new_options = dict(entry.options)
-                for i in range(1, CONF_DECODER_SLOTS + 1):
-                    key = CONF_DECODER_ENTITY.format(i)
-                    if new_options.get(key) == self._decoder_id:
-                        new_options[key] = self._companion_id
-                self.hass.config_entries.async_update_entry(entry, options=new_options)
+                # We do not rewrite the slot; we just reload the entry so the dynamic
+                # bridge discovers the companion during setup.
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self._entry_id)
+                )
             return self.async_create_entry(data={})
 
         return self.async_show_form(

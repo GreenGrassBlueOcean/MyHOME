@@ -650,9 +650,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         return reg_entry.platform if reg_entry else None
 
     def _decoders_refusing(self, pool: DecoderPool, media_type: str) -> set[str]:
-        """Return the decoders whose integration cannot play ``media_type``."""
+        """Return the decoders whose integration cannot play media_type."""
         refusing: set[str] = set()
         for decoder_id in pool.stream_incompatible:
+            companion_id = self._streaming_target(decoder_id)
+            if companion_id and companion_id != decoder_id:
+                continue
             accepted = _STREAM_INCOMPATIBLE_PLATFORMS.get(
                 self._decoder_platform(decoder_id) or "", frozenset()
             )
@@ -866,32 +869,40 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         decoder_id, source_num = result
         self._active_decoder = decoder_id
 
-        # 2. Wake an off decoder. IDLE decoders are already ready to play.
-        dec_state = self.hass.states.get(decoder_id)
+        target_decoder = decoder_id
+        companion_id = self._streaming_target(decoder_id)
+        if companion_id and companion_id != decoder_id:
+            platform = self._decoder_platform(decoder_id)
+            accepted = _STREAM_INCOMPATIBLE_PLATFORMS.get(platform or "", frozenset())
+            if media_type not in accepted:
+                target_decoder = companion_id
+
+        # 2. Wake the target decoder. IDLE decoders are already ready to play.
+        dec_state = self.hass.states.get(target_decoder)
         if dec_state and dec_state.state == MediaPlayerState.OFF:
             await self.hass.services.async_call(
-                "media_player", "turn_on", {"entity_id": decoder_id}
+                "media_player", "turn_on", {"entity_id": target_decoder}
             )
             # Poll until the decoder wakes up (max 5 seconds)
             for _ in range(10):
                 await asyncio.sleep(0.5)
-                dec_state = self.hass.states.get(decoder_id)
+                dec_state = self.hass.states.get(target_decoder)
                 if dec_state and dec_state.state != MediaPlayerState.OFF:
                     break
             else:
                 LOGGER.warning(
                     "%s: decoder %s did not wake up within 5 s",
                     self.entity_id,
-                    decoder_id,
+                    target_decoder,
                 )
                 await self._async_release_after_failure(pool)
                 raise HomeAssistantError(
-                    f"{self.entity_id}: decoder {decoder_id} did not wake up within 5 seconds",
+                    f"{self.entity_id}: decoder {target_decoder} did not wake up within 5 seconds",
                     translation_domain=DOMAIN,
                     translation_key="decoder_wake_timeout",
                     translation_placeholders={
                         "entity_id": str(self.entity_id),
-                        "decoder": str(decoder_id),
+                        "decoder": str(target_decoder),
                     },
                 )
 
@@ -935,8 +946,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     await member_ent._async_wake_zone()
                     member_ent.async_write_ha_state()
 
-        # 4. Forward the stream URL to the backend decoder (or companion DLNA streamer)
-        target_decoder = self._streaming_target(decoder_id) or decoder_id
+        # 4. Forward the stream URL to the target decoder (companion or primary)
         service_data: dict[str, Any] = {
             "entity_id": target_decoder,
             "media_content_type": media_type,
@@ -1615,7 +1625,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 ext_vol = new_state.attributes.get("volume_level")
                 if ext_vol is not None and self._attr_volume_level != ext_vol:
                     pool = self._get_pool()
-                    if pool:
+                    if pool and event_entity == eff_dec:
                         pre_gain_pct = pool.get_pre_gain(eff_dec)
                         # Reverse the pre_gain offset to get approximate zone volume
                         zone_vol = max(0.0, float(ext_vol) - pre_gain_pct / 100.0)

@@ -169,7 +169,7 @@ async def test_incompatible_decoder_issue_lifecycle(hass: HomeAssistant) -> None
 
 @pytest.mark.asyncio
 async def test_incompatible_decoder_repair_flow_confirm(hass: HomeAssistant) -> None:
-    """Test the repair flow auto-swaps to DLNA DMR companion when present."""
+    """Test the repair flow adopts DLNA DMR companion when present."""
     from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers import entity_registry as er
     from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -215,8 +215,8 @@ async def test_incompatible_decoder_repair_flow_confirm(hass: HomeAssistant) -> 
     fix_result = await flow.async_step_confirm_companion(user_input={})
     assert fix_result["type"] == "create_entry"
 
-    # Verify options entry was updated to the DLNA companion
-    assert entry.options[CONF_DECODER_ENTITY.format(1)] == "media_player.streamer_dlna"
+    # Verify options entry was NOT modified
+    assert entry.options[CONF_DECODER_ENTITY.format(1)] == "media_player.streamer"
 
 
 @pytest.mark.asyncio

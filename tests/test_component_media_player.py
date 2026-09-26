@@ -2606,3 +2606,34 @@ async def test_decoder_watch_follows_the_rebuilt_pool(hass, player, mock_gateway
     for remove in player._on_remove or []:
         remove()
     assert player._unsub_decoders is None
+
+@pytest.mark.asyncio
+async def test_decoders_refusing_companion_coverage(hass, mock_gateway):
+    """Test coverage for _decoders_refusing when a companion exists."""
+    from custom_components.myhome.decoder_pool import DecoderPool
+    from custom_components.myhome.media_player import MyHOMEMediaPlayer
+
+    pool = DecoderPool(hass, {})
+    pool._stream_incompatible = frozenset(["media_player.cambridge_cxn"])
+    pool.companion_map["media_player.cambridge_cxn"] = "media_player.cambridge_dlna"
+
+    p = MyHOMEMediaPlayer(
+        hass=hass,
+        name="Test",
+        entity_name=None,
+        device_id="22#16",
+        who="16",
+        where="22",
+        manufacturer="BTicino",
+        model="Audio System",
+        gateway=mock_gateway,
+    )
+    # mock the runtime data so pool is found
+    from custom_components.myhome.data import MyHOMERuntimeData
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    runtime.decoder_pool = pool
+    p._companion_cache = {"media_player.cambridge_cxn": "media_player.cambridge_dlna"}
+    p.hass = hass
+
+    refusing = p._decoders_refusing(pool, "music")
+    assert "media_player.cambridge_cxn" not in refusing

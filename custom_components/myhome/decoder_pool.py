@@ -253,8 +253,11 @@ class DecoderPool:
 
                 state = self._hass.states.get(dec_id)
                 state_val = state.state if state else None
+                target_dec_id = self.get_streaming_decoder(dec_id)
+                target_state = self._hass.states.get(target_dec_id) if target_dec_id != dec_id else None
+                target_state_val = target_state.state if target_state else None
 
-                if state_val in self._IDLE_STATES:
+                if state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES):
                     self._remove_member_locked(zone_entity_id)
                     self._assignments[dec_id] = zone_entity_id
                     if environment is not None:
