@@ -245,3 +245,30 @@ Authentic on-wire bus trace captured from a physical BTicino MH200 scenario prog
 - **WHO 1001 (Lighting Diagnostic)**: Node 74 diagnostic bitmask.
 - **WHO 1013 (Gateway Diagnostics)**: Object model `4`.
 
+---
+
+# #466 BTicino F414 Classic Dimmer Verification (MH200 Live Bus Trace)
+
+Empirical bus trace recorded on an authentic **BTicino MH200** (firmware 2.1.0) testing a physical **BTicino F414** classic 10-level dimmer on WHERE=`99` (Woonkamer plafond).
+
+Settles the question raised by **@anotherjulien** in [#466 (comment 5849245960)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5849245960) regarding whether older/classic dimmers behave differently from modern universal dimmers (F418U2):
+- Proves that the classic F414 also uses OpenWebNet **Dimension 1** (`*#1*99*1*LEVEL*SPEED##`).
+- Proves that the F414 accepts **Dimension 1 writes** (`*#1*99*#1*150*0##`), immediately setting 50% brightness and broadcasting a Dimension 1 report (`*#1*99*1*150*5##`) with active transition speed.
+- Discloses the non-linear transformer/logarithmic mapping of discrete WHAT levels on the F414 (`10`=100%, `9`=74%, `8`=63%, `7`=50%).
+- Confirms that the F414 **rejects Dimension 4** (`*#1*99*4##`), returning NACK after a 2s timeout without bus emission.
+
+## Hardware Profile
+
+- **Gateway**: BTicino MH200 (1st Generation Scenario Programmer)
+- **Gateway Firmware**: 2.1.0
+- **Actuator Model**: BTicino F414 (Classic 10-level incandescent/ferromagnetic modular dimmer, 60–1000 VA)
+- **Actuator Address**: WHERE `99` (`light.woonkamer_plafond`)
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json` | Bus Monitor Trace (18 frames) | Complete sequential trace of initial status query, discrete WHAT commands, fine Dimension 1 writes, coarse status mapping, and final 100% restoration on the F414. |
+
+
