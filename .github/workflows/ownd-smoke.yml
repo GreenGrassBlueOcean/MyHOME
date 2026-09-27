@@ -16,6 +16,9 @@ on:
     - cron: "0 5 * * 1"  # Weekly run every Monday at 05:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   ownd-smoke:
     name: OWNd (${{ matrix.ownd-target }} / Py${{ matrix.python-version }})
