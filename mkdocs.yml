@@ -82,6 +82,7 @@ nav:
       - Overview: configuration/README.md
       - Installation: getting-started/installation.md
       - Hardware Compatibility: getting-started/hardware-compatibility.md
+      - Beta Evolution & Differences: roadmap/beta-differences.md
       - Removal & Clean Uninstall: getting-started/removal.md
   - Device Configuration:
       - Gateways & Connection: configuration/gateways.md
@@ -117,4 +118,6 @@ nav:
       - Upgrade from v0.9.4 to v2.0: migration/upgrade-from-094.md
       - Migrating from SDomotica: migration/sdomotica_to_myhome.md
       - Legacy YAML Configuration (< v0.9): migration/legacy-yaml.md
-  - Roadmap: roadmap.md
+  - Roadmap:
+      - Project Roadmap: roadmap.md
+      - Beta Evolution & Differences: roadmap/beta-differences.md

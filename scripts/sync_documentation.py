@@ -42,11 +42,16 @@ DOCS_DIR = REPO_ROOT / "docs"
 # Documentation target files for Gateway Profiles table
 GATEWAY_DOC_TARGETS = [
     README_MD,
+    DOCS_DIR / "configuration" / "gateways.md",
+    DOCS_DIR / "getting-started" / "hardware-compatibility.md",
 ]
 
 # Markers
 GATEWAY_START_MARKER = "<!-- GATEWAY_PROFILES_START -->"
 GATEWAY_END_MARKER = "<!-- GATEWAY_PROFILES_END -->"
+
+OPTIONS_START_MARKER = "<!-- GATEWAY_OPTIONS_START -->"
+OPTIONS_END_MARKER = "<!-- GATEWAY_OPTIONS_END -->"
 
 DOMAINS_START_MARKER = "<!-- SUPPORTED_DOMAINS_START -->"
 DOMAINS_END_MARKER = "<!-- SUPPORTED_DOMAINS_END -->"
@@ -125,6 +130,55 @@ def sync_gateway_profiles(update: bool = False) -> tuple[bool, list[str]]:
             messages.append(f"Gateway Profiles table in sync: {rel_path(target)}")
 
     return all_ok, messages
+
+
+def get_gateway_options_block() -> str:
+    """Build the canonical Gateway Runtime Options table block."""
+    try:
+        from scripts.update_gateway_profiles import build_options_block
+    except ImportError:
+        from update_gateway_profiles import build_options_block
+    return build_options_block()
+
+
+def sync_gateway_options(update: bool = False) -> tuple[bool, list[str]]:
+    """Check or update the Gateway Runtime Options table in docs/configuration/gateways.md."""
+    target = DOCS_DIR / "configuration" / "gateways.md"
+    messages: list[str] = []
+    if not target.exists():
+        return False, [f"Gateways doc not found: {rel_path(target)}"]
+
+    content = target.read_text(encoding="utf-8")
+    if OPTIONS_START_MARKER not in content or OPTIONS_END_MARKER not in content:
+        messages.append(
+            f"Missing markers {OPTIONS_START_MARKER} and/or {OPTIONS_END_MARKER} "
+            f"in {rel_path(target)}"
+        )
+        return False, messages
+
+    pattern = re.compile(
+        rf"{re.escape(OPTIONS_START_MARKER)}.*?{re.escape(OPTIONS_END_MARKER)}",
+        re.DOTALL,
+    )
+    match = pattern.search(content)
+    if not match:
+        messages.append(f"Could not parse options marker block in {rel_path(target)}")
+        return False, messages
+
+    expected_block = get_gateway_options_block().strip()
+    actual_block = match.group(0).strip()
+    if actual_block != expected_block:
+        if update:
+            new_content = pattern.sub(expected_block, content)
+            target.write_text(new_content, encoding="utf-8")
+            messages.append(f"Updated Gateway Options table in {rel_path(target)}")
+            return True, messages
+        else:
+            messages.append(f"Gateway Options table out of sync in {rel_path(target)}")
+            return False, messages
+    else:
+        messages.append(f"Gateway Options table in sync: {rel_path(target)}")
+        return True, messages
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -659,6 +713,11 @@ def check_all_documentation(update: bool = False) -> tuple[bool, list[str]]:
     ok_gw, msgs_gw = sync_gateway_profiles(update=update)
     overall_ok = overall_ok and ok_gw
     all_messages.extend(msgs_gw)
+
+    # 1b. Gateway options
+    ok_opt, msgs_opt = sync_gateway_options(update=update)
+    overall_ok = overall_ok and ok_opt
+    all_messages.extend(msgs_opt)
 
     # 2. Supported domains
     ok_dom, msgs_dom = sync_supported_domains(update=update)
