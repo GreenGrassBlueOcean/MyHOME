@@ -883,7 +883,6 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
     )
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.myhome.config_flow import MyhomeOptionsFlowHandler
     from custom_components.myhome.const import (
         CONF_ADDRESS,
         CONF_GENERATE_EVENTS,
@@ -905,20 +904,21 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    opt_flow = MyhomeOptionsFlowHandler(entry)
-    opt_flow.hass = hass
-    form = await opt_flow.async_step_init()
-    assert form["type"] == FlowResultType.FORM
-
     with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
-        res = await opt_flow.async_step_user({
-            CONF_ADDRESS: "192.0.2.10",
-            CONF_NAME: "MyHomeServer1",
-            CONF_OWN_PASSWORD: None,
-            CONF_WORKER_COUNT: 2,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software_stepped",
-        })
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        assert form["type"] == FlowResultType.FORM
+        res = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_ADDRESS: "192.0.2.10",
+                CONF_NAME: "MyHomeServer1",
+                CONF_OWN_PASSWORD: None,
+                CONF_WORKER_COUNT: 2,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
 
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_NAME] == "MyHomeServer1"
@@ -939,7 +939,6 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
     from OWNd.message import OWNEvent
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.myhome.config_flow import MyhomeOptionsFlowHandler
     from custom_components.myhome.const import (
         CONF_ADDRESS,
         CONF_GENERATE_EVENTS,
@@ -970,18 +969,22 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
     issue_id = f"{ISSUE_GATEWAY_IDENTITY}_{entry.entry_id}"
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
-    opt_flow = MyhomeOptionsFlowHandler(entry)
-    opt_flow.hass = hass
-    await opt_flow.async_step_init()
     with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
-        res = await opt_flow.async_step_user({
-            CONF_ADDRESS: "192.0.2.10",
-            CONF_NAME: "MH200",
-            CONF_OWN_PASSWORD: None,
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software_stepped",
-        })
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        assert form["type"] == FlowResultType.FORM
+        res = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_ADDRESS: "192.0.2.10",
+                CONF_NAME: "MH200",
+                CONF_OWN_PASSWORD: None,
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
+
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert mock_reload.called
     assert entry.data[CONF_NAME] == "MH200"
@@ -1304,3 +1307,247 @@ async def test_options_flow_environments_without_registry(hass: HomeAssistant) -
     flow.hass = None  # entity_registry.async_get raises without a hass
 
     assert flow._audio_environments() == []
+
+
+async def test_options_flow_options_only_reloads_entry(hass: HomeAssistant) -> None:
+    """Test updating options only via options flow schedules reload and updates options."""
+    from homeassistant.const import (
+        CONF_HOST,
+        CONF_MAC,
+        CONF_NAME,
+        CONF_PASSWORD,
+        CONF_PORT,
+    )
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_ADDRESS,
+        CONF_GENERATE_EVENTS,
+        CONF_OWN_PASSWORD,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.50",
+            CONF_PORT: 20000,
+            CONF_MAC: "00:03:50:00:12:34",
+            CONF_NAME: "MyHomeServer1",
+            CONF_PASSWORD: "pass",
+        },
+        options={
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+        },
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        assert form["type"] == FlowResultType.FORM
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_ADDRESS: "192.168.1.50",
+                CONF_NAME: "MyHomeServer1",
+                CONF_OWN_PASSWORD: "pass",
+                CONF_WORKER_COUNT: 3,
+                CONF_GENERATE_EVENTS: True,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_WORKER_COUNT] == 3
+    assert entry.options[CONF_GENERATE_EVENTS] is True
+    assert mock_reload.called
+
+
+async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None:
+    """Test updating data only via options flow schedules reload and updates data."""
+    from homeassistant.const import (
+        CONF_HOST,
+        CONF_MAC,
+        CONF_NAME,
+        CONF_PASSWORD,
+        CONF_PORT,
+    )
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_ADDRESS,
+        CONF_GENERATE_EVENTS,
+        CONF_OWN_PASSWORD,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.50",
+            CONF_PORT: 20000,
+            CONF_MAC: "00:03:50:00:12:34",
+            CONF_NAME: "MyHomeServer1",
+            CONF_PASSWORD: "pass",
+        },
+        options={
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software_stepped",
+        },
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    # First establish options on the entry
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        form0 = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(
+            form0["flow_id"],
+            {
+                CONF_ADDRESS: "192.168.1.50",
+                CONF_NAME: "MyHomeServer1",
+                CONF_OWN_PASSWORD: "pass",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
+
+    # Now update only data (host IP) with identical options
+    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        assert form["type"] == FlowResultType.FORM
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_ADDRESS: "192.168.1.99",
+                CONF_NAME: "MyHomeServer1",
+                CONF_OWN_PASSWORD: "pass",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_HOST] == "192.168.1.99"
+    assert mock_reload.called
+
+
+async def test_options_flow_data_and_options_combined_reloads_entry(hass: HomeAssistant) -> None:
+    """Test updating both data and options schedules reload with all new values."""
+    from homeassistant.const import (
+        CONF_HOST,
+        CONF_MAC,
+        CONF_NAME,
+        CONF_PASSWORD,
+        CONF_PORT,
+    )
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_ADDRESS,
+        CONF_GENERATE_EVENTS,
+        CONF_OWN_PASSWORD,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.50",
+            CONF_PORT: 20000,
+            CONF_MAC: "00:03:50:00:12:34",
+            CONF_NAME: "MyHomeServer1",
+            CONF_PASSWORD: "pass",
+        },
+        options={
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+        },
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        assert form["type"] == FlowResultType.FORM
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_ADDRESS: "192.168.1.105",
+                CONF_NAME: "MyHomeServer1",
+                CONF_OWN_PASSWORD: "new_pass",
+                CONF_WORKER_COUNT: 2,
+                CONF_GENERATE_EVENTS: True,
+                CONF_TRANSITION_MODE: "software_stepped",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_HOST] == "192.168.1.105"
+    assert entry.data[CONF_PASSWORD] == "new_pass"
+    assert entry.options[CONF_WORKER_COUNT] == 2
+    assert entry.options[CONF_GENERATE_EVENTS] is True
+    assert mock_reload.called
+
+
+async def test_reauth_successful_reload_and_abort(hass: HomeAssistant) -> None:
+    """Test reauth flow completes with async_update_reload_and_abort and new password."""
+    from homeassistant.const import (
+        CONF_HOST,
+        CONF_MAC,
+        CONF_NAME,
+        CONF_PASSWORD,
+        CONF_PORT,
+    )
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.config_flow import MyhomeFlowHandler
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.50",
+            CONF_PORT: 20000,
+            CONF_MAC: "00:03:50:00:12:34",
+            CONF_NAME: "F454",
+            CONF_PASSWORD: "wrong_password",
+        },
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    handler = MyhomeFlowHandler()
+    handler.hass = hass
+    handler.context = {
+        "source": config_entries.SOURCE_REAUTH,
+        "entry_id": entry.entry_id,
+        "unique_id": entry.unique_id,
+    }
+    await handler.async_step_reauth()
+
+    with patch(
+        "custom_components.myhome.config_flow.OWNSession.test_connection",
+        return_value={"Success": True, "Message": None},
+    ), patch.object(
+        hass.config_entries, "async_reload", return_value=True
+    ) as mock_reload:
+        res = await handler.async_step_password({"password": "correct_password"})
+        await hass.async_block_till_done()
+
+    assert res["type"] == FlowResultType.ABORT
+    assert res["reason"] == "reauth_successful"
+    assert entry.data[CONF_PASSWORD] == "correct_password"
+    assert mock_reload.called
+

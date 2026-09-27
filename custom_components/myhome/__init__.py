@@ -5,7 +5,6 @@ import hashlib
 import os
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -328,39 +327,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     prune_stale_devices(hass, entry, gateway_device_entry, gateway)
 
 
-    # ── Register options reload listener (rebuilds decoder pool on UI save) ──
-    async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Rebuild the decoder pool when the user saves new options via the UI.
-
-        Releases all active decoder assignments first so that no zone is left
-        with a stale claim.  The user will need to re-trigger playback after
-        changing decoder config.
-        """
-        # The same builder as platform setup, so the incompatible-decoder
-        # repair issues follow the saved options straight away.
-        from .media_player import _build_pool
-
-        mac = entry.data[CONF_MAC]
-        runtime_data = entry.runtime_data
-        old_pool = runtime_data.decoder_pool
-        if old_pool:
-            await old_pool.release_all()
-
-        pool = _build_pool(hass, entry)
-        runtime_data.decoder_pool = pool
-        LOGGER.info(
-            "MyHOME: decoder pool rebuilt after options update — %d decoder(s) configured",
-            len(pool.decoder_entity_ids),
-        )
-
-        # Signal all media player entities to re-publish supported_features
-        # so Music Assistant picks up the new PLAY_MEDIA capability.
-        from homeassistant.helpers.dispatcher import async_dispatcher_send
-        async_dispatcher_send(hass, f"myhome_pool_updated_{mac}")
-
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-
     return True
+
 
 
 async def async_remove_config_entry_device(
@@ -388,6 +356,10 @@ async def async_remove_config_entry_device(
 async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:
     """Unload a config entry."""
     LOGGER.info("Unloading MyHome entry.")
+
+    runtime = getattr(entry, "runtime_data", None)
+    if isinstance(runtime, MyHOMERuntimeData) and runtime.decoder_pool:
+        await runtime.decoder_pool.release_all()
 
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
