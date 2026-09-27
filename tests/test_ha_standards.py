@@ -4,6 +4,7 @@ from scripts.verify_ha_standards import (
     StandardsChecker,
     check_deprecated_constants,
     check_discovery_flows,
+    check_future_annotations_and_syntax,
     check_manifest_requirements_rule,
     check_no_blocking_calls,
     check_ruff_standards,
@@ -59,5 +60,27 @@ def test_supported_domains_readme_calibrated():
     checker = StandardsChecker()
     check_supported_domains_rule(checker)
     assert not checker.errors, f"Supported domains README violations found: {checker.errors}"
+
+
+def test_future_annotations_and_syntax_standards():
+    """Verify all Python files compile and follow strict __future__ positioning."""
+    checker = StandardsChecker()
+    check_future_annotations_and_syntax(checker)
+    assert not checker.errors, f"Future annotations/syntax violations found: {checker.errors}"
+
+
+def test_future_annotations_catches_misplaced_import(tmp_path):
+    """Verify rule catches misplaced statements preceding from __future__ import annotations."""
+    bad_file = tmp_path / "bad_module.py"
+    bad_file.write_text(
+        "import sys\nfrom __future__ import annotations\n\nx = 1\n",
+        encoding="utf-8",
+    )
+    checker = StandardsChecker()
+    check_future_annotations_and_syntax(checker, target_dir=tmp_path)
+    assert any("from __future__ imports must occur at the beginning of the file" in err for err in checker.errors), (
+        f"Expected future annotations syntax error, but got: {checker.errors}"
+    )
+
 
 
