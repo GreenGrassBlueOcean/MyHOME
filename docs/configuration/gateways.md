@@ -398,3 +398,51 @@ The integration passively compares the traffic of every pair of gateways that is
 - Gateway B receives a physical point-to-point frame on the bus that Gateway A transmitted less than 1.5 seconds prior (SHARED_BUS_TX_ECHO_S = 1.5).
 - General lighting (WHERE=0), general automation (WHERE=0), area commands (WHERE starting with # or area codes), and group commands (WHERE=#0) are filtered out to prevent false correlations when automations trigger synchronized broadcast scenes across separate physical buses.
 - Three correlated frames within an evidence window of 5 minutes (SHARED_BUS_EVIDENCE_WINDOW_S = 300.0) raise an actionable **Home Assistant Repair Issue** (shared_bus_detected), alerting you to configure the shared bus relationship. Gateway-local WHO=13/1013 frames are ignored. Configuring the pair on one bus dismisses the issue.
+
+#### Multi-Gateway Logging & Diagnostic Traces
+When commissioning or diagnosing multi-gateway installations, Home Assistant logs every step of the topology evaluation and failover lifecycle.
+
+Enable debug logging in `configuration.yaml` or via the Home Assistant UI (**Settings → Devices & Services → MyHOME → ⋮ → Enable debug logging**):
+
+```yaml
+logger:
+  logs:
+    custom_components.myhome: debug
+    custom_components.myhome.topology: debug
+    custom_components.myhome.repairs: debug
+    OWNd: debug
+```
+
+##### What to Look for in the Logs:
+- **Topology Inference & Subsystem Delegation**:
+  ```text
+  DEBUG: Evaluating shared bus topology between F454 (Tier 1, WHOs [1, 2, 4, ...]) and MH202 (Tier 2, WHOs [1, 2, 4, ...]). Primary selection: F454 (Tier 1 < Tier 2). Secondary capability delta: [] (audio coupled: False)
+  INFO: Inferred shared bus topology: Primary=F454 (00:03:50:aa:bb:01, Tier 1), Follower=MH202 (00:03:50:aa:bb:02, Tier 2, role=standby, delegated=[]). F454 (Tier 1) selected as Primary (Tier 1 < Tier 2). MH202 capabilities are fully covered by Primary; configured as Warm Standby for failover.
+  ```
+- **Smart Options Flow Pre-Population**:
+  ```text
+  DEBUG: Inferred shared-bus smart defaults for 00:03:50:aa:bb:02: role=standby, delegated_whos=[] (selected primary 00:03:50:aa:bb:01)
+  ```
+- **1-Click Repair Execution**:
+  ```text
+  INFO: Applied recommended shared bus topology via 1-click repair: Primary=F454 (00:03:50:aa:bb:01), Follower=MH202 (00:03:50:aa:bb:02, role=standby, delegated WHOs=[])
+  ```
+- **Shared-Bus Detection (TX-to-RX Echoes)**:
+  ```text
+  DEBUG: Recorded shared bus TX echo #1/3 between 00:03:50:aa:bb:01 and 00:03:50:aa:bb:02 (delta 24ms, frame *1*1*12##)
+  ```
+- **Delegated Command Routing**:
+  ```text
+  DEBUG: Routing delegated WHO 16 command *#16*1*0*1## from Primary (F454) to Secondary (H4890)
+  ```
+- **Warm Standby Failover & Inbound Bridging**:
+  ```text
+  WARNING: Primary gateway F454 event session offline (> 60s); engaging warm standby failover via MH202
+  DEBUG: Bridging inbound bus frame *1*1*11## from standby MH202 to primary F454 entities
+  ```
+
+##### Opening an Issue on GitHub:
+When reporting behavior relating to shared buses, failover, or inference:
+1. Navigate to **Settings → Devices & Services → MyHOME**.
+2. Click **⋮ → Download diagnostics** on both gateway cards. The downloaded JSON includes full `bus_topology`, `gateway_role`, `delegated_whos`, failover state, command queue pacing, and the rolling 500-frame buffer (with credentials redacted).
+3. Attach both diagnostic JSON files to your GitHub issue.

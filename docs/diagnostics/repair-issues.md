@@ -179,6 +179,9 @@ Without configuration, each gateway discovers the same physical devices and regi
      - Notice that **Gateway Role** and **Delegated Subsystems** are automatically pre-populated with the inferred smart defaults.
      - Click **Submit**. The gateway reloads with its new role, prunes duplicate entities, and stops redundant sweeps.
 
+> [!TIP]
+> **Diagnostic Logging**: To inspect the exact hardware tier comparison, supported WHOs, and capability delta calculated by Home Assistant, enable debug logging for `custom_components.myhome.topology` and `custom_components.myhome.repairs`. When opening a GitHub issue, attach the diagnostics download (**Settings → Devices & Services → MyHOME → ⋮ → Download diagnostics**) which captures the topology state and recent bus echoes.
+
 ---
 
 ## Gateway Failover Active (Warm Standby High Availability)
