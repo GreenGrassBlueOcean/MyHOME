@@ -506,5 +506,21 @@
         "25": "25 - CEN+ scenarios"
       }
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "pushbutton_short_press": "\"{subtype}\" pressed",
+      "pushbutton_short_release": "\"{subtype}\" released after short press",
+      "pushbutton_long_press": "\"{subtype}\" held down",
+      "pushbutton_long_press_repeat": "\"{subtype}\" held down (repeating)",
+      "pushbutton_long_release": "\"{subtype}\" released after long press",
+      "rotary_cw_slow": "\"{subtype}\" turned clockwise slowly",
+      "rotary_cw_fast": "\"{subtype}\" turned clockwise quickly",
+      "rotary_ccw_slow": "\"{subtype}\" turned counter-clockwise slowly",
+      "rotary_ccw_fast": "\"{subtype}\" turned counter-clockwise quickly",
+      "centralized_shutter_open": "Centralized shutter OPEN command received",
+      "centralized_shutter_close": "Centralized shutter CLOSE command received",
+      "centralized_shutter_stop": "Centralized shutter STOP command received"
+    }
   }
 }

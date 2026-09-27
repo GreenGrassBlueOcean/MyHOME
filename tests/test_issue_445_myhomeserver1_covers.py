@@ -292,8 +292,26 @@ async def test_centralized_button_fires_general_automation_bus_events(hass: Home
     await hass.async_block_till_done()
 
     assert len(captured_events) == 3
-    assert captured_events[0] == {"message": "*2*11#100#001#1*0##", "event": "open"}
-    assert captured_events[1] == {"message": "*2*12#100#001#1*0##", "event": "close"}
-    assert captured_events[2] == {"message": "*2*10#001#1*0##", "event": "stop"}
+    assert captured_events[0] == {
+        "message": "*2*11#100#001#1*0##",
+        "event": "open",
+        "where": "0",
+        "gateway_mac": mac,
+        "entry_id": entry.entry_id,
+    }
+    assert captured_events[1] == {
+        "message": "*2*12#100#001#1*0##",
+        "event": "close",
+        "where": "0",
+        "gateway_mac": mac,
+        "entry_id": entry.entry_id,
+    }
+    assert captured_events[2] == {
+        "message": "*2*10#001#1*0##",
+        "event": "stop",
+        "where": "0",
+        "gateway_mac": mac,
+        "entry_id": entry.entry_id,
+    }
 
     await hass.config_entries.async_unload(entry.entry_id)

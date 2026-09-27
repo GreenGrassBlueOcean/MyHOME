@@ -17,6 +17,9 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.const import (
+    CONF_CENTRALIZED_SHUTTER_CLOSE,
+    CONF_CENTRALIZED_SHUTTER_OPEN,
+    CONF_CENTRALIZED_SHUTTER_STOP,
     CONF_LONG_PRESS,
     CONF_LONG_PRESS_REPEAT,
     CONF_ROTARY_CCW_FAST,
@@ -30,6 +33,7 @@ from custom_components.myhome.const import (
 from custom_components.myhome.device_trigger import (
     CONF_ADDRESS,
     CONF_SUBTYPE,
+    GATEWAY_TRIGGER_TYPES,
     TRIGGER_SUBTYPES,
     TRIGGER_TYPES,
     async_attach_trigger,
@@ -75,7 +79,7 @@ async def test_async_get_triggers_success(hass: HomeAssistant):
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "myhome_device_id")
 
-        assert len(triggers) == len(TRIGGER_TYPES) * len(TRIGGER_SUBTYPES)
+        assert len(triggers) == len(TRIGGER_TYPES) * len(TRIGGER_SUBTYPES) + len(GATEWAY_TRIGGER_TYPES)
         first_trigger = triggers[0]
         assert first_trigger[CONF_PLATFORM] == "device"
         assert first_trigger[CONF_DOMAIN] == DOMAIN
@@ -234,7 +238,7 @@ async def test_async_get_triggers_gateway_with_foreign_identifier_gets_all_types
         mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
         triggers = await async_get_triggers(hass, "gateway_device_id")
 
-    assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES
+    assert {t[CONF_TYPE] for t in triggers} == TRIGGER_TYPES | GATEWAY_TRIGGER_TYPES
 
 
 @pytest.mark.asyncio
@@ -508,3 +512,134 @@ def test_get_cen_info_from_device_branches():
     is_cen, addr = _get_cen_info_from_device(dev4)
     assert is_cen is False
     assert addr is None
+
+
+@pytest.mark.asyncio
+async def test_async_get_triggers_gateway_includes_centralized_shutter_triggers(hass: HomeAssistant):
+    """Test that a gateway device returns centralized shutter triggers."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc")}
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        triggers = await async_get_triggers(hass, "gw_device_id")
+
+        gw_triggers = [t for t in triggers if t[CONF_TYPE] in GATEWAY_TRIGGER_TYPES]
+        assert len(gw_triggers) == 3
+        types = {t[CONF_TYPE] for t in gw_triggers}
+        assert types == {
+            CONF_CENTRALIZED_SHUTTER_OPEN,
+            CONF_CENTRALIZED_SHUTTER_CLOSE,
+            CONF_CENTRALIZED_SHUTTER_STOP,
+        }
+        for t in gw_triggers:
+            assert t[CONF_PLATFORM] == "device"
+            assert t[CONF_DOMAIN] == DOMAIN
+            assert t[CONF_DEVICE_ID] == "gw_device_id"
+
+
+@pytest.mark.asyncio
+async def test_async_attach_trigger_centralized_shutter(hass: HomeAssistant):
+    """Test attaching and firing centralized shutter triggers via general automation events."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc")}
+    mock_device.connections = {(dr.CONNECTION_NETWORK_MAC, "00:03:50:aa:bb:cc")}
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+
+    action_open = AsyncMock()
+    action_close = AsyncMock()
+    action_stop = AsyncMock()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+
+        unsub_open = await async_attach_trigger(
+            hass,
+            {
+                CONF_DEVICE_ID: "gw_dev_id",
+                CONF_TYPE: CONF_CENTRALIZED_SHUTTER_OPEN,
+            },
+            action_open,
+            {"trigger_name": "open"},
+        )
+        unsub_close = await async_attach_trigger(
+            hass,
+            {
+                CONF_DEVICE_ID: "gw_dev_id",
+                CONF_TYPE: CONF_CENTRALIZED_SHUTTER_CLOSE,
+            },
+            action_close,
+            {"trigger_name": "close"},
+        )
+        unsub_stop = await async_attach_trigger(
+            hass,
+            {
+                CONF_DEVICE_ID: "gw_dev_id",
+                CONF_TYPE: CONF_CENTRALIZED_SHUTTER_STOP,
+            },
+            action_stop,
+            {"trigger_name": "stop"},
+        )
+
+        # 1. Fire open event with matching gateway MAC
+        hass.bus.async_fire(
+            "myhome_general_automation_event",
+            {
+                "message": "*2*11#100#001#1*0##",
+                "event": "open",
+                "where": "0",
+                "gateway_mac": "00:03:50:aa:bb:cc",
+            },
+        )
+        await hass.async_block_till_done()
+        action_open.assert_called_once()
+        action_close.assert_not_called()
+        action_stop.assert_not_called()
+        action_open.reset_mock()
+
+        # 2. Fire close event with DIFFERENT gateway MAC -> ignored
+        hass.bus.async_fire(
+            "myhome_general_automation_event",
+            {
+                "message": "*2*12#100#001#1*0##",
+                "event": "close",
+                "where": "0",
+                "gateway_mac": "00:03:50:99:99:99",
+            },
+        )
+        await hass.async_block_till_done()
+        action_close.assert_not_called()
+
+        # 3. Fire close event with MATCHING gateway MAC -> fired
+        hass.bus.async_fire(
+            "myhome_general_automation_event",
+            {
+                "message": "*2*12#100#001#1*0##",
+                "event": "close",
+                "where": "0",
+                "gateway_mac": "00:03:50:aa:bb:cc",
+            },
+        )
+        await hass.async_block_till_done()
+        action_close.assert_called_once()
+        action_close.reset_mock()
+
+        # 4. Fire stop event with MATCHING gateway MAC -> fired
+        hass.bus.async_fire(
+            "myhome_general_automation_event",
+            {
+                "message": "*2*10#001#1*0##",
+                "event": "stop",
+                "where": "0",
+                "gateway_mac": "00:03:50:aa:bb:cc",
+            },
+        )
+        await hass.async_block_till_done()
+        action_stop.assert_called_once()
+
+        unsub_open()
+        unsub_close()
+        unsub_stop()

@@ -16,6 +16,9 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    CONF_CENTRALIZED_SHUTTER_CLOSE,
+    CONF_CENTRALIZED_SHUTTER_OPEN,
+    CONF_CENTRALIZED_SHUTTER_STOP,
     CONF_LONG_PRESS,
     CONF_LONG_PRESS_REPEAT,
     CONF_LONG_RELEASE,
@@ -44,6 +47,12 @@ TRIGGER_TYPES = {
     CONF_ROTARY_CCW_FAST,
 }
 
+GATEWAY_TRIGGER_TYPES = {
+    CONF_CENTRALIZED_SHUTTER_OPEN,
+    CONF_CENTRALIZED_SHUTTER_CLOSE,
+    CONF_CENTRALIZED_SHUTTER_STOP,
+}
+
 TRIGGER_SUBTYPES = [f"button_{i}" for i in range(0, 32)]
 
 # Triggers a family can never fire, so they are not offered for its devices.
@@ -60,18 +69,29 @@ _UNSUPPORTED_TRIGGER_TYPES = {
     "25": {CONF_SHORT_RELEASE},
 }
 
-TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
-    {
-        vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
-        vol.Required(CONF_SUBTYPE): vol.In(TRIGGER_SUBTYPES),
-        vol.Optional(CONF_ADDRESS): vol.Any(vol.Coerce(int), str),
-        vol.Optional(CONF_OBJECT): vol.Any(vol.Coerce(int), str),
-    }
+TRIGGER_SCHEMA = vol.Any(
+    DEVICE_TRIGGER_BASE_SCHEMA.extend(
+        {
+            vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
+            vol.Required(CONF_SUBTYPE): vol.In(TRIGGER_SUBTYPES),
+            vol.Optional(CONF_ADDRESS): vol.Any(vol.Coerce(int), str),
+            vol.Optional(CONF_OBJECT): vol.Any(vol.Coerce(int), str),
+        }
+    ),
+    DEVICE_TRIGGER_BASE_SCHEMA.extend(
+        {
+            vol.Required(CONF_TYPE): vol.In(GATEWAY_TRIGGER_TYPES),
+            vol.Optional(CONF_SUBTYPE): str,
+        }
+    ),
 )
 
 
 def _get_gateway_mac_from_device(device: dr.BaseDeviceEntry) -> str | None:
     """Extract gateway MAC address from device entry."""
+    for conn_type, conn_val in device.connections:
+        if conn_type == dr.CONNECTION_NETWORK_MAC:
+            return str(conn_val)
     for identifier in device.identifiers:
         if identifier[0] != DOMAIN:
             continue
@@ -80,6 +100,8 @@ def _get_gateway_mac_from_device(device: dr.BaseDeviceEntry) -> str | None:
         if len(parts) >= 3 and parts[-2] in ("15", "25", "cen", "cenplus"):
             return parts[0]
         if len(parts) == 1 and ":" in ident:
+            return ident
+        if len(parts) == 1:
             return ident
     return None
 
@@ -188,6 +210,17 @@ async def async_get_triggers(
                 trigger[CONF_ADDRESS] = address
             triggers.append(trigger)
 
+    if address is None:
+        for gw_trigger_type in sorted(GATEWAY_TRIGGER_TYPES):
+            triggers.append(
+                {
+                    CONF_PLATFORM: "device",
+                    CONF_DEVICE_ID: device_id,
+                    CONF_DOMAIN: DOMAIN,
+                    CONF_TYPE: gw_trigger_type,
+                }
+            )
+
     return triggers
 
 
@@ -199,6 +232,40 @@ async def async_attach_trigger(
 ) -> CALLBACK_TYPE:
     """Attach a trigger to Home Assistant event bus."""
     trigger_type = config[CONF_TYPE]
+
+    if trigger_type in GATEWAY_TRIGGER_TYPES:
+        target_gateway_mac = None
+        if CONF_DEVICE_ID in config:
+            device_registry = dr.async_get(hass)
+            device = device_registry.async_get(config[CONF_DEVICE_ID])
+            if device is not None:
+                target_gateway_mac = _get_gateway_mac_from_device(device)
+
+        expected_event = {
+            CONF_CENTRALIZED_SHUTTER_OPEN: "open",
+            CONF_CENTRALIZED_SHUTTER_CLOSE: "close",
+            CONF_CENTRALIZED_SHUTTER_STOP: "stop",
+        }[trigger_type]
+
+        async def _handle_gateway_event(event: Any) -> None:
+            event_data = event.data
+            if event_data.get("event") == expected_event:
+                if target_gateway_mac is not None:
+                    event_mac = event_data.get("gateway_mac")
+                    if event_mac is not None and event_mac != target_gateway_mac:
+                        return
+                await action(
+                    {
+                        "trigger": {
+                            **trigger_info,
+                            "platform": "device",
+                            "event": event_data,
+                        }
+                    }
+                )
+
+        return hass.bus.async_listen("myhome_general_automation_event", _handle_gateway_event)
+
     subtype = config[CONF_SUBTYPE]
     button_num = int(subtype.replace("button_", ""))
 
