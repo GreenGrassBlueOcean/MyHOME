@@ -1380,11 +1380,31 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
 
     from custom_components.myhome.const import (
         CONF_ADDRESS,
+        CONF_DECODER_ENTITY,
+        CONF_DECODER_PRE_GAIN,
+        CONF_DECODER_SLOTS,
+        CONF_DECODER_SOURCE,
         CONF_GENERATE_EVENTS,
         CONF_OWN_PASSWORD,
+        CONF_SOURCE_DEFAULTS,
+        CONF_SOURCE_NAME,
+        CONF_SOURCE_SLOTS,
+        CONF_SOURCE_TUNER,
         CONF_TRANSITION_MODE,
         CONF_WORKER_COUNT,
     )
+
+    initial_options = {
+        CONF_WORKER_COUNT: 1,
+        CONF_GENERATE_EVENTS: False,
+        CONF_TRANSITION_MODE: "software_stepped",
+        CONF_SOURCE_DEFAULTS: {},
+        **{CONF_SOURCE_NAME.format(i): "" for i in range(1, CONF_SOURCE_SLOTS + 1)},
+        **{CONF_SOURCE_TUNER.format(i): False for i in range(1, CONF_SOURCE_SLOTS + 1)},
+        **{CONF_DECODER_ENTITY.format(i): "" for i in range(1, CONF_DECODER_SLOTS + 1)},
+        **{CONF_DECODER_SOURCE.format(i): i for i in range(1, CONF_DECODER_SLOTS + 1)},
+        **{CONF_DECODER_PRE_GAIN.format(i): 0 for i in range(1, CONF_DECODER_SLOTS + 1)},
+    }
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1395,32 +1415,12 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
             CONF_NAME: "MyHomeServer1",
             CONF_PASSWORD: "pass",
         },
-        options={
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software_stepped",
-        },
+        options=initial_options,
         unique_id="00:03:50:00:12:34",
     )
     entry.add_to_hass(hass)
 
-    # First establish options on the entry
-    with patch.object(hass.config_entries, "async_reload", return_value=True):
-        form0 = await hass.config_entries.options.async_init(entry.entry_id)
-        await hass.config_entries.options.async_configure(
-            form0["flow_id"],
-            {
-                CONF_ADDRESS: "192.168.1.50",
-                CONF_NAME: "MyHomeServer1",
-                CONF_OWN_PASSWORD: "pass",
-                CONF_WORKER_COUNT: 1,
-                CONF_GENERATE_EVENTS: False,
-                CONF_TRANSITION_MODE: "software_stepped",
-            },
-        )
-        await hass.async_block_till_done()
-
-    # Now update only data (host IP) with identical options
+    # Update only data (host IP) with identical options
     with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
         form = await hass.config_entries.options.async_init(entry.entry_id)
         assert form["type"] == FlowResultType.FORM
@@ -1513,8 +1513,6 @@ async def test_reauth_successful_reload_and_abort(hass: HomeAssistant) -> None:
     )
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.myhome.config_flow import MyhomeFlowHandler
-
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -1528,14 +1526,17 @@ async def test_reauth_successful_reload_and_abort(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    handler = MyhomeFlowHandler()
-    handler.hass = hass
-    handler.context = {
-        "source": config_entries.SOURCE_REAUTH,
-        "entry_id": entry.entry_id,
-        "unique_id": entry.unique_id,
-    }
-    await handler.async_step_reauth()
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+            "unique_id": entry.unique_id,
+        },
+        data=entry.data,
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "password"
 
     with patch(
         "custom_components.myhome.config_flow.OWNSession.test_connection",
@@ -1543,7 +1544,10 @@ async def test_reauth_successful_reload_and_abort(hass: HomeAssistant) -> None:
     ), patch.object(
         hass.config_entries, "async_reload", return_value=True
     ) as mock_reload:
-        res = await handler.async_step_password({"password": "correct_password"})
+        res = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"password": "correct_password"},
+        )
         await hass.async_block_till_done()
 
     assert res["type"] == FlowResultType.ABORT

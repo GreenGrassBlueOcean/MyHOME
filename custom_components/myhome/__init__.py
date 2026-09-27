@@ -326,9 +326,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     # Prune orphaned devices with 0 entities from the device registry
     prune_stale_devices(hass, entry, gateway_device_entry, gateway)
 
-
     return True
-
 
 
 async def async_remove_config_entry_device(

@@ -838,6 +838,10 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                         if _model_update and self.config_entry.title.endswith("Gateway"):
                             update_kwargs["title"] = f"{user_input[CONF_NAME]} Gateway"  # type: ignore
                         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)  # type: ignore
+                        # OptionsFlowWithReload only schedules a reload when entry.options
+                        # change. When only connection data changed (host, password, model)
+                        # and options remain identical, schedule reload explicitly so the
+                        # integration restarts with the new connection parameters.
                         if self.config_entry.options == self.options:
                             self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
