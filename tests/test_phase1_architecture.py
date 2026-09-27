@@ -728,7 +728,7 @@ class TestConfigFlowHardening:
             "custom_components.myhome.config_flow.OWNSession.test_connection",
             return_value={"Success": True, "Message": None},
         ), patch("custom_components.myhome.config_flow.OWNGateway.find_from_address") as mock_find, \
-           patch("custom_components.myhome.async_setup_entry", return_value=True):
+           patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
             mock_gw = MagicMock()
             mock_gw.password = "new_password"
             mock_gw.address = "192.0.2.1"
@@ -739,8 +739,10 @@ class TestConfigFlowHardening:
             mock_find.return_value = mock_gw
 
             res2 = await flow.async_step_password(user_input={CONF_PASSWORD: "new_password"})
+            await hass.async_block_till_done()
             assert res2["type"] == "abort"
             assert res2["reason"] == "reauth_successful"
+            assert mock_reload.called
 
             # Verify entry has updated password while retaining existing metadata
             updated = hass.config_entries.async_get_entry(entry.entry_id)
