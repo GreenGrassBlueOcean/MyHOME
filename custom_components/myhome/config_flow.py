@@ -767,8 +767,13 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         shared = in_topo == TOPOLOGY_SHARED
         follower = shared and in_role in (ROLE_SECONDARY, ROLE_STANDBY)
 
+        if not shared and user_input.get(CONF_GATEWAY_ROLE) in (ROLE_SECONDARY, ROLE_STANDBY):
+            errors[CONF_GATEWAY_ROLE] = "secondary_requires_shared_topology"
+            return
+
+        norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
+
         if follower:
-            norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
             target = entry_for_mac(self.hass, norm_pri) if norm_pri and norm_pri != my_mac else None
             if not norm_pri:
                 errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_required"
@@ -815,13 +820,14 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
 
         if not (shared and in_role == ROLE_PRIMARY) and my_mac and dependents(self.hass, my_mac):
             errors[CONF_GATEWAY_ROLE] = "gateway_has_dependents"
+
         if errors:
             return
 
         self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED if shared else TOPOLOGY_STANDALONE  # type: ignore
         self.options[CONF_GATEWAY_ROLE] = in_role if shared else ROLE_PRIMARY  # type: ignore
         if follower:
-            self.options[CONF_PRIMARY_GATEWAY] = in_pri  # type: ignore
+            self.options[CONF_PRIMARY_GATEWAY] = norm_pri  # type: ignore
         else:
             self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
         if follower and in_role == ROLE_SECONDARY:
@@ -830,9 +836,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         else:
             self.options.pop(CONF_DELEGATED_WHOS, None)  # type: ignore
 
-        if follower and my_mac:
+        if follower and my_mac and norm_pri:
             from .repairs import async_delete_shared_bus_issue
-            async_delete_shared_bus_issue(self.hass, my_mac, str(in_pri))
+            async_delete_shared_bus_issue(self.hass, my_mac, str(norm_pri))
 
     async def async_step_user(self, user_input=None, errors=None):  # type: ignore
         """Manage general settings and decoder mapping."""
@@ -1110,7 +1116,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             ]
             schema_dict[vol.Optional(
                 CONF_BUS_TOPOLOGY,
-                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},  # type: ignore
+                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
@@ -1120,7 +1126,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )
             schema_dict[vol.Optional(
                 CONF_GATEWAY_ROLE,
-                description={"suggested_value": self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY)},  # type: ignore
+                description={"suggested_value": self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY)},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY],
@@ -1130,7 +1136,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )
             schema_dict[vol.Optional(
                 CONF_PRIMARY_GATEWAY,
-                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY) or gw_options[0]["value"]},  # type: ignore
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY)},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=gw_options,
@@ -1139,7 +1145,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )
             schema_dict[vol.Optional(
                 CONF_DELEGATED_WHOS,
-                description={"suggested_value": [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]},  # type: ignore
+                description={"suggested_value": [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],

@@ -149,6 +149,8 @@
       "circular_gateway_reference": "Référence circulaire : la passerelle principale sélectionnée pointe déjà vers cette passerelle.",
       "primary_gateway_not_shared_primary": "La passerelle sélectionnée doit d'abord être configurée avec la topologie de bus Partagé et le rôle Principale.",
       "gateway_has_dependents": "D'autres passerelles utilisent cette passerelle comme principale. Faites-les d'abord pointer vers une autre principale (ou rendez-les autonomes).",
+      "secondary_requires_shared_topology": "Les rôles secondaire et veille active nécessitent que la topologie du bus soit définie sur Partagé.",
+      "multiple_shared_primaries": "Une autre passerelle est déjà configurée comme passerelle principale pour ce bus partagé. Sélectionnez Secondaire ou Veille active.",
       "duplicate_decoder_source": "Chaque décodeur doit être connecté à une entrée source de matrice différente."
     }
   },

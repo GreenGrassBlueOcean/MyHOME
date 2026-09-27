@@ -77,6 +77,14 @@ class GatewayEventDispatcher:
 
     def ensure_cen_device(self, who: int, object_id: int | str) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
+        if getattr(self.handler, "is_standby", False):
+            # Standby gateways never register devices on their own config entry
+            return
+        if getattr(self.handler, "is_secondary", False) and who not in getattr(self.handler, "delegated_whos", set()):
+            return
+        if not getattr(self.handler, "is_follower", False) and who in getattr(self.handler, "delegated_away_whos", set()):
+            return
+
         device_key = (who, object_id)
         obj_str = str(object_id)
         if device_key in self._cen_devices or (who, obj_str) in self._cen_devices:
@@ -119,6 +127,27 @@ class GatewayEventDispatcher:
 
     _ensure_cen_device = ensure_cen_device
 
+    def _is_active_for_who(self, who: int | None) -> bool:
+        """Return True if this gateway is the active owner for this WHO subsystem."""
+        if getattr(self.handler, "is_standby", False):
+            # Standby is only active for bus events if failover is active (primary is offline)
+            primary_gw = self.handler._get_primary_gateway()
+            if primary_gw is not None and not primary_gw.is_connected:
+                if who is None:
+                    return True
+                return self.handler._profile_supports_who(who)
+            return False
+
+        if getattr(self.handler, "is_secondary", False):
+            if who is None:
+                return True
+            return who in getattr(self.handler, "delegated_whos", set())
+
+        # Primary or standalone
+        if who is not None and who in getattr(self.handler, "delegated_away_whos", set()):
+            return False
+        return True
+
     async def process_message(self, message: Any) -> None:
         """Process a received message and dispatch to Home Assistant."""
         from . import gateway as gw_module
@@ -129,7 +158,10 @@ class GatewayEventDispatcher:
             self._logger.debug("%s Data received is not a message: `None`", self.handler.log_id)
             return
 
-        if getattr(self.handler, "generate_events", False):
+        msg_who = getattr(message, "who", getattr(message, "_who", None))
+        who_int = int(msg_who) if msg_who is not None and str(msg_who).isdigit() else None
+
+        if getattr(self.handler, "generate_events", False) and self._is_active_for_who(who_int):
             if isinstance(message, OWNMessage):
                 event_content = {"gateway": str(self.handler.gateway.host)}
                 event_content.update(message.event_content)
@@ -159,15 +191,14 @@ class GatewayEventDispatcher:
             or isinstance(message, OWNHeatingEvent)
         ):
             if not message.is_translation:
-                if (
-                    isinstance(message, OWNLightingEvent)
-                    and not getattr(message, "is_group", False)
-                    and not getattr(message, "is_area", False)
-                    and not getattr(message, "is_general", False)
-                ):
-                    self.handler._resync_manager.handle_ptp_echo(message)
+                if isinstance(message, OWNLightingEvent) and self._is_active_for_who(1):
+                    if (
+                        not getattr(message, "is_group", False)
+                        and not getattr(message, "is_area", False)
+                        and not getattr(message, "is_general", False)
+                    ):
+                        self.handler._resync_manager.handle_ptp_echo(message)
 
-                if isinstance(message, OWNLightingEvent):
                     if message.is_on is not None:
                         event = "on" if message.is_on else "off"
                         if message.is_general:
@@ -199,7 +230,7 @@ class GatewayEventDispatcher:
                         or getattr(message, "is_group", False)
                     ):
                         self.handler._schedule_resync(message)
-                elif isinstance(message, OWNAutomationEvent):
+                elif isinstance(message, OWNAutomationEvent) and self._is_active_for_who(2):
                     if message.is_general:
                         if message.is_opening and not message.is_closing:
                             event = "open"
@@ -247,7 +278,7 @@ class GatewayEventDispatcher:
                     self.handler.log_id,
                     message,
                 )
-        elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14:
+        elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14 and self._is_active_for_who(4):
             where_str = cast(str, message.where)
             where = where_str[1:] if where_str.startswith("#") else where_str
             self._logger.debug(
@@ -279,19 +310,33 @@ class GatewayEventDispatcher:
             else:
                 event = None
             raw_obj = str(message.object)
-            self.handler._ensure_cen_device(25, raw_obj)
-            cenplus_payload: dict[str, Any] = {
-                "object": int(message.object),
-                "pushbutton": int(message.push_button),
-                "event": event,
-                "where": raw_obj,
-                "gateway_mac": self.handler.mac,
-            }
+
+            target_mac = self.handler.mac
             config_entry = getattr(self.handler, "config_entry", None)
-            if config_entry and hasattr(config_entry, "entry_id") and isinstance(config_entry.entry_id, str):
-                cenplus_payload["entry_id"] = config_entry.entry_id
-            self.hass.bus.async_fire("myhome_cenplus_event", cenplus_payload)
-            dispatcher_send(self.hass, f"myhome_cenplus_event_{self.handler.mac}", cenplus_payload)
+            target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
+
+            if getattr(self.handler, "is_standby", False):
+                primary_gw = self.handler._get_primary_gateway()
+                if primary_gw is not None and not primary_gw.is_connected and self.handler._profile_supports_who(25):
+                    target_mac = primary_gw.mac
+                    pri_entry = getattr(primary_gw, "config_entry", None)
+                    target_entry_id = getattr(pri_entry, "entry_id", None) if pri_entry else None
+                else:
+                    target_mac = None
+
+            if target_mac is not None and self._is_active_for_who(25):
+                self.handler._ensure_cen_device(25, raw_obj)
+                cenplus_payload: dict[str, Any] = {
+                    "object": int(message.object),
+                    "pushbutton": int(message.push_button),
+                    "event": event,
+                    "where": raw_obj,
+                    "gateway_mac": target_mac,
+                }
+                if target_entry_id and isinstance(target_entry_id, str):
+                    cenplus_payload["entry_id"] = target_entry_id
+                self.hass.bus.async_fire("myhome_cenplus_event", cenplus_payload)
+                dispatcher_send(self.hass, f"myhome_cenplus_event_{target_mac}", cenplus_payload)
             self._logger.debug(
                 "%s %s",
                 self.handler.log_id,
@@ -310,25 +355,39 @@ class GatewayEventDispatcher:
             else:
                 event = None
             raw_obj = str(message.object)
-            self.handler._ensure_cen_device(15, raw_obj)
-            cen_payload: dict[str, Any] = {
-                "object": int(cast(str, message.object)),
-                "pushbutton": int(cast(int, message.push_button)),
-                "event": event,
-                "where": raw_obj,
-                "gateway_mac": self.handler.mac,
-            }
+
+            target_mac = self.handler.mac
             config_entry = getattr(self.handler, "config_entry", None)
-            if config_entry and hasattr(config_entry, "entry_id") and isinstance(config_entry.entry_id, str):
-                cen_payload["entry_id"] = config_entry.entry_id
-            self.hass.bus.async_fire("myhome_cen_event", cen_payload)
-            dispatcher_send(self.hass, f"myhome_cen_event_{self.handler.mac}", cen_payload)
+            target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
+
+            if getattr(self.handler, "is_standby", False):
+                primary_gw = self.handler._get_primary_gateway()
+                if primary_gw is not None and not primary_gw.is_connected and self.handler._profile_supports_who(15):
+                    target_mac = primary_gw.mac
+                    pri_entry = getattr(primary_gw, "config_entry", None)
+                    target_entry_id = getattr(pri_entry, "entry_id", None) if pri_entry else None
+                else:
+                    target_mac = None
+
+            if target_mac is not None and self._is_active_for_who(15):
+                self.handler._ensure_cen_device(15, raw_obj)
+                cen_payload: dict[str, Any] = {
+                    "object": int(cast(str, message.object)),
+                    "pushbutton": int(cast(int, message.push_button)),
+                    "event": event,
+                    "where": raw_obj,
+                    "gateway_mac": target_mac,
+                }
+                if target_entry_id and isinstance(target_entry_id, str):
+                    cen_payload["entry_id"] = target_entry_id
+                self.hass.bus.async_fire("myhome_cen_event", cen_payload)
+                dispatcher_send(self.hass, f"myhome_cen_event_{target_mac}", cen_payload)
             self._logger.debug(
                 "%s %s",
                 self.handler.log_id,
                 message.human_readable_log,
             )
-        elif isinstance(message, OWNAlarmEvent):
+        elif isinstance(message, OWNAlarmEvent) and self._is_active_for_who(5):
             self.hass.bus.async_fire(
                 "myhome_alarm_event",
                 {

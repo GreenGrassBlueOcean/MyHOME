@@ -149,6 +149,8 @@
       "circular_gateway_reference": "Riferimento circolare: il gateway primario selezionato punta già a questo gateway.",
       "primary_gateway_not_shared_primary": "Il gateway selezionato deve prima essere configurato con topologia del bus Condiviso e ruolo Primario.",
       "gateway_has_dependents": "Altri gateway usano questo gateway come primario. Prima falli puntare a un altro primario (o rendili autonomi).",
+      "secondary_requires_shared_topology": "I ruoli secondario e di riserva richiedono che la topologia del bus sia impostata su Condiviso.",
+      "multiple_shared_primaries": "Un altro gateway è già configurato come gateway primario per questo bus condiviso. Selezionare Secondario o Riserva attiva.",
       "duplicate_decoder_source": "Ciascun decoder deve essere collegato a un ingresso sorgente della matrice diverso."
     }
   },

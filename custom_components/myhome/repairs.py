@@ -235,6 +235,8 @@ def async_create_primary_missing_issue(hass: HomeAssistant, entry_id: str, gatew
 def async_delete_primary_missing_issue(hass: HomeAssistant, entry_id: str) -> None:
     """Delete the missing-primary issue once the secondary points at a valid primary."""
     async_delete_issue(hass, DOMAIN, f"{ISSUE_PRIMARY_GATEWAY_MISSING}_{entry_id}")
+
+
 def async_create_incompatible_decoder_issue(
     hass: HomeAssistant, entry_id: str, decoder_id: str, platform: str
 ) -> None:

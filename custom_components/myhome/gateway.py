@@ -682,9 +682,26 @@ class MyHOMEGatewayHandler:
         """
         if not getattr(self, "hass", None) or getattr(message, "who", None) in (13, 1013):
             return
+
+        # Ignore general, area, and group frames: isolated plants commonly share these (#459)
+        if (
+            getattr(message, "is_general", False)
+            or getattr(message, "is_area", False)
+            or getattr(message, "is_group", False)
+        ):
+            return
+        where = getattr(message, "where", None)
+        if where is not None:
+            where_str = str(where).strip()
+            if where_str in ("0", "#0") or where_str.startswith("#"):
+                return
+
         domain_data = self.hass.data.setdefault(DOMAIN, {})
         now = time.monotonic()
         raw_msg = str(message).strip()
+        if raw_msg.endswith("*0##") or raw_msg.endswith("*#0##") or "*0*0##" in raw_msg:
+            return
+
         group = self.bus_group
 
         # 0. The echo of a frame this gateway wrote proves nothing: two isolated buses

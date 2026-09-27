@@ -149,6 +149,8 @@
       "circular_gateway_reference": "Kringverwijzing: de gekozen primaire gateway verwijst al naar deze gateway.",
       "primary_gateway_not_shared_primary": "De gekozen gateway moet eerst worden ingesteld met bustopologie Gedeeld en rol Primair.",
       "gateway_has_dependents": "Andere gateways gebruiken deze gateway als primaire gateway. Laat ze eerst naar een andere primaire gateway verwijzen (of maak ze zelfstandig).",
+      "secondary_requires_shared_topology": "Voor secundaire en warm-stand-by rollen moet de bustopologie zijn ingesteld op Gedeeld.",
+      "multiple_shared_primaries": "Er is al een andere gateway ingesteld als primaire gateway voor deze gedeelde bus. Selecteer Secundair of Warm-stand-by.",
       "duplicate_decoder_source": "Elke decoder moet aangesloten zijn op een andere matrix broningang."
     }
   },

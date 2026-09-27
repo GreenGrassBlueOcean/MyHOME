@@ -1,4 +1,5 @@
 """Tests for multi-gateway and shared bus support (Issue #453)."""
+
 import collections
 import time
 from typing import Any
@@ -277,7 +278,9 @@ async def test_shared_bus_traffic_detection_tx_rx(hass: HomeAssistant) -> None:
             recent_tx = domain_data.setdefault("_recent_tx", collections.deque())
             if not isinstance(recent_tx, collections.deque):
                 domain_data["_recent_tx"] = collections.deque()
-            domain_data["_recent_tx"].append((time.monotonic(), gw_a.mac, gw_a.bus_group, "*1*1*21##"))
+            domain_data["_recent_tx"].append(
+                (time.monotonic(), gw_a.mac, gw_a.bus_group, "*1*1*21##")
+            )
 
             # Gateway B receives the exact same frame
             msg_rx = OWNLightingEvent.parse("*1*1*21##")
@@ -288,6 +291,7 @@ async def test_shared_bus_traffic_detection_tx_rx(hass: HomeAssistant) -> None:
 
         # Early return branches: gateway-local frames, no/own peer
         from OWNd.message import OWNMessage
+
         gw_b._correlate_shared_bus_traffic(OWNMessage.parse("*#13**0##"))
         gw_a._record_shared_bus_evidence("", 0.0)
         gw_a._record_shared_bus_evidence(gw_a.mac, 0.0)
@@ -354,7 +358,9 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     gw_b.send.reset_mock()
 
     # 4. targeted sweep hits the secondary
-    await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True)
+    await hass.services.async_call(
+        DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True
+    )
     assert gw_a.send.call_count == 0
     # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 5, 16 = 7
     assert gw_b.send.call_count == 7
@@ -424,18 +430,20 @@ async def test_options_flow_multi_gateway(hass: HomeAssistant) -> None:
 
     # 3. Post multi-gateway options and verify issue resolution and reload
     with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
-        res = await opt_flow.async_step_user({
-            CONF_ADDRESS: entry_sec.data[CONF_HOST],
-            CONF_NAME: entry_sec.data[CONF_NAME],
-            CONF_OWN_PASSWORD: None,
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software_stepped",
-            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
-            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-            CONF_DELEGATED_WHOS: ["2", "16"],
-        })
+        res = await opt_flow.async_step_user(
+            {
+                CONF_ADDRESS: entry_sec.data[CONF_HOST],
+                CONF_NAME: entry_sec.data[CONF_NAME],
+                CONF_OWN_PASSWORD: None,
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["2", "16"],
+            }
+        )
 
     assert res["type"] == FlowResultType.CREATE_ENTRY
     options = res["data"]
@@ -480,7 +488,7 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
     entry_pri, gw_primary = _create_mock_gateway(
         hass,
         "00:03:50:aa:bb:01",
-        topology=TOPOLOGY_STANDALONE,
+        topology=TOPOLOGY_SHARED,
         role=ROLE_PRIMARY,
     )
     entry_sb, gw_standby = _create_mock_gateway(
@@ -522,7 +530,9 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
 
         # 3. Outbound status requests fail over transparently to standby
         status_cmd = OWNCommand.parse("*#1*21##")
-        with patch.object(gw_standby, "send_status_request", new_callable=AsyncMock) as mock_sb_status:
+        with patch.object(
+            gw_standby, "send_status_request", new_callable=AsyncMock
+        ) as mock_sb_status:
             mock_sb_status.return_value = 67890.0
             fut = await gw_primary.send_status_request(status_cmd)
             mock_sb_status.assert_awaited_once_with(status_cmd)
@@ -633,7 +643,10 @@ async def test_warm_standby_failover_outbound_and_inbound_bridging(hass: HomeAss
         # Verify primary close_listener() also cleans up
         gw_primary._failover_active = True
         from custom_components.myhome.repairs import async_create_failover_issue
-        async_create_failover_issue(hass, gw_primary.mac, gw_standby.mac, gw_primary.name, gw_standby.name)
+
+        async_create_failover_issue(
+            hass, gw_primary.mac, gw_standby.mac, gw_primary.name, gw_standby.name
+        )
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
         await gw_primary.close_listener()
         assert gw_primary.failover_active is False
@@ -675,17 +688,19 @@ async def test_warm_standby_diagnostics_and_options_flow(hass: HomeAssistant) ->
     opt_flow = MyhomeOptionsFlowHandler(entry_sb)
     opt_flow.hass = hass
     with patch.object(hass.config_entries, "async_reload", return_value=True):
-        res = await opt_flow.async_step_user({
-            CONF_ADDRESS: entry_sb.data[CONF_HOST],
-            CONF_NAME: entry_sb.data[CONF_NAME],
-            CONF_OWN_PASSWORD: None,
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software_stepped",
-            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-            CONF_GATEWAY_ROLE: ROLE_STANDBY,
-            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-        })
+        res = await opt_flow.async_step_user(
+            {
+                CONF_ADDRESS: entry_sb.data[CONF_HOST],
+                CONF_NAME: entry_sb.data[CONF_NAME],
+                CONF_OWN_PASSWORD: None,
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_STANDBY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            }
+        )
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert res["data"][CONF_GATEWAY_ROLE] == ROLE_STANDBY
 
@@ -787,32 +802,38 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
     # 1. Missing primary_gateway on shared secondary
     opt_flow = MyhomeOptionsFlowHandler(entry_2)
     opt_flow.hass = hass
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_SECONDARY,
-        CONF_PRIMARY_GATEWAY: "",
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "",
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "primary_gateway_required"
 
     # 2. Selecting self as primary_gateway
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_SECONDARY,
-        CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:02",
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:02",
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "invalid_primary_gateway"
 
     # 3. Non-existent primary_gateway MAC
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_SECONDARY,
-        CONF_PRIMARY_GATEWAY: "00:03:50:99:99:99",
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:99:99:99",
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "primary_gateway_not_found"
 
@@ -825,12 +846,14 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
             CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:02",
         },
     )
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_SECONDARY,
-        CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "circular_gateway_reference"
 
@@ -843,23 +866,29 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
             CONF_GATEWAY_ROLE: ROLE_PRIMARY,
         },
     )
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_PRIMARY,
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+        }
+    )
     assert res["type"] == FlowResultType.CREATE_ENTRY
 
     # 6. The primary must itself be a shared primary: a standalone one would flag its own standby
-    hass.config_entries.async_update_entry(entry_1, options={CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE})
+    hass.config_entries.async_update_entry(
+        entry_1, options={CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE}
+    )
     opt_flow = MyhomeOptionsFlowHandler(entry_2)
     opt_flow.hass = hass
-    res = await opt_flow.async_step_user({
-        **base_input,
-        CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-        CONF_GATEWAY_ROLE: ROLE_STANDBY,
-        CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-    })
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_STANDBY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_PRIMARY_GATEWAY] == "primary_gateway_not_shared_primary"
 
@@ -867,21 +896,29 @@ async def test_options_flow_topology_validation_errors(hass: HomeAssistant) -> N
 @pytest.mark.asyncio
 async def test_options_flow_primary_with_dependents_keeps_its_role(hass: HomeAssistant) -> None:
     """A primary that a standby points at cannot become standalone or secondary."""
-    entry_pri, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY)
+    entry_pri, _ = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
     _create_mock_gateway(
-        hass, "00:03:50:aa:bb:02", topology=TOPOLOGY_SHARED, role=ROLE_STANDBY, primary_gateway="00:03:50:aa:bb:01"
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
     )
     opt_flow = MyhomeOptionsFlowHandler(entry_pri)
     opt_flow.hass = hass
-    res = await opt_flow.async_step_user({
-        CONF_ADDRESS: entry_pri.data[CONF_HOST],
-        CONF_NAME: entry_pri.data[CONF_NAME],
-        CONF_OWN_PASSWORD: None,
-        CONF_WORKER_COUNT: 1,
-        CONF_GENERATE_EVENTS: False,
-        CONF_TRANSITION_MODE: "software_stepped",
-        CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
-    })
+    res = await opt_flow.async_step_user(
+        {
+            CONF_ADDRESS: entry_pri.data[CONF_HOST],
+            CONF_NAME: entry_pri.data[CONF_NAME],
+            CONF_OWN_PASSWORD: None,
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software_stepped",
+            CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+        }
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"][CONF_GATEWAY_ROLE] == "gateway_has_dependents"
 
@@ -917,23 +954,27 @@ async def test_options_flow_standalone_and_standby_resets(hass: HomeAssistant) -
     opt_flow = MyhomeOptionsFlowHandler(entry_sec)
     opt_flow.hass = hass
     with patch.object(hass.config_entries, "async_reload", return_value=True):
-        res = await opt_flow.async_step_user({
-            **base_input,
-            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-            CONF_GATEWAY_ROLE: ROLE_STANDBY,
-            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
-            CONF_DELEGATED_WHOS: ["5", "16"],
-        })
+        res = await opt_flow.async_step_user(
+            {
+                **base_input,
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_STANDBY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["5", "16"],
+            }
+        )
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert res["data"][CONF_GATEWAY_ROLE] == ROLE_STANDBY
     assert CONF_DELEGATED_WHOS not in res["data"]
 
     # 2. Switching to standalone clears primary_gateway, delegated_whos, and sets role to primary
     with patch.object(hass.config_entries, "async_reload", return_value=True):
-        res = await opt_flow.async_step_user({
-            **base_input,
-            CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
-        })
+        res = await opt_flow.async_step_user(
+            {
+                **base_input,
+                CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+            }
+        )
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert res["data"][CONF_BUS_TOPOLOGY] == TOPOLOGY_STANDALONE
     assert res["data"][CONF_GATEWAY_ROLE] == ROLE_PRIMARY
@@ -946,11 +987,13 @@ async def test_options_flow_standalone_and_standby_resets(hass: HomeAssistant) -
         options={**entry_pri.options, CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE},
     )
     with patch.object(hass.config_entries, "async_reload", return_value=True):
-        res = await opt_flow.async_step_user({
-            **base_input,
-            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
-            CONF_GATEWAY_ROLE: ROLE_PRIMARY,
-        })
+        res = await opt_flow.async_step_user(
+            {
+                **base_input,
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+            }
+        )
     assert res["type"] == FlowResultType.CREATE_ENTRY
     assert res["data"][CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
     assert res["data"][CONF_GATEWAY_ROLE] == ROLE_PRIMARY
@@ -1003,7 +1046,9 @@ def test_shared_bus_evidence_capping(hass: HomeAssistant) -> None:
         start = 10 * 86400.0
         for i in range(2):
             gw1._record_shared_bus_evidence(other_mac, start + i * SHARED_BUS_EVIDENCE_WINDOW_S / 3)
-        gw1._record_shared_bus_evidence(other_mac, start + 2 * SHARED_BUS_EVIDENCE_WINDOW_S / 3, is_tx_echo=True)
+        gw1._record_shared_bus_evidence(
+            other_mac, start + 2 * SHARED_BUS_EVIDENCE_WINDOW_S / 3, is_tx_echo=True
+        )
         mock_issue.assert_called_once_with(hass, *pair_key)
         assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 0
 
@@ -1127,10 +1172,12 @@ async def test_gateway_availability_with_standby(hass: HomeAssistant) -> None:
         assert gw_a.is_who_available(16) is True
         assert gw_a.is_who_available(2) is False
 
+
 @pytest.mark.asyncio
 async def test_standby_failover_outbound_unsupported_who(hass: HomeAssistant) -> None:
     """Test outbound failover aborts if standby profile lacks support for the command's WHO."""
     from OWNd.message import OWNCommand
+
     entry_pri, gw_pri = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
     entry_sec, gw_sec = _create_mock_gateway(
         hass,
@@ -1150,4 +1197,204 @@ async def test_standby_failover_outbound_unsupported_who(hass: HomeAssistant) ->
         msg = OWNCommand.parse("*#16*0*5##")
         result = await gw_pri.send(msg)
         import asyncio
+
         assert isinstance(result, asyncio.Future)
+
+
+@pytest.mark.asyncio
+async def test_two_standalone_buses_general_commands_not_shared_bus_evidence(
+    hass: HomeAssistant,
+) -> None:
+    """Test general commands across two standalone buses do not trigger shared bus detection (#459)."""
+    import homeassistant.helpers.issue_registry as ir
+    from OWNd.message import OWNLightingEvent
+
+    from custom_components.myhome.const import DOMAIN
+
+    _, gw_a = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    _, gw_b = _create_mock_gateway(hass, "00:03:50:aa:bb:02")
+
+    msg = OWNLightingEvent.parse("*1*1*0##")
+    # Gateway A sends general light ON 3 times; Gateway B receives general light ON
+    for i in range(3):
+        gw_a._record_tx(1000.0 + i * 10, "*1*1*0##")
+        # Gateway B receives it without having sent it
+        gw_b._correlate_shared_bus_traffic(msg)
+
+    pair_key = tuple(sorted([gw_a.mac, gw_b.mac]))
+    evidence = hass.data[DOMAIN].get("_shared_bus_evidence", {})
+    assert pair_key not in evidence or len(evidence[pair_key]) == 0
+    assert not [i for (d, i) in ir.async_get(hass).issues if d == DOMAIN]
+
+
+@pytest.mark.asyncio
+async def test_shared_primary_and_standby_connected_no_event_double_fire(
+    hass: HomeAssistant,
+) -> None:
+    """Test that standby does not double-fire HA bus events while primary is connected (#459)."""
+    from homeassistant.core import callback
+    from OWNd.message import OWNLightingEvent
+
+    _, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    _, gw_sb = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_pri.is_connected = True
+    gw_sb.is_connected = True
+
+    events = []
+
+    @callback
+    def _on_general_light(event: Any) -> None:
+        events.append(event)
+
+    unsub = hass.bus.async_listen("myhome_general_light_event", _on_general_light)
+
+    msg = OWNLightingEvent.parse("*1*1*0##")
+    await gw_pri._process_message(msg)
+    await gw_sb._process_message(msg)
+
+    assert len(events) == 1
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_standby_connected_creates_no_cen_devices(hass: HomeAssistant) -> None:
+    """Test that standby creates no CEN devices on its own config entry while connected (#459)."""
+    from homeassistant.helpers import device_registry as dr
+    from OWNd.message import OWNCENPlusEvent
+
+    entry_pri, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    entry_sb, gw_sb = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_pri.is_connected = True
+    gw_sb.is_connected = True
+
+    cen_events = []
+    unsub = hass.bus.async_listen("myhome_cenplus_event", lambda e: cen_events.append(e))
+
+    msg = OWNCENPlusEvent.parse("*25*21#1*01##")
+    await gw_sb._process_message(msg)
+
+    # Standby must not fire CEN events while primary is up
+    assert len(cen_events) == 0
+
+    # Standby must not register CEN devices on its own entry
+    dev_reg = dr.async_get(hass)
+    sb_devices = dr.async_entries_for_config_entry(dev_reg, entry_sb.entry_id)
+    assert not any("CEN" in (d.name or "") for d in sb_devices)
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_secondary_initial_discovery_delegated_who4(hass: HomeAssistant) -> None:
+    """Test that a secondary gateway with delegated WHO=4 sweeps *#4*0## on initial discovery (#459)."""
+    _, gw_sec = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[4],
+    )
+    gw_sec.send_status_request = AsyncMock()
+
+    await gw_sec.initial_discovery()
+
+    # WHO=4 must be queried, while WHO=2, 16 must be skipped on follower
+    assert gw_sec.send_status_request.call_count == 1
+    call_arg = gw_sec.send_status_request.call_args[0][0]
+    assert str(call_arg) == "*#4*0##"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_standalone_with_secondary_role_rejected(hass: HomeAssistant) -> None:
+    """Test that selecting secondary role while keeping standalone topology is rejected with an error (#459)."""
+    entry_1, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    entry_2, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:02")
+
+    opt_flow = MyhomeOptionsFlowHandler(entry_2)
+    opt_flow.hass = hass
+
+    base_input = {
+        CONF_ADDRESS: entry_2.data[CONF_HOST],
+        CONF_NAME: entry_2.data[CONF_NAME],
+        CONF_OWN_PASSWORD: None,
+        CONF_WORKER_COUNT: 1,
+        CONF_GENERATE_EVENTS: False,
+        CONF_TRANSITION_MODE: "software_stepped",
+    }
+
+    res = await opt_flow.async_step_user(
+        {
+            **base_input,
+            CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: ["1"],
+        }
+    )
+    assert res["type"] == FlowResultType.FORM
+    assert res["errors"][CONF_GATEWAY_ROLE] == "secondary_requires_shared_topology"
+
+
+@pytest.mark.asyncio
+async def test_standby_failover_cen_event_bridged_to_primary(hass: HomeAssistant) -> None:
+    """Test that CEN events on standby during failover are bridged with primary MAC and entry ID (#459)."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+    from OWNd.message import OWNCENPlusEvent
+
+    entry_pri, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    entry_sb, gw_sb = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_pri.is_connected = False
+    gw_pri._available = False
+    gw_sb.is_connected = True
+    gw_sb._available = True
+
+    cen_events = []
+    dispatched_events = []
+
+    unsub_bus = hass.bus.async_listen("myhome_cenplus_event", lambda e: cen_events.append(e))
+    unsub_disp = async_dispatcher_connect(
+        hass,
+        f"myhome_cenplus_event_{gw_pri.mac}",
+        lambda payload: dispatched_events.append(payload),
+    )
+
+    msg = OWNCENPlusEvent.parse("*25*21#1*01##")
+    await gw_sb._process_message(msg)
+
+    assert len(cen_events) == 1
+    assert cen_events[0].data["gateway_mac"] == gw_pri.mac
+    assert cen_events[0].data["entry_id"] == entry_pri.entry_id
+
+    assert len(dispatched_events) == 1
+    assert dispatched_events[0]["gateway_mac"] == gw_pri.mac
+    assert dispatched_events[0]["entry_id"] == entry_pri.entry_id
+
+    unsub_bus()
+    unsub_disp()
