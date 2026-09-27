@@ -39,16 +39,20 @@ from voluptuous import (
 from .const import (
     CONF_ADDRESS,
     CONF_BROADCAST_RESYNC,
+    CONF_BUS_TOPOLOGY,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
     CONF_DECODER_SOURCE,
+    CONF_DELEGATED_WHOS,
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
+    CONF_GATEWAY_ROLE,
     CONF_GENERATE_EVENTS,
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
     CONF_OWN_PASSWORD,
+    CONF_PRIMARY_GATEWAY,
     CONF_SOURCE_DEFAULT_FIELD,
     CONF_SOURCE_DEFAULTS,
     CONF_SOURCE_NAME,
@@ -63,10 +67,19 @@ from .const import (
     DOMAIN,
     IDENTIFICATION_MANUAL,
     LOGGER,
+    ROLE_PRIMARY,
+    ROLE_SECONDARY,
+    ROLE_STANDBY,
     SUPPORTED_GATEWAY_MODELS,
+    TOPOLOGY_SHARED,
+    TOPOLOGY_STANDALONE,
 )
 from .decoder_companion import async_get_excluded_decoders
 from .gateway import MyHOMEGatewayHandler, command_session_limit
+from .topology import (
+    entry_mac,
+    validate_shared_bus_topology,
+)
 
 
 class MACAddress:
@@ -739,6 +752,42 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
         environments.discard("0")
         return sorted(environments)
 
+    def _apply_topology(self, user_input: dict[str, typing.Any], errors: dict[str, str]) -> None:
+        """Validate the shared-bus settings (#453) and store them in the options."""
+        top_errors = validate_shared_bus_topology(
+            self.hass,
+            self.config_entry,
+            user_input,
+            model_override=user_input.get(CONF_NAME),
+        )
+        if top_errors:
+            errors.update(top_errors)
+            return
+
+        in_topo = user_input.get(CONF_BUS_TOPOLOGY, self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE))  # type: ignore
+        in_role = user_input.get(CONF_GATEWAY_ROLE, self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY))  # type: ignore
+        in_pri = user_input.get(CONF_PRIMARY_GATEWAY, self.options.get(CONF_PRIMARY_GATEWAY))  # type: ignore
+        shared = in_topo == TOPOLOGY_SHARED
+        follower = shared and in_role in (ROLE_SECONDARY, ROLE_STANDBY)
+        my_mac = entry_mac(self.config_entry)
+        norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
+
+        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED if shared else TOPOLOGY_STANDALONE  # type: ignore
+        self.options[CONF_GATEWAY_ROLE] = in_role if shared else ROLE_PRIMARY  # type: ignore
+        if follower:
+            self.options[CONF_PRIMARY_GATEWAY] = norm_pri  # type: ignore
+        else:
+            self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
+        if follower and in_role == ROLE_SECONDARY:
+            delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, []) if str(w).isdigit()]
+            self.options[CONF_DELEGATED_WHOS] = delegated  # type: ignore
+        else:
+            self.options.pop(CONF_DELEGATED_WHOS, None)  # type: ignore
+
+        if follower and my_mac and norm_pri:
+            from .repairs import async_delete_shared_bus_issue
+            async_delete_shared_bus_issue(self.hass, my_mac, str(norm_pri))
+
     async def async_step_user(self, user_input=None, errors=None):  # type: ignore
         """Manage general settings and decoder mapping."""
 
@@ -811,6 +860,8 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     # source labels both index on plain ints.
                     self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
                     self.options[gain_key] = int(float(user_input.get(gain_key, 0) or 0))  # type: ignore
+
+                self._apply_topology(user_input, errors)
 
                 _model_update = False
                 if CONF_NAME in user_input and user_input[CONF_NAME] != self.data.get(CONF_NAME):  # type: ignore
@@ -996,6 +1047,83 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     min=0, max=50, step=1,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        other_gateways = [
+            e for e in self.hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != getattr(self.config_entry, "entry_id", None)
+        ]
+        if other_gateways:
+            gw_options = [
+                selector.SelectOptionDict(value=str(e.data.get(CONF_MAC) or e.unique_id), label=f"{e.title} ({e.data.get(CONF_HOST)})")
+                for e in other_gateways
+            ]
+            schema_dict[vol.Optional(
+                CONF_BUS_TOPOLOGY,
+                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_BUS_TOPOLOGY,
+                )
+            )
+            suggested_role = self.options.get(CONF_GATEWAY_ROLE)
+            suggested_whos = [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]
+            selected_pri = self.options.get(CONF_PRIMARY_GATEWAY)
+            if not selected_pri and gw_options:
+                selected_pri = gw_options[0]["value"]
+            if selected_pri and (suggested_role is None or not suggested_whos):
+                from .topology import entry_for_mac, entry_mac, infer_shared_bus_topology
+
+                pri_entry = entry_for_mac(self.hass, selected_pri)
+                if pri_entry and self.config_entry:
+                    rec = infer_shared_bus_topology(pri_entry, self.config_entry)
+                    my_mac = entry_mac(self.config_entry)
+                    if suggested_role is None:
+                        suggested_role = rec.role if rec.secondary_mac == my_mac else ROLE_PRIMARY
+                    if not suggested_whos and rec.secondary_mac == my_mac and rec.role == ROLE_SECONDARY:
+                        suggested_whos = [str(w) for w in sorted(rec.delegated_whos)]
+                    LOGGER.debug(
+                        "Inferred shared-bus smart defaults for %s: role=%s, delegated_whos=%s (selected primary %s)",
+                        my_mac,
+                        suggested_role,
+                        suggested_whos,
+                        selected_pri,
+                    )
+
+            if suggested_role is None:
+                suggested_role = ROLE_PRIMARY
+
+            schema_dict[vol.Optional(
+                CONF_GATEWAY_ROLE,
+                description={"suggested_value": suggested_role},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_GATEWAY_ROLE,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_PRIMARY_GATEWAY,
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=gw_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_DELEGATED_WHOS,
+                description={"suggested_value": suggested_whos},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_DELEGATED_WHOS,
                 )
             )
 

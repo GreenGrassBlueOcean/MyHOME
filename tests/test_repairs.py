@@ -134,7 +134,7 @@ async def test_unconfigured_timezone_issues_lifecycle(hass: HomeAssistant) -> No
     assert issue.translation_key == ISSUE_UNCONFIGURED_TIMEZONE
     assert not issue.is_fixable
     assert issue.translation_placeholders == {"gateway": "Mock Gateway"}
-    assert issue.learn_more_url == "https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#unconfigured-timezone"
+    assert issue.learn_more_url == "https://github.com/OpenWebNet-HA/MyHOME/wiki/Configuration#timezone"
 
     async_delete_unconfigured_timezone_issue(hass, entry_id)
     assert issue_registry.async_get_issue(DOMAIN, f"{ISSUE_UNCONFIGURED_TIMEZONE}_{entry_id}") is None
@@ -287,3 +287,84 @@ async def test_prune_incompatible_decoder_issues(hass: HomeAssistant) -> None:
     async_prune_incompatible_decoder_issues(hass, entry_id, ["media_player.dec1"])
     assert issue_registry.async_get_issue(DOMAIN, issue1_id) is not None
     assert issue_registry.async_get_issue(DOMAIN, issue2_id) is None
+
+
+@pytest.mark.asyncio
+async def test_shared_bus_repair_flow(hass: HomeAssistant) -> None:
+    """Test automated resolution of shared bus repair issue applies recommended topology."""
+    from unittest.mock import AsyncMock, patch
+
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+    from custom_components.myhome.repairs import (
+        async_create_fix_flow,
+        async_create_shared_bus_issue,
+    )
+
+    pri_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MyHomeServer1 Gateway",
+        data={"name": "MyHomeServer1", "mac": "00:03:50:aa:bb:01"},
+        options={},
+    )
+    sec_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="H4890 Gateway",
+        data={"name": "H4890", "mac": "00:03:50:aa:bb:02"},
+        options={},
+    )
+    pri_entry.add_to_hass(hass)
+    sec_entry.add_to_hass(hass)
+
+    async_create_shared_bus_issue(hass, "00:03:50:aa:bb:01", "00:03:50:aa:bb:02")
+
+    flow = await async_create_fix_flow(
+        hass,
+        "shared_bus_detected_000350aabb01_000350aabb02",
+        {"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"},
+    )
+    result = await flow.async_step_init()
+    assert result["type"] == "form"
+    assert "MyHomeServer1" in result["description_placeholders"]["primary"]
+    assert "H4890" in result["description_placeholders"]["secondary"]
+    assert result["description_placeholders"]["role"] == "Secondary"
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as mock_reload:
+        fix_result = await flow.async_step_init(user_input={})
+        assert fix_result["type"] == "create_entry"
+        assert mock_reload.call_count == 2
+
+    assert pri_entry.options[CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
+    assert pri_entry.options[CONF_GATEWAY_ROLE] == ROLE_PRIMARY
+    assert sec_entry.options[CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
+    assert sec_entry.options[CONF_GATEWAY_ROLE] == ROLE_SECONDARY
+    assert sec_entry.options[CONF_PRIMARY_GATEWAY] == "00:03:50:aa:bb:01"
+    assert set(sec_entry.options[CONF_DELEGATED_WHOS]) == {16, 22}
+
+    # Verify repair issue was dismissed
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "shared_bus_detected_000350aabb01_000350aabb02") is None
+
+
+@pytest.mark.asyncio
+async def test_shared_bus_repair_flow_missing_gateway(hass: HomeAssistant) -> None:
+    """Test repair flow aborts if a gateway is missing."""
+    from custom_components.myhome.repairs import async_create_fix_flow
+
+    flow = await async_create_fix_flow(
+        hass,
+        "shared_bus_detected_000350aabb01_000350aabb02",
+        {"mac_a": "00:03:50:ff:ff:01", "mac_b": "00:03:50:ff:ff:02"},
+    )
+    result = await flow.async_step_init()
+    assert result["type"] == "abort"
+    assert result["reason"] == "gateway_missing"
+

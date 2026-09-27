@@ -152,6 +152,12 @@ authorities:
         date: "2026-09-27"
         gateway: "BTicino MH200, firmware 2.1.0"
         devices: "F520 Energy meter Dimension 1200 / 51 sweep requests (*#18*WHERE*1200##, *#18*WHERE*51##) and General Automation status (*#2*0##) verified live on MH200 gateway"
+      - name: "Physical Bus Captures (Shared Bus Dual Gateways F454 + MH202 and MHS1 + H4890)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/453"
+        author: "@anotherjulien and @nicolacavallo84"
+        date: "2026-09-24"
+        gateway: "BTicino F454 + MH202 and MyHomeServer1 + H4890"
+        devices: "Shared SCS bus verification: physical lighting, covers, CEN+, alarm, audio diffusion, heating, energy totalizers, and cross-gateway echo correlation"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
 
 

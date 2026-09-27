@@ -30,6 +30,7 @@ from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
 from .migrate import migrate_entry_and_registries, prune_stale_devices
 from .services import async_setup_services
+from .topology import async_check_primary_links
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -300,6 +301,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         CONF_ENTITIES: runtime.entities,
         "bus_monitor": runtime.bus_monitor,
     }
+    async_check_primary_links(hass)
 
     # Start consumers before the platforms enqueue their initial status
     # requests.  With a bounded command queue, forwarding a large plant before
@@ -349,6 +351,11 @@ async def async_remove_config_entry_device(
         LOGGER.debug("Refusing to remove gateway device %s", device_entry.id)
         return False
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> None:
+    """Flag the secondary/standby gateways a removed primary leaves behind (#453)."""
+    async_check_primary_links(hass, removed=entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:

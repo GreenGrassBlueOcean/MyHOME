@@ -478,6 +478,20 @@ def check_quality_scale_rules(checker: StandardsChecker):
                 )
             else:
                 checker.log_ok("[GOLD] entity-translations: strings.json and translations/en.json synchronized.")
+
+            # Validate Home Assistant issues schema (hassfest fixable exclusion group)
+            issues = strings_data.get("issues", {})
+            for issue_key, issue_val in issues.items():
+                if isinstance(issue_val, dict):
+                    has_desc = "description" in issue_val
+                    has_flow = "fix_flow" in issue_val
+                    if has_desc and has_flow:
+                        checker.log_error(
+                            "RULE_IQS_GOLD",
+                            strings_file,
+                            1,
+                            f"Issue '{issue_key}' violates hassfest exclusion group 'fixable': cannot have both 'description' and 'fix_flow'",
+                        )
         except Exception as e:
             checker.log_error("RULE_IQS_GOLD", strings_file, 1, f"Failed parsing strings/translations JSON: {e}")
 

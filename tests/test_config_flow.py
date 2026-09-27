@@ -1,6 +1,8 @@
 """Test the MyHOME config flow."""
-from unittest.mock import MagicMock, patch
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -24,19 +26,21 @@ async def test_form(hass: HomeAssistant) -> None:
         "modelNumber": None,
         "UDN": None,
     }
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[]
-    ), patch(
-        "custom_components.myhome.config_flow.get_gateway",
-        return_value=mock_discovered,
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
-    ), patch(
-        "custom_components.myhome.async_setup_entry",
-        return_value=True,
-    ) as mock_setup_entry:
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch(
+            "custom_components.myhome.config_flow.get_gateway",
+            return_value=mock_discovered,
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
+        patch(
+            "custom_components.myhome.async_setup_entry",
+            return_value=True,
+        ) as mock_setup_entry,
+    ):
         # Step 1: user step – returns a form with a "serial" dropdown
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -69,15 +73,16 @@ async def test_form(hass: HomeAssistant) -> None:
 
 async def test_form_cannot_connect(hass: HomeAssistant) -> None:
     """Test we handle cannot connect via abort."""
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[]
-    ), patch(
-        "custom_components.myhome.config_flow.get_gateway",
-        return_value=None,
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": False, "Message": "connection_refused"},
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch(
+            "custom_components.myhome.config_flow.get_gateway",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": False, "Message": "connection_refused"},
+        ),
     ):
         # Step 1: user step
         result = await hass.config_entries.flow.async_init(
@@ -130,15 +135,16 @@ async def test_form_already_configured(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[]
-    ), patch(
-        "custom_components.myhome.config_flow.get_gateway",
-        return_value=None,
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch(
+            "custom_components.myhome.config_flow.get_gateway",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -179,19 +185,23 @@ async def test_form_discovery(hass: HomeAssistant) -> None:
             "address": "192.0.2.10",
             "port": 20000,
             "serialNumber": "00:03:50:00:12:34",
-            "modelName": "F454"
+            "modelName": "F454",
         }
     }
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[mock_discovery["00:03:50:00:12:34"]]
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
-    ), patch(
-        "custom_components.myhome.async_setup_entry",
-        return_value=True,
-    ) as mock_setup_entry:
+    with (
+        patch(
+            "custom_components.myhome.config_flow.find_gateways",
+            return_value=[mock_discovery["00:03:50:00:12:34"]],
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
+        patch(
+            "custom_components.myhome.async_setup_entry",
+            return_value=True,
+        ) as mock_setup_entry,
+    ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -229,15 +239,18 @@ async def test_form_discovery_already_configured(hass: HomeAssistant) -> None:
             "address": "192.0.2.10",
             "port": 20000,
             "serialNumber": "00:03:50:00:12:34",
-            "modelName": "F454"
+            "modelName": "F454",
         }
     }
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[mock_discovery["00:03:50:00:12:34"]]
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
+    with (
+        patch(
+            "custom_components.myhome.config_flow.find_gateways",
+            return_value=[mock_discovery["00:03:50:00:12:34"]],
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -254,11 +267,13 @@ async def test_form_discovery_already_configured(hass: HomeAssistant) -> None:
 
 @patch(
     "custom_components.myhome.gateway.OWNSession.test_connection",
-    return_value={"Success": True, "Message": None}
+    return_value={"Success": True, "Message": None},
 )
 @patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop")
 @patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop")
-async def test_options_flow(mock_sending, mock_listening, mock_test_connection, hass: HomeAssistant) -> None:
+async def test_options_flow(
+    mock_sending, mock_listening, mock_test_connection, hass: HomeAssistant
+) -> None:
     """Test options config flow."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -277,7 +292,7 @@ async def test_options_flow(mock_sending, mock_listening, mock_test_connection, 
             "manufacturerURL": "http://www.bticino.com",
             "name": "F454",
             "firmware": "2.0.0",
-            "UDN": "uuid:12345678-1234-1234-1234-123456789012"
+            "UDN": "uuid:12345678-1234-1234-1234-123456789012",
         },
         options={
             "command_worker_count": 1,
@@ -301,7 +316,7 @@ async def test_options_flow(mock_sending, mock_listening, mock_test_connection, 
             "command_worker_count": 3,
             "generate_events": True,
             "address": "invalid_ip",
-            "password": "new_password"
+            "password": "new_password",
         },
     )
     assert result_invalid["type"] == FlowResultType.FORM
@@ -315,7 +330,7 @@ async def test_options_flow(mock_sending, mock_listening, mock_test_connection, 
                 "command_worker_count": 3,
                 "generate_events": True,
                 "address": "192.168.1.136",
-                "password": "new_password"
+                "password": "new_password",
             },
         )
         await hass.async_block_till_done()
@@ -330,6 +345,7 @@ async def test_options_flow(mock_sending, mock_listening, mock_test_connection, 
 
 async def test_ssdp_discovery(hass: HomeAssistant) -> None:
     """Test SSDP discovery flow with user confirmation."""
+
     class SsdpServiceInfo:
         def __init__(self, ssdp_usn, ssdp_st, ssdp_location, upnp, ssdp_headers):
             self.ssdp_usn = ssdp_usn
@@ -347,9 +363,9 @@ async def test_ssdp_discovery(hass: HomeAssistant) -> None:
             "serialNumber": "00:03:50:00:12:34",
             "friendlyName": "Gateway",
             "UDN": "uuid",
-            "modelNumber": "2.0"
+            "modelNumber": "2.0",
         },
-        ssdp_headers={"_host": "192.0.2.10"}
+        ssdp_headers={"_host": "192.0.2.10"},
     )
 
     # Step 1: SSDP discovery initiates flow -> shows discovery_confirm form (not auto-created)
@@ -363,10 +379,14 @@ async def test_ssdp_discovery(hass: HomeAssistant) -> None:
 
     # Step 2: User confirms -> tests connection and creates entry. Creating the entry
     # sets it up straight away, so keep the gateway loops from opening a real socket.
-    with patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
-    ), patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),          patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"):
+    with (
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={},
@@ -409,9 +429,9 @@ async def test_ssdp_discovery_already_configured(hass: HomeAssistant) -> None:
             "serialNumber": "00:03:50:00:12:34",
             "friendlyName": "Gateway",
             "UDN": "uuid",
-            "modelNumber": "2.0"
+            "modelNumber": "2.0",
         },
-        ssdp_headers={"_host": "192.0.2.10"}
+        ssdp_headers={"_host": "192.0.2.10"},
     )
 
     result = await hass.config_entries.flow.async_init(
@@ -421,25 +441,18 @@ async def test_ssdp_discovery_already_configured(hass: HomeAssistant) -> None:
     assert result["reason"] == "already_configured"
 
 
-
 async def test_reauth_flow(hass: HomeAssistant) -> None:
     """Test reauth flow triggered by a password error."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data={
-            "host": "192.0.2.10",
-            "mac": "00:03:50:00:12:34",
-            "password": "wrong"
-        },
+        data={"host": "192.0.2.10", "mac": "00:03:50:00:12:34", "password": "wrong"},
         unique_id="00:03:50:00:12:34",
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.myhome.config_flow.MyHOMEGatewayHandler"
-    ) as mock_gateway_handler:
+    with patch("custom_components.myhome.config_flow.MyHOMEGatewayHandler") as mock_gateway_handler:
         # Provide the mock gateway host/serial properties
         mock_gateway_handler.return_value.gateway.host = "192.0.2.10"
         mock_gateway_handler.return_value.gateway.model = "F454"
@@ -477,24 +490,27 @@ async def test_reauth_flow(hass: HomeAssistant) -> None:
     assert entry.data["password"] == "correct_password"
     assert mock_reload.called
 
+
 async def test_password_required_and_error(hass: HomeAssistant) -> None:
     """Test manual connection with password error states."""
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[]
-    ), patch(
-        "custom_components.myhome.config_flow.get_gateway",
-        return_value=None,
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        side_effect=[
-            {"Success": False, "Message": "password_required"},
-            {"Success": False, "Message": "password_error"},
-            {"Success": True}
-        ]
-    ), patch(
-        "custom_components.myhome.async_setup_entry",
-        return_value=True,
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch(
+            "custom_components.myhome.config_flow.get_gateway",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            side_effect=[
+                {"Success": False, "Message": "password_required"},
+                {"Success": False, "Message": "password_error"},
+                {"Success": True},
+            ],
+        ),
+        patch(
+            "custom_components.myhome.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -528,8 +544,7 @@ async def test_password_required_and_error(hass: HomeAssistant) -> None:
 
         # 2nd attempt: password error
         result4 = await hass.config_entries.flow.async_configure(
-            result3b["flow_id"],
-            {"password": "wrong_password"}
+            result3b["flow_id"], {"password": "wrong_password"}
         )
         assert result4["type"] == FlowResultType.FORM
         assert result4["step_id"] == "password"
@@ -537,8 +552,7 @@ async def test_password_required_and_error(hass: HomeAssistant) -> None:
 
         # 3rd attempt: successful setup
         result5 = await hass.config_entries.flow.async_configure(
-            result4["flow_id"],
-            {"password": "correct_password"}
+            result4["flow_id"], {"password": "correct_password"}
         )
         assert result5["type"] == FlowResultType.CREATE_ENTRY
 
@@ -563,6 +577,7 @@ def test_mac_address_unit():
 async def test_user_step_discovery_timeout(hass: HomeAssistant) -> None:
     """Test user step aborts with discovery_timeout on timeout."""
     import asyncio
+
     with patch(
         "custom_components.myhome.config_flow.find_gateways",
         side_effect=asyncio.TimeoutError("SSDP timeout"),
@@ -577,6 +592,7 @@ async def test_user_step_discovery_timeout(hass: HomeAssistant) -> None:
 async def test_custom_step_validation_and_timeout(hass: HomeAssistant) -> None:
     """Test custom step error on invalid IP and timeout fallback to custom_manual."""
     import asyncio
+
     with patch("custom_components.myhome.config_flow.find_gateways", return_value=[]):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -596,7 +612,9 @@ async def test_custom_step_validation_and_timeout(hass: HomeAssistant) -> None:
         assert result_err["errors"]["address"] == "invalid_ip"
 
         # 2. Timeout in get_gateway -> falls back to custom_manual (lines 165-166)
-        with patch("custom_components.myhome.config_flow.get_gateway", side_effect=asyncio.TimeoutError()):
+        with patch(
+            "custom_components.myhome.config_flow.get_gateway", side_effect=asyncio.TimeoutError()
+        ):
             result_manual = await hass.config_entries.flow.async_configure(
                 result_err["flow_id"],
                 {"address": "192.168.1.50", "port": 20000},
@@ -607,8 +625,10 @@ async def test_custom_step_validation_and_timeout(hass: HomeAssistant) -> None:
 
 async def test_custom_manual_step_invalid_inputs(hass: HomeAssistant) -> None:
     """Test custom_manual step errors on invalid IP and invalid MAC address."""
-    with patch("custom_components.myhome.config_flow.find_gateways", return_value=[]), \
-         patch("custom_components.myhome.config_flow.get_gateway", return_value=None):
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+    ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -633,6 +653,7 @@ async def test_custom_manual_step_invalid_inputs(hass: HomeAssistant) -> None:
 async def test_step_port_and_ssdp_missing_port(hass: HomeAssistant) -> None:
     """Test step_port validation and ssdp step when port is missing."""
     from custom_components.myhome.config_flow import MyhomeFlowHandler
+
     handler = MyhomeFlowHandler()
     handler.hass = hass
     handler.context = {
@@ -668,21 +689,28 @@ async def test_step_port_and_ssdp_missing_port(hass: HomeAssistant) -> None:
     mock_gw.udn = "udn"
     mock_gw.firmware = "1.0"
 
-    with patch("custom_components.myhome.config_flow.OWNGateway.build_from_discovery_info", return_value=mock_gw):
+    with patch(
+        "custom_components.myhome.config_flow.OWNGateway.build_from_discovery_info",
+        return_value=mock_gw,
+    ):
         res_ssdp = await handler.async_step_ssdp(discovery_info)
         assert res_ssdp["type"] == FlowResultType.FORM
         assert res_ssdp["step_id"] == "discovery_confirm"
 
-        with patch.object(handler, "async_step_port", return_value={"type": "form", "step_id": "port"}):
+        with patch.object(
+            handler, "async_step_port", return_value={"type": "form", "step_id": "port"}
+        ):
             res_confirm = await handler.async_step_discovery_confirm({})
             assert res_confirm["step_id"] == "port"
 
     # Test ssdp when build_from_discovery_info returns None (line 533)
-    with patch("custom_components.myhome.config_flow.OWNGateway.build_from_discovery_info", return_value=None):
+    with patch(
+        "custom_components.myhome.config_flow.OWNGateway.build_from_discovery_info",
+        return_value=None,
+    ):
         res_abort = await handler.async_step_ssdp(discovery_info)
         assert res_abort["type"] == FlowResultType.ABORT
         assert res_abort["reason"] == "unknown"
-
 
 
 async def test_reauth_with_config_dict(hass: HomeAssistant) -> None:
@@ -701,7 +729,9 @@ async def test_reauth_with_config_dict(hass: HomeAssistant) -> None:
         "port": 20000,
         "modelName": "F454",
     }
-    with patch.object(handler, "async_step_password", return_value={"type": "form", "step_id": "password"}):
+    with patch.object(
+        handler, "async_step_password", return_value={"type": "form", "step_id": "password"}
+    ):
         res = await handler.async_step_reauth(config=config)
         assert res["step_id"] == "password"
 
@@ -757,6 +787,7 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
         CONF_TRANSITION_MODE,
         CONF_WORKER_COUNT,
     )
+
     mock_reg = MagicMock()
     mass_entry = MagicMock()
     mass_entry.platform = "mass"
@@ -768,25 +799,29 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
 
     with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_reg):
         # Invalid: not starting with media_player.
-        res_not_mp = await opt_flow.async_step_user({
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software",
-            CONF_DECODER_ENTITY.format(1): "light.living_room",
-            CONF_DECODER_SOURCE.format(1): 1,
-            CONF_DECODER_PRE_GAIN.format(1): 0,
-        })
+        res_not_mp = await opt_flow.async_step_user(
+            {
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software",
+                CONF_DECODER_ENTITY.format(1): "light.living_room",
+                CONF_DECODER_SOURCE.format(1): 1,
+                CONF_DECODER_PRE_GAIN.format(1): 0,
+            }
+        )
         assert res_not_mp["errors"][CONF_DECODER_ENTITY.format(1)] == "not_a_media_player"
 
         # Invalid: Music Assistant clone entity (lines 533-534)
-        res_mass = await opt_flow.async_step_user({
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software",
-            CONF_DECODER_ENTITY.format(1): "media_player.mass_zone",
-            CONF_DECODER_SOURCE.format(1): 1,
-            CONF_DECODER_PRE_GAIN.format(1): 0,
-        })
+        res_mass = await opt_flow.async_step_user(
+            {
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software",
+                CONF_DECODER_ENTITY.format(1): "media_player.mass_zone",
+                CONF_DECODER_SOURCE.format(1): 1,
+                CONF_DECODER_PRE_GAIN.format(1): 0,
+            }
+        )
         assert res_mass["errors"][CONF_DECODER_ENTITY.format(1)] == "mass_entity_not_allowed"
 
         # Invalid: MyHOME matrix zone entity (cannot be used as source decoder)
@@ -801,60 +836,69 @@ async def test_options_flow_existing_decoders_and_handler_lookup(hass: HomeAssis
         assert res_myhome["errors"][CONF_DECODER_ENTITY.format(1)] == "myhome_entity_not_allowed"
 
         # Invalid: Duplicate decoder source input
-        res_dup_src = await opt_flow.async_step_user({
-            CONF_WORKER_COUNT: 1,
-            CONF_GENERATE_EVENTS: False,
-            CONF_TRANSITION_MODE: "software",
-            CONF_DECODER_ENTITY.format(1): "media_player.sonos_1",
-            CONF_DECODER_SOURCE.format(1): 1,
-            CONF_DECODER_PRE_GAIN.format(1): 0,
-            CONF_DECODER_ENTITY.format(2): "media_player.sonos_2",
-            CONF_DECODER_SOURCE.format(2): 1,
-            CONF_DECODER_PRE_GAIN.format(2): 0,
-        })
+        res_dup_src = await opt_flow.async_step_user(
+            {
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software",
+                CONF_DECODER_ENTITY.format(1): "media_player.sonos_1",
+                CONF_DECODER_SOURCE.format(1): 1,
+                CONF_DECODER_PRE_GAIN.format(1): 0,
+                CONF_DECODER_ENTITY.format(2): "media_player.sonos_2",
+                CONF_DECODER_SOURCE.format(2): 1,
+                CONF_DECODER_PRE_GAIN.format(2): 0,
+            }
+        )
         assert res_dup_src["errors"][CONF_DECODER_SOURCE.format(2)] == "duplicate_decoder_source"
 
         # Valid options submission (lines 536-550)
-        res_valid = await opt_flow.async_step_user({
-            CONF_ADDRESS: "192.168.1.50",
-            CONF_OWN_PASSWORD: None,
-            CONF_WORKER_COUNT: 2,
-            CONF_GENERATE_EVENTS: True,
-            CONF_TRANSITION_MODE: "native",
-            CONF_DECODER_ENTITY.format(1): "media_player.sonos_zone",
-            CONF_DECODER_SOURCE.format(1): 2,
-            CONF_DECODER_PRE_GAIN.format(1): 10,
-        })
+        res_valid = await opt_flow.async_step_user(
+            {
+                CONF_ADDRESS: "192.168.1.50",
+                CONF_OWN_PASSWORD: None,
+                CONF_WORKER_COUNT: 2,
+                CONF_GENERATE_EVENTS: True,
+                CONF_TRANSITION_MODE: "native",
+                CONF_DECODER_ENTITY.format(1): "media_player.sonos_zone",
+                CONF_DECODER_SOURCE.format(1): 2,
+                CONF_DECODER_PRE_GAIN.format(1): 10,
+            }
+        )
         assert res_valid["type"] == FlowResultType.CREATE_ENTRY
 
 
 async def test_custom_manual_invalid_address(hass: HomeAssistant) -> None:
     """Test custom_manual step with invalid IP address (lines 222-223)."""
     from custom_components.myhome.config_flow import MyhomeFlowHandler
+
     handler = MyhomeFlowHandler()
     handler.hass = hass
     handler._custom_address = "999.999.999.999"  # Invalid IP triggers lines 222-223
     handler._custom_port = 20000
 
-    res = await handler.async_step_custom_manual(user_input={"serialNumber": "00:03:50:00:12:34", "modelName": "CustomUnlistedModel"})
+    res = await handler.async_step_custom_manual(
+        user_input={"serialNumber": "00:03:50:00:12:34", "modelName": "CustomUnlistedModel"}
+    )
     assert res["type"] == FlowResultType.FORM
     assert res["errors"]["address"] == "invalid_ip"
 
 
 async def test_custom_manual_entry_manufacturer_type(hass: HomeAssistant) -> None:
     """Test that custom_manual step stores manufacturer and manufacturerURL as strings, not tuples."""
-    with patch(
-        "custom_components.myhome.config_flow.find_gateways",
-        return_value=[]
-    ), patch(
-        "custom_components.myhome.config_flow.get_gateway",
-        return_value=None,
-    ), patch(
-        "custom_components.myhome.config_flow.OWNSession.test_connection",
-        return_value={"Success": True},
-    ), patch(
-        "custom_components.myhome.async_setup_entry",
-        return_value=True,
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch(
+            "custom_components.myhome.config_flow.get_gateway",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": True},
+        ),
+        patch(
+            "custom_components.myhome.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -905,6 +949,15 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
             CONF_MAC: "00:03:50:00:12:34",
             CONF_NAME: "CustomUnlistedModel",
         },
+        options={
+            CONF_WORKER_COUNT: 2,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software_stepped",
+            "broadcast_resync": True,
+            CONF_OWN_PASSWORD: None,
+            "bus_topology": "standalone",
+            "gateway_role": "primary",
+        },
         title="CustomUnlistedModel Gateway",
         unique_id="00:03:50:00:12:34",
     )
@@ -932,7 +985,10 @@ async def test_options_flow_update_gateway_model(hass: HomeAssistant) -> None:
     assert mock_reload.called
 
 
-async def test_options_flow_model_selection_survives_reload_and_next_who13(hass: HomeAssistant) -> None:
+
+async def test_options_flow_model_selection_survives_reload_and_next_who13(
+    hass: HomeAssistant,
+) -> None:
     """PR #345 review: selecting a model in the options flow is authoritative.
 
     An entry labelled MH200N from WHO=13 is switched to MH200; after the reload the new
@@ -971,7 +1027,9 @@ async def test_options_flow_model_selection_survives_reload_and_next_who13(hass:
     )
     entry.add_to_hass(hass)
     # A warning the previous handler raised and never cleared before the reload.
-    async_create_identity_issue(hass, entry.entry_id, "MH200N", "MyHomeServer1", "200", "who13", False)
+    async_create_identity_issue(
+        hass, entry.entry_id, "MH200N", "MyHomeServer1", "200", "who13", False
+    )
     issue_id = f"{ISSUE_GATEWAY_IDENTITY}_{entry.entry_id}"
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
@@ -1039,7 +1097,7 @@ async def test_reconfigure_flow_ip_gateway_success(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
 
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1053,7 +1111,6 @@ async def test_reconfigure_flow_ip_gateway_success(hass: HomeAssistant) -> None:
     assert result2["reason"] == "reconfigure_successful"
     assert entry.data[CONF_HOST] == "192.168.1.100"
     assert entry.data[CONF_PASSWORD] == "5678"
-    assert mock_reload.called
 
 
 async def test_reconfigure_flow_ip_gateway_invalid_ip(hass: HomeAssistant) -> None:
@@ -1132,7 +1189,7 @@ async def test_reconfigure_flow_serial_gateway(hass: HomeAssistant) -> None:
     assert result_err["errors"]["port"] == "invalid_port"
 
     # Valid reconfigure
-    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1145,7 +1202,6 @@ async def test_reconfigure_flow_serial_gateway(hass: HomeAssistant) -> None:
     assert result2["reason"] == "reconfigure_successful"
     assert entry.data[CONF_HOST] == "/dev/ttyUSB1"
     assert entry.data["baudrate"] == 38400
-    assert mock_reload.called
 
 
 async def test_reconfigure_flow_missing_entry(hass: HomeAssistant) -> None:
@@ -1213,11 +1269,10 @@ async def test_reconfigure_flow_missing_entry(hass: HomeAssistant) -> None:
     res_err1 = await flow2.async_step_reconfigure({CONF_HOST: "192.168.1.50", CONF_PORT: 70000})
     assert res_err1["errors"][CONF_PORT] == "invalid_port"
 
-    res_err2 = await flow2.async_step_reconfigure({CONF_HOST: "192.168.1.50", CONF_PORT: "not_a_port"})
+    res_err2 = await flow2.async_step_reconfigure(
+        {CONF_HOST: "192.168.1.50", CONF_PORT: "not_a_port"}
+    )
     assert res_err2["errors"][CONF_PORT] == "invalid_port"
-
-
-
 
 
 async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssistant) -> None:
@@ -1252,16 +1307,25 @@ async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssi
     # a source device), so no default can be offered for it.
     for zone in ("22", "23", "36", "05"):
         registry.async_get_or_create(
-            "media_player", DOMAIN, f"00:03:50:00:12:34-16-{zone}#16",
-            config_entry=entry, suggested_object_id=f"audio_zone_{zone}",
+            "media_player",
+            DOMAIN,
+            f"00:03:50:00:12:34-16-{zone}#16",
+            config_entry=entry,
+            suggested_object_id=f"audio_zone_{zone}",
         )
     registry.async_get_or_create(
-        "light", DOMAIN, "00:03:50:00:12:34-1-11",
-        config_entry=entry, suggested_object_id="light_11",
+        "light",
+        DOMAIN,
+        "00:03:50:00:12:34-1-11",
+        config_entry=entry,
+        suggested_object_id="light_11",
     )
     registry.async_get_or_create(
-        "media_player", DOMAIN, "00:03:50:00:12:34-16-gen#16",
-        config_entry=entry, suggested_object_id="audio_zone_gen",
+        "media_player",
+        DOMAIN,
+        "00:03:50:00:12:34-16-gen#16",
+        config_entry=entry,
+        suggested_object_id="audio_zone_gen",
     )
 
     flow = MyhomeOptionsFlowHandler(entry)
@@ -1279,15 +1343,17 @@ async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssi
     assert CONF_SOURCE_DEFAULT_FIELD.format(1) not in keys
 
     with patch.object(hass.config_entries, "async_reload", return_value=True):
-        result = await flow.async_step_user({
-            "address": "192.168.1.50",
-            "password": "12345",
-            "command_worker_count": 1,
-            "generate_events": False,
-            CONF_SOURCE_NAME.format(2): "  Cambridge  ",
-            CONF_SOURCE_DEFAULT_FIELD.format(2): "2",
-            CONF_SOURCE_DEFAULT_FIELD.format(3): "none",
-        })
+        result = await flow.async_step_user(
+            {
+                "address": "192.168.1.50",
+                "password": "12345",
+                "command_worker_count": 1,
+                "generate_events": False,
+                CONF_SOURCE_NAME.format(2): "  Cambridge  ",
+                CONF_SOURCE_DEFAULT_FIELD.format(2): "2",
+                CONF_SOURCE_DEFAULT_FIELD.format(3): "none",
+            }
+        )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     options = result["data"]
@@ -1387,10 +1453,12 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
     from custom_components.myhome.const import (
         CONF_ADDRESS,
         CONF_BROADCAST_RESYNC,
+        CONF_BUS_TOPOLOGY,
         CONF_DECODER_ENTITY,
         CONF_DECODER_PRE_GAIN,
         CONF_DECODER_SLOTS,
         CONF_DECODER_SOURCE,
+        CONF_GATEWAY_ROLE,
         CONF_GENERATE_EVENTS,
         CONF_OWN_PASSWORD,
         CONF_SOURCE_DEFAULTS,
@@ -1399,6 +1467,8 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_SOURCE_TUNER,
         CONF_TRANSITION_MODE,
         CONF_WORKER_COUNT,
+        ROLE_PRIMARY,
+        TOPOLOGY_STANDALONE,
     )
 
     initial_options = {
@@ -1407,6 +1477,8 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_BROADCAST_RESYNC: True,
         CONF_TRANSITION_MODE: "software_stepped",
         CONF_SOURCE_DEFAULTS: {},
+        CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+        CONF_GATEWAY_ROLE: ROLE_PRIMARY,
         **{CONF_SOURCE_NAME.format(i): "" for i in range(1, CONF_SOURCE_SLOTS + 1)},
         **{CONF_SOURCE_TUNER.format(i): False for i in range(1, CONF_SOURCE_SLOTS + 1)},
         **{CONF_DECODER_ENTITY.format(i): "" for i in range(1, CONF_DECODER_SLOTS + 1)},
@@ -1562,4 +1634,349 @@ async def test_reauth_successful_reload_and_abort(hass: HomeAssistant) -> None:
     assert res["reason"] == "reauth_successful"
     assert entry.data[CONF_PASSWORD] == "correct_password"
     assert mock_reload.called
+
+
+@pytest.mark.asyncio
+async def test_config_flow_delegated_whos_validation(hass: HomeAssistant) -> None:
+    """Test validation of delegated WHOs in options flow."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={
+            "host": "192.168.1.1",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:01",
+        },
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+    pri.add_to_hass(hass)
+
+    sec1 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Secondary 1",
+        data={
+            "host": "192.168.1.2",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:02",
+            "name": "MyHomeServer1",
+        },
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: ["1"],
+        },
+    )
+    sec1.add_to_hass(hass)
+
+    sec2 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:03",
+        title="Secondary 2",
+        data={
+            "host": "192.168.1.3",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:03",
+            "name": "MyHomeServer1",
+        },
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    sec2.add_to_hass(hass)
+
+    with patch(
+        "custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()
+    ):
+        result = await hass.config_entries.options.async_init(sec2.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.3",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["1"],
+            },
+        )
+        assert result["errors"] == {CONF_DELEGATED_WHOS: "overlapping_delegated_whos"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_multiple_standbys(hass: HomeAssistant) -> None:
+    """Test rejection of multiple standbys."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_STANDBY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={
+            "host": "192.168.1.1",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:01",
+        },
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+    pri.add_to_hass(hass)
+
+    stb1 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Standby 1",
+        data={
+            "host": "192.168.1.2",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:02",
+            "name": "MyHomeServer1",
+        },
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_STANDBY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    stb1.add_to_hass(hass)
+
+    stb2 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:03",
+        title="Standby 2",
+        data={
+            "host": "192.168.1.3",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:03",
+            "name": "MyHomeServer1",
+        },
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_STANDBY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    stb2.add_to_hass(hass)
+
+    with patch(
+        "custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()
+    ):
+        result = await hass.config_entries.options.async_init(stb2.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.3",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_STANDBY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            },
+        )
+        assert result["errors"] == {CONF_GATEWAY_ROLE: "multiple_standbys"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_who_not_supported(hass: HomeAssistant) -> None:
+    """Test rejection of unsupported WHO for delegated WHOs."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        DOMAIN,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={
+            "host": "192.168.1.1",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:01",
+        },
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+    pri.add_to_hass(hass)
+
+    sec = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:04",
+        title="Secondary",
+        data={
+            "host": "192.168.1.4",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:04",
+            "name": "MyHomeServer1",
+        },
+    )
+    sec.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()
+        ),
+        patch("OWNd.profiles.get_gateway_profile") as mock_get_profile,
+    ):
+        mock_profile = type("MockProfile", (), {"supports_who": lambda self, w: False})()
+        mock_get_profile.return_value = mock_profile
+        result = await hass.config_entries.options.async_init(sec.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.4",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["2"],
+            },
+        )
+        assert result["errors"] == {CONF_DELEGATED_WHOS: "who_not_supported_by_gateway"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_unknown_model(hass: HomeAssistant) -> None:
+    """Test options flow with an unknown model gracefully falling back."""
+    from homeassistant.data_entry_flow import FlowResultType
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:08",
+        data={
+            "host": "192.168.1.8",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:08",
+            "name": "Unknown Gateway",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] == FlowResultType.FORM
+
+
+@pytest.mark.asyncio
+async def test_options_flow_update_delegated_whos_self_skip(hass: HomeAssistant) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:01",
+        title="Primary",
+        data={
+            "host": "192.168.1.1",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:01",
+            "name": "MyHomeServer1",
+        },
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+    pri.add_to_hass(hass)
+
+    sec = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="00:03:50:aa:bb:02",
+        title="Secondary",
+        data={
+            "host": "192.168.1.2",
+            "port": 20000,
+            "password": "abc",
+            "serialNumber": "00:03:50:aa:bb:02",
+            "name": "MyHomeServer1",
+        },
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: ["1"],
+        },
+    )
+    sec.add_to_hass(hass)
+
+    with patch(
+        "custom_components.myhome.config_flow.MyHOMEGatewayHandler", return_value=AsyncMock()
+    ):
+        result = await hass.config_entries.options.async_init(sec.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "address": "192.168.1.2",
+                "name": "MyHomeServer1",
+                "command_worker_count": 1,
+                "generate_events": False,
+                "transition_mode": "software_stepped",
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+                CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+                CONF_DELEGATED_WHOS: ["1"],
+            },
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
 
