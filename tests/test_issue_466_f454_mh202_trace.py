@@ -46,6 +46,7 @@ from custom_components.myhome.const import (
 TRACES_DIR = Path(__file__).resolve().parent / "fixtures" / "traces" / "issue_466"
 F454_SWEEP_FILE = TRACES_DIR / "myhome_sweep_F454_all_2026-09-26T16-59-13.json"
 MH202_TRACE_FILE = TRACES_DIR / "myhome_trace_MH202_all_2026-09-26T16-59-17.json"
+F414_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json"
 
 
 @pytest.mark.asyncio
@@ -365,3 +366,124 @@ def test_advanced_cover_positioning_and_presets() -> None:
     assert dim10_closing.who == 2
     assert dim10_closing.current_position == 66
     assert dim10_closing.is_closing is True
+
+
+@pytest.mark.asyncio
+async def test_f414_dimmer_trace_replay_without_exceptions(hass: HomeAssistant) -> None:
+    """Replay all 18 on-wire frames from the physical F414 dimmer capture on MH200.
+
+    Empirically verifies that classic 10-level F414 modular dimmers (*#1*99*...)
+    replay cleanly through the event dispatcher without unhandled exceptions.
+    """
+    assert F414_TRACE_FILE.is_file(), f"Missing trace fixture: {F414_TRACE_FILE}"
+
+    with open(F414_TRACE_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+
+    frames = data["frames"]
+    assert len(frames) == 18
+
+    mac = "00:03:50:00:02:00"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.40",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MH200",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MH200 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "2.1.0",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    replayed = 0
+    for item in frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic F414 frame {raw!r}: {exc}")
+
+        if msg is not None:
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 18
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_f414_classic_dimmer_dimension_1_and_writes() -> None:
+    """Verify F414 classic dimmer Dimension 1 parsing and non-linear level mappings (#466)."""
+    # 100% brightness status report (Level 10)
+    level_100 = OWNMessage.parse("*#1*99*1*200*2##")
+    assert isinstance(level_100, OWNLightingEvent)
+    assert level_100.who == 1
+    assert level_100.where == "99"
+    assert level_100.dimension == 1
+    assert level_100.brightness == 100
+    assert level_100.transition == 2
+
+    # Discrete Level 9 maps to 74%
+    level_74 = OWNMessage.parse("*#1*99*1*174*2##")
+    assert isinstance(level_74, OWNLightingEvent)
+    assert level_74.where == "99"
+    assert level_74.dimension == 1
+    assert level_74.brightness == 74
+    assert level_74.transition == 2
+
+    # Discrete Level 8 maps to 63%
+    level_63 = OWNMessage.parse("*#1*99*1*163*2##")
+    assert isinstance(level_63, OWNLightingEvent)
+    assert level_63.where == "99"
+    assert level_63.dimension == 1
+    assert level_63.brightness == 63
+    assert level_63.transition == 2
+
+    # Fine Dimension 1 write response (50% at speed 5)
+    level_50 = OWNMessage.parse("*#1*99*1*150*5##")
+    assert isinstance(level_50, OWNLightingEvent)
+    assert level_50.where == "99"
+    assert level_50.dimension == 1
+    assert level_50.brightness == 50
+    assert level_50.transition == 5
+
+    # Discrete WHAT levels
+    evt_l8 = OWNMessage.parse("*1*8*99##")
+    assert isinstance(evt_l8, OWNLightingEvent)
+    assert evt_l8._what == 8
+    assert evt_l8.where == "99"
+
+    evt_l7 = OWNMessage.parse("*1*7*99##")
+    assert isinstance(evt_l7, OWNLightingEvent)
+    assert evt_l7._what == 7
+    assert evt_l7.where == "99"
+
+    evt_l10 = OWNMessage.parse("*1*10*99##")
+    assert isinstance(evt_l10, OWNLightingEvent)
+    assert evt_l10._what == 10
+    assert evt_l10.where == "99"
+

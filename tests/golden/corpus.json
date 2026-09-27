@@ -1059,6 +1059,174 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.dim.reply.level.100.99",
+    "frame": "*#1*99*1*200*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "200",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 200 = 100% at speed 2, from F414 classic dimmer 99 on MH200 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.74.99",
+    "frame": "*#1*99*1*174*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "174",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 174 = 74% at speed 2, from F414 dimmer 99 after discrete Level 9 (*1*9*99##) command (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level8.ptp.99",
+    "frame": "*1*8*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 8,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: discrete Level 8 (80%) event from F414 dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.63.99",
+    "frame": "*#1*99*1*163*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "163",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 163 = 63% at speed 2, from F414 dimmer 99 after discrete Level 8 (*1*8*99##) command (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.write.level.50.99",
+    "frame": "*#1*99*#1*150*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "150",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 write, 50% with speed 0, to F414 classic dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_brightness",
+      "args": [
+        "99",
+        50
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.50.speed5.99",
+    "frame": "*#1*99*1*150*5##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "150",
+      "5"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 report after 50% write to F414 dimmer 99: reports 50% with active transition speed 5 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level7.ptp.99",
+    "frame": "*1*7*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 7,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: coarse WHAT level 7 status event reported by F414 dimmer 99 when set to 50% brightness (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level10.ptp.99",
+    "frame": "*1*10*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 10,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: discrete Level 10 (100%) event from F414 dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.level.99",
+    "frame": "*#1*99*1##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 request to F414 dimmer 99 on MH200 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "get_brightness",
+      "args": [
+        "99"
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.status100.99",
+    "frame": "*#1*99*4##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "99",
+    "dimension": 4,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 request to F414 dimmer 99; answered NACK after 2s timeout, proving classic dimmers also reject Dimension 4 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
