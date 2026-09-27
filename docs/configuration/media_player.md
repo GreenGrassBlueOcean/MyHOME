@@ -277,6 +277,84 @@ configured; they are forwarded to that decoder, not sent on the bus.
 
 ---
 
+## 📊 Dashboard Display (Lovelace Speaker Cards)
+
+You can monitor and control BTicino audio zones using native Home Assistant cards or dynamic community cards.
+
+### Native Home Assistant Cards (Stock UI)
+
+For an out-of-the-box setup without installing third-party cards, use the native `media-control` or `tile` card:
+
+```yaml
+# Standard media control card with transport & volume slider
+type: media-control
+entity: media_player.kitchen_sound
+```
+
+```yaml
+# Compact modern Tile card with volume and playback controls
+type: tile
+entity: media_player.kitchen_sound
+name: Kitchen Audio
+features:
+  - type: media-player-volume-slider
+  - type: media-player-playback-control
+```
+
+### Dynamic Auto-Collapsing Active Speakers Card
+
+When managing multiple audio zones across a home, displaying inactive amplifiers clutters your main dashboard. This card automatically stays hidden when all sound zones are idle, and dynamically expands to show only the zones currently **playing or active**, with volume sliders, mute buttons, and track controls:
+
+```yaml
+# Requires custom:auto-entities and custom:mushroom-cards (HACS)
+type: custom:auto-entities
+card:
+  type: vertical-stack
+  title: 🔊 Active Speakers
+card_param: cards
+filter:
+  include:
+    - integration: myhome
+      domain: media_player
+      state: playing
+      options:
+        type: custom:mushroom-media-player-card
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+    - integration: myhome
+      domain: media_player
+      state: 'on'
+      options:
+        type: custom:mushroom-media-player-card
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+show_empty: false
+```
+
+> [!TIP]
+> **Complete Multi-Room Audio Showcase**:
+> For dedicated multi-room audio dashboard views featuring Sections layout, 1-tap source-switching chips (e.g. FM Radio, Streamer), and area all-off master buttons, see [Lovelace Recipes → Recipe 2: Dynamic Multiroom Audio Zone Player](lovelace_recipes.md#recipe-2-dynamic-multiroom-audio-zone-player).
+
+---
+
 ## 📜 OpenWebNet WHO = 16 Reference Frames
 
 `<WHERE>` is an amplifier (`01`–`99`), an environment (`#0`–`#9`) or `0` for
