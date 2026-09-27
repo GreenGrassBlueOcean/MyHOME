@@ -214,6 +214,11 @@ def test_handle_event_ignores_impossible_payloads(hass, tuner):
     assert "station" not in tuner.extra_state_attributes
     assert tuner.source is None
 
+    tuner.handle_event(MagicMock(
+        spec=OWNSoundEvent, dimension="not-a-number", dimension_value=[],
+        is_on=False, is_off=False,
+    ))
+
 
 def test_handle_event_power_state(hass, tuner):
     """Standby clears the title: a tuner in standby is listening to nothing."""
@@ -231,6 +236,54 @@ def test_handle_event_power_state(hass, tuner):
     assert tuner.state == MediaPlayerState.OFF
     assert tuner.media_title is None
     assert tuner.media_content_type is None
+
+
+def test_handle_event_real_own_sound_events(hass, tuner):
+    """Real OWNSoundEvents without public dimension_value are handled correctly."""
+    tuner.handle_event(OWNSoundEvent("*#16*101*6*0*103500##"))
+    assert tuner.extra_state_attributes["frequency"] == 103.5
+
+    tuner.handle_event(OWNSoundEvent("*#16*101*7*0*4##"))
+    assert tuner.extra_state_attributes["station"] == 4
+    assert tuner.source == "Station 4"
+
+    tuner.handle_event(OWNSoundEvent("*#16*101*8*65*78*84*69*78*78*69*32##"))
+    assert tuner.media_title == "ANTENNE"
+
+
+def test_handle_event_ignores_malformed_rds(hass, tuner):
+    """A malformed RDS report with length != 8 is ignored and does not alter title."""
+    tuner.handle_event(OWNSoundEvent("*#16*101*8*42*82*65*68*73*79*42*32##"))
+    assert tuner.media_title == "*RADIO*"
+
+    # 12-code glitch from live bus
+    tuner.handle_event(OWNSoundEvent("*#16*101*8*42*42*79*79*69*42*79*79*69*42*42*32##"))
+    assert tuner.media_title == "*RADIO*"
+
+    # Valid follow-up 8-code frame updates title
+    tuner.handle_event(OWNSoundEvent("*#16*101*8*42*42*79*79*69*42*42*32##"))
+    assert tuner.media_title == "**OOE**"
+
+
+@pytest.mark.asyncio
+async def test_next_previous_station_source_follow(hass, tuner, mock_gateway):
+    """Entity source and station follow the reported station after next/previous."""
+    await tuner.async_select_source("Station 2")
+    assert tuner.source == "Station 2"
+    assert tuner.extra_state_attributes["station"] == 2
+
+    await tuner.async_media_next_track()
+    assert str(mock_gateway.send.call_args[0][0]) == "*16*6001*101##"
+
+    # Tuner hardware reports new frequency, station and RDS
+    tuner.handle_event(OWNSoundEvent("*#16*101*6*0*103500##"))
+    tuner.handle_event(OWNSoundEvent("*#16*101*7*0*4##"))
+    tuner.handle_event(OWNSoundEvent("*#16*101*8*65*78*84*69*78*78*69*32##"))
+
+    assert tuner.extra_state_attributes["frequency"] == 103.5
+    assert tuner.extra_state_attributes["station"] == 4
+    assert tuner.source == "Station 4"
+    assert tuner.media_title == "ANTENNE"
 
 
 def test_build_sound_sources_only_for_declared_tuners(hass, mock_gateway):

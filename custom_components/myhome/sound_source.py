@@ -292,6 +292,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         self._frequency_khz = kilohertz
         self._station = None
         self._attr_source = None
+        self._attr_media_title = None
         self.async_schedule_update_ha_state()
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
@@ -326,15 +327,36 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     @callback
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Apply a WHO=16 event addressed to this source device."""
-        dimension = getattr(message, "dimension", None)
-        values = [str(v) for v in (getattr(message, "dimension_value", None) or [])]
+        raw_dim = getattr(message, "dimension", getattr(message, "_dimension", None))
+        try:
+            dimension = int(raw_dim) if raw_dim is not None else None
+        except (ValueError, TypeError):
+            dimension = None
+
+        values = [
+            str(v)
+            for v in (
+                getattr(message, "dimension_value", None)
+                or getattr(message, "_dimension_value", None)
+                or getattr(message, "dimension_values", None)
+                or []
+            )
+        ]
 
         if dimension == 6 and values:
             self._set_frequency_from_bus(values[-1])
         elif dimension == 7 and values:
             self._set_station_from_bus(values[-1])
         elif dimension == 8 and values:
-            self._attr_media_title = rds_text(values)
+            if len(values) == 8:
+                self._attr_media_title = rds_text(values)
+            else:
+                LOGGER.debug(
+                    "%s: ignoring malformed RDS frame with %d values: %s",
+                    self.entity_id,
+                    len(values),
+                    values,
+                )
         elif getattr(message, "is_on", False):
             self._attr_state = MediaPlayerState.ON
         elif getattr(message, "is_off", False):
@@ -354,6 +376,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 self._frequency_khz = kilohertz
                 self._station = None
                 self._attr_source = None
+                self._attr_media_title = None
         else:
             LOGGER.debug(
                 "%s: ignoring reported frequency %s kHz, outside the FM band",

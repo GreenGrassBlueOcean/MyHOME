@@ -37,6 +37,14 @@ FIXTURE_SEEK_FREQ_PATH = (
     / "myhome_trace_MH200N_f500n_tuner_seek_and_frequency.json"
 )
 
+FIXTURE_ALL_PATH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "traces"
+    / "f500_tuner"
+    / "myhome_trace_MH200N_all_2026-09-26T20-00-28.json"
+)
+
 
 @pytest.fixture
 def mock_gateway():
@@ -94,19 +102,10 @@ def test_f500n_authentic_trace_replay(tuner):
 
         raw = frame["raw"]
         who = frame.get("who")
-        dimension = frame.get("dimension")
-        values = frame.get("dimension_values", [])
 
         # The tuner entity subscribes to WHO 16 frames addressed to 101
         if who == "16" and frame.get("where") == "101":
-            event = MagicMock(spec=OWNSoundEvent)
-            event.raw = raw
-            event.who = "16"
-            event.where = "101"
-            event.dimension = int(dimension) if dimension is not None else None
-            event.dimension_value = values
-            event.is_on = False
-            event.is_off = False
+            event = OWNSoundEvent(raw)
             tuner.handle_event(event)
 
             if raw == "*#16*101*6*0*96200##":
@@ -201,18 +200,9 @@ async def test_f500n_seek_and_frequency_trace_replay(tuner, mock_gateway):
     for frame in frames:
         raw = frame["raw"]
         who = frame.get("who")
-        dimension = frame.get("dimension")
-        values = frame.get("dimension_values", [])
 
         if who == "16" and frame.get("where") == "101" and frame["direction"] == "rx":
-            event = MagicMock(spec=OWNSoundEvent)
-            event.raw = raw
-            event.who = "16"
-            event.where = "101"
-            event.dimension = int(dimension) if dimension is not None else None
-            event.dimension_value = values
-            event.is_on = False
-            event.is_off = False
+            event = OWNSoundEvent(raw)
             tuner.handle_event(event)
 
             if raw == "*#16*101*6*0*96200##":
@@ -254,4 +244,62 @@ async def test_f500n_seek_and_frequency_trace_replay(tuner, mock_gateway):
 
     await tuner.async_seek_down()
     assert str(mock_gateway.send.call_args.args[0]) == "*16*5100*101##"
+
+
+def test_f500n_station_advance_and_rds_rotation_replay(tuner):
+    """Replay authentic MH200N + F500N trace covering RDS rotation, 12-code glitch, and advance.
+
+    Contributed by @manfredgittmaier-afk on PR #427 / comment 5849429368.
+    """
+    assert FIXTURE_ALL_PATH.is_file(), f"Missing trace fixture: {FIXTURE_ALL_PATH}"
+
+    with open(FIXTURE_ALL_PATH, encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    frames = trace_data["frames"]
+
+    for frame in frames:
+        if frame.get("direction") != "rx" or frame.get("who") != "16" or frame.get("where") != "101":
+            continue
+
+        raw = frame["raw"]
+        event = OWNSoundEvent(raw)
+        tuner.handle_event(event)
+
+        if raw == "*#16*101*8*42*82*65*68*73*79*42*32##":
+            # Dynamic RDS title "*RADIO*"
+            assert tuner.media_title == "*RADIO*"
+
+        elif raw == "*#16*101*8*42*42*79*79*69*42*42*32##":
+            # Dynamic RDS title alternate "**OOE**"
+            assert tuner.media_title == "**OOE**"
+
+        elif raw == "*#16*101*8*42*42*79*79*69*42*79*79*69*42*42*32##":
+            # Malformed 12-code frame ignored; title remains previous clean title
+            assert tuner.media_title in ("*RADIO*", "**OOE**")
+
+        elif raw == "*#16*101*7*0*1##":
+            assert tuner.extra_state_attributes["frequency"] == 88.8
+            assert tuner.extra_state_attributes["station"] == 1
+            assert tuner.source == "Station 1"
+
+        elif raw == "*#16*101*7*0*2##":
+            assert tuner.extra_state_attributes["frequency"] == 96.2
+            assert tuner.extra_state_attributes["station"] == 2
+            assert tuner.source == "Station 2"
+
+        elif raw == "*#16*101*7*0*3##":
+            assert tuner.extra_state_attributes["frequency"] == 90.3
+            assert tuner.extra_state_attributes["station"] == 3
+            assert tuner.source == "Station 3"
+
+        elif raw == "*#16*101*7*0*4##":
+            assert tuner.extra_state_attributes["frequency"] == 103.5
+            assert tuner.extra_state_attributes["station"] == 4
+            assert tuner.source == "Station 4"
+
+        elif raw == "*#16*101*8*65*78*84*69*78*78*69*32##":
+            # "ANTENNE "
+            assert tuner.media_title == "ANTENNE"
+
 
