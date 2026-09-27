@@ -145,6 +145,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.warning("No active MyHOME gateways found to sweep.")
             return
 
+        energy_queries = [
+            query
+            for addr in (*(f"5{i}" for i in range(1, 10)), *(f"7{i}#0" for i in range(1, 10)))
+            for query in (f"*#18*{addr}*51##", f"*#18*{addr}*1200##")
+        ]
+
         sweep_queries = [
             "*#13**0##",   # Gateway real-time clock
             "*#13**15##",  # Gateway device model
@@ -153,6 +159,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "*#4*0##",     # Thermoregulation master status
             "*#5*0##",     # Burglar alarm central unit status
             "*#16*0*5##",  # Sound system status (lists all amplifiers & sources)
+            *energy_queries,  # Energy Management (WHO 18): meters & actuators (51-59, 71-79)
         ]
 
         for gw_mac, handler in target_gateways.items():
