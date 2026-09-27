@@ -50,6 +50,7 @@ MH202_TRACE_FILE = TRACES_DIR / "myhome_trace_MH202_all_2026-09-26T16-59-17.json
 F414_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json"
 F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_F454_f418u2_dimmer_2026-09-27T08-58-54.json"
 MH200_F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f418u2_dimmer_2026-09-27T12-15-00.json"
+MH202_F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_MH202_f418u2_dimmer_2026-09-27T09-43-45.json"
 
 
 @pytest.mark.asyncio
@@ -746,4 +747,128 @@ def test_mh200_f418u2_modern_dimmer_dimension_1_and_dimming_curves() -> None:
     assert isinstance(evt_l10, OWNLightingEvent)
     assert evt_l10._what == 10
     assert evt_l10.where == "62"
+
+
+@pytest.mark.asyncio
+async def test_mh202_f418u2_dimmer_trace_replay_without_exceptions(hass: HomeAssistant) -> None:
+    """Replay all 41 on-wire frames from the physical MH202 + F418U2 modern dimmer trace (#466, #501).
+
+    Verifies that the MH202 gateway trace testing an F418U2 dimmer on WHERE 32
+    (contributed by @anotherjulien in #466 comment 5854805415) replays cleanly
+    through the event dispatcher without unhandled exceptions.
+    """
+    assert MH202_F418U2_TRACE_FILE.is_file(), f"Missing trace fixture: {MH202_F418U2_TRACE_FILE}"
+
+    with open(MH202_F418U2_TRACE_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+
+    frames = data["frames"]
+    assert len(frames) == 41
+
+    mac = "00:03:50:00:02:02"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.52",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MH202",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MH202 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "1.0.21",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    replayed = 0
+    for item in frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic MH202 F418U2 frame {raw!r}: {exc}")
+
+        if msg is not None:
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 41
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_mh202_f418u2_dimmer_dimension_4_positive_write_and_extended_events() -> None:
+    """Verify MH202 F418U2 dimmer positive Dimension 4 write, DIM 1/DIM 4 reads, and translations (#466, #501)."""
+    # Dimension 1 read when OFF returns Dimension 1 (level 100 = 0% at speed 0)
+    dim1_off = OWNMessage.parse("*#1*32*1*100*0##")
+    assert isinstance(dim1_off, OWNLightingEvent)
+    assert dim1_off.who == 1
+    assert dim1_off.where == "32"
+    assert dim1_off.dimension == 1
+    assert dim1_off.brightness == 0
+    assert dim1_off.transition == 0
+    assert dim1_off.is_on is False
+
+    # Dimension 4 read when OFF returns Dimension 4 (level 100 = 0% at speed 0)
+    dim4_off = OWNMessage.parse("*#1*32*4*100*0##")
+    assert isinstance(dim4_off, OWNLightingEvent)
+    assert dim4_off.dimension == 4
+    assert dim4_off.brightness == 0
+    assert dim4_off.transition == 0
+    assert dim4_off.is_on is False
+
+    # Dimension 4 positive write command echo (accepted on MH202)
+    dim4_write = OWNMessage.parse("*#1*32*#4*130*0##")
+    assert isinstance(dim4_write, OWNLightingCommand)
+    assert dim4_write.where == "32"
+    assert dim4_write.dimension == 4
+
+    # Dimension 4 positive write response broadcast (turns ON to 30% at speed 2)
+    dim4_on = OWNMessage.parse("*#1*32*4*130*2##")
+    assert isinstance(dim4_on, OWNLightingEvent)
+    assert dim4_on.dimension == 4
+    assert dim4_on.brightness == 30
+    assert dim4_on.transition == 2
+    assert dim4_on.is_on is True
+
+    # Extended Command Translation event (*1*1000#5*32##)
+    evt_trans = OWNMessage.parse("*1*1000#5*32##")
+    assert isinstance(evt_trans, OWNLightingEvent)
+    assert evt_trans.where == "32"
+    assert evt_trans._what == 1000
+    assert evt_trans.is_translation is True
+
+    # Multi-parameter Dimension 13 feedback (*#1*32*13*2*130*5*0##)
+    dim13_evt = OWNMessage.parse("*#1*32*13*2*130*5*0##")
+    assert isinstance(dim13_evt, OWNLightingEvent)
+    assert dim13_evt.dimension == 13
+    assert dim13_evt.where == "32"
+
+    # Speed parameter event (*1*1#0*32##)
+    evt_speed0 = OWNMessage.parse("*1*1#0*32##")
+    assert isinstance(evt_speed0, OWNLightingEvent)
+    assert evt_speed0.where == "32"
+    assert evt_speed0._what == 1
+    assert evt_speed0.is_on is True
 

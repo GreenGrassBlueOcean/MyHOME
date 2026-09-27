@@ -925,3 +925,63 @@
   mcp_notes: "Lighting: DIMENSION 4 status request to modern BTicino F418U2 dimmer 32 on F454 gateway (MyHOME#466 comment 5854469497, #501)"
   roundtrip: true
 
+- id: light.dim.reply.off.speed0.dim1.mh202.32
+  frame: "*#1*32*1*100*0##"
+  direction: dimension_response
+  who: 1
+  where: "32"
+  dimension: 1
+  dimension_values: ["100", "0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: DIMENSION 1 status response reporting OFF (level 100 = 0% at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
+  roundtrip: true
+
+- id: light.dim.reply.off.speed0.dim4.mh202.32
+  frame: "*#1*32*4*100*0##"
+  direction: dimension_response
+  who: 1
+  where: "32"
+  dimension: 4
+  dimension_values: ["100", "0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: DIMENSION 4 status response reporting OFF (level 100 = 0% at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
+  roundtrip: true
+
+- id: light.dim.reply.level.30.speed0.dim4.mh202.32
+  frame: "*#1*32*4*130*0##"
+  direction: dimension_response
+  who: 1
+  where: "32"
+  dimension: 4
+  dimension_values: ["130", "0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: DIMENSION 4 status response reporting 30% brightness (level 130 at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
+  roundtrip: true
+
+- id: light.dim.evt.translation.level5.32
+  frame: "*1*1000#5*32##"
+  direction: event
+  who: 1
+  what: "1000#5"
+  where: "32"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: Command Translation event setting level 5 on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
+  roundtrip: true
+  is_translation: true
+
+- id: light.dim.reply.dim13.feedback.32
+  frame: "*#1*32*13*2*130*5*0##"
+  direction: dimension_response
+  who: 1
+  where: "32"
+  dimension: 13
+  dimension_values: ["2", "130", "5", "0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: DIMENSION 13 multi-parameter actuator state feedback reporting type 2, level 130, speed 5 on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
+  roundtrip: true
+
