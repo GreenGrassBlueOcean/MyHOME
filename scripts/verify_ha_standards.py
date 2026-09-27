@@ -15,6 +15,7 @@ architectural standards across custom_components/myhome/:
 import ast
 import json
 import os
+import py_compile
 import re
 import sys
 from pathlib import Path
@@ -220,6 +221,70 @@ def check_deprecated_constants(checker: StandardsChecker):
                             )
 
     checker.log_ok("No unhandled top-level imports of deprecated homeassistant.const symbols.")
+
+
+def check_future_annotations_and_syntax(checker: StandardsChecker, target_dir: Path | None = None):
+    """Rule: Verify all Python files compile cleanly and 'from __future__ import annotations' is the first statement."""
+    base_dir = target_dir or CUSTOM_COMPONENTS_DIR
+    checked_files = 0
+
+    for root, _, files in os.walk(base_dir):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            py_path = Path(root) / file
+            checked_files += 1
+
+            # 1. Bytecode compilation check
+            try:
+                py_compile.compile(str(py_path), doraise=True)
+            except py_compile.PyCompileError as err:
+                checker.log_error(
+                    "RULE_PYTHON_SYNTAX",
+                    py_path,
+                    getattr(err, "lineno", 1) or 1,
+                    f"SyntaxError in Python source: {err}",
+                )
+                continue
+
+            # 2. AST parsing & __future__ position check
+            with open(py_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                tree = ast.parse(content, filename=str(py_path))
+            except SyntaxError as err:
+                checker.log_error(
+                    "RULE_PYTHON_SYNTAX",
+                    py_path,
+                    err.lineno or 1,
+                    f"SyntaxError parsing AST: {err}",
+                )
+                continue
+
+            seen_non_future_stmt = False
+            for stmt in tree.body:
+                # Allow module docstring
+                if (
+                    isinstance(stmt, ast.Expr)
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                    and stmt == tree.body[0]
+                ):
+                    continue
+
+                if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+                    if seen_non_future_stmt:
+                        checker.log_error(
+                            "RULE_FUTURE_ANNOTATIONS",
+                            py_path,
+                            stmt.lineno,
+                            "from __future__ imports must occur at the beginning of the file (before other statements/imports).",
+                        )
+                else:
+                    seen_non_future_stmt = True
+
+    checker.log_ok(f"All {checked_files} Python source files verified for valid syntax and correct __future__ positioning.")
 
 
 def check_no_blocking_calls(checker: StandardsChecker):
@@ -694,6 +759,7 @@ def main():
     check_no_blocking_calls(checker)
     check_ruff_standards(checker)
     check_manifest_requirements_rule(checker)
+    check_future_annotations_and_syntax(checker)
     check_quality_scale_rules(checker)
     check_ownd_library_standards(checker)
     check_supported_domains_rule(checker)
