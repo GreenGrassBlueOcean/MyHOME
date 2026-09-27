@@ -99,8 +99,6 @@ def _get_gateway_mac_from_device(device: dr.BaseDeviceEntry) -> str | None:
         parts = ident.split("-")
         if len(parts) >= 3 and parts[-2] in ("15", "25", "cen", "cenplus"):
             return parts[0]
-        if len(parts) == 1 and ":" in ident:
-            return ident
         if len(parts) == 1:
             return ident
     return None
