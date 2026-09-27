@@ -1227,6 +1227,87 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.dim.reply.status.off.dim4.32",
+    "frame": "*#1*32*4*100*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "100",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting OFF (level 100 = 0% at transition speed 2) from modern BTicino F418U2 dimmer 32 on F454 gateway, replied when querying either DIM 1 or DIM 4 while OFF (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed2.dim4.32",
+    "frame": "*#1*32*4*130*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "130",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting 30% brightness (level 130 at transition speed 2) from modern BTicino F418U2 dimmer 32 on F454 gateway (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.cmd.write.dim4.130.32",
+    "frame": "*#1*32*#4*130*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "130",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 write command with speed 0; ignored by physical F418U2 dimmer on F454, proving DIM 4 is read-only (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed5.dim1.32",
+    "frame": "*#1*32*1*130*5##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 1,
+    "dimension_values": [
+      "130",
+      "5"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 report after 30% write/ON command to modern F418U2 dimmer 32: reports 30% with active transition speed 5 (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.status.dim4.32",
+    "frame": "*#1*32*4##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status request to modern BTicino F418U2 dimmer 32 on F454 gateway (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",

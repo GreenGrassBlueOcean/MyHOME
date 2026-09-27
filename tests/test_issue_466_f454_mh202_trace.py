@@ -30,6 +30,7 @@ from OWNd.message import (
     OWNDryContactEvent,
     OWNEnergyEvent,
     OWNEvent,
+    OWNLightingCommand,
     OWNLightingEvent,
     OWNMessage,
 )
@@ -47,6 +48,7 @@ TRACES_DIR = Path(__file__).resolve().parent / "fixtures" / "traces" / "issue_46
 F454_SWEEP_FILE = TRACES_DIR / "myhome_sweep_F454_all_2026-09-26T16-59-13.json"
 MH202_TRACE_FILE = TRACES_DIR / "myhome_trace_MH202_all_2026-09-26T16-59-17.json"
 F414_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json"
+F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_F454_f418u2_dimmer_2026-09-27T08-58-54.json"
 
 
 @pytest.mark.asyncio
@@ -486,4 +488,127 @@ def test_f414_classic_dimmer_dimension_1_and_writes() -> None:
     assert isinstance(evt_l10, OWNLightingEvent)
     assert evt_l10._what == 10
     assert evt_l10.where == "99"
+
+
+@pytest.mark.asyncio
+async def test_f418u2_dimmer_trace_replay_without_exceptions(hass: HomeAssistant) -> None:
+    """Replay all 20 on-wire frames from the physical F454 + F418U2 modern dimmer trace (#466, #501).
+
+    Ensures Dimension 4 status reports (off and at 30%), Dimension 1 reports,
+    discrete WHAT commands, and Dimension 4 / Dimension 1 writes replay cleanly
+    through the event dispatcher without exceptions.
+    """
+    assert F418U2_TRACE_FILE.is_file(), f"Missing trace fixture: {F418U2_TRACE_FILE}"
+
+    with open(F418U2_TRACE_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+
+    frames = data["frames"]
+    assert len(frames) == 20
+
+    mac = "00:03:50:00:04:54"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.54",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "F454",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "F454 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "2.0.51",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    replayed = 0
+    for item in frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic F418U2 frame {raw!r}: {exc}")
+
+        if msg is not None:
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 20
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_f418u2_modern_dimmer_dimension_4_and_writes() -> None:
+    """Verify F418U2 modern dimmer Dimension 4 status fallback and write behavior (#466, #501)."""
+    # Dimension 4 status report when OFF (100 = 0% at transition speed 2)
+    dim4_off = OWNMessage.parse("*#1*32*4*100*2##")
+    assert isinstance(dim4_off, OWNLightingEvent)
+    assert dim4_off.who == 1
+    assert dim4_off.where == "32"
+    assert dim4_off.dimension == 4
+    assert dim4_off.brightness == 0
+    assert dim4_off.transition == 2
+    assert dim4_off.is_on is False
+
+    # Dimension 4 status report when ON (130 = 30% at transition speed 2)
+    dim4_on = OWNMessage.parse("*#1*32*4*130*2##")
+    assert isinstance(dim4_on, OWNLightingEvent)
+    assert dim4_on.dimension == 4
+    assert dim4_on.brightness == 30
+    assert dim4_on.transition == 2
+    assert dim4_on.is_on is True
+
+    # Dimension 1 status report when ON (130 = 30% with active transition speed 5)
+    dim1_on = OWNMessage.parse("*#1*32*1*130*5##")
+    assert isinstance(dim1_on, OWNLightingEvent)
+    assert dim1_on.dimension == 1
+    assert dim1_on.brightness == 30
+    assert dim1_on.transition == 5
+    assert dim1_on.is_on is True
+
+    # Dimension 4 write command (ignored by physical actuator)
+    dim4_write = OWNMessage.parse("*#1*32*#4*130*0##")
+    assert isinstance(dim4_write, OWNLightingCommand)
+    assert dim4_write.where == "32"
+    assert dim4_write.dimension == 4
+
+    # Dimension 1 write command (accepted and confirmed by physical actuator)
+    dim1_write = OWNMessage.parse("*#1*32*#1*130*0##")
+    assert isinstance(dim1_write, OWNLightingCommand)
+    assert dim1_write.where == "32"
+    assert dim1_write.dimension == 1
+
+    # Discrete WHAT level 5 command/event (30%)
+    evt_l5 = OWNMessage.parse("*1*5*32##")
+    assert isinstance(evt_l5, OWNLightingEvent)
+    assert evt_l5._what == 5
+    assert evt_l5.where == "32"
+
+    # Discrete OFF command/event
+    evt_off = OWNMessage.parse("*1*0*32##")
+    assert isinstance(evt_off, OWNLightingEvent)
+    assert evt_off._what == 0
+    assert evt_off.where == "32"
+    assert evt_off.is_on is False
 

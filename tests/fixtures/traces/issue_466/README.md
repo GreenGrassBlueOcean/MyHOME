@@ -271,4 +271,31 @@ Settles the question raised by **@anotherjulien** in [#466 (comment 5849245960)]
 |---|---|---|
 | `myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json` | Bus Monitor Trace (18 frames) | Complete sequential trace of initial status query, discrete WHAT commands, fine Dimension 1 writes, coarse status mapping, and final 100% restoration on the F414. |
 
+---
+
+# #466 / #501 BTicino F418U2 Modern Dimmer Verification (F454 Live Bus Trace)
+
+Empirical bus trace recorded on an authentic **BTicino F454** (firmware 2.0.51) testing a physical **BTicino F418U2** modern modular dimmer on WHERE=`32`, contributed by **@anotherjulien** in [#466 (comment 5854469497)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5854469497) and tracked in [#501](https://github.com/OpenWebNet-HA/MyHOME/issues/501).
+
+Complements the classic F414 findings by revealing the modern dimmer Dimension 4 fallback and write mechanics:
+- **Dimension 4 Fallback When OFF**: When the dimmer is OFF, sending a status query for Dimension 1 (`*#1*32*1##`) or Dimension 4 (`*#1*32*4##`) causes the F418U2 to reply with **Dimension 4** (`*#1*32*4*100*2##`), where level `100` represents 0% brightness at transition speed 2.
+- **Dimension Queries When ON**: When the dimmer is ON (e.g. at 30%), querying Dimension 1 (`*#1*32*1##`) replies with Dimension 1 (`*#1*32*1*130*5##`), and querying Dimension 4 (`*#1*32*4##`) replies with Dimension 4 (`*#1*32*4*130*2##`).
+- **Dimension 4 Writes are Ignored**: Writing to Dimension 4 (`*#1*32*#4*130*0##`) is completely ignored by the dimmer and produces no bus emission.
+- **Dimension 1 Writes are Supported**: Writing to Dimension 1 (`*#1*32*#1*130*0##`) succeeds and is acknowledged with a Dimension 1 report (`*#1*32*1*130*5##`).
+- **Switching OFF**: Writing level 0 via Dimension 1 or Dimension 4 does not turn off the channel; switching off strictly requires discrete WHAT `0` (`*1*0*32##`).
+
+## Hardware Profile
+
+- **Gateway**: BTicino F454
+- **Gateway Firmware**: 2.0.51
+- **Actuator Model**: BTicino F418U2 (Modern 2-channel universal modular dimmer)
+- **Actuator Address**: WHERE `32`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_F454_f418u2_dimmer_2026-09-27T08-58-54.json` | Bus Monitor Trace (20 frames) | Complete sequential trace of Dimension 1 / Dimension 4 queries while OFF, level 5 (30%) switch ON, Dimension 1 / Dimension 4 queries while ON, Dimension 4 write attempt (ignored), Dimension 1 write, and discrete WHAT 0 switch OFF. |
+
 
