@@ -32,6 +32,7 @@ from .topology import (
     entry_mac,
     entry_model,
     infer_shared_bus_topology,
+    validate_shared_bus_topology,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -373,15 +374,14 @@ class SharedBusRepairFlow(RepairsFlow):
         sec_entry = entry_b if pri_entry is entry_a else entry_a
 
         if user_input is not None:
-            # Apply Primary settings
+            # Prepare Primary settings
             pri_opts = dict(pri_entry.options)
             pri_opts[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
             pri_opts[CONF_GATEWAY_ROLE] = ROLE_PRIMARY
             pri_opts.pop(CONF_PRIMARY_GATEWAY, None)
             pri_opts.pop(CONF_DELEGATED_WHOS, None)
-            self.hass.config_entries.async_update_entry(pri_entry, options=pri_opts)
 
-            # Apply Secondary/Standby settings
+            # Prepare Secondary/Standby settings
             sec_opts = dict(sec_entry.options)
             sec_opts[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
             sec_opts[CONF_GATEWAY_ROLE] = rec.role
@@ -390,6 +390,15 @@ class SharedBusRepairFlow(RepairsFlow):
                 sec_opts[CONF_DELEGATED_WHOS] = sorted(rec.delegated_whos)
             else:
                 sec_opts.pop(CONF_DELEGATED_WHOS, None)
+
+            pri_errs = validate_shared_bus_topology(self.hass, pri_entry, pri_opts)
+            if pri_errs:
+                return self.async_abort(reason="invalid_topology")
+            self.hass.config_entries.async_update_entry(pri_entry, options=pri_opts)
+
+            sec_errs = validate_shared_bus_topology(self.hass, sec_entry, sec_opts)
+            if sec_errs:
+                return self.async_abort(reason="invalid_topology")
             self.hass.config_entries.async_update_entry(sec_entry, options=sec_opts)
 
             # Reload both entries

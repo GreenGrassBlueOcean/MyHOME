@@ -72,31 +72,28 @@ def gateway_tier(model: str | None) -> int:
 
 
 def gateway_supported_whos(model: str | None) -> set[int]:
-    """Retrieve supported WHO set from OWNd profiles and trace availability matrix."""
+    """Retrieve supported WHO set directly from OWNd profile."""
     whos: set[int] = set()
     norm = (model or "").strip().upper()
     try:
         from OWNd.profiles import get_gateway_profile
 
         profile = get_gateway_profile(model or "")
+        supports = getattr(profile, "supports_who", None)
         supported = getattr(profile, "supported_who", None)
         if supported:
-            whos.update(int(w) for w in supported if isinstance(w, (int, str)))
+            for w in supported:
+                if not callable(supports) or supports(int(w)):
+                    whos.add(int(w))
     except Exception:
         pass
 
-    # Enrich from hardware trace availability matrix (docs/trace-availability.md):
-    if "H4890" in norm or "AM4890" in norm:
-        whos.update({1, 2, 4, 5, 9, 16, 18, 22, 25})
-    elif "MH200N" in norm:
-        whos.update({0, 1, 2, 4, 5, 9, 13, 14, 15, 16, 17, 18, 22, 25})
-    elif "MYHOMESERVER1" in norm:
+    # Model-specific hardware capability constraints:
+    # MyHomeServer1 firmware does not route audio (WHO 16 / WHO 22) or burglar alarm (WHO 5).
+    if "MYHOMESERVER1" in norm:
         whos.discard(5)
+        whos.discard(16)
         whos.discard(22)
-    elif "MH202" in norm:
-        whos.update({1, 2, 4, 9, 14, 18, 25})
-    elif "F454" in norm:
-        whos.update({1, 2, 4, 5, 9, 14, 16, 18, 25})
 
     return {w for w in whos if w in {1, 2, 4, 5, 9, 15, 16, 18, 22, 25}}
 
@@ -287,6 +284,89 @@ def topology_signature(entry: Any) -> tuple[Any, ...]:
         entry_primary_mac(entry),
         tuple(sorted(entry_delegated_whos(entry))),
     )
+
+
+def validate_shared_bus_topology(
+    hass: HomeAssistant,
+    entry: Any,
+    user_input: Mapping[str, Any],
+    *,
+    model_override: str | None = None,
+) -> dict[str, str]:
+    """Validate shared-bus topology options before saving or applying repairs.
+
+    Ensures that:
+    - Follower roles (secondary/standby) are only configured on shared topology.
+    - Follower gateways specify an existing, non-self, non-circular shared primary.
+    - At most one warm standby gateway is assigned to a primary.
+    - Delegated WHOs are supported by the gateway hardware profile (or model_override).
+    - Delegated WHOs do not overlap with other secondaries on the same bus.
+    - Gateways with configured dependents cannot be demoted away from shared primary.
+    """
+    errors: dict[str, str] = {}
+    in_topo = user_input.get(CONF_BUS_TOPOLOGY, _setting(entry, CONF_BUS_TOPOLOGY))
+    in_role = user_input.get(CONF_GATEWAY_ROLE, _setting(entry, CONF_GATEWAY_ROLE))
+    in_pri = user_input.get(CONF_PRIMARY_GATEWAY, _setting(entry, CONF_PRIMARY_GATEWAY))
+    my_mac = entry_mac(entry)
+    shared = in_topo == TOPOLOGY_SHARED
+    follower = shared and in_role in (ROLE_SECONDARY, ROLE_STANDBY)
+
+    if not shared and user_input.get(CONF_GATEWAY_ROLE) in (ROLE_SECONDARY, ROLE_STANDBY):
+        errors[CONF_GATEWAY_ROLE] = "secondary_requires_shared_topology"
+        return errors
+
+    norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
+
+    if follower:
+        target = entry_for_mac(hass, norm_pri) if norm_pri and norm_pri != my_mac else None
+        if not norm_pri:
+            errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_required"
+        elif norm_pri == my_mac:
+            errors[CONF_PRIMARY_GATEWAY] = "invalid_primary_gateway"
+        elif target is None:
+            errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_found"
+        elif entry_primary_mac(target) == my_mac:
+            errors[CONF_PRIMARY_GATEWAY] = "circular_gateway_reference"
+        elif entry_topology(target) != TOPOLOGY_SHARED or entry_role(target) != ROLE_PRIMARY:
+            errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_shared_primary"
+
+        if norm_pri and in_role == ROLE_STANDBY and CONF_PRIMARY_GATEWAY not in errors:
+            for other in dependents(hass, norm_pri):
+                if getattr(entry, "entry_id", None) == other.entry_id:
+                    continue
+                if entry_role(other) == ROLE_STANDBY:
+                    errors[CONF_GATEWAY_ROLE] = "multiple_standbys"
+                    break
+
+        if in_role == ROLE_SECONDARY and CONF_PRIMARY_GATEWAY not in errors:
+            delegated: list[int] = []
+            for w in user_input.get(CONF_DELEGATED_WHOS, []):
+                try:
+                    delegated.append(int(w))
+                except (ValueError, TypeError):
+                    pass
+
+            model = model_override or entry_model(entry)
+            if model:
+                supported = gateway_supported_whos(model)
+                for w in delegated:
+                    if w not in supported:
+                        errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"
+                        break
+
+            if norm_pri and CONF_DELEGATED_WHOS not in errors:
+                for other in dependents(hass, norm_pri):
+                    if getattr(entry, "entry_id", None) == other.entry_id:
+                        continue
+                    if entry_role(other) == ROLE_SECONDARY:
+                        if set(delegated) & entry_delegated_whos(other):
+                            errors[CONF_DELEGATED_WHOS] = "overlapping_delegated_whos"
+                            break
+
+    if not (shared and in_role == ROLE_PRIMARY) and my_mac and dependents(hass, my_mac):
+        errors[CONF_GATEWAY_ROLE] = "gateway_has_dependents"
+
+    return errors
 
 
 @callback

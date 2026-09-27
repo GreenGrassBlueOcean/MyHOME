@@ -1028,7 +1028,7 @@ async def test_service_sweep_delegated_who16_dimension_5(hass: HomeAssistant) ->
 
 
 def test_shared_bus_evidence_capping(hass: HomeAssistant) -> None:
-    """Evidence is bounded, and only evidence inside one window raises the issue."""
+    """Evidence is bounded, and only 3 confirmed TX echoes inside one window raise the issue."""
     from custom_components.myhome.const import SHARED_BUS_EVIDENCE_WINDOW_S
 
     _, gw1 = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
@@ -1042,13 +1042,10 @@ def test_shared_bus_evidence_capping(hass: HomeAssistant) -> None:
         mock_issue.assert_not_called()
         assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 3
 
-        # Three inside the window do; the evidence then starts over
+        # Three confirmed TX echoes inside the window do raise the issue; the evidence then clears
         start = 10 * 86400.0
-        for i in range(2):
-            gw1._record_shared_bus_evidence(other_mac, start + i * SHARED_BUS_EVIDENCE_WINDOW_S / 3)
-        gw1._record_shared_bus_evidence(
-            other_mac, start + 2 * SHARED_BUS_EVIDENCE_WINDOW_S / 3, is_tx_echo=True
-        )
+        for i in range(3):
+            gw1._record_shared_bus_evidence(other_mac, start + i * SHARED_BUS_EVIDENCE_WINDOW_S / 4)
         mock_issue.assert_called_once_with(hass, *pair_key)
         assert len(hass.data[DOMAIN]["_shared_bus_evidence"][pair_key]) == 0
 
@@ -1546,11 +1543,17 @@ def test_gateway_tier_and_capabilities() -> None:
     h4890_whos = gateway_supported_whos("H4890")
     mh202_whos = gateway_supported_whos("MH202")
 
-    assert 5 in f454_whos
+    assert 5 not in f454_whos
+    assert 1 in f454_whos
+    assert 2 in f454_whos
+    assert 4 in f454_whos
+    assert 16 in f454_whos
+    assert 22 in f454_whos
     assert 5 not in mhs1_whos
-    assert 5 in h4890_whos
-    assert 22 in h4890_whos
+    assert 16 not in mhs1_whos
     assert 22 not in mhs1_whos
+    assert 5 not in h4890_whos
+    assert 22 in h4890_whos
     assert 16 in h4890_whos
     assert mh202_whos.issubset(f454_whos)
 
@@ -1585,7 +1588,7 @@ def test_infer_shared_bus_topology_golden_pairings(hass: HomeAssistant) -> None:
     assert rec2.primary_mac == "00:03:50:aa:bb:01"
     assert rec2.secondary_mac == "00:03:50:aa:bb:02"
     assert rec2.role == ROLE_SECONDARY
-    assert rec2.delegated_whos == {5, 9, 16, 22}
+    assert rec2.delegated_whos == {16, 22}
     assert "unique subsystems" in rec2.rationale
 
     # Case 3: MH201 + MH200N (caiosweet, issue #453)
@@ -1594,8 +1597,9 @@ def test_infer_shared_bus_topology_golden_pairings(hass: HomeAssistant) -> None:
     rec3 = infer_shared_bus_topology(mh201, mh200n)
     assert rec3.primary_mac == "00:03:50:00:02:01"
     assert rec3.secondary_mac == "00:03:50:00:02:00"
-    assert rec3.role == ROLE_SECONDARY
-    assert rec3.delegated_whos == {5, 9}
+    assert rec3.role == ROLE_STANDBY
+    assert rec3.delegated_whos == set()
+    assert "Warm Standby" in rec3.rationale
 
     # Case 4: Identical models (e.g. MH201 + MH201)
     mh201_b = MockConfigEntry(domain=DOMAIN, title="MH201 B Gateway", data={"name": "MH201", "mac": "00:03:50:00:02:02"})
@@ -1639,7 +1643,7 @@ async def test_options_flow_smart_defaults_inferred(hass: HomeAssistant) -> None
         if str(k) == CONF_GATEWAY_ROLE:
             assert k.description["suggested_value"] == ROLE_SECONDARY
         elif str(k) == CONF_DELEGATED_WHOS:
-            assert set(k.description["suggested_value"]) == {"5", "9", "16", "22"}
+            assert set(k.description["suggested_value"]) == {"16", "22"}
 
 
 async def test_options_flow_suggested_role_default_when_no_primary(hass: HomeAssistant) -> None:
@@ -1716,23 +1720,23 @@ def test_infer_shared_bus_topology_equal_tier_b_has_more_whos(hass: HomeAssistan
 
     from custom_components.myhome.topology import infer_shared_bus_topology
 
-    # MH202 (Tier 2, 7 WHOs) vs H4890 (Tier 2, 9 WHOs)
-    mh202 = MockConfigEntry(domain=DOMAIN, title="MH202 Gateway", data={"name": "MH202", "mac": "00:03:50:00:01:01"})
-    h4890 = MockConfigEntry(domain=DOMAIN, title="H4890 Gateway", data={"name": "H4890", "mac": "00:03:50:00:01:02"})
+    # MHS1 (Tier 1, 6 WHOs) vs F454 (Tier 1, 8 WHOs)
+    mhs1 = MockConfigEntry(domain=DOMAIN, title="MyHomeServer1 Gateway", data={"name": "MyHomeServer1", "mac": "00:03:50:00:01:01"})
+    f454 = MockConfigEntry(domain=DOMAIN, title="F454 Gateway", data={"name": "F454", "mac": "00:03:50:00:01:02"})
 
-    rec = infer_shared_bus_topology(mh202, h4890)
-    assert rec.primary_mac == "00:03:50:00:01:02"  # H4890 wins Primary
-    assert rec.secondary_mac == "00:03:50:00:01:01"  # MH202 is Follower
+    rec = infer_shared_bus_topology(mhs1, f454)
+    assert rec.primary_mac == "00:03:50:00:01:02"  # F454 wins Primary
+    assert rec.secondary_mac == "00:03:50:00:01:01"  # MHS1 is Follower
     assert "WHO count" in rec.rationale
 
     # Invert to test tier_a == tier_b with whos_a > whos_b
-    rec_inv = infer_shared_bus_topology(h4890, mh202)
+    rec_inv = infer_shared_bus_topology(f454, mhs1)
     assert rec_inv.primary_mac == "00:03:50:00:01:02"
     assert rec_inv.secondary_mac == "00:03:50:00:01:01"
 
 
 def test_infer_shared_bus_topology_audio_coupling_who22_added(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test audio coupling adds WHO 22 to delta when secondary supports both WHO 16 and 22, but primary lacks 16."""
+    """Test audio coupling adds WHO 22/16 to delta when secondary supports both WHO 16 and 22."""
     from unittest.mock import MagicMock
 
     from custom_components.myhome import topology
@@ -1770,6 +1774,19 @@ def test_infer_shared_bus_topology_audio_coupling_who22_added(monkeypatch: pytes
     assert 16 in rec.delegated_whos
     assert 22 in rec.delegated_whos
     assert "(Audio coupled)" in rec.rationale
+
+    # Inverted audio test: GW_A supports 1, 2, 16. GW_B supports 1, 2, 16, 22.
+    # WHO 22 is in delta; WHO 16 is added via audio coupling.
+    def mock_whos_inv(model: str | None) -> set[int]:
+        if model == "GW_A":
+            return {1, 2, 16}
+        return {1, 2, 16, 22}
+
+    monkeypatch.setattr(topology, "gateway_supported_whos", mock_whos_inv)
+    rec2 = topology.infer_shared_bus_topology(entry_a, entry_b)
+    assert rec2.audio_coupled is True
+    assert 16 in rec2.delegated_whos
+    assert 22 in rec2.delegated_whos
 
 
 async def test_shared_bus_repair_flow_standby_and_abort(hass: HomeAssistant) -> None:
@@ -1823,5 +1840,261 @@ async def test_shared_bus_repair_flow_standby_and_abort(hass: HomeAssistant) -> 
     res_abort = await flow2.async_step_init(user_input={})
     assert res_abort["type"] == "abort"
     assert res_abort["reason"] == "gateway_missing"
+
+
+@pytest.mark.asyncio
+async def test_delegated_command_routing_to_secondary(hass: HomeAssistant) -> None:
+    """Commands and status requests for delegated WHOs are routed through the secondary gateway (#459)."""
+    from unittest.mock import AsyncMock
+
+    from OWNd.message import OWNCommand
+
+    entry_pri, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    entry_sec, gw_sec = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[16],
+    )
+    gw_pri.is_connected = True
+    gw_sec.is_connected = True
+
+    gw_sec.send = AsyncMock(return_value=123.45)
+    gw_sec.send_status_request = AsyncMock(return_value=123.46)
+    gw_pri._command_pool.send = AsyncMock(return_value=100.0)
+    gw_pri._command_pool.send_status_request = AsyncMock(return_value=100.1)
+
+    # 1. Delegated WHO=16 command sent to primary routes to secondary
+    cmd_audio = OWNCommand.parse("*#16*1*0*1##")
+    assert cmd_audio is not None
+    res = await gw_pri.send(cmd_audio)
+    assert res == 123.45
+    gw_sec.send.assert_called_once_with(cmd_audio)
+    gw_pri._command_pool.send.assert_not_called()
+
+    # 2. Delegated WHO=16 status request sent to primary routes to secondary
+    stat_audio = OWNCommand.parse("*#16*0*5##")
+    assert stat_audio is not None
+    res_stat = await gw_pri.send_status_request(stat_audio)
+    assert res_stat == 123.46
+    gw_sec.send_status_request.assert_called_once_with(stat_audio)
+    gw_pri._command_pool.send_status_request.assert_not_called()
+
+    # 3. Non-delegated WHO=1 command goes to primary's own command pool
+    cmd_light = OWNCommand.parse("*1*1*11##")
+    assert cmd_light is not None
+    res_light = await gw_pri.send(cmd_light)
+    assert res_light == 100.0
+    gw_pri._command_pool.send.assert_called_once_with(cmd_light)
+
+    # 4. WHO 13/1013 never routes to secondary
+    cmd_diag = OWNCommand.parse("*#1013*0*1##")
+    assert cmd_diag is not None
+    assert gw_pri._delegated_target(cmd_diag) is None
+
+    # 5. When secondary is disconnected, delegated command falls back rather than failing
+    gw_sec.is_connected = False
+    assert gw_pri._delegated_target(cmd_audio) is None
+
+    # 6. _get_secondary_for_who defensive edge cases
+    assert gw_pri._get_secondary_for_who(99) is None
+    gw_pri_no_hass = MyHOMEGatewayHandler(hass, entry_pri)
+    gw_pri_no_hass.hass = None  # type: ignore
+    assert gw_pri_no_hass._get_secondary_for_who(16) is None
+
+
+@pytest.mark.asyncio
+async def test_shared_bus_repair_flow_invalid_topology_aborts(hass: HomeAssistant) -> None:
+    """Test SharedBusRepairFlow aborts if validate_shared_bus_topology returns errors."""
+    from custom_components.myhome.repairs import SharedBusRepairFlow
+
+    _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    _create_mock_gateway(hass, "00:03:50:aa:bb:02")
+
+    flow = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
+    flow.hass = hass
+
+    with patch("custom_components.myhome.repairs.validate_shared_bus_topology", return_value={"error": "pri"}):
+        res1 = await flow.async_step_init(user_input={})
+        assert res1["type"] == "abort"
+        assert res1["reason"] == "invalid_topology"
+
+    with patch("custom_components.myhome.repairs.validate_shared_bus_topology", side_effect=[{}, {"error": "sec"}]):
+        res2 = await flow.async_step_init(user_input={})
+        assert res2["type"] == "abort"
+        assert res2["reason"] == "invalid_topology"
+
+
+def test_validate_shared_bus_topology_scenarios(hass: HomeAssistant) -> None:
+    """Test all edge cases and validations in validate_shared_bus_topology (#459)."""
+    from custom_components.myhome.topology import validate_shared_bus_topology
+
+    # Standalone primary
+    entry1, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    # Secondary entry
+    entry2, _ = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[16],
+    )
+
+    # 1. Follower role requires shared topology
+    errs = validate_shared_bus_topology(
+        hass,
+        entry1,
+        {CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE, CONF_GATEWAY_ROLE: ROLE_SECONDARY},
+    )
+    assert errs[CONF_GATEWAY_ROLE] == "secondary_requires_shared_topology"
+
+    # 2. Missing primary gateway
+    errs = validate_shared_bus_topology(
+        hass,
+        entry1,
+        {CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_SECONDARY},
+    )
+    assert errs[CONF_PRIMARY_GATEWAY] == "primary_gateway_required"
+
+    # 3. Primary equals own MAC
+    errs = validate_shared_bus_topology(
+        hass,
+        entry1,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    assert errs[CONF_PRIMARY_GATEWAY] == "invalid_primary_gateway"
+
+    # 4. Primary not found
+    errs = validate_shared_bus_topology(
+        hass,
+        entry1,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:ff:ff:ff",
+        },
+    )
+    assert errs[CONF_PRIMARY_GATEWAY] == "primary_gateway_not_found"
+
+    # 5. Primary not shared primary (entry1 is currently standalone)
+    errs = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    assert errs[CONF_PRIMARY_GATEWAY] == "primary_gateway_not_shared_primary"
+
+    # Now make entry1 a shared primary
+    hass.config_entries.async_update_entry(
+        entry1, options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+
+    # 6. Circular gateway reference: if entry1 pointed to entry2
+    hass.config_entries.async_update_entry(
+        entry1,
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:02",
+        },
+    )
+    errs = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    assert errs[CONF_PRIMARY_GATEWAY] == "circular_gateway_reference"
+    hass.config_entries.async_update_entry(
+        entry1,
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+
+    # 7. Multiple standbys on same primary
+    entry_sb, _ = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:03",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+    errs = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_STANDBY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+        },
+    )
+    assert errs[CONF_GATEWAY_ROLE] == "multiple_standbys"
+
+    # 8. Overlapping delegated WHOs between secondaries
+    errs = validate_shared_bus_topology(
+        hass,
+        entry_sb,  # other entry
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16],  # entry2 already delegates 16
+        },
+    )
+    assert errs[CONF_DELEGATED_WHOS] == "overlapping_delegated_whos"
+
+    # 9. WHO not supported by gateway model (e.g. WHO 16 on MHS1)
+    errs = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16],
+        },
+        model_override="MyHomeServer1",
+    )
+    assert errs[CONF_DELEGATED_WHOS] == "who_not_supported_by_gateway"
+
+    # 10. Model override allows valid WHO (F454 supports WHO 16)
+    errs = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16, "invalid_str"],
+        },
+        model_override="F454",
+    )
+    assert CONF_DELEGATED_WHOS not in errs
+
+    # 11. Gateway has dependents and cannot be demoted
+    errs = validate_shared_bus_topology(
+        hass,
+        entry1,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+            CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+        },
+    )
+    assert errs[CONF_GATEWAY_ROLE] == "gateway_has_dependents"
 
 

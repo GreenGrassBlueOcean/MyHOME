@@ -77,13 +77,8 @@ from .const import (
 from .decoder_companion import async_get_excluded_decoders
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .topology import (
-    dependents,
-    entry_delegated_whos,
-    entry_for_mac,
     entry_mac,
-    entry_primary_mac,
-    entry_role,
-    entry_topology,
+    validate_shared_bus_topology,
 )
 
 
@@ -760,69 +755,23 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
 
     def _apply_topology(self, user_input: dict[str, typing.Any], errors: dict[str, str]) -> None:
         """Validate the shared-bus settings (#453) and store them in the options."""
+        top_errors = validate_shared_bus_topology(
+            self.hass,
+            self.config_entry,
+            user_input,
+            model_override=user_input.get(CONF_NAME),
+        )
+        if top_errors:
+            errors.update(top_errors)
+            return
+
         in_topo = user_input.get(CONF_BUS_TOPOLOGY, self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE))  # type: ignore
         in_role = user_input.get(CONF_GATEWAY_ROLE, self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY))  # type: ignore
         in_pri = user_input.get(CONF_PRIMARY_GATEWAY, self.options.get(CONF_PRIMARY_GATEWAY))  # type: ignore
-        my_mac = entry_mac(self.config_entry)
         shared = in_topo == TOPOLOGY_SHARED
         follower = shared and in_role in (ROLE_SECONDARY, ROLE_STANDBY)
-
-        if not shared and user_input.get(CONF_GATEWAY_ROLE) in (ROLE_SECONDARY, ROLE_STANDBY):
-            errors[CONF_GATEWAY_ROLE] = "secondary_requires_shared_topology"
-            return
-
+        my_mac = entry_mac(self.config_entry)
         norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
-
-        if follower:
-            target = entry_for_mac(self.hass, norm_pri) if norm_pri and norm_pri != my_mac else None
-            if not norm_pri:
-                errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_required"
-            elif norm_pri == my_mac:
-                errors[CONF_PRIMARY_GATEWAY] = "invalid_primary_gateway"
-            elif target is None:
-                errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_found"
-            elif entry_primary_mac(target) == my_mac:
-                errors[CONF_PRIMARY_GATEWAY] = "circular_gateway_reference"
-            elif entry_topology(target) != TOPOLOGY_SHARED or entry_role(target) != ROLE_PRIMARY:
-                # Otherwise the primary does not know it shares its bus and flags its own standby
-                errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_shared_primary"
-
-            if norm_pri and in_role == ROLE_STANDBY and CONF_PRIMARY_GATEWAY not in errors:
-                for other in dependents(self.hass, norm_pri):
-                    if getattr(self.config_entry, "entry_id", None) == other.entry_id:
-                        continue
-                    if entry_role(other) == ROLE_STANDBY:
-                        errors[CONF_GATEWAY_ROLE] = "multiple_standbys"
-                        break
-
-            if in_role == ROLE_SECONDARY and CONF_PRIMARY_GATEWAY not in errors:
-                delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, [])]
-
-                my_model = self.data.get(CONF_NAME)  # type: ignore
-                if my_model:
-                    from OWNd.profiles import get_gateway_profile
-                    profile = get_gateway_profile(my_model)
-                    supports = getattr(profile, "supports_who", None)
-                    if callable(supports):
-                        for w in delegated:
-                            if not supports(int(w)):
-                                errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"
-                                break
-
-                if norm_pri and CONF_DELEGATED_WHOS not in errors:
-                    for other in dependents(self.hass, norm_pri):
-                        if getattr(self.config_entry, "entry_id", None) == other.entry_id:
-                            continue
-                        if entry_role(other) == ROLE_SECONDARY:
-                            if set(delegated) & entry_delegated_whos(other):
-                                errors[CONF_DELEGATED_WHOS] = "overlapping_delegated_whos"
-                                break
-
-        if not (shared and in_role == ROLE_PRIMARY) and my_mac and dependents(self.hass, my_mac):
-            errors[CONF_GATEWAY_ROLE] = "gateway_has_dependents"
-
-        if errors:
-            return
 
         self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED if shared else TOPOLOGY_STANDALONE  # type: ignore
         self.options[CONF_GATEWAY_ROLE] = in_role if shared else ROLE_PRIMARY  # type: ignore
@@ -831,7 +780,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         else:
             self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
         if follower and in_role == ROLE_SECONDARY:
-            delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, [])]
+            delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, []) if str(w).isdigit()]
             self.options[CONF_DELEGATED_WHOS] = delegated  # type: ignore
         else:
             self.options.pop(CONF_DELEGATED_WHOS, None)  # type: ignore

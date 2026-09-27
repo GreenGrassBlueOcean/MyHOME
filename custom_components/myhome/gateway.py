@@ -45,7 +45,6 @@ from .const import (
     ROLE_STANDBY,
     SHARED_BUS_EVIDENCE_COUNT,
     SHARED_BUS_EVIDENCE_WINDOW_S,
-    SHARED_BUS_RX_WINDOW_S,
     SHARED_BUS_TX_ECHO_S,
     TOPOLOGY_SHARED,
     WHO1013_BRANDS,
@@ -501,6 +500,21 @@ class MyHOMEGatewayHandler:
                 and gw.primary_gateway_mac == self.mac
             ):
                 return gw
+    def _get_secondary_for_who(self, who: int) -> "MyHOMEGatewayHandler" | None:
+        """Find the connected secondary gateway handling a delegated WHO subsystem."""
+        if not getattr(self, "hass", None):
+            return None
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            runtime_data = getattr(entry, "runtime_data", None)
+            gw: MyHOMEGatewayHandler | None = getattr(runtime_data, "gateway", None)
+            if (
+                gw is not None
+                and gw.bus_topology == TOPOLOGY_SHARED
+                and gw.gateway_role == ROLE_SECONDARY
+                and gw.primary_gateway_mac == self.mac
+                and who in gw.delegated_whos
+            ):
+                return gw
         return None
 
     def _get_primary_gateway(self) -> "MyHOMEGatewayHandler" | None:
@@ -722,19 +736,11 @@ class MyHOMEGatewayHandler:
         # 1. Another gateway wrote this exact frame just now (TX -> RX echo)
         for tx_time, tx_mac, tx_group, tx_frame in recent_tx:
             if tx_group != group and tx_frame == raw_msg and now - tx_time <= SHARED_BUS_TX_ECHO_S:
-                self._record_shared_bus_evidence(tx_mac, now, is_tx_echo=True)
+                self._record_shared_bus_evidence(tx_mac, now)
                 return
 
-        # 2. Another gateway received this exact frame at the same moment (physical event)
-        recent_rx = domain_data.setdefault("_recent_rx", collections.deque(maxlen=50))
-        for rx_time, rx_mac, rx_group, rx_frame in recent_rx:
-            if rx_group != group and rx_frame == raw_msg and now - rx_time <= SHARED_BUS_RX_WINDOW_S:
-                self._record_shared_bus_evidence(rx_mac, now, is_tx_echo=False)
-                return
-        recent_rx.append((now, self.mac, group, raw_msg))
-
-    def _record_shared_bus_evidence(self, other_mac: str, now: float, is_tx_echo: bool = False) -> None:
-        """Count one correlated frame; raise the repair issue on enough recent ones."""
+    def _record_shared_bus_evidence(self, other_mac: str, now: float) -> None:
+        """Count one correlated TX->RX echo; raise the repair issue on three echoes in the window."""
         from homeassistant.helpers import device_registry as dr
         my_mac = dr.format_mac(str(self.mac))
         other_mac = dr.format_mac(str(other_mac))
@@ -745,14 +751,13 @@ class MyHOMEGatewayHandler:
         evidence_map = domain_data.setdefault("_shared_bus_evidence", {})
         pair_key = tuple(sorted([my_mac, other_mac]))
         seen = evidence_map.setdefault(pair_key, collections.deque(maxlen=SHARED_BUS_EVIDENCE_COUNT))
-        seen.append((now, is_tx_echo))
+        seen.append(now)
         # Only evidence inside one window counts: coincidences spread over days do not add up.
-        # Require at least one TX->RX echo to prevent false positives on standalone buses (issue #459).
-        if len(seen) == SHARED_BUS_EVIDENCE_COUNT and seen[-1][0] - seen[0][0] <= SHARED_BUS_EVIDENCE_WINDOW_S:
-            if any(is_tx for _, is_tx in seen):
-                seen.clear()
-                from .repairs import async_create_shared_bus_issue
-                async_create_shared_bus_issue(self.hass, pair_key[0], pair_key[1])
+        # Exactly matches documented rule: three confirmed TX->RX echoes within 5 minutes (Issue #459).
+        if len(seen) == SHARED_BUS_EVIDENCE_COUNT and seen[-1] - seen[0] <= SHARED_BUS_EVIDENCE_WINDOW_S:
+            seen.clear()
+            from .repairs import async_create_shared_bus_issue
+            async_create_shared_bus_issue(self.hass, pair_key[0], pair_key[1])
 
     async def _process_message(self, message: Any) -> None:
         """Process a received message and dispatch to Home Assistant."""
@@ -1052,6 +1057,25 @@ class MyHOMEGatewayHandler:
         self._command_pool.close()
         return True
 
+    def _delegated_target(self, message: OWNCommand) -> "MyHOMEGatewayHandler" | None:
+        """The connected secondary gateway that owns the delegated WHO subsystem."""
+        msg_who = getattr(message, "who", getattr(message, "_who", None))
+        if msg_who in (13, 1013) or msg_who is None:
+            return None
+        if msg_who not in self.delegated_away_whos:
+            return None
+        sec = self._get_secondary_for_who(msg_who)
+        if sec is None or not sec.is_connected:
+            return None
+        LOGGER.debug(
+            "%s Subsystem WHO=%s is delegated; sending `%s` through secondary gateway %s.",
+            self.log_id,
+            msg_who,
+            message,
+            sec.log_id,
+        )
+        return sec
+
     def _failover_target(self, message: OWNCommand) -> "MyHOMEGatewayHandler" | None:
         """The connected warm standby to send through while this primary is disconnected."""
         msg_who = getattr(message, "who", getattr(message, "_who", None))
@@ -1078,6 +1102,9 @@ class MyHOMEGatewayHandler:
 
     async def send(self, message: OWNCommand) -> asyncio.Future[float]:
         """Queue a command; the returned future resolves to the monotonic write time."""
+        delegated = self._delegated_target(message)
+        if delegated is not None:
+            return await delegated.send(message)
         standby = self._failover_target(message)
         if standby is not None:
             return await standby.send(message)
@@ -1085,6 +1112,9 @@ class MyHOMEGatewayHandler:
 
     async def send_status_request(self, message: OWNCommand) -> asyncio.Future[float]:
         """Queue a status request; the returned future resolves to the monotonic write time."""
+        delegated = self._delegated_target(message)
+        if delegated is not None:
+            return await delegated.send_status_request(message)
         standby = self._failover_target(message)
         if standby is not None:
             return await standby.send_status_request(message)

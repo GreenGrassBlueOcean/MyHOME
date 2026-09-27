@@ -349,8 +349,8 @@ async def test_topology_inference_diagnostics_paired_and_redacted(hass: HomeAssi
     assert eval_peer["recommended_primary_model"] == "MyHomeServer1"
     assert eval_peer["recommended_secondary_model"] == "H4890"
     assert eval_peer["recommended_role"] == ROLE_SECONDARY
-    assert eval_peer["delegated_whos"] == [5, 9, 16, 22]
-    assert eval_peer["audio_coupled"] is True
+    assert eval_peer["delegated_whos"] == [16, 22]
+    assert eval_peer["audio_coupled"] is False
     assert "unique subsystems" in eval_peer["rationale"]
 
     # Alignment verification

@@ -348,7 +348,7 @@ async def test_shared_bus_repair_flow(hass: HomeAssistant) -> None:
     assert sec_entry.options[CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
     assert sec_entry.options[CONF_GATEWAY_ROLE] == ROLE_SECONDARY
     assert sec_entry.options[CONF_PRIMARY_GATEWAY] == "00:03:50:aa:bb:01"
-    assert set(sec_entry.options[CONF_DELEGATED_WHOS]) == {5, 9, 16, 22}
+    assert set(sec_entry.options[CONF_DELEGATED_WHOS]) == {16, 22}
 
     # Verify repair issue was dismissed
     assert ir.async_get(hass).async_get_issue(DOMAIN, "shared_bus_detected_000350aabb01_000350aabb02") is None
