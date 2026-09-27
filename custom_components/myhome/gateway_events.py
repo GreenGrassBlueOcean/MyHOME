@@ -77,12 +77,9 @@ class GatewayEventDispatcher:
 
     def ensure_cen_device(self, who: int, object_id: int | str) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
-        if getattr(self.handler, "is_standby", False):
-            # Standby gateways never register devices on their own config entry
-            return
-        if getattr(self.handler, "is_secondary", False) and who not in getattr(self.handler, "delegated_whos", set()):
-            return
-        if not getattr(self.handler, "is_follower", False) and who in getattr(self.handler, "delegated_away_whos", set()):
+        if getattr(self.handler, "is_standby", False) or not self._is_active_for_who(who):
+            # Standby gateways never register devices on their own config entry,
+            # and followers/primaries only register for their active subsystems.
             return
 
         device_key = (who, object_id)
@@ -133,20 +130,14 @@ class GatewayEventDispatcher:
             # Standby is only active for bus events if failover is active (primary is offline)
             primary_gw = self.handler._get_primary_gateway()
             if primary_gw is not None and not primary_gw.is_connected:
-                if who is None:
-                    return True
-                return self.handler._profile_supports_who(who)
+                return who is not None and self.handler._profile_supports_who(who)
             return False
 
         if getattr(self.handler, "is_secondary", False):
-            if who is None:
-                return True
-            return who in getattr(self.handler, "delegated_whos", set())
+            return who is not None and who in getattr(self.handler, "delegated_whos", set())
 
         # Primary or standalone
-        if who is not None and who in getattr(self.handler, "delegated_away_whos", set()):
-            return False
-        return True
+        return who is None or who not in getattr(self.handler, "delegated_away_whos", set())
 
     async def process_message(self, message: Any) -> None:
         """Process a received message and dispatch to Home Assistant."""

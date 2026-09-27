@@ -41,6 +41,7 @@ from .const import (
     IDENTIFICATION_UNKNOWN,
     IDENTIFICATION_WHO13,
     LOGGER,
+    ROLE_SECONDARY,
     ROLE_STANDBY,
     SHARED_BUS_EVIDENCE_COUNT,
     SHARED_BUS_EVIDENCE_WINDOW_S,
@@ -448,6 +449,11 @@ class MyHOMEGatewayHandler:
     def is_standby(self) -> bool:
         """Return True if this gateway is configured as a warm standby failover."""
         return self.bus_topology == TOPOLOGY_SHARED and self.gateway_role == ROLE_STANDBY
+
+    @property
+    def is_secondary(self) -> bool:
+        """Return True if this gateway is configured as a secondary gateway."""
+        return self.bus_topology == TOPOLOGY_SHARED and self.gateway_role == ROLE_SECONDARY
 
     @property
     def is_primary(self) -> bool:

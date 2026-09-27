@@ -1398,3 +1398,132 @@ async def test_standby_failover_cen_event_bridged_to_primary(hass: HomeAssistant
 
     unsub_bus()
     unsub_disp()
+
+
+@pytest.mark.asyncio
+async def test_secondary_gateway_event_delegation_filtering(hass: HomeAssistant) -> None:
+    """Test that secondary gateway only processes events for its delegated WHOs (#459)."""
+    from OWNd.message import OWNAutomationEvent, OWNLightingEvent
+
+    _, _ = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    _, gw_sec = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[1],
+    )
+    gw_sec.is_connected = True
+
+    events = []
+    unsub_light = hass.bus.async_listen(
+        "myhome_general_light_event", lambda e: events.append(e)
+    )
+    unsub_auto = hass.bus.async_listen(
+        "myhome_general_automation_event", lambda e: events.append(e)
+    )
+
+    # Delegated WHO=1 event should be processed
+    await gw_sec._process_message(OWNLightingEvent.parse("*1*1*0##"))
+    assert len(events) == 1
+
+    # Non-delegated WHO=2 event should be ignored
+    await gw_sec._process_message(OWNAutomationEvent.parse("*2*1*0##"))
+    assert len(events) == 1
+
+    unsub_light()
+    unsub_auto()
+
+
+@pytest.mark.asyncio
+async def test_primary_gateway_ignores_delegated_away_whos(hass: HomeAssistant) -> None:
+    """Test that primary gateway ignores events for WHOs delegated away to secondary (#459)."""
+    from OWNd.message import OWNAutomationEvent, OWNLightingEvent
+
+    _, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    _, _ = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[2],
+    )
+    gw_pri.is_connected = True
+
+    events = []
+    unsub_light = hass.bus.async_listen(
+        "myhome_general_light_event", lambda e: events.append(e)
+    )
+    unsub_auto = hass.bus.async_listen(
+        "myhome_general_automation_event", lambda e: events.append(e)
+    )
+
+    # Non-delegated WHO=1 event is processed by primary
+    await gw_pri._process_message(OWNLightingEvent.parse("*1*1*0##"))
+    assert len(events) == 1
+
+    # Delegated-away WHO=2 event is ignored by primary
+    await gw_pri._process_message(OWNAutomationEvent.parse("*2*1*0##"))
+    assert len(events) == 1
+
+    unsub_light()
+    unsub_auto()
+
+
+@pytest.mark.asyncio
+async def test_standby_failover_cen_who15_bridged_to_primary(hass: HomeAssistant) -> None:
+    """Test that CEN (WHO 15) events on standby during failover are bridged with primary MAC (#459)."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+    from OWNd.message import OWNCENEvent
+
+    entry_pri, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    entry_sb, gw_sb = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_pri.is_connected = False
+    gw_pri._available = False
+    gw_sb.is_connected = True
+    gw_sb._available = True
+
+    cen_events = []
+    dispatched_events = []
+
+    unsub_bus = hass.bus.async_listen("myhome_cen_event", lambda e: cen_events.append(e))
+    unsub_disp = async_dispatcher_connect(
+        hass,
+        f"myhome_cen_event_{gw_pri.mac}",
+        lambda payload: dispatched_events.append(payload),
+    )
+
+    # Standby receives WHO=15 CEN event during failover -> bridged to primary
+    msg = OWNCENEvent.parse("*15*1#1*1##")
+    await gw_sb._process_message(msg)
+
+    assert len(cen_events) == 1
+    assert cen_events[0].data["gateway_mac"] == gw_pri.mac
+    assert cen_events[0].data["entry_id"] == entry_pri.entry_id
+
+    assert len(dispatched_events) == 1
+    assert dispatched_events[0]["gateway_mac"] == gw_pri.mac
+    assert dispatched_events[0]["entry_id"] == entry_pri.entry_id
+
+    # If primary recovers, standby CEN events are suppressed (not bridged)
+    gw_pri.is_connected = True
+    await gw_sb._process_message(msg)
+    assert len(cen_events) == 1
+
+    unsub_bus()
+    unsub_disp()
