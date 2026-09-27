@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import (
     CONF_FRIENDLY_NAME,
@@ -428,12 +428,11 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
             if self._existing_entry:
                 new_data = dict(self._existing_entry.data)
                 new_data[CONF_PASSWORD] = gateway.password
-                self.hass.config_entries.async_update_entry(
+                return self.async_update_reload_and_abort(
                     self._existing_entry,
                     data=new_data,
+                    reason="reauth_successful",
                 )
-                await self.hass.config_entries.async_reload(self._existing_entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
 
             _new_entry_data = {
                 CONF_ID: dr.format_mac(gateway.serial),
@@ -693,7 +692,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
 
 
-class MyhomeOptionsFlowHandler(OptionsFlow):
+class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
     """Handle MyHome options (general settings + decoder mapping)."""
 
     def __init__(self, config_entry: ConfigEntry = None):  # type: ignore
@@ -808,7 +807,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             for i in range(1, CONF_DECODER_SLOTS + 1):
                 entity_key = CONF_DECODER_ENTITY.format(i)
                 source_key = CONF_DECODER_SOURCE.format(i)
-                entity_val = user_input.get(entity_key, "").strip()
+                entity_val = str(user_input.get(entity_key) or "").strip()
                 if entity_val:
                     if not entity_val.startswith("media_player."):
                         errors[entity_key] = "not_a_media_player"
@@ -852,12 +851,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     tuner_key = CONF_SOURCE_TUNER.format(i)
                     self.options[tuner_key] = bool(user_input.get(tuner_key, False))  # type: ignore
 
-                # Persist decoder slots
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
-                    self.options[entity_key] = user_input.get(entity_key, "")  # type: ignore
+                    self.options[entity_key] = str(user_input.get(entity_key) or "").strip()  # type: ignore
                     # Selectors hand back strings/floats; the decoder pool and the
                     # source labels both index on plain ints.
                     self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
@@ -891,14 +889,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if _model_update and self.config_entry.title.endswith("Gateway"):
                             update_kwargs["title"] = f"{user_input[CONF_NAME]} Gateway"  # type: ignore
                         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)  # type: ignore
-
-                    # We must only reload once. The options flow listener triggers a reload
-                    # if the options dictionary actually changed. If data changed but options
-                    # did not, we must trigger the reload ourselves.
-                    options_changed = self.options != self.config_entry.options
-                    if _data_update and not options_changed:
-                        # Schedule a background reload so we can return the options form close event safely
-                        self.hass.async_create_task(self.hass.config_entries.async_reload(self.config_entry.entry_id))
+                        # OptionsFlowWithReload only schedules a reload when entry.options
+                        # change. When only connection data changed (host, password, model)
+                        # and options remain identical, schedule reload explicitly so the
+                        # integration restarts with the new connection parameters.
+                        if self.config_entry.options == self.options:
+                            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
                     return self.async_create_entry(title="", data=self.options)  # type: ignore
 
@@ -926,7 +922,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             vol.Optional(
                 CONF_OWN_PASSWORD,
                 description={"suggested_value": self.data.get(CONF_PASSWORD) or ""},  # type: ignore
-            ): str,
+            ): vol.Maybe(str),
             Required(
                 CONF_WORKER_COUNT,
                 description={"suggested_value": suggested_workers},

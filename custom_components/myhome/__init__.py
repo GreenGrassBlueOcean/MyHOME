@@ -5,7 +5,6 @@ import hashlib
 import os
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -31,7 +30,7 @@ from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
 from .migrate import migrate_entry_and_registries, prune_stale_devices
 from .services import async_setup_services
-from .topology import async_check_primary_links, topology_signature
+from .topology import async_check_primary_links
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -329,49 +328,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
     # Prune orphaned devices with 0 entities from the device registry
     prune_stale_devices(hass, entry, gateway_device_entry, gateway)
 
-
-    # ── Register options reload listener (rebuilds decoder pool on UI save) ──
-    topology_at_setup = topology_signature(entry)
-
-    async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Rebuild the decoder pool when the user saves new options via the UI.
-
-        Releases all active decoder assignments first so that no zone is left
-        with a stale claim.  The user will need to re-trigger playback after
-        changing decoder config.
-
-        A changed shared-bus role (#453) reloads the entry instead: the startup
-        sweep and the duplicate pruning only run at setup.
-        """
-        # The same builder as platform setup, so the incompatible-decoder
-        # repair issues follow the saved options straight away.
-        from .media_player import _build_pool
-
-        if topology_signature(entry) != topology_at_setup:
-            async_check_primary_links(hass)
-            hass.config_entries.async_schedule_reload(entry.entry_id)
-            return
-
-        mac = entry.data[CONF_MAC]
-        runtime_data = entry.runtime_data
-        old_pool = runtime_data.decoder_pool
-        if old_pool:
-            await old_pool.release_all()
-
-        pool = _build_pool(hass, entry)
-        runtime_data.decoder_pool = pool
-        LOGGER.info(
-            "MyHOME: decoder pool rebuilt after options update — %d decoder(s) configured",
-            len(pool.decoder_entity_ids),
-        )
-
-        # Signal all media player entities to re-publish supported_features
-        # so Music Assistant picks up the new PLAY_MEDIA capability.
-        from homeassistant.helpers.dispatcher import async_dispatcher_send
-        async_dispatcher_send(hass, f"myhome_pool_updated_{mac}")
-
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-
     return True
 
 
@@ -405,6 +361,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> N
 async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:
     """Unload a config entry."""
     LOGGER.info("Unloading MyHome entry.")
+
+    runtime = getattr(entry, "runtime_data", None)
+    if isinstance(runtime, MyHOMERuntimeData) and runtime.decoder_pool:
+        await runtime.decoder_pool.release_all()
 
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False

@@ -83,13 +83,13 @@ def build_matrix():
     for whos in gateways_data.values():
         all_whos_found.update(whos)
 
-    whos_list = sorted(list(all_whos_found))
-
     who_names = {
         0: 'Scenario', 1: 'Lights', 2: 'Autom.', 4: 'Climate', 5: 'Alarm', 9: 'Power',
         13: 'Gateway', 14: 'Lock', 15: 'CEN', 16: 'Audio', 17: 'Scenario', 18: 'Energy',
         22: 'Audio Diff.', 25: 'Diag', 1001: 'Diag', 1013: 'Diag', 1022: 'Diag'
     }
+
+    whos_list = sorted([w for w in all_whos_found if w in who_names])
 
     GATEWAY_DISPLAY_NAMES = {
         "H4890": "H4890 / AM4890",
