@@ -31,6 +31,7 @@ from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
 from .migrate import migrate_entry_and_registries, prune_stale_devices
 from .services import async_setup_services
+from .topology import async_check_primary_links, topology_signature
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -301,6 +302,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
         CONF_ENTITIES: runtime.entities,
         "bus_monitor": runtime.bus_monitor,
     }
+    async_check_primary_links(hass)
 
     # Start consumers before the platforms enqueue their initial status
     # requests.  With a bounded command queue, forwarding a large plant before
@@ -329,16 +331,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bo
 
 
     # ── Register options reload listener (rebuilds decoder pool on UI save) ──
+    topology_at_setup = topology_signature(entry)
+
     async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Rebuild the decoder pool when the user saves new options via the UI.
 
         Releases all active decoder assignments first so that no zone is left
         with a stale claim.  The user will need to re-trigger playback after
         changing decoder config.
+
+        A changed shared-bus role (#453) reloads the entry instead: the startup
+        sweep and the duplicate pruning only run at setup.
         """
         # The same builder as platform setup, so the incompatible-decoder
         # repair issues follow the saved options straight away.
         from .media_player import _build_pool
+
+        if topology_signature(entry) != topology_at_setup:
+            async_check_primary_links(hass)
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+            return
 
         mac = entry.data[CONF_MAC]
         runtime_data = entry.runtime_data
@@ -383,6 +395,11 @@ async def async_remove_config_entry_device(
         LOGGER.debug("Refusing to remove gateway device %s", device_entry.id)
         return False
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> None:
+    """Flag the secondary/standby gateways a removed primary leaves behind (#453)."""
+    async_check_primary_links(hass, removed=entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:
