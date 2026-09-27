@@ -305,3 +305,120 @@ async def test_myhomeserver1_monostable_cover_diagnostic_replay(hass: HomeAssist
 
     await hass.async_block_till_done()
     assert replayed == 114
+
+
+@pytest.mark.asyncio
+async def test_myhomeserver1_kw8011_dummy_scenario_multi_action_sequence(hass: HomeAssistant) -> None:
+    """Verify Living Now KW8011 dummy-scenario multi-action lifecycle on MyHomeServer1.
+
+    When bound to a dummy 'wait 1 second' scenario in MyHOME_Up (issue #466 comment 5857820095),
+    the physical KW8011 broadcasts:
+    1. Short press: *25*21#1*21## -> CONF_SHORT_PRESS
+    2. Long press start: *25*22#1*21## -> CONF_LONG_PRESS
+    3. Hold repeat: *25*23#1*21## -> CONF_LONG_PRESS_REPEAT
+    4. Long release: *25*24#1*21## -> CONF_LONG_RELEASE
+
+    Verifies that:
+    - The gateway event dispatcher translates all 4 frames into corresponding events.
+    - myhome_cenplus_event bus payloads contain both object (1) and raw_where ("21").
+    - Device triggers configured with both wire address (21) and virtual object (1) fire.
+    - Auto-registration registers the CEN+ Unit in the device registry.
+    """
+    from unittest.mock import AsyncMock
+
+    from custom_components.myhome.const import (
+        CONF_LONG_PRESS,
+        CONF_LONG_PRESS_REPEAT,
+        CONF_LONG_RELEASE,
+        CONF_SHORT_PRESS,
+    )
+    from custom_components.myhome.device_trigger import (
+        CONF_ADDRESS,
+        CONF_SUBTYPE,
+        CONF_TYPE,
+        async_attach_trigger,
+    )
+
+    handler, mac = await _setup_myhomeserver1_gateway(hass)
+
+    # Attach triggers by wire address 21 (as labeled in MyHOME_Up / on-wire traces)
+    action_wire_short = AsyncMock()
+    unsub1 = await async_attach_trigger(
+        hass,
+        {CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 21},
+        action_wire_short,
+        {},
+    )
+    action_wire_long = AsyncMock()
+    unsub2 = await async_attach_trigger(
+        hass,
+        {CONF_TYPE: CONF_LONG_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 21},
+        action_wire_long,
+        {},
+    )
+    action_wire_repeat = AsyncMock()
+    unsub3 = await async_attach_trigger(
+        hass,
+        {CONF_TYPE: CONF_LONG_PRESS_REPEAT, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 21},
+        action_wire_repeat,
+        {},
+    )
+    action_wire_release = AsyncMock()
+    unsub4 = await async_attach_trigger(
+        hass,
+        {CONF_TYPE: CONF_LONG_RELEASE, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 21},
+        action_wire_release,
+        {},
+    )
+
+    # Attach trigger by virtual object 1
+    action_obj_short = AsyncMock()
+    unsub5 = await async_attach_trigger(
+        hass,
+        {CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 1},
+        action_obj_short,
+        {},
+    )
+
+    # Capture raw bus events
+    bus_events = []
+    hass.bus.async_listen("myhome_cenplus_event", lambda ev: bus_events.append(ev.data))
+
+    # 1. Short press: *25*21#1*21##
+    msg1 = OWNMessage.parse("*25*21#1*21##")
+    await handler._process_message(msg1)
+    await hass.async_block_till_done()
+
+    action_wire_short.assert_called_once()
+    action_obj_short.assert_called_once()
+    assert bus_events[-1]["event"] == CONF_SHORT_PRESS
+    assert bus_events[-1]["object"] == 1
+    assert bus_events[-1]["where"] == "1"
+
+    # 2. Long press start: *25*22#1*21##
+    msg2 = OWNMessage.parse("*25*22#1*21##")
+    await handler._process_message(msg2)
+    await hass.async_block_till_done()
+
+    action_wire_long.assert_called_once()
+    assert bus_events[-1]["event"] == CONF_LONG_PRESS
+    assert bus_events[-1]["object"] == 1
+
+    # 3. Hold repeat: *25*23#1*21##
+    msg3 = OWNMessage.parse("*25*23#1*21##")
+    await handler._process_message(msg3)
+    await hass.async_block_till_done()
+
+    action_wire_repeat.assert_called_once()
+    assert bus_events[-1]["event"] == CONF_LONG_PRESS_REPEAT
+
+    # 4. Long release: *25*24#1*21##
+    msg4 = OWNMessage.parse("*25*24#1*21##")
+    await handler._process_message(msg4)
+    await hass.async_block_till_done()
+
+    action_wire_release.assert_called_once()
+    assert bus_events[-1]["event"] == CONF_LONG_RELEASE
+
+    for unsub in (unsub1, unsub2, unsub3, unsub4, unsub5):
+        unsub()
