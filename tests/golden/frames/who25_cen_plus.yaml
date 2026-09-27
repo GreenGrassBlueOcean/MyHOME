@@ -51,7 +51,7 @@
   where: "21"
   source: community-plant-capture
   mcp_valid: true
-  mcp_notes: "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418)"
+  mcp_notes: "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)"
   roundtrip: true
   builder:
     class: OWNCenPlusCommand
@@ -81,7 +81,7 @@
   where: "21"
   source: community-plant-capture
   mcp_valid: true
-  mcp_notes: "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418)"
+  mcp_notes: "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)"
   roundtrip: true
   builder:
     class: OWNCenPlusCommand
