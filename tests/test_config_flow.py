@@ -461,18 +461,21 @@ async def test_reauth_flow(hass: HomeAssistant) -> None:
     with patch(
         "custom_components.myhome.config_flow.OWNSession.test_connection",
         return_value={"Success": True},
-    ), patch(
-        "custom_components.myhome.async_setup_entry",
+    ), patch.object(
+        hass.config_entries,
+        "async_reload",
         return_value=True,
-    ):
+    ) as mock_reload:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"password": "correct_password"},
         )
+        await hass.async_block_till_done()
 
     assert result2["type"] == FlowResultType.ABORT
     assert result2["reason"] == "reauth_successful"
     assert entry.data["password"] == "correct_password"
+    assert mock_reload.called
 
 async def test_password_required_and_error(hass: HomeAssistant) -> None:
     """Test manual connection with password error states."""
