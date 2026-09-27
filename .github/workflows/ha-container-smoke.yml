@@ -16,6 +16,9 @@ on:
     - cron: "0 4 * * 1"  # Weekly run every Monday at 04:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   ha-container-smoke:
     name: HA Container (${{ matrix.ha-channel }})
