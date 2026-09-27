@@ -12,7 +12,7 @@ Our overarching mission is to provide the most reliable, complete, and high-perf
 
 ## 🗺️ Current Delivery Status (v2.0.0 Beta Series & v2.0.0b14 Milestone)
 
-The major architectural milestones originally planned across Phases 1 through 4 have been **consolidated, fully implemented, and validated with 100% statement and branch test coverage** across the **v2.0.0b1 through v2.0.0b13** releases. The active development branch is finalizing the **v2.0.0b14** milestone in preparation for official upstream Home Assistant Core submission.
+The major architectural milestones originally planned across Phases 1 through 4 have been **consolidated, fully implemented, and validated with 100% statement and branch test coverage** across the **v2.0.0b1 through v2.0.0b13** releases. The active development branch is finalizing the **v2.0.0b14** milestone as part of the v2.0.0 stabilization effort.
 
 ```mermaid
 gantt
@@ -40,7 +40,7 @@ gantt
     Cover Centralized Triggers & Tilt Support (#492) :active, 2026-09-23, 2026-09-30
     F520 Proactive Energy Meter Bus Sweeps (#494)    :active, 2026-09-24, 2026-09-30
     section Final Stabilization
-    v2.0.0 Release Candidate & Core Upstream PR      :2026-10-01, 2026-11-15
+    v2.0.0 Release Candidate & Distribution Consultation :2026-10-01, 2026-11-15
 ```
 
 ---
@@ -73,7 +73,18 @@ The following table summarizes the completed architectural features and protocol
 
 ## 🏆 Integration Quality Scale (IQS) Alignment
 
-MyHOME is engineered to achieve the **official Home Assistant 🥇 Platinum Quality Seal** ([Home Assistant Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/)) for its upcoming Core inclusion.
+MyHOME is engineered to achieve the **official Home Assistant 🥇 Platinum Quality Seal** ([Home Assistant Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/)) for potential Core inclusion, ensuring the highest architectural standards regardless of distribution model.
+
+> [!NOTE]
+> **Community Consultation on Upstream Core Inclusion vs. Independent Distribution**:  
+> While the integration strictly adheres to 100% of Home Assistant Core Platinum standards, the maintainers and community have **not decided** on upstream Core inclusion. As discussed in community channels (see [RFC Discussion #248](https://github.com/orgs/OpenWebNet-HA/discussions/248)), there are important trade-offs:
+> - **Benefits of Core inclusion**: Automatic out-of-the-box discovery for new Home Assistant users without requiring HACS; official documentation on `home-assistant.io`.
+> - **Drawbacks & Advantages of remaining an independent custom component**:
+>   - **Release Agility**: Rapid deployment of bugfixes, firmware quirk workarounds, and new WHO dimension features without waiting for monthly Home Assistant Core release windows.
+>   - **Dedicated Diagnostic Frontend**: Continued bundling and rapid iteration of the in-band `<myhome-bus-card>` Lovelace tool and live bus monitors, which are constrained within Core repository guidelines.
+>   - **Community Traces & Plant Fixtures**: Fast, unencumbered additions of real-world captures and experimental protocol options.
+>
+> Feedback from installers and users is actively welcomed in our Discussions.
 
 All 54 quality scale rules are tracked in `custom_components/myhome/quality_scale.yaml` and continuously validated by `scripts/verify_ha_standards.py`:
 
