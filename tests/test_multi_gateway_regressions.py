@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.const import (
     CONF_BUS_TOPOLOGY,
-    CONF_DECODER_ENTITY,
     CONF_DELEGATED_WHOS,
     CONF_GATEWAY_ROLE,
     CONF_PRIMARY_GATEWAY,
@@ -370,19 +369,31 @@ async def _set_up(hass: HomeAssistant, mac: str, host: str, options: dict) -> Mo
 
 
 async def test_role_change_reloads_once_the_options_are_saved(hass: HomeAssistant) -> None:
+    from homeassistant.data_entry_flow import FlowResultType
+
     p1, p2, p3 = _setup_patches()
     with p1, p2, p3:
         entry = await _set_up(hass, PRI, "192.168.0.35", {})
-        with patch.object(hass.config_entries, "async_schedule_reload") as reload:
-            hass.config_entries.async_update_entry(entry, options={CONF_DECODER_ENTITY.format(1): ""})
-            await hass.async_block_till_done()
-            reload.assert_not_called()  # not a topology change
-
-            hass.config_entries.async_update_entry(
-                entry, options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+        await _set_up(hass, SB, "192.168.0.36", {})
+        with patch.object(hass.config_entries, "async_reload", return_value=True) as reload:
+            form = await hass.config_entries.options.async_init(entry.entry_id)
+            assert form["type"] == FlowResultType.FORM
+            result = await hass.config_entries.options.async_configure(
+                form["flow_id"],
+                {
+                    "address": "192.168.0.35",
+                    "name": "Generic gateway",
+                    "command_worker_count": 1,
+                    "generate_events": False,
+                    "transition_mode": "software_stepped",
+                    CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                    CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+                },
             )
             await hass.async_block_till_done()
-            reload.assert_called_once_with(entry.entry_id)
+            assert result["type"] == FlowResultType.CREATE_ENTRY
+            assert reload.called
+
 
 
 async def test_removing_the_primary_flags_its_standby(hass: HomeAssistant) -> None:

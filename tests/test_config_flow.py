@@ -1450,10 +1450,12 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
     from custom_components.myhome.const import (
         CONF_ADDRESS,
         CONF_BROADCAST_RESYNC,
+        CONF_BUS_TOPOLOGY,
         CONF_DECODER_ENTITY,
         CONF_DECODER_PRE_GAIN,
         CONF_DECODER_SLOTS,
         CONF_DECODER_SOURCE,
+        CONF_GATEWAY_ROLE,
         CONF_GENERATE_EVENTS,
         CONF_OWN_PASSWORD,
         CONF_SOURCE_DEFAULTS,
@@ -1462,6 +1464,8 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_SOURCE_TUNER,
         CONF_TRANSITION_MODE,
         CONF_WORKER_COUNT,
+        ROLE_PRIMARY,
+        TOPOLOGY_STANDALONE,
     )
 
     initial_options = {
@@ -1470,6 +1474,8 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_BROADCAST_RESYNC: True,
         CONF_TRANSITION_MODE: "software_stepped",
         CONF_SOURCE_DEFAULTS: {},
+        CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
+        CONF_GATEWAY_ROLE: ROLE_PRIMARY,
         **{CONF_SOURCE_NAME.format(i): "" for i in range(1, CONF_SOURCE_SLOTS + 1)},
         **{CONF_SOURCE_TUNER.format(i): False for i in range(1, CONF_SOURCE_SLOTS + 1)},
         **{CONF_DECODER_ENTITY.format(i): "" for i in range(1, CONF_DECODER_SLOTS + 1)},
