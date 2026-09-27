@@ -391,15 +391,25 @@ class SharedBusRepairFlow(RepairsFlow):
             else:
                 sec_opts.pop(CONF_DELEGATED_WHOS, None)
 
+            # Atomic validation: validate BOTH primary and secondary proposed topologies
+            # BEFORE applying changes to either config entry. If either validation fails,
+            # abort without modifying either entry.
             pri_errs = validate_shared_bus_topology(self.hass, pri_entry, pri_opts)
-            if pri_errs:
+            sec_errs = validate_shared_bus_topology(
+                self.hass, sec_entry, sec_opts, target_primary_options=pri_opts
+            )
+            if pri_errs or sec_errs:
                 return self.async_abort(reason="invalid_topology")
-            self.hass.config_entries.async_update_entry(pri_entry, options=pri_opts)
 
-            sec_errs = validate_shared_bus_topology(self.hass, sec_entry, sec_opts)
-            if sec_errs:
-                return self.async_abort(reason="invalid_topology")
-            self.hass.config_entries.async_update_entry(sec_entry, options=sec_opts)
+            orig_pri_opts = dict(pri_entry.options)
+            orig_sec_opts = dict(sec_entry.options)
+            try:
+                self.hass.config_entries.async_update_entry(pri_entry, options=pri_opts)
+                self.hass.config_entries.async_update_entry(sec_entry, options=sec_opts)
+            except Exception:
+                self.hass.config_entries.async_update_entry(pri_entry, options=orig_pri_opts)
+                self.hass.config_entries.async_update_entry(sec_entry, options=orig_sec_opts)
+                raise
 
             # Reload both entries
             self.hass.async_create_task(

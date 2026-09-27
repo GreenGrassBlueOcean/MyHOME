@@ -157,7 +157,7 @@ Home Assistant automatically inspects the hardware models, command concurrency, 
 - **Tier 2 (Linux / Touchscreen Gateways)**: `MH201`, `MH202`, `H4890` / `AM4890` / `LN4890`.
 - **Tier 3 (Legacy Microcontroller Gateways)**: `MH200N`, `MH200`, `F452`, `F453`.
 
-The integration designates the higher-tier or lower-pacing gateway as **Primary**, and calculates the capability delta for the follower:
+The integration designates the higher-tier or broader-subsystem-coverage gateway as **Primary** (ranking by hardware tier, supported WHO count, and deterministic MAC address tie-break), and calculates the capability delta for the follower:
 $$\Delta = S_{\text{sec}} \setminus S_{\text{pri}}$$
 - **Empty Delta ($\Delta = \emptyset$)**: Both gateways have equivalent or subordinate capability (e.g. F454 + MH202). The follower is configured as **Warm Standby** for high-availability failover without entity duplication.
 - **Non-Empty Delta ($\Delta \neq \emptyset$)**: The follower gateway provides specialized hardware subsystems not supported by the primary (e.g. MyHomeServer1 + H4890, where H4890 provides Burglar Alarm WHO 5, Auxiliary WHO 9, and Multi-room Sound WHO 16/22). The follower is assigned as **Secondary** with delegated subsystems $\Delta$.

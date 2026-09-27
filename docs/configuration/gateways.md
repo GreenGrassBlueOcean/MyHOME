@@ -334,11 +334,11 @@ Rather than requiring users to manually calculate subsystem overlaps and gateway
                       +--------------------+---------------------+
                                            |
                                            v
-                      +------------------------------------------+
-                      |       Rank by (Tier ASC, Pacing ASC)     |
-                      |   Higher Tier / Lower Pacing = PRIMARY   |
-                      |   Remaining Gateway          = FOLLOWER  |
-                      +--------------------+---------------------+
+                      +-----------------------------------------------+
+                      |   Rank by (Tier ASC, WHO Count DESC, MAC ASC) |
+                      |   Higher Tier / More WHOs    = PRIMARY        |
+                      |   Remaining Gateway          = FOLLOWER       |
+                      +-----------------------+-----------------------+
                                            |
                                            v
                       +------------------------------------------+
@@ -376,7 +376,7 @@ Rather than requiring users to manually calculate subsystem overlaps and gateway
 2. **Tier 2 (Linux / Touchscreen Gateways, $100\text{ ms}$ pacing)**: `MH201`, `MH202`, `H4890` / `AM4890` / `LN4890`.
 3. **Tier 3 (Legacy Microcontroller Gateways, $150\text{ ms}$ pacing)**: `MH200N`, `MH200`, `F452`, `F453`.
 
-When two gateways are paired on a shared bus, the integration ranks them by tier and inter-frame pacing. The more performant gateway is assigned as the **Primary**.
+When two gateways are paired on a shared bus, the integration ranks them by performance tier (Tier 1 > Tier 2 > Tier 3), supported OpenWebNet subsystem coverage (more supported WHO dimensions wins), and deterministic MAC address ordering (`pri_mac <= sec_mac`) as a final tie-breaker. The broader, more performant gateway is assigned as the **Primary**.
 
 ##### Capability Delta Formula
 The follower gateway's role and delegated subsystems are calculated by evaluating the set difference of supported OpenWebNet subsystems ($S$):

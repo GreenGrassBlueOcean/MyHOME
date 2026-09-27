@@ -1909,24 +1909,46 @@ async def test_delegated_command_routing_to_secondary(hass: HomeAssistant) -> No
 
 @pytest.mark.asyncio
 async def test_shared_bus_repair_flow_invalid_topology_aborts(hass: HomeAssistant) -> None:
-    """Test SharedBusRepairFlow aborts if validate_shared_bus_topology returns errors."""
+    """Test SharedBusRepairFlow aborts if validate_shared_bus_topology returns errors, leaving entries untouched."""
     from custom_components.myhome.repairs import SharedBusRepairFlow
 
-    _create_mock_gateway(hass, "00:03:50:aa:bb:01")
-    _create_mock_gateway(hass, "00:03:50:aa:bb:02")
+    entry1, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:01")
+    entry2, _ = _create_mock_gateway(hass, "00:03:50:aa:bb:02")
+
+    initial_opts_1 = dict(entry1.options)
+    initial_opts_2 = dict(entry2.options)
 
     flow = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
     flow.hass = hass
 
+    # 1. Primary validation fails -> aborts, neither entry is modified
     with patch("custom_components.myhome.repairs.validate_shared_bus_topology", return_value={"error": "pri"}):
         res1 = await flow.async_step_init(user_input={})
         assert res1["type"] == "abort"
         assert res1["reason"] == "invalid_topology"
+        assert entry1.options == initial_opts_1
+        assert entry2.options == initial_opts_2
 
+    # 2. Secondary validation fails -> aborts, primary remains UNTOUCHED (atomic repair)
+    flow2 = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
+    flow2.hass = hass
     with patch("custom_components.myhome.repairs.validate_shared_bus_topology", side_effect=[{}, {"error": "sec"}]):
-        res2 = await flow.async_step_init(user_input={})
+        res2 = await flow2.async_step_init(user_input={})
         assert res2["type"] == "abort"
         assert res2["reason"] == "invalid_topology"
+        assert entry1.options == initial_opts_1
+        assert entry2.options == initial_opts_2
+
+    # 3. Exception during entry update rolls back both entries to initial options
+    flow3 = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
+    flow3.hass = hass
+    with patch.object(
+        hass.config_entries, "async_update_entry", side_effect=[None, RuntimeError("db error"), None, None]
+    ):
+        with pytest.raises(RuntimeError):
+            await flow3.async_step_init(user_input={})
+        assert entry1.options == initial_opts_1
+        assert entry2.options == initial_opts_2
 
 
 def test_validate_shared_bus_topology_scenarios(hass: HomeAssistant) -> None:
@@ -2096,5 +2118,57 @@ def test_validate_shared_bus_topology_scenarios(hass: HomeAssistant) -> None:
         },
     )
     assert errs[CONF_GATEWAY_ROLE] == "gateway_has_dependents"
+
+    # 12. target_primary_options allows validating follower against proposed primary settings
+    hass.config_entries.async_update_entry(
+        entry1, options={CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE, CONF_GATEWAY_ROLE: ROLE_PRIMARY}
+    )
+    # Without target_primary_options, entry1 being standalone produces error:
+    errs_without = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16],
+        },
+    )
+    assert errs_without[CONF_PRIMARY_GATEWAY] == "primary_gateway_not_shared_primary"
+
+    # With target_primary_options matching entry1's proposed options, validation passes:
+    errs_with = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16],
+        },
+        target_primary_options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_PRIMARY,
+        },
+    )
+    assert not errs_with
+
+    # target_primary_options proposing a secondary pointing back produces circular_gateway_reference:
+    errs_circular = validate_shared_bus_topology(
+        hass,
+        entry2,
+        {
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01",
+            CONF_DELEGATED_WHOS: [16],
+        },
+        target_primary_options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:02",
+        },
+    )
+    assert errs_circular[CONF_PRIMARY_GATEWAY] == "circular_gateway_reference"
 
 

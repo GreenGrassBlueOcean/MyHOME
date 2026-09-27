@@ -292,6 +292,7 @@ def validate_shared_bus_topology(
     user_input: Mapping[str, Any],
     *,
     model_override: str | None = None,
+    target_primary_options: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Validate shared-bus topology options before saving or applying repairs.
 
@@ -302,6 +303,7 @@ def validate_shared_bus_topology(
     - Delegated WHOs are supported by the gateway hardware profile (or model_override).
     - Delegated WHOs do not overlap with other secondaries on the same bus.
     - Gateways with configured dependents cannot be demoted away from shared primary.
+    - target_primary_options allows evaluating follower validity against a proposed primary.
     """
     errors: dict[str, str] = {}
     in_topo = user_input.get(CONF_BUS_TOPOLOGY, _setting(entry, CONF_BUS_TOPOLOGY))
@@ -325,10 +327,32 @@ def validate_shared_bus_topology(
             errors[CONF_PRIMARY_GATEWAY] = "invalid_primary_gateway"
         elif target is None:
             errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_found"
-        elif entry_primary_mac(target) == my_mac:
-            errors[CONF_PRIMARY_GATEWAY] = "circular_gateway_reference"
-        elif entry_topology(target) != TOPOLOGY_SHARED or entry_role(target) != ROLE_PRIMARY:
-            errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_shared_primary"
+        else:
+            is_target_override = bool(target_primary_options and norm_pri == entry_mac(target))
+            target_topo = (
+                target_primary_options.get(CONF_BUS_TOPOLOGY)
+                if is_target_override and target_primary_options
+                else entry_topology(target)
+            )
+            target_role = (
+                target_primary_options.get(CONF_GATEWAY_ROLE)
+                if is_target_override and target_primary_options
+                else entry_role(target)
+            )
+            target_pri_mac = (
+                dr.format_mac(str(target_primary_options.get(CONF_PRIMARY_GATEWAY)))
+                if is_target_override and target_primary_options and target_primary_options.get(CONF_PRIMARY_GATEWAY)
+                else entry_primary_mac(target)
+            )
+
+            if (
+                target_topo == TOPOLOGY_SHARED
+                and target_role in (ROLE_SECONDARY, ROLE_STANDBY)
+                and target_pri_mac == my_mac
+            ):
+                errors[CONF_PRIMARY_GATEWAY] = "circular_gateway_reference"
+            elif target_topo != TOPOLOGY_SHARED or target_role != ROLE_PRIMARY:
+                errors[CONF_PRIMARY_GATEWAY] = "primary_gateway_not_shared_primary"
 
         if norm_pri and in_role == ROLE_STANDBY and CONF_PRIMARY_GATEWAY not in errors:
             for other in dependents(hass, norm_pri):
