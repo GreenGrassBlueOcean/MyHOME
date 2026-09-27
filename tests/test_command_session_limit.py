@@ -139,6 +139,7 @@ async def test_options_flow_checks_the_newly_chosen_model(hass: HomeAssistant) -
                 "name": "F454",
             },
         )
+        await hass.async_block_till_done()
     assert accepted["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["command_worker_count"] == 3
 

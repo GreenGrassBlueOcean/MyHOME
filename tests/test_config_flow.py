@@ -308,21 +308,24 @@ async def test_options_flow(mock_sending, mock_listening, mock_test_connection, 
     assert result_invalid["errors"]["address"] == "invalid_ip"
 
     # Submit updated options (valid)
-    result2 = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={
-            "command_worker_count": 3,
-            "generate_events": True,
-            "address": "192.168.1.136",
-            "password": "new_password"
-        },
-    )
+    with patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
+        result2 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "command_worker_count": 3,
+                "generate_events": True,
+                "address": "192.168.1.136",
+                "password": "new_password"
+            },
+        )
+        await hass.async_block_till_done()
 
     assert result2["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["command_worker_count"] == 3
     assert entry.options["generate_events"] is True
     assert entry.data["host"] == "192.168.1.136"
     assert entry.data["password"] == "new_password"
+    assert mock_reload.called
 
 
 async def test_ssdp_discovery(hass: HomeAssistant) -> None:
