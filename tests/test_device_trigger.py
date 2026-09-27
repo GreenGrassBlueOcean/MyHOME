@@ -330,6 +330,47 @@ async def test_async_attach_trigger_with_address_isolation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_async_attach_trigger_cenplus_wire_address_tolerance(hass: HomeAssistant):
+    """Test that CEN+ triggers match both physical wire WHERE (e.g. 21) and virtual object (1)."""
+    # 1. Trigger configured with physical wire address 21 (as seen in trace & Living Now KW8011)
+    config_wire = {
+        CONF_TYPE: CONF_SHORT_PRESS,
+        CONF_SUBTYPE: "button_1",
+        CONF_ADDRESS: 21,
+    }
+    action_wire = AsyncMock()
+    unsub_wire = await async_attach_trigger(hass, config_wire, action_wire, {"name": "wire_trigger"})
+
+    # 2. Trigger configured with virtual object 1
+    config_obj = {
+        CONF_TYPE: CONF_SHORT_PRESS,
+        CONF_SUBTYPE: "button_1",
+        CONF_ADDRESS: 1,
+    }
+    action_obj = AsyncMock()
+    unsub_obj = await async_attach_trigger(hass, config_obj, action_obj, {"name": "obj_trigger"})
+
+    # Fire event representing *25*21#1*21## (Object 1, Button 1, Wire WHERE 21)
+    hass.bus.async_fire(
+        "myhome_cenplus_event",
+        {
+            "event": CONF_SHORT_PRESS,
+            "pushbutton": 1,
+            "object": 1,
+            "where": "1",
+        },
+    )
+    await hass.async_block_till_done()
+
+    # Both wire address trigger (21) and object trigger (1) must fire!
+    action_wire.assert_called_once()
+    action_obj.assert_called_once()
+
+    unsub_wire()
+    unsub_obj()
+
+
+@pytest.mark.asyncio
 async def test_async_attach_trigger_resolves_address_from_device(hass: HomeAssistant):
     """Test that address is automatically resolved from device registry when not in config."""
     mock_device = MagicMock()

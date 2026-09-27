@@ -236,14 +236,25 @@ async def async_attach_trigger(
             if target_address is not None:
                 event_object = event_data.get("object")
                 event_where = event_data.get("where")
+                event_raw_where = event_data.get("raw_where")
                 str_target = str(target_address)
                 matches_str = (
                     (event_where is not None and str(event_where) == str_target)
                     or (event_object is not None and str(event_object) == str_target)
+                    or (event_raw_where is not None and str(event_raw_where) == str_target)
+                    # CEN+ (WHO 25) wire WHERE is 2<object> (e.g. wire WHERE "21" for object 1)
+                    or (event_object is not None and str_target == f"2{event_object}")
                 )
                 if not matches_str:
                     try:
-                        if event_object is None or int(event_object) != int(target_address):
+                        int_target = int(target_address)
+                        int_object = int(event_object) if event_object is not None else None
+                        int_raw_where = int(event_raw_where) if event_raw_where is not None else None
+                        if (
+                            int_object != int_target
+                            and int_raw_where != int_target
+                            and (int_object is None or str(int_target) != f"2{int_object}")
+                        ):
                             return
                     except (ValueError, TypeError):
                         return
