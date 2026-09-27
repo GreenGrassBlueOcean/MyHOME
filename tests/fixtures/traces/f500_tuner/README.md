@@ -26,3 +26,9 @@ Authentic on-wire bus frames captured by `@manfredgittmaier-afk` on a live insta
    - Seek down: `*16*5100*101##` -> locks to previous station (e.g. 88.8 MHz).
 8. **RDS Blanking and Dynamic Text**:
    - After tuning, tuner sends 8 spaces `*#16*101*8*32*32*32*32*32*32*32*32##` before delivering station title.
+9. **Rotating RDS and Malformed Frames (`myhome_trace_MH200N_all_2026-09-26T20-00-28.json`)**:
+   - Reported in [PR #427 (comment 5849429368)](https://github.com/OpenWebNet-HA/MyHOME/pull/427#issuecomment-5849429368).
+   - Some stations rotate RDS PS text every ~5s (e.g. `*RADIO* ` / `**OOE** `).
+   - Rare hardware buffer glitches occasionally produce malformed 12-code frames (e.g. `*#16*101*8*42*42*79*79*69*42*79*79*69*42*42*32##`), which must be dropped to prevent state corruption.
+   - Live stepping sequence across presets 1–4 confirms frequency, station preset, and RDS tracking across real `OWNSoundEvent` replies.
+
