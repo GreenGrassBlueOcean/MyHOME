@@ -334,3 +334,72 @@
   mcp_valid: true
   mcp_notes: "Automation: MH200 echo of a point UP behind interface 02, 500 ms after *2*0*11#4#02##; the actuator reported its own stop 60.9 s later (its run-time cutoff)"
   roundtrip: true
+
+# BTicino MyHomeServer1 + LN-4660M2 centralized shutter controller capture,
+# 2026-09-26, contributed by @f18m (#445, #466).
+# Proves that centralized control buttons emit multi-parameter Advanced Automation
+# commands on General address 0, followed by Dimension 10 telemetry bursts across actuators.
+- id: cover.cmd.general.up.advanced.100
+  frame: "*2*11#100#001#1*0##"
+  direction: command
+  who: 2
+  what: "11#100#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced UP (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)"
+  roundtrip: true
+
+- id: cover.cmd.general.down.advanced.100
+  frame: "*2*12#100#001#1*0##"
+  direction: command
+  who: 2
+  what: "12#100#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced DOWN (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)"
+  roundtrip: true
+
+- id: cover.cmd.general.stop.advanced
+  frame: "*2*10#001#1*0##"
+  direction: command
+  who: 2
+  what: "10#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced STOP (step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)"
+  roundtrip: true
+
+- id: cover.status.dimension10.level26.0010
+  frame: "*#2*0010*10*10*26*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "0010"
+  dimension: 10
+  dimension_values: ["10", "26", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 position 26% report for 4-digit address '0010' from MyHomeServer1 plant after centralized stop (#445, #466)"
+  roundtrip: true
+
+- id: cover.status.dimension10.level86.02
+  frame: "*#2*02*10*10*86*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "02"
+  dimension: 10
+  dimension_values: ["10", "86", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 position 86% report for address '02' from MyHomeServer1 plant after centralized stop (#445, #466)"
+  roundtrip: true
+
