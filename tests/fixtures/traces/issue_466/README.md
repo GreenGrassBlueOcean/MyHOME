@@ -364,6 +364,38 @@ Settles crucial cross-gateway architectural differences between the MH202, F454,
 |---|---|---|
 | `myhome_trace_MH202_f418u2_dimmer_2026-09-27T09-43-45.json` | Bus Monitor Trace (41 frames) | Full empirical trace testing Dimension 1 and Dimension 4 reads when OFF, discrete level 5 ON, Dimension 1 / Dimension 4 reads when ON, discrete WHAT 0 OFF, positive Dimension 4 write (successful turn ON), Dimension 1 write, Dimension 4 write to 0% (remains ON), and discrete WHAT 0 OFF. |
 
+---
+
+# #466 MyHomeServer1 Gateway Traces (CEN+ Pushbuttons, Bistable Covers, Group Lighting & Physical Layer Diagnostics)
+
+Verbatim bus traces contributed by **@TheDarkWizard** on [#466 (comment 5855690408)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5855690408).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino MyHomeServer1
+- **Firmware**: 2.87.13
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MyHomeServer1_cen_scenario_2026-09-27T13-28-10.json` | Bus Monitor Trace (8 frames) | CEN+ scenario activation via KW8011 button (`*25*21#1*21##`) triggering multi-light cascade on fixtures 16, 18, 19. |
+| `myhome_trace_MyHomeServer1_group_lights_2026-09-27T13-32-12.json` | Bus Monitor Trace (16 frames) | Group lighting control on `#1` (`*1*0*#1##`, `*1*1*#1##`) interleaved with fixture status updates. |
+| `myhome_trace_MyHomeServer1_cen_cover_scenarios_2026-09-27T13-47-33.json` | Bus Monitor Trace (8 frames) | Multi-scenario activation across CEN+ addresses 21, 22, 23, shutter target positioning to 85% (`*#2*03*#11#001#1*85##`), and active power telemetry on meters 51 and 52. |
+| `myhome_trace_MyHomeServer1_scenarios_cover_diagnostic_2026-09-27T13-47-33.json` | Bus Monitor Trace (73 frames) | Full multi-subsystem sequence covering CEN+, shutter positioning to 0% and 100%, active power (Dimension 113) and power threshold alarms (Dimension 1200), zone 2 temperature (27.1 °C), and WHO 1001 diagnostics. |
+| `myhome_trace_MyHomeServer1_monostable_cover_diagnostic_2026-09-27T13-51-19.json` | Bus Monitor Trace (114 frames) | Physical layer device diagnostics (WHO 1001) memory dump: session start/stop (`*1000*5*0##` / `*1000*6*0##`), slot objects, and indexed configuration parameters (Dimension 35 across 84 registers). |
+| `myhome_trace_MyHomeServer1_bistable_cover_2026-09-27T13-54-05.json` | Bus Monitor Trace (11 frames) | Complete bistable cover cycle on point 03: advanced DOWN command (`*2*1000#12#100#001#1*03##`), Dimension 10 transit status, mid-travel STOP (`*2*1000#10#001#1*03##`), stopped status at 83% (`*#2*03*10*10*83*001*0##`), advanced UP command (`*2*1000#11#100#001#1*03##`), moving status, and final limit switch STOP at 100%. |
+
+## Subsystems Verified (MyHomeServer1)
+
+- **WHO 1 (Lighting)**: Fixture points 16, 18, 19 and group lighting address `#1`.
+- **WHO 2 (Automation / Covers)**: Monostable & bistable cover movement, advanced translation commands (`*2*1000#...`), Dimension 10 position feedback (stops at 83% and 100%), and direct target position writes (`*#2*03*#11#001#1*85##`).
+- **WHO 4 (Thermoregulation)**: Zone 2 ambient temperature report (`*#4*2*0*0271##` -> 27.1 °C).
+- **WHO 18 (Energy Management)**: Instantaneous active power telemetry (Dimension 113) on meters 51 and 52, and power threshold notifications (Dimension 1200).
+- **WHO 25 (CEN+ / Pushbutton Scenarios)**: KW8011 3-position device short-press events on addresses 21, 22, and 23 (`*25*21#1*21##`, `*25*21#1*22##`, `*25*21#1*23##`).
+- **WHO 1001 (Physical Layer Diagnostics)**: Diagnostic announcements (`*1001*9#...`), identity object model 119, firmware 1.3.8, slot objects, and indexed configuration registers (Dimension 35).
+
 
 
 
