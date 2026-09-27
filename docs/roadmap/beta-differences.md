@@ -29,7 +29,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 ## 🔍 Release-by-Release Delta Log & GitHub Compares
 
 ### 🚀 v2.0.0b14 (Latest Development Release)
-- **Direct GitHub Compare**: [`Compare v2.0.0b13...v2.0.0b14`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b13...v2.0.0b14)
+- **Direct GitHub Compare**: [`Compare v2.0.0b13...v2.0.0b14 (Development Branch)`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b13...v2-phase1-architecture)
 - **Key Enhancements**:
   - **Multiple Gateway Routing Architecture (#453)**: Full multi-gateway plant isolation with namespaced dispatchers and cross-gateway bus protection.
   - **Climate Zone State Diagnostics (#457)**: Dynamic HVAC action and climate zone status sweeps resolving restart desynchronization.
@@ -52,7 +52,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 
 ### 🚀 v2.0.0b11 (Trace Replay CI Engine & Native DALI HSV Color)
 - **Release Date**: 11 September 2026
-- **Direct GitHub Compare**: [`Compare v2.0.0b10...v2.0.0b11`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b10...v2.0.0b11)
+- **Direct GitHub Compare**: [`Compare v2.0.0b10...v2.0.0b11`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b10...2.0.0b11)
 - **Key Enhancements**:
   - **Trace Replay Test Engine**: Automated discovery and deterministic replay of authentic on-wire physical plant fixtures (`tests/test_trace_replay.py`).
   - **Native DALI HSV Color (Dimension 12)**: Encoded `*#1*WHERE*#12*H*S*V*T##` aligned with F429/F461 DALI gateways.
@@ -63,7 +63,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 
 ### 🚀 v2.0.0b10 (Dry Contact Suffix Stripping & ID Normalization)
 - **Release Date**: 11 September 2026
-- **Direct GitHub Compare**: [`Compare v2.0.0b9...v2.0.0b10`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b9...v2.0.0b10)
+- **Direct GitHub Compare**: [`Compare v2.0.0b9...v2.0.0b10`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b9...2.0.0b10)
 - **Key Enhancements**:
   - **Dynamic Suffix Stripping (#247, #286)**: Dynamic stripping of `BinarySensorDeviceClass` suffixes from dry contact addresses, preventing invalid bus query frames (`*#25*331-moving##`).
   - **Normalized Single-WHO Identifiers**: Resolved duplicate device registry entries (`mac-25-31` instead of `mac-25-25-31`).
@@ -73,7 +73,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 
 ### 🚀 v2.0.0b9 (Command Translation WHAT=1000 Frame Filtering)
 - **Release Date**: 11 September 2026
-- **Direct GitHub Compare**: [`Compare v2.0.0b8...v2.0.0b9`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b8...v2.0.0b9)
+- **Direct GitHub Compare**: [`Compare v2.0.0b8...v2.0.0b9`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b8...2.0.0b9)
 - **Key Enhancements**:
   - **Translation Frame Filtering (#283, #284)**: Platform message dispatchers ignore auxiliary translation frames (`*1*1000#1*WHERE##`), preventing light and switch entities from flickering to `unknown` before actuator feedback arrives.
   - **Software Fade Protection**: Active stepped brightness fades are protected against premature cancellation by translation frames.
@@ -82,7 +82,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 
 ### 🚀 v2.0.0b8 & v2.0.0b7 (Lovelace Bus Card & Scoped Registry Self-Healing)
 - **Release Date**: 10 September 2026
-- **Direct GitHub Compare**: [`Compare v2.0.0b6...v2.0.0b8`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b6...v2.0.0b8)
+- **Direct GitHub Compare**: [`Compare v2.0.0b6...v2.0.0b8`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b6...2.0.0b8)
 - **Key Enhancements**:
   - **Scoped Registry Self-Healing (#277)**: Dynamic getter and 45-second watchdog interval restoring `<myhome-bus-card>` elements if overwritten by polyfills (such as `scheduler-card`).
   - **Lovelace Card Picker Integration**: Implemented `getStubConfig()` and `getConfigForm()` for native visual card configuration in Home Assistant dashboards.
@@ -92,7 +92,7 @@ The table below outlines feature availability, gateway support, and protocol cap
 
 ### 🚀 v2.0.0b6 & v2.0.0b5 (Decoupled OWNd Engine & Master WHO Catalog)
 - **Release Date**: 10 September 2026
-- **Direct GitHub Compare**: [`Compare v2.0.0b4...v2.0.0b6`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b4...v2.0.0b6)
+- **Direct GitHub Compare**: [`Compare v2.0.0b4...v2.0.0b6`](https://github.com/OpenWebNet-HA/MyHOME/compare/2.0.0b4...2.0.0b6)
 - **Key Enhancements**:
   - **Decoupled OWNd PyPI Engine**: Pinned integration engine to [`OWNd==2.0.0b5`](https://pypi.org/project/OWNd/2.0.0b5/).
   - **Master WHO Catalog**: Embedded complete OpenWebNet subsystem dictionary (`WHO = 0` through `WHO = 1013`) into the Bus Monitor card with dynamic auto-registration for custom firmware frames.
