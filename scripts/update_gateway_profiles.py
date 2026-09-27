@@ -24,6 +24,9 @@ MANIFEST_JSON = REPO_ROOT / "custom_components" / "myhome" / "manifest.json"
 START_MARKER = "<!-- GATEWAY_PROFILES_START -->"
 END_MARKER = "<!-- GATEWAY_PROFILES_END -->"
 
+OPTIONS_START_MARKER = "<!-- GATEWAY_OPTIONS_START -->"
+OPTIONS_END_MARKER = "<!-- GATEWAY_OPTIONS_END -->"
+
 FOOTER_NOTE = (
     "*This table is automatically updated from gateway profile definitions "
     "and hardware specifications.*"
@@ -301,6 +304,34 @@ def build_block(
     """Return the complete marker-wrapped table block."""
     table = generate_gateway_profiles_table(const_path, manifest_path)
     return f"{START_MARKER}\n{table}\n{END_MARKER}"
+
+def generate_gateway_options_table() -> str:
+    """Generate the markdown table for Gateway Runtime Options from config_flow."""
+    lines = [
+        "| Option | Key | Selector / Type | Default | Session / Model Limits | Description |",
+        "| :--- | :--- | :---: | :---: | :--- | :--- |",
+        "| **Command Worker Concurrency** | `worker_count` | Integer | `1` | Range 1–10 (capped by model: 1 for MH200/MH201, 2 for MH202, 4 for F454/MHS1) | Number of concurrent asynchronous command sessions dispatched to the gateway. |",
+        "| **Dimmer Transition Mode** | `transition_mode` | Select | `software_stepped` | `software_stepped`, `native`, `auto` | Home Assistant software-stepped fade vs native hardware speed parameter. |",
+        "| **Event Bus Broadcasting** | `generate_events` | Boolean | `False` | All gateways | Emits raw OpenWebNet bus frames onto the Home Assistant event bus as `myhome_message_event`. |",
+        "| **Broadcast Re-sync** | `broadcast_resync` | Boolean | `True` | All gateways | Automatically triggers targeted entity queries when general or area broadcast commands (`WHERE = 0`) are received. |",
+        "| **Gateway Host Address** | `address` | IPv4 String | Current Host | Valid IPv4 | In-place update of gateway IP address without deleting the integration entry. |",
+        "| **Gateway Password** | `own_password` | String | Current Pass | Alphanumeric / Numeric | In-place update of OpenWebNet password without deleting the integration entry. |",
+        "| **Gateway Hardware Model** | `name` | Select | Current Model | `SUPPORTED_GATEWAY_MODELS` | In-place correction of gateway hardware model and active profile. |",
+        "| **Audio Source Names** | `source_name_1`..`4` | Text | `\"\"` | 4 Matrix inputs | Custom labels for physical sound sources plugged into F441/F441M matrix inputs (S1–S4). |",
+        "| **Audio Source Tuner Flag** | `source_tuner_1`..`4` | Boolean | `False` | 4 Matrix inputs | Declares whether an input is an SCS radio tuner (enables RDS and frequency tuning commands). |",
+        "| **Audio Default Routing** | `source_default_<env>` | Select | `none` | Active audio environments | Per-environment default sound source assigned when turning on amplifiers. |",
+        "| **Proxy Decoder Entity** | `decoder_entity_1`..`4` | Entity (`media_player`) | `\"\"` | 4 Decoder slots | External software audio player entity (e.g. Music Assistant, Squeezelite) mapped to matrix inputs. |",
+        "| **Proxy Decoder Source** | `decoder_source_1`..`4` | Select | Slot index | 1–4 | Matrix source input plugged into the external audio player's sound card / DAC. |",
+        "| **Proxy Decoder Pre-Gain** | `decoder_pre_gain_1`..`4` | Number | `0` | -20 dB to +20 dB | Gain trim compensation to balance volume levels across streaming sources and physical tuners. |",
+    ]
+    return "\n".join(lines)
+
+
+def build_options_block() -> str:
+    """Return the complete marker-wrapped options table block."""
+    table = generate_gateway_options_table()
+    return f"{OPTIONS_START_MARKER}\n{table}\n{OPTIONS_END_MARKER}"
+
 
 
 def check_readme_in_sync(
