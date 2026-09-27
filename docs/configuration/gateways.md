@@ -190,6 +190,40 @@ You can adjust integration runtime parameters at any time without re-adding the 
 
 In complex installations, multiple OpenWebNet gateways may exist in Home Assistant under two primary architectures:
 
+```text
+                      +-------------------------------------------------+
+                      |              HOME ASSISTANT CORE                |
+                      |                                                 |
+                      |   +-------------------+   +-----------------+   |
+                      |   | Primary Entities  |   | Secondary Ent.  |   |
+                      |   |{prim_mac}-WHO-ADDR|   |{sec_mac}-WHO-ADDR|   |
+                      |   +---------^---------+   +--------^--------+   |
+                      +-------------|----------------------|------------+
+                                    |                      |
+            +-----------------------+                      |
+            |                       |                      |
+   [Normal Operation]      [Failover Active]               |
+            |                       |                      |
+            v                       v                      v
+    +---------------+       +---------------+      +---------------+
+    |    PRIMARY    |       | WARM STANDBY  |      |   SECONDARY   |
+    |    GATEWAY    |       |    GATEWAY    |      |    GATEWAY    |
+    |  (F454 / etc) |       |  (MH202 / etc)|      | (Audio/Cover) |
+    +-------+-------+       +-------+-------+      +-------+-------+
+            |                       |                      |
+            |     TX Echo Filter    | Inbound Bridging     | Delegated WHOs
+            |     (1.5s window)     | (CEN, Events, Cmds)  | (e.g. WHO 2, 16)
+            |                       |                      |
+    ========+=======================+======================+========
+                     PHYSICAL SCS BUS (Twisted Pair)
+    ========+=======================+======================+========
+            |                       |                      |
+    +-------+-------+       +-------+-------+      +-------+-------+
+    | Light Actuator|       | Shutter Switch|      | Audio F441    |
+    | (WHO 1)       |       | (WHO 2)       |      | (WHO 16)      |
+    +---------------+       +---------------+      +---------------+
+```
+
 ### 1. Independent Bus Segments (`standalone`)
 Each gateway is connected to its own separate physical SCS bus segment (for example, separate apartment units, outbuildings, or dedicated subsystems connected via galvanically isolated interfaces).
 - **Behavior**: Every gateway independently discovers, polls, and creates entities.
@@ -223,17 +257,45 @@ Without proper coordination on a shared bus:
   - **Transparent Failover**: If the primary gateway loses connection or becomes unresponsive:
     - Outbound commands and status polls are seamlessly dispatched via the standby gateway, and so are their replies.
     - Inbound bus frames received by the standby gateway are bridged to primary entities (only from the standby, so a secondary on the same bus does not deliver them twice).
+    - Scenario control events (CEN WHO=15 and CEN+ WHO=25) are bridged with the primary's MAC address and entry ID to both the HA event bus and dispatcher listeners, allowing device triggers to fire transparently.
     - Once the outage outlasts the 60-second reconnect grace, a **Repair Issue** (`gateway_failover_active`) is raised alerting you to the offline primary unit while keeping your home fully functional.
     - When the primary gateway reconnects, Home Assistant automatically performs failback and clears the repair issue.
+
+```text
++-------------------------------------------------------------------------------+
+|                      STANDBY FAILOVER STATE MACHINE                            |
++-------------------------------------------------------------------------------+
+|                                                                               |
+|   +------------------------+                    +-------------------------+   |
+|   |     PRIMARY ONLINE     |  Primary Session   |    FAILOVER ACTIVE      |   |
+|   |                        |  Drops (> 60s)     |                         |   |
+|   |  - Standby silent      | -----------------> |  - Outbound via Standby |   |
+|   |  - No duplicate ent.   |                    |  - Inbound bridged to   |   |
+|   |  - Primary routes cmds | <----------------- |    primary entities     |   |
+|   +------------------------+   Primary Returns  |  - CEN events mapped    |   |
+|                                                 |  - Repair issue raised  |   |
+|                                                 +------------+------------+   |
+|                                                              |                |
+|                                                Standby Drops | Standby        |
+|                                                Too           | Reconnects     |
+|                                                              v                |
+|                                                 +-------------------------+   |
+|                                                 |   FULL BUS OUTAGE       |   |
+|                                                 |  - Primary entities     |   |
+|                                                 |    marked UNAVAILABLE   |   |
+|                                                 +-------------------------+   |
++-------------------------------------------------------------------------------+
+```
+
 - **Delegated Subsystems**:
   - If the secondary gateway is a specialized unit (such as a 3486 for WHO=5 Burglar Alarm or an MH200N dedicated to WHO=16/22 Audio), select those subsystems under **Delegated Subsystems**.
   - New devices of a delegated subsystem are discovered by the secondary only; the primary stops sweeping and discovering that subsystem.
   - Devices the primary already had before the delegation stay on the primary, so no entity is renamed or loses its settings. To move one to the secondary, delete it from the primary gateway's device page; the secondary discovers it on its next bus frame.
 
 #### Automatic Shared Bus Detection
-The integration passively compares the traffic of every pair of gateways that is not configured on the same bus:
-- If Gateway B receives a bus frame that Gateway A transmitted within 1.5 seconds (TX-to-RX echo), or
-- If Gateway A and Gateway B receive the exact same physical frame concurrently within 0.3 seconds,
-the integration records evidence. Upon 3 correlated frames within 10 minutes, an actionable **Home Assistant Repair Issue** (`shared_bus_detected`) is raised, alerting you to configure the shared bus relationship. A frame a gateway transmitted itself is never evidence, so identical commands sent to two separate buses do not count. The dual-gateway traces of #453 (F454 + MH202) show the same frame on both gateways 4-47 ms apart.
+The integration passively compares the traffic of every pair of gateways that is not configured on the same bus. Due to false positives with external automation platforms, concurrent RX triggers are ignored. The only accepted evidence is a strict **TX-to-RX echo**:
+- Gateway B receives a physical point-to-point frame on the bus that Gateway A transmitted less than 1.5 seconds prior (`SHARED_BUS_TX_ECHO_S = 1.5`).
+- General lighting (`WHERE=0`), general automation (`WHERE=0`), area commands (`WHERE` starting with `#` or area codes), and group commands (`WHERE=#0`) are filtered out to prevent false correlations when automations trigger synchronized broadcast scenes across separate physical buses.
+- Three correlated frames within an evidence window of 5 minutes (`SHARED_BUS_EVIDENCE_WINDOW_S = 300.0`) raise an actionable **Home Assistant Repair Issue** (`shared_bus_detected`), alerting you to configure the shared bus relationship. Gateway-local WHO=13/1013 frames are ignored. Configuring the pair on one bus dismisses the issue.
 
 
