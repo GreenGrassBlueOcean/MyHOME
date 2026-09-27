@@ -95,6 +95,88 @@ async def test_find_streaming_companion_by_mac_address(hass: HomeAssistant) -> N
 
 
 @pytest.mark.asyncio
+async def test_find_streaming_companion_by_host(hass: HomeAssistant) -> None:
+    """Test finding a streaming companion sharing the same host/IP address."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio", data={"host": "192.0.2.203"})
+    cam_entry.add_to_hass(hass)
+    cast_entry = MockConfigEntry(domain="cast", data={"host": "192.0.2.203"})
+    cast_entry.add_to_hass(hass)
+
+    dev_cam = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "cam_id")},
+    )
+    dev_cast = dev_reg.async_get_or_create(
+        config_entry_id=cast_entry.entry_id,
+        identifiers={("cast", "cast_id")},
+    )
+
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cambridge_audio",
+        "pnl_cam_unique",
+        config_entry=cam_entry,
+        device_id=dev_cam.id,
+        suggested_object_id="pnl_audio",
+    )
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cast",
+        "pnl_cast_unique",
+        config_entry=cast_entry,
+        device_id=dev_cast.id,
+        suggested_object_id="mxn10_f1",
+    )
+
+    companion = async_find_streaming_companion(hass, "media_player.pnl_audio")
+    assert companion == "media_player.mxn10_f1"
+
+
+@pytest.mark.asyncio
+async def test_find_streaming_companion_by_name(hass: HomeAssistant) -> None:
+    """Test finding a streaming companion sharing the same device name."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+    cast_entry = MockConfigEntry(domain="cast")
+    cast_entry.add_to_hass(hass)
+
+    dev_cam = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        identifiers={("cambridge_audio", "cam_id_2")},
+        name="PNL Audio",
+    )
+    dev_cast = dev_reg.async_get_or_create(
+        config_entry_id=cast_entry.entry_id,
+        identifiers={("cast", "cast_id_2")},
+        name="PNL Audio",
+    )
+
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cambridge_audio",
+        "cam_name_unique",
+        device_id=dev_cam.id,
+        suggested_object_id="cam_streamer",
+    )
+    ent_reg.async_get_or_create(
+        "media_player",
+        "cast",
+        "cast_name_unique",
+        device_id=dev_cast.id,
+        suggested_object_id="cast_streamer",
+    )
+
+    companion = async_find_streaming_companion(hass, "media_player.cam_streamer")
+    assert companion == "media_player.cast_streamer"
+
+
+@pytest.mark.asyncio
 async def test_find_streaming_companion_not_found(hass: HomeAssistant) -> None:
     """Test returning None when no streaming companion is available."""
     ent_reg = er.async_get(hass)
