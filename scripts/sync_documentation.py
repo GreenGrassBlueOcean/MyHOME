@@ -289,6 +289,17 @@ def sync_trace_matrix(update: bool = False) -> tuple[bool, list[str]]:
         else:
             messages.append(f"Trace Matrix in sync: {rel_path(target)}")
 
+    if update:
+        try:
+            try:
+                from scripts.update_trace_matrix import sync_github_issue
+            except (ImportError, AttributeError):
+                from update_trace_matrix import sync_github_issue
+            sync_github_issue(issue_number=466, new_table=matrix_md)
+            messages.append("Triggered GitHub issue #466 trace matrix sync")
+        except Exception as e:
+            messages.append(f"GitHub issue sync skipped/failed: {e}")
+
     return all_ok, messages
 
 
