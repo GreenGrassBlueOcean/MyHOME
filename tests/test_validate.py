@@ -24,6 +24,7 @@ from custom_components.myhome.const import (
     CONF_INVERTED,
     CONF_MANUFACTURER,
     CONF_PLATFORMS,
+    CONF_SLAT_TILT,
     CONF_WHERE,
     CONF_WHO,
     CONF_ZONE,
@@ -748,4 +749,15 @@ class TestFullConfigSchema:
                 cover_schema(
                     {"cov1": {CONF_WHERE: "22", CONF_NAME: "Living Cover", "travel_time": invalid_tt}}
                 )
+
+        # Cover with slat_tilt
+        cov_tilt_data = {
+            "cov2": {
+                CONF_WHERE: "23",
+                CONF_NAME: "Venetian Blind",
+                "slat_tilt": True,
+            }
+        }
+        res_cov_tilt = cover_schema(cov_tilt_data)
+        assert res_cov_tilt["2-23"][CONF_SLAT_TILT] is True
 
