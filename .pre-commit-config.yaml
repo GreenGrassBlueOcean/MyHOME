@@ -8,6 +8,12 @@ repos:
         language: system
         files: ^tests/
         pass_filenames: true
+      - id: sync-docs
+        name: check documentation sync with codebase
+        entry: python scripts/sync_documentation.py --check
+        language: system
+        files: ^(README\.md|docs/.*|scripts/.*|tests/fixtures/hardware_traces/.*|custom_components/myhome/(const\.py|manifest\.json|services\.yaml|repairs\.py|strings\.json|device_trigger\.py|gateway\.py))$
+        pass_filenames: false
       - id: ruff
         name: ruff
         entry: ruff check

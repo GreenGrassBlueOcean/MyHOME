@@ -10,9 +10,10 @@ The MyHOME integration communicates with SCS bus gateways over TCP/IP or RS232/U
 
 | Gateway Model | Connection Type | Auth Mechanism | Notes |
 | :--- | :---: | :---: | :--- |
-| **F454** | Ethernet (TCP `20000`) | Numeric / Alphanumeric / None | Modular IP Web Server. Full WHO support. |
+| **F454 / F455 / F461** | Ethernet (TCP `20000`) | HMAC / Numeric / Alphanumeric / None | Modular IP Web Server. Full WHO support. |
 | **MyHomeServer1 (MHS1)** | Ethernet (TCP `20000`) | HMAC-SHA1 / HMAC-SHA256 | Next-gen Linux gateway. Strict session handshake. |
-| **MH200N / MH201 / MH202** | Ethernet (TCP `20000`) | Numeric / Alphanumeric | Scenario programmers with embedded OpenWebNet gateway. |
+| **MH202** | Ethernet (TCP `20000`) | HMAC / Numeric / Alphanumeric | Scenario programmer gateway with HMAC authentication. |
+| **MH200N / MH201 / MH200** | Ethernet (TCP `20000`) | Numeric / Alphanumeric | Scenario programmers with embedded OpenWebNet gateway. |
 | **F452 / F453AV** | Ethernet (TCP `20000`) | Numeric / None | Audio/Video web servers. |
 | **BTicino 3578** | USB / RS232 Serial | None (Hardware bus interface) | Direct serial connection without IP overhead. |
 

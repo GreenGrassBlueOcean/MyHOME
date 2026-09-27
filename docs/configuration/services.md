@@ -8,17 +8,17 @@ This document provides a comprehensive reference for all custom services registe
 
 | Service | Target | Description |
 | :--- | :--- | :--- |
-| [`myhome.send_message`](#myhomesend_message) | Gateway | Send an arbitrary, validated OpenWebNet frame to the SCS bus. |
-| [`myhome.turn_on_timed`](#myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
-| [`myhome.sync_time`](#myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
-| [`myhome.start_sending_instant_power`](#myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
-| [`myhome.sweep_bus`](#myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
-| [`myhome.calibrate_cover`](#myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
-| [`myhome.stop_cover_calibration`](#myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
-| [`myhome.set_cover_travel_time`](#myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
-| [`myhome.reset_cover_travel_time`](#myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
-| [`myhome.tuner_seek_up`](#myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
-| [`myhome.tuner_seek_down`](#myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
+| [`myhome.send_message`](#1-myhomesend_message) | Gateway | Send an arbitrary, validated OpenWebNet frame to the SCS bus. |
+| [`myhome.turn_on_timed`](#2-myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
+| [`myhome.sync_time`](#3-myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
+| [`myhome.start_sending_instant_power`](#4-myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
+| [`myhome.sweep_bus`](#5-myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
+| [`myhome.calibrate_cover`](#6-myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
+| [`myhome.stop_cover_calibration`](#7-myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
+| [`myhome.set_cover_travel_time`](#8-myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
+| [`myhome.reset_cover_travel_time`](#9-myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
+| [`myhome.tuner_seek_up`](#10-myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
+| [`myhome.tuner_seek_down`](#11-myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
 
 ---
 

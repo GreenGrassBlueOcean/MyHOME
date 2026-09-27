@@ -9,18 +9,19 @@ The MyHOME integration supports all official BTicino and Legrand OpenWebNet gate
 | Gateway Model | Manufacturer | Connection Type | Port / Baud | Max Sockets | HMAC / SHA Auth | Recommended Profile |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
 | **MyHomeServer1** | BTicino | Ethernet (IP) | `20000` | 4 | **Yes** (required) | `MyHomeServer1Profile` |
-| **F454** | BTicino / Legrand | Ethernet (IP) | `20000` | 2–3 | Optional | `F454Profile` |
-| **F455** | BTicino | Ethernet (IP) | `20000` | 2–3 | Optional | `F455Profile` |
-| **MH200N** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH200NProfile` |
+| **F454** | BTicino / Legrand | Ethernet (IP) | `20000` | 4 | Optional | `F454Profile` |
+| **F455** | BTicino | Ethernet (IP) | `20000` | 4 | Optional | `F455Profile` |
+| **F461** | BTicino | Ethernet (IP) | `20000` | 4 | Optional | `F461Profile` |
+| **MH202** | BTicino | Ethernet (IP) | `20000` | 2 | Optional | `MH202Profile` |
 | **MH201** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH201Profile` |
-| **MH202** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH202Profile` |
+| **MH200N** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH200NProfile` |
+| **MH200** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MH200Profile` |
 | **F452 / F452V** | BTicino | Ethernet (IP) | `20000` | 1 | No | `F452Profile` |
 | **MHServer / MHServer2** | BTicino | Ethernet (IP) | `20000` | 1 | No | `MHServerProfile` |
-| **F461** | BTicino | Ethernet (IP) | `20000` | 2 | No | `F461Profile` |
 | **Legrand 3578** | Legrand | USB / RS232 Serial | `57600` | 1 | N/A | `SerialProfile` |
 
 > [!NOTE]
-> Gateways with only **1 concurrent command session** (such as the MH200N or MH201) are automatically tuned with command pacing (150 ms) to avoid queue flooding. Modern multi-session gateways (F454, MyHomeServer1) use 20 ms pacing with worker pools.
+> Gateways with only **1 concurrent command session** (such as the MH200N, MH200, or MH201) are automatically tuned with command pacing (100–150 ms) to avoid queue flooding. Modern multi-session gateways (F454, F455, MyHomeServer1) use 20–50 ms pacing with worker pools (up to 4 workers).
 
 ---
 

@@ -620,6 +620,54 @@ def check_supported_domains_rule(checker: StandardsChecker):
         )
 
 
+def check_documentation_anti_drift_rule(checker: StandardsChecker):
+    """Rule: Verify all documentation (README.md and docs/ MkDocs site) is in sync with codebase."""
+    try:
+        try:
+            from scripts.sync_documentation import check_all_documentation
+        except ImportError:
+            from sync_documentation import check_all_documentation
+
+        in_sync, messages = check_all_documentation(update=False)
+        if not in_sync:
+            drift_details = "\n".join(
+                f"  - {m}"
+                for m in messages
+                if not any(
+                    ok_kw in m
+                    for ok_kw in (
+                        "in sync",
+                        "verified",
+                        "validated cleanly",
+                        "already up to date",
+                        "All documentation pages are referenced",
+                        "platforms are documented",
+                        "services have documented",
+                        "All service parameter fields are documented",
+                        "repair issues are documented",
+                    )
+                )
+            )
+            if not drift_details.strip():
+                drift_details = "\n".join(f"  - {m}" for m in messages)
+            checker.log_error(
+                "RULE_DOCS_ANTI_DRIFT",
+                ROOT_DIR / "docs",
+                1,
+                f"Documentation drift detected across support website / README:\n{drift_details}\n"
+                f"Run 'python scripts/sync_documentation.py --update' to synchronize.",
+            )
+        else:
+            checker.log_ok("Complete documentation suite (README.md & docs/ site) is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_ANTI_DRIFT",
+            ROOT_DIR / "docs",
+            1,
+            f"Failed verifying documentation synchronization: {err}",
+        )
+
+
 def main():
     print("=" * 70)
     print("Running Home Assistant Architectural Standards Validator")
@@ -635,6 +683,7 @@ def main():
     check_quality_scale_rules(checker)
     check_ownd_library_standards(checker)
     check_supported_domains_rule(checker)
+    check_documentation_anti_drift_rule(checker)
 
     print("=" * 70)
     if checker.errors:

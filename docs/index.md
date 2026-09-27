@@ -90,9 +90,10 @@ The v2.0 architecture represents a complete modernization of the integration, fe
 
 | Hardware Gateway | Protocol Transport | Concurrent Sessions | HMAC Authentication | Recommended Worker Count |
 | :--- | :--- | :---: | :---: | :---: |
-| **MyHomeServer1** | TCP (`20000`) | 4 | Yes | 2 |
-| **F454 / F455** | TCP (`20000`) | 2–3 | Optional | 1 |
-| **MH200N / MH201 / MH202** | TCP (`20000`) | 1 | No | 1 |
+| **MyHomeServer1** | TCP (`20000`) | 4 | Yes | 4 |
+| **F454 / F455 / F461** | TCP (`20000`) | 4 | Optional | 4 |
+| **MH202** | TCP (`20000`) | 2 | Optional | 2 |
+| **MH200N / MH201 / MH200** | TCP (`20000`) | 1 | No | 1 |
 | **F452 / F452V / MHServer** | TCP (`20000`) | 1 | No | 1 |
 | **Legrand 3578** | USB / RS232 Serial | 1 | N/A | 1 |
 
