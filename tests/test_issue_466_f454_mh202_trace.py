@@ -49,6 +49,7 @@ F454_SWEEP_FILE = TRACES_DIR / "myhome_sweep_F454_all_2026-09-26T16-59-13.json"
 MH202_TRACE_FILE = TRACES_DIR / "myhome_trace_MH202_all_2026-09-26T16-59-17.json"
 F414_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f414_dimmer_2026-09-26T21-59-00.json"
 F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_F454_f418u2_dimmer_2026-09-27T08-58-54.json"
+MH200_F418U2_TRACE_FILE = TRACES_DIR / "myhome_trace_MH200_f418u2_dimmer_2026-09-27T12-15-00.json"
 
 
 @pytest.mark.asyncio
@@ -611,4 +612,138 @@ def test_f418u2_modern_dimmer_dimension_4_and_writes() -> None:
     assert evt_off._what == 0
     assert evt_off.where == "32"
     assert evt_off.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_mh200_f418u2_dimmer_trace_replay_without_exceptions(hass: HomeAssistant) -> None:
+    """Replay all 30 on-wire frames from the physical MH200 + F418U2 modern dimmer trace (#466, #501).
+
+    Empirically verifies that modern F418U2 universal modular dimmers routed through
+    an authentic 1st-generation MH200 gateway (firmware 2.1.0) replay cleanly through
+    the event dispatcher without unhandled exceptions.
+    """
+    assert MH200_F418U2_TRACE_FILE.is_file(), f"Missing trace fixture: {MH200_F418U2_TRACE_FILE}"
+
+    with open(MH200_F418U2_TRACE_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+
+    frames = data["frames"]
+    assert len(frames) == 30
+
+    mac = "00:03:50:00:02:00"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.40",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MH200",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MH200 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "2.1.0",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    replayed = 0
+    for item in frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic MH200 F418U2 frame {raw!r}: {exc}")
+
+        if msg is not None:
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 30
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_mh200_f418u2_modern_dimmer_dimension_1_and_dimming_curves() -> None:
+    """Verify F418U2 dimmer Dimension 1 status, dimming curves, and write behavior on MH200 (#466, #501)."""
+    # Initial 100% status report (LEVEL100=200, transition speed 2)
+    dim1_100 = OWNMessage.parse("*#1*62*1*200*2##")
+    assert isinstance(dim1_100, OWNLightingEvent)
+    assert dim1_100.who == 1
+    assert dim1_100.where == "62"
+    assert dim1_100.dimension == 1
+    assert dim1_100.brightness == 100
+    assert dim1_100.transition == 2
+    assert dim1_100.is_on is True
+
+    # 50% write response with active transition speed 5 (LEVEL100=150)
+    dim1_50_trans = OWNMessage.parse("*#1*62*1*150*5##")
+    assert isinstance(dim1_50_trans, OWNLightingEvent)
+    assert dim1_50_trans.dimension == 1
+    assert dim1_50_trans.brightness == 50
+    assert dim1_50_trans.transition == 5
+    assert dim1_50_trans.is_on is True
+
+    # Discrete WHAT 7 corresponding to 50% brightness
+    evt_l7 = OWNMessage.parse("*1*7*62##")
+    assert isinstance(evt_l7, OWNLightingEvent)
+    assert evt_l7._what == 7
+    assert evt_l7.where == "62"
+
+    # Discrete WHAT 3 dimming curve mapping -> 10% brightness (LEVEL100=110)
+    dim1_10 = OWNMessage.parse("*#1*62*1*110*2##")
+    assert isinstance(dim1_10, OWNLightingEvent)
+    assert dim1_10.brightness == 10
+    assert dim1_10.transition == 2
+
+    # Discrete WHAT 5 dimming curve mapping -> 30% brightness (LEVEL100=130), identical to F454
+    dim1_30 = OWNMessage.parse("*#1*62*1*130*2##")
+    assert isinstance(dim1_30, OWNLightingEvent)
+    assert dim1_30.brightness == 30
+    assert dim1_30.transition == 2
+
+    # Dimension 1 report when OFF on MH200 gateway (LEVEL100=100 -> 0% brightness)
+    dim1_off = OWNMessage.parse("*#1*62*1*100*2##")
+    assert isinstance(dim1_off, OWNLightingEvent)
+    assert dim1_off.dimension == 1
+    assert dim1_off.brightness == 0
+    assert dim1_off.transition == 2
+    assert dim1_off.is_on is False
+
+    # Dimension 1 write 50%
+    write_50 = OWNMessage.parse("*#1*62*#1*150*0##")
+    assert isinstance(write_50, OWNLightingCommand)
+    assert write_50.where == "62"
+    assert write_50.dimension == 1
+
+    # Dimension 4 write (ignored by physical actuator)
+    write_dim4 = OWNMessage.parse("*#1*62*#4*130*0##")
+    assert isinstance(write_dim4, OWNLightingCommand)
+    assert write_dim4.where == "62"
+    assert write_dim4.dimension == 4
+
+    # Discrete Level 10 restoration
+    evt_l10 = OWNMessage.parse("*1*10*62##")
+    assert isinstance(evt_l10, OWNLightingEvent)
+    assert evt_l10._what == 10
+    assert evt_l10.where == "62"
 
