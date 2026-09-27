@@ -156,6 +156,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.warning("No active MyHOME gateways found to sweep.")
             return
 
+        energy_queries = [
+            query
+            for addr in (*(f"5{i}" for i in range(1, 10)), *(f"7{i}#0" for i in range(1, 10)))
+            for query in (f"*#18*{addr}*51##", f"*#18*{addr}*1200##")
+        ]
+
         for gw_mac, handler in target_gateways.items():
             _LOGGER.info("Executing diagnostic bus sweep on gateway %s", gw_mac)
             queries = [
@@ -173,11 +179,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     queries.append("*#5*0##")
                 if 16 in delegated:
                     queries.append("*#16*0*5##")
+                if 18 in delegated:
+                    queries.extend(energy_queries)
             else:
                 delegated_away: object = getattr(handler, "delegated_away_whos", set())
                 if not isinstance(delegated_away, (set, frozenset, list, tuple)):
                     delegated_away = set()
                 queries.extend(q for who, q in ((2, "*#2*0##"), (4, "*#4*0##"), (5, "*#5*0##"), (16, "*#16*0*5##")) if who not in delegated_away)
+                if 18 not in delegated_away:
+                    queries.extend(energy_queries)
 
             for query in queries:
                 msg = OWNMessage.parse(query)

@@ -331,7 +331,7 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
         topology=TOPOLOGY_SHARED,
         role=ROLE_SECONDARY,
         primary_gateway="00:03:50:aa:bb:01",
-        delegated_whos=[2, 4, 5, 16],
+        delegated_whos=[2, 4, 5, 16, 18],
     )
 
     gw_a.send = AsyncMock()
@@ -348,9 +348,9 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     gw_a.send.reset_mock()
     gw_b.send.reset_mock()
 
-    # 3. sweep_bus filters queries: WHO=2/4/5/16 are delegated, so only the secondary sweeps them
+    # 3. sweep_bus filters queries: WHO=2/4/5/16/18 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus covers/climate are delegated away = 3
+    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus covers/climate/audio/energy are delegated away = 3
     assert gw_a.send.call_count == 3
     assert gw_b.send.call_count == 0
 
@@ -362,8 +362,8 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True
     )
     assert gw_a.send.call_count == 0
-    # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 5, 16 = 7
-    assert gw_b.send.call_count == 7
+    # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 5, 16, 18 (36 energy queries) = 43
+    assert gw_b.send.call_count == 43
 
     # 4. _get_gateway_handler falls back to next(iter(gateways.values())) if no primary
     hass.config_entries.async_update_entry(

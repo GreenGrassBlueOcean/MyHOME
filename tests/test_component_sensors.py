@@ -44,6 +44,7 @@ class TestSensorsCoverage:
     @pytest.mark.asyncio
     async def test_power_sensor(self, mock_hass, mock_gateway):
         mock_gateway.send = AsyncMock()
+        mock_gateway.send_status_request = AsyncMock()
         sensor = MyHOMEPowerSensor(
             hass=mock_hass,
             name="Test Pwr",
@@ -58,6 +59,7 @@ class TestSensorsCoverage:
         assert sensor._display_name == "Test Pwr Power"
         assert sensor.unique_id == "01:02:03:04:05:06-sensor_pwr-power"
         assert sensor.native_unit_of_measurement == UnitOfPower.WATT
+        assert sensor.should_poll is True
         assert sensor.extra_state_attributes == {"Sensor": "(5)1"}
 
         # async_added_to_hass with valid device dict
@@ -76,12 +78,52 @@ class TestSensorsCoverage:
         await sensor.async_added_to_hass()
         await sensor.async_will_remove_from_hass()
 
-        # async_update is a no-op
+        # async_update sends status request for Dimension 1200 when streaming is inactive
+        mock_gateway.send_status_request.reset_mock()
         await sensor.async_update()
+        mock_gateway.send_status_request.assert_called_once()
+        cmd = mock_gateway.send_status_request.call_args[0][0]
+        assert str(cmd) == "*#18*51*1200##"
 
-        # start_sending_instant_power
+        # start_sending_instant_power activates streaming
         await sensor.start_sending_instant_power(120)
         mock_gateway.send.assert_called_once()
+        assert sensor._is_streaming_active() is True
+
+        # async_update is suppressed while streaming is active
+        mock_gateway.send_status_request.reset_mock()
+        await sensor.async_update()
+        mock_gateway.send_status_request.assert_not_called()
+
+        # when streaming expires, async_update sends Dimension 1200 query again
+        sensor._streaming_until = 0.0
+        assert sensor._is_streaming_active() is False
+        await sensor.async_update()
+        mock_gateway.send_status_request.assert_called_once()
+        assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#18*51*1200##"
+
+        # stop streaming with duration 0 immediately deactivates streaming
+        await sensor.start_sending_instant_power(60)
+        assert sensor._is_streaming_active() is True
+        await sensor.start_sending_instant_power(0)
+        assert sensor._is_streaming_active() is False
+
+        # 7x address formats with #0 suffix
+        sensor_71 = MyHOMEPowerSensor(
+            hass=mock_hass,
+            name="Test Pwr 71",
+            device_id="sensor_pwr_71",
+            who="18",
+            where="71",
+            device_class="power",
+            manufacturer="Bticino",
+            model="Meter",
+            gateway=mock_gateway,
+        )
+        mock_gateway.send_status_request.reset_mock()
+        await sensor_71.async_update()
+        mock_gateway.send_status_request.assert_called_once()
+        assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#18*71#0*1200##"
 
         # handle_event: unhandled type returns True
         unhandled_msg = MagicMock()

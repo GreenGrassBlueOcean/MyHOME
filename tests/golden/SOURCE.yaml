@@ -146,7 +146,14 @@ authorities:
         date: "2026-09-25"
         gateway: "BTicino MH200N, firmware 1.1.8"
         devices: "Bus sweep (lights, covers, climate, gateway, energy) plus manual setpoint change (18 °C) and probe knob local offset cycle (-3 to +3 °C)"
+      - name: "Live Bus Test (BTicino MH200 + F520 Energy Sweep WHO 18)"
+        reference: "https://github.com/OpenWebNet-HA/MyHOME/issues/494"
+        author: "Laurens (@GreenGrassBlueOcean)"
+        date: "2026-09-27"
+        gateway: "BTicino MH200, firmware 2.1.0"
+        devices: "F520 Energy meter Dimension 1200 / 51 sweep requests (*#18*WHERE*1200##, *#18*WHERE*51##) and General Automation status (*#2*0##) verified live on MH200 gateway"
     role: "Provides authentic on-wire bus frames and status replies captured from live physical hardware."
+
 
 
   encyclopedia:
