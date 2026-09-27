@@ -112,10 +112,12 @@ async def test_options_flow_rejects_workers_above_gateway_limit(hass: HomeAssist
     assert rejected["errors"] == {"command_worker_count": "worker_count_above_gateway_limit"}
     assert rejected["description_placeholders"] == {"session_limit": "1", "model": "MH200N"}
 
-    accepted = await hass.config_entries.options.async_configure(
-        rejected["flow_id"],
-        user_input={"command_worker_count": 1, "generate_events": False, "address": "192.0.2.40", "password": "12345"},
-    )
+    with patch("homeassistant.config_entries.ConfigEntries.async_reload", return_value=True):
+        accepted = await hass.config_entries.options.async_configure(
+            rejected["flow_id"],
+            user_input={"command_worker_count": 1, "generate_events": False, "address": "192.0.2.40", "password": "12345"},
+        )
+        await hass.async_block_till_done()
     assert accepted["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["command_worker_count"] == 1
 
@@ -137,6 +139,7 @@ async def test_options_flow_checks_the_newly_chosen_model(hass: HomeAssistant) -
                 "name": "F454",
             },
         )
+        await hass.async_block_till_done()
     assert accepted["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["command_worker_count"] == 3
 

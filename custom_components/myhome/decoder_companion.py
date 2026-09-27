@@ -40,7 +40,7 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
         return None
 
     device = dev_reg.async_get(entry.device_id)
-    if not device:
+    if not isinstance(device, dr.DeviceEntry):
         return None
 
     # 1. Check all entities attached to the EXACT same device in Home Assistant
@@ -52,7 +52,7 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
     # 2. Check devices sharing the same MAC address (if not merged by device registry)
     macs = {conn[1] for conn in device.connections if conn[0] == dr.CONNECTION_NETWORK_MAC}
     if macs:
-        for other_dev in dev_reg.devices.values():
+        for other_dev in dev_reg.devices:
             if other_dev.id == device.id:
                 continue
             other_macs = {conn[1] for conn in other_dev.connections if conn[0] == dr.CONNECTION_NETWORK_MAC}
