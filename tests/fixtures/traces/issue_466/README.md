@@ -329,5 +329,41 @@ Verifies modern F418U2 dimmer behavior when routed through older 1st-generation 
 |---|---|---|
 | `myhome_trace_MH200_f418u2_dimmer_2026-09-27T12-15-00.json` | Bus Monitor Trace (30 frames) | Full empirical trace testing Dimension 1 write (50%), discrete WHAT status mapping (WHAT 7), Dimension 4 write rejection, discrete Level 3 / Level 5 dimming curves, turn OFF, Dimension 1 query when OFF (level 100), Dimension 1 restoration (100%), and standard status confirmation (WHAT 10). |
 
+---
+
+# #466 / #501 BTicino F418U2 Modern Dimmer Verification (MH202 Live Bus Trace)
+
+Empirical bus trace recorded on an authentic **BTicino MH202** (firmware 1.0.21) testing a physical **BTicino F418U2** modern modular dimmer on WHERE=`32`, contributed by **@anotherjulien** in [#466 (comment 5854805415)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5854805415) and analyzed in [#466 (comment 5854854969)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5854854969).
+
+Settles crucial cross-gateway architectural differences between the MH202, F454, and MH200:
+- **Positive Dimension 4 Writes Function on MH202**: Unlike the F454 and MH200 where Dimension 4 write commands (`*#1*32*#4*130*0##`) are ignored by the gateway/actuator, sending a Dimension 4 write on the MH202 **successfully turns on the channel and sets the requested level**:
+  ```text
+  TX  *#1*32*#4*130*0##
+  RX  *#1*32*#4*130*0##          (echo)
+  RX  *#1*32*#13*1*130*0*0##     (Dimension 13 write echo)
+  RX  *#1*32*4*130*2##           (Dimension 4 response at speed 2)
+  RX  *#1*32*13*1*130*2*0##      (Dimension 13 response)
+  ```
+- **Dimension 1 Reads When OFF**: On MH202, querying Dimension 1 while OFF (`*#1*32*1##`) returns **Dimension 1** (`*#1*32*1*100*0##`), with transition speed 0 (no Dimension 4 substitution like on F454).
+- **Dimension 4 Reads When OFF**: Querying Dimension 4 while OFF (`*#1*32*4##`) returns **Dimension 4** (`*#1*32*4*100*0##`).
+- **Extended Command Translation Events**: The MH202 emits command translation frames with speed prefix 1000 (`*1*1000#5*32##`, `*1*1000#0*32##`) and speed parameter events (`*1*1#0*32##`).
+- **Multi-Parameter Dimension 13 Feedback**: Emits comprehensive Dimension 13 reports (`*#1*32*13*2*130*5*0##`) carrying actuator mode, percentage level, and active speed.
+- **Switching OFF**: Writing level 100 (0% brightness) via Dimension 1 or Dimension 4 does not switch off the channel; switching OFF strictly requires discrete WHAT 0 (`*1*0*32##`).
+
+## Hardware Profile
+
+- **Gateway**: BTicino MH202 (Scenario Programmer)
+- **Gateway Firmware**: 1.0.21
+- **Actuator Model**: BTicino F418U2 (Modern 2-channel universal modular dimmer)
+- **Actuator Address**: WHERE `32`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MH202_f418u2_dimmer_2026-09-27T09-43-45.json` | Bus Monitor Trace (41 frames) | Full empirical trace testing Dimension 1 and Dimension 4 reads when OFF, discrete level 5 ON, Dimension 1 / Dimension 4 reads when ON, discrete WHAT 0 OFF, positive Dimension 4 write (successful turn ON), Dimension 1 write, Dimension 4 write to 0% (remains ON), and discrete WHAT 0 OFF. |
+
+
 
 
