@@ -28,7 +28,6 @@ from .const import (
     TOPOLOGY_SHARED,
 )
 from .topology import (
-    RecommendedTopology,
     entry_for_mac,
     entry_model,
     infer_shared_bus_topology,
@@ -173,17 +172,6 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
     """Create a repair issue when two gateways observe the same SCS bus traffic."""
     _, _, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
     disp_a, disp_b = sorted([mac_a, mac_b])
-    entry_a = entry_for_mac(hass, mac_a)
-    entry_b = entry_for_mac(hass, mac_b)
-    rec: RecommendedTopology | None = None
-    if entry_a and entry_b:
-        rec = infer_shared_bus_topology(entry_a, entry_b)
-
-    subsystems_str = (
-        ", ".join(f"WHO {w}" for w in sorted(rec.delegated_whos))
-        if rec and rec.delegated_whos
-        else "None (Warm Standby)"
-    )
 
     async_create_issue(
         hass,
@@ -195,10 +183,6 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
         translation_placeholders={
             "gateway_a": disp_a,
             "gateway_b": disp_b,
-            "primary": rec.primary_mac if rec else disp_a,
-            "secondary": rec.secondary_mac if rec else disp_b,
-            "role": rec.role.title() if rec else "Standby",
-            "subsystems": subsystems_str,
         },
         learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#unconfigured-shared-bus-detected",
         data={"mac_a": mac_a, "mac_b": mac_b},

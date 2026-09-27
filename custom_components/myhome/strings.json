@@ -313,7 +313,6 @@
     },
     "shared_bus_detected": {
       "title": "Shared OpenWebNet bus detected ({gateway_a} & {gateway_b})",
-      "description": "Gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic, but they are not configured on the same bus. Operating several gateways on one bus without that configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nRecommended configuration:\n- Primary: {primary}\n- Follower: {secondary} ({role})\n- Delegated subsystems: {subsystems}",
       "fix_flow": {
         "step": {
           "init": {

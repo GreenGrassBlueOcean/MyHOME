@@ -312,7 +312,6 @@
     },
     "shared_bus_detected": {
       "title": "Gedeelde OpenWebNet-bus gedetecteerd ({gateway_a} & {gateway_b})",
-      "description": "Gateways {gateway_a} en {gateway_b} zien hetzelfde SCS-busverkeer, maar zijn niet geconfigureerd op dezelfde bus. Het gebruik van meerdere gateways op één bus zonder die configuratie veroorzaakt dubbele entiteiten, conflicten bij het opstarten en status-pollingfouten.\n\nAanbevolen configuratie:\n- Primair: {primary}\n- Volger: {secondary} ({role})\n- Gedelegeerde subsystemen: {subsystems}",
       "fix_flow": {
         "step": {
           "init": {

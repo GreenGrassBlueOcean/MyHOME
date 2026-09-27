@@ -312,7 +312,6 @@
     },
     "shared_bus_detected": {
       "title": "Bus OpenWebNet partagé détecté ({gateway_a} et {gateway_b})",
-      "description": "Les passerelles {gateway_a} et {gateway_b} observent le même trafic de bus SCS, mais ne sont pas configurées sur le même bus. L'utilisation de plusieurs passerelles sur un même bus sans configuration partagée provoque des entités en double, des conflits de balayage au démarrage et des erreurs d'interrogation.\n\nConfiguration recommandée :\n- Principale : {primary}\n- Secondaire : {secondary} ({role})\n- Sous-systèmes délégués : {subsystems}",
       "fix_flow": {
         "step": {
           "init": {

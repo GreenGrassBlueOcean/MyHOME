@@ -312,7 +312,6 @@
     },
     "shared_bus_detected": {
       "title": "Rilevato bus OpenWebNet condiviso ({gateway_a} e {gateway_b})",
-      "description": "I gateway {gateway_a} e {gateway_b} osservano lo stesso traffico del bus SCS, ma non sono configurati sullo stesso bus. L'utilizzo di più gateway su un unico bus senza tale configurazione causa entità duplicate, conflitti di scansione all'avvio ed errori di interrogazione.\n\nConfigurazione consigliata:\n- Principale: {primary}\n- Secondario: {secondary} ({role})\n- Sottosistemi delegati: {subsystems}",
       "fix_flow": {
         "step": {
           "init": {
