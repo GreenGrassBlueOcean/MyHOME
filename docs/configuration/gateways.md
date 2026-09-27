@@ -214,7 +214,7 @@ Likewise keep backups **outside** `custom_components` (e.g. `/config/myhome_back
 
 In complex installations, multiple OpenWebNet gateways may exist in Home Assistant under two primary architectures:
 
-`	ext
+```text
                       +-------------------------------------------------+
                       |              HOME ASSISTANT CORE                |
                       |                                                 |
@@ -246,7 +246,7 @@ In complex installations, multiple OpenWebNet gateways may exist in Home Assista
     | Light Actuator|       | Shutter Switch|      | Audio F441    |
     | (WHO 1)       |       | (WHO 2)       |      | (WHO 16)      |
     +---------------+       +---------------+      +---------------+
-`
+```
 
 ### 1. Independent Bus Segments (standalone)
 Each gateway is connected to its own separate physical SCS bus segment (for example, separate apartment units, outbuildings, or dedicated subsystems connected via galvanically isolated interfaces).
@@ -285,7 +285,7 @@ Without proper coordination on a shared bus:
     - Once the outage outlasts the 60-second reconnect grace, a **Repair Issue** (gateway_failover_active) is raised alerting you to the offline primary unit while keeping your home fully functional.
     - When the primary gateway reconnects, Home Assistant automatically performs failback and clears the repair issue.
 
-`	ext
+```text
 +-------------------------------------------------------------------------------+
 |                      STANDBY FAILOVER STATE MACHINE                            |
 +-------------------------------------------------------------------------------+
@@ -309,7 +309,7 @@ Without proper coordination on a shared bus:
 |                                                 |    marked UNAVAILABLE   |   |
 |                                                 +-------------------------+   |
 +-------------------------------------------------------------------------------+
-`
+```
 
 - **Delegated Subsystems**:
   - If the secondary gateway is a specialized unit (such as a 3486 for WHO=5 Burglar Alarm or an MH200N dedicated to WHO=16/22 Audio), select those subsystems under **Delegated Subsystems**.
@@ -318,6 +318,58 @@ Without proper coordination on a shared bus:
 
 #### Automated Topology & Subsystem Delegation Inference
 Rather than requiring users to manually calculate subsystem overlaps and gateway tiers, Home Assistant automatically infers the optimal shared bus configuration based on gateway hardware models, performance tiers, and OpenWebNet command capabilities.
+
+```text
+                      +------------------------------------------+
+                      |   Two Gateways on Shared Physical Bus    |
+                      |          (Gateway A & Gateway B)         |
+                      +--------------------+---------------------+
+                                           |
+                                           v
+                      +------------------------------------------+
+                      |   1. Compare Hardware Performance Tiers  |
+                      |   - Tier 1: F454, F455, F461, MHS1       |
+                      |   - Tier 2: MH201, MH202, H4890/Touch    |
+                      |   - Tier 3: MH200N, MH200, F452, F453    |
+                      +--------------------+---------------------+
+                                           |
+                                           v
+                      +------------------------------------------+
+                      |       Rank by (Tier ASC, Pacing ASC)     |
+                      |   Higher Tier / Lower Pacing = PRIMARY   |
+                      |   Remaining Gateway          = FOLLOWER  |
+                      +--------------------+---------------------+
+                                           |
+                                           v
+                      +------------------------------------------+
+                      |   2. Compute Capability Delta Formula    |
+                      |          Δ = S_follower \ S_primary      |
+                      +--------------------+---------------------+
+                                           |
+                    +----------------------+----------------------+
+                    |                                             |
+            Δ = ∅ (Empty Delta)                         Δ ≠ ∅ (Subsystems in Δ)
+                    |                                             |
+                    v                                             v
+     +------------------------------+             +-------------------------------+
+     |   Assign ROLE_STANDBY        |             |   Assign ROLE_SECONDARY       |
+     |   (Warm Standby HA Failover) |             |   (Subsystem Offloading)      |
+     +--------------+---------------+             +---------------+---------------+
+                    |                                             |
+                    | - 0 duplicate entities                      | - Delegate WHOs in Δ
+                    | - Suppress secondary sweeps                 | - Auto-couple WHO 16 & 22
+                    | - Transparent failover on                   | - Primary stops sweeping
+                    |   primary disconnect                        |   delegated subsystems
+                    |                                             |
+                    +----------------------+----------------------+
+                                           |
+                                           v
+                      +------------------------------------------+
+                      |   3. Automated Execution & Deployment    |
+                      |   - 1-Click UI: SharedBusRepairFlow      |
+                      |   - Options Flow: Smart Pre-population   |
+                      +------------------------------------------+
+```
 
 ##### Gateway Performance Tiers & Pacing
 1. **Tier 1 (High Throughput / Multi-Session, $\le 50\text{ ms}$ pacing)**: `F454`, `F455`, `F461`, `MyHomeServer1`.
