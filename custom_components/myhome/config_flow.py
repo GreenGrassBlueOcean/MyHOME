@@ -1124,9 +1124,29 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     translation_key=CONF_BUS_TOPOLOGY,
                 )
             )
+            suggested_role = self.options.get(CONF_GATEWAY_ROLE)
+            suggested_whos = [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]
+            selected_pri = self.options.get(CONF_PRIMARY_GATEWAY)
+            if not selected_pri and gw_options:
+                selected_pri = gw_options[0]["value"]
+            if selected_pri and (suggested_role is None or not suggested_whos):
+                from .topology import entry_for_mac, entry_mac, infer_shared_bus_topology
+
+                pri_entry = entry_for_mac(self.hass, selected_pri)
+                if pri_entry and self.config_entry:
+                    rec = infer_shared_bus_topology(pri_entry, self.config_entry)
+                    my_mac = entry_mac(self.config_entry)
+                    if suggested_role is None:
+                        suggested_role = rec.role if rec.secondary_mac == my_mac else ROLE_PRIMARY
+                    if not suggested_whos and rec.secondary_mac == my_mac and rec.role == ROLE_SECONDARY:
+                        suggested_whos = [str(w) for w in sorted(rec.delegated_whos)]
+
+            if suggested_role is None:
+                suggested_role = ROLE_PRIMARY
+
             schema_dict[vol.Optional(
                 CONF_GATEWAY_ROLE,
-                description={"suggested_value": self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY)},
+                description={"suggested_value": suggested_role},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY],
@@ -1145,7 +1165,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )
             schema_dict[vol.Optional(
                 CONF_DELEGATED_WHOS,
-                description={"suggested_value": [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]},
+                description={"suggested_value": suggested_whos},
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],

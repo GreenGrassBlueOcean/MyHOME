@@ -1527,3 +1527,117 @@ async def test_standby_failover_cen_who15_bridged_to_primary(hass: HomeAssistant
 
     unsub_bus()
     unsub_disp()
+
+
+def test_gateway_tier_and_capabilities() -> None:
+    """Validate gateway tier rankings and supported WHO sets."""
+    from custom_components.myhome.topology import gateway_supported_whos, gateway_tier
+
+    assert gateway_tier("F454") == 1
+    assert gateway_tier("MyHomeServer1") == 1
+    assert gateway_tier("MH201") == 2
+    assert gateway_tier("MH202") == 2
+    assert gateway_tier("H4890") == 2
+    assert gateway_tier("MH200N") == 3
+    assert gateway_tier("MH200") == 3
+
+    f454_whos = gateway_supported_whos("F454")
+    mhs1_whos = gateway_supported_whos("MyHomeServer1")
+    h4890_whos = gateway_supported_whos("H4890")
+    mh202_whos = gateway_supported_whos("MH202")
+
+    assert 5 in f454_whos
+    assert 5 not in mhs1_whos
+    assert 5 in h4890_whos
+    assert 22 in h4890_whos
+    assert 22 not in mhs1_whos
+    assert 16 in h4890_whos
+    assert mh202_whos.issubset(f454_whos)
+
+
+def test_infer_shared_bus_topology_golden_pairings(hass: HomeAssistant) -> None:
+    """Validate topology inference across real-world golden trace pairings."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import ROLE_SECONDARY, ROLE_STANDBY
+    from custom_components.myhome.topology import infer_shared_bus_topology
+
+    # Case 1: F454 + MH202 (anotherjulien, issue #453)
+    f454 = MockConfigEntry(domain=DOMAIN, title="F454 Gateway", data={"name": "F454", "mac": "00:03:50:ff:45:54"})
+    mh202 = MockConfigEntry(domain=DOMAIN, title="MH202 Gateway", data={"name": "MH202", "mac": "00:03:50:00:02:02"})
+    rec1 = infer_shared_bus_topology(f454, mh202)
+    assert rec1.primary_mac == "00:03:50:ff:45:54"
+    assert rec1.secondary_mac == "00:03:50:00:02:02"
+    assert rec1.role == ROLE_STANDBY
+    assert rec1.delegated_whos == set()
+    assert "Warm Standby" in rec1.rationale
+
+    # Inverted order input produces identical primary/standby
+    rec1_inv = infer_shared_bus_topology(mh202, f454)
+    assert rec1_inv.primary_mac == "00:03:50:ff:45:54"
+    assert rec1_inv.secondary_mac == "00:03:50:00:02:02"
+    assert rec1_inv.role == ROLE_STANDBY
+
+    # Case 2: MyHomeServer1 + H4890 (nicolacavallo84, issue #453)
+    mhs1 = MockConfigEntry(domain=DOMAIN, title="MyHomeServer1 Gateway", data={"name": "MyHomeServer1", "mac": "00:03:50:aa:bb:01"})
+    h4890 = MockConfigEntry(domain=DOMAIN, title="H4890 Gateway", data={"name": "H4890", "mac": "00:03:50:aa:bb:02"})
+    rec2 = infer_shared_bus_topology(mhs1, h4890)
+    assert rec2.primary_mac == "00:03:50:aa:bb:01"
+    assert rec2.secondary_mac == "00:03:50:aa:bb:02"
+    assert rec2.role == ROLE_SECONDARY
+    assert rec2.delegated_whos == {5, 9, 16, 22}
+    assert "unique subsystems" in rec2.rationale
+
+    # Case 3: MH201 + MH200N (caiosweet, issue #453)
+    mh201 = MockConfigEntry(domain=DOMAIN, title="MH201 Gateway", data={"name": "MH201", "mac": "00:03:50:00:02:01"})
+    mh200n = MockConfigEntry(domain=DOMAIN, title="MH200N Gateway", data={"name": "MH200N", "mac": "00:03:50:00:02:00"})
+    rec3 = infer_shared_bus_topology(mh201, mh200n)
+    assert rec3.primary_mac == "00:03:50:00:02:01"
+    assert rec3.secondary_mac == "00:03:50:00:02:00"
+    assert rec3.role == ROLE_SECONDARY
+    assert rec3.delegated_whos == {5, 9}
+
+    # Case 4: Identical models (e.g. MH201 + MH201)
+    mh201_b = MockConfigEntry(domain=DOMAIN, title="MH201 B Gateway", data={"name": "MH201", "mac": "00:03:50:00:02:02"})
+    rec4 = infer_shared_bus_topology(mh201, mh201_b)
+    assert rec4.role == ROLE_STANDBY
+    assert rec4.delegated_whos == set()
+
+
+async def test_options_flow_smart_defaults_inferred(hass: HomeAssistant) -> None:
+    """Test options flow suggests inferred role and delegated WHOs based on selected primary."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MyHomeServer1 Gateway",
+        data={"name": "MyHomeServer1", "mac": "00:03:50:aa:bb:01"},
+    )
+    sec_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="H4890 Gateway",
+        data={"name": "H4890", "mac": "00:03:50:aa:bb:02"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_PRIMARY_GATEWAY: "00:03:50:aa:bb:01"},
+    )
+    pri_entry.add_to_hass(hass)
+    sec_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(sec_entry.entry_id)
+    assert result["type"] == "form"
+    schema = result["data_schema"]
+
+    for k in schema.schema:
+        if str(k) == CONF_GATEWAY_ROLE:
+            assert k.description["suggested_value"] == ROLE_SECONDARY
+        elif str(k) == CONF_DELEGATED_WHOS:
+            assert set(k.description["suggested_value"]) == {"5", "9", "16", "22"}
+

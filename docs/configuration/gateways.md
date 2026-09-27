@@ -316,6 +316,31 @@ Without proper coordination on a shared bus:
   - New devices of a delegated subsystem are discovered by the secondary only; the primary stops sweeping and discovering that subsystem.
   - Devices the primary already had before the delegation stay on the primary, so no entity is renamed or loses its settings. To move one to the secondary, delete it from the primary gateway's device page; the secondary discovers it on its next bus frame.
 
+#### Automated Topology & Subsystem Delegation Inference
+Rather than requiring users to manually calculate subsystem overlaps and gateway tiers, Home Assistant automatically infers the optimal shared bus configuration based on gateway hardware models, performance tiers, and OpenWebNet command capabilities.
+
+##### Gateway Performance Tiers & Pacing
+1. **Tier 1 (High Throughput / Multi-Session, $\le 50\text{ ms}$ pacing)**: `F454`, `F455`, `F461`, `MyHomeServer1`.
+2. **Tier 2 (Linux / Touchscreen Gateways, $100\text{ ms}$ pacing)**: `MH201`, `MH202`, `H4890` / `AM4890` / `LN4890`.
+3. **Tier 3 (Legacy Microcontroller Gateways, $150\text{ ms}$ pacing)**: `MH200N`, `MH200`, `F452`, `F453`.
+
+When two gateways are paired on a shared bus, the integration ranks them by tier and inter-frame pacing. The more performant gateway is assigned as the **Primary**.
+
+##### Capability Delta Formula
+The follower gateway's role and delegated subsystems are calculated by evaluating the set difference of supported OpenWebNet subsystems ($S$):
+$$\Delta = S_{\text{sec}} \setminus S_{\text{pri}}$$
+
+- **Empty Delta ($\Delta = \emptyset$)**:
+  - When the primary already covers all subsystems supported by the secondary (e.g. **F454 + MH202**), the secondary is assigned the **Warm Standby (`standby`)** role.
+  - No duplicate entities are created, and the secondary transparently takes over bus communication if the primary fails.
+- **Non-Empty Delta ($\Delta \neq \emptyset$)**:
+  - When the secondary supports specialized subsystems absent from the primary (e.g. **MyHomeServer1 + H4890**, where H4890 provides Burglar Alarm `WHO=5`, Auxiliary `WHO=9`, and Sound Diffusion `WHO=16`/`22`), the secondary is assigned the **Secondary (`secondary`)** role with delegated subsystems $\Delta$.
+  - In addition, audio subsystems (`WHO=16` Matrix and `WHO=22` Sound Diffusion) are automatically coupled so both route through the dedicated audio hardware.
+
+##### Smart Defaults & 1-Click Repair
+- **Options Flow**: Selecting `bus_topology: shared` and picking a Primary gateway dynamically pre-populates the inferred **Gateway Role** and **Delegated Subsystems** multi-select options.
+- **Repair Flow**: When an unconfigured shared bus is detected via TX-to-RX echoes (`shared_bus_detected`), Home Assistant generates a 1-click repair issue displaying the inferred topology, assigned roles, and rationale. Submitting the repair dialog automatically applies the topology to both gateways and reloads them.
+
 #### Automatic Shared Bus Detection
 The integration passively compares the traffic of every pair of gateways that is not configured on the same bus. Due to false positives with external automation platforms, concurrent RX triggers are ignored. The only accepted evidence is a strict **TX-to-RX echo**:
 - Gateway B receives a physical point-to-point frame on the bus that Gateway A transmitted less than 1.5 seconds prior (SHARED_BUS_TX_ECHO_S = 1.5).

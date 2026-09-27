@@ -145,28 +145,39 @@ The repair issue automatically withdraws and deletes once the decoder entity is 
 
 **Repair Key**: `shared_bus_detected_{gw1}_{gw2}`  
 **Severity**: `WARNING`  
-**Auto-Resolving**: Yes (when configured or when secondary role is saved)
+**Auto-Resolving**: Yes (when configured or when secondary role is saved)  
+**Fixable via UI**: Yes (1-Click Repair Flow)
 
 ### What it means
-The integration passively detected that two configured OpenWebNet gateways share the same physical SCS bus wiring, but are not configured on the same bus (neither points at the other as its primary). Three correlated frames within 10 minutes raise the issue; each one is either:
-1. **TX-to-RX Echoes**: A gateway received a frame on its event session that another gateway transmitted on its command session within 1.5 seconds.
-2. **Concurrent RX Frames**: Both gateways received identical physical bus frames within 0.3 seconds.
+The integration passively detected that two configured OpenWebNet gateways share the same physical SCS bus wiring, but are not configured on the same bus (neither points at the other as its primary). Three correlated point-to-point frames within the evidence window raise the issue via strict **TX-to-RX Echoes** (a gateway received a frame on its event session that another gateway transmitted on its command session within 1.5 seconds).
 
-A frame a gateway transmitted itself never counts, so an automation that sends the same command to two separate buses does not trigger this issue. Gateways configured on the same bus (a primary and the secondaries or standby pointing at it) are expected to see the same frames and are not compared.
+### Automated Capability Inference
+Home Assistant automatically inspects the hardware models, command concurrency, queue pacing, and supported OpenWebNet subsystems (`WHO` dimensions) of both gateways:
+- **Tier 1 (High Throughput / Multi-Session)**: `F454`, `F455`, `F461`, `MyHomeServer1`.
+- **Tier 2 (Linux / Touchscreen Gateways)**: `MH201`, `MH202`, `H4890` / `AM4890` / `LN4890`.
+- **Tier 3 (Legacy Microcontroller Gateways)**: `MH200N`, `MH200`, `F452`, `F453`.
+
+The integration designates the higher-tier or lower-pacing gateway as **Primary**, and calculates the capability delta for the follower:
+$$\Delta = S_{\text{sec}} \setminus S_{\text{pri}}$$
+- **Empty Delta ($\Delta = \emptyset$)**: Both gateways have equivalent or subordinate capability (e.g. F454 + MH202). The follower is configured as **Warm Standby** for high-availability failover without entity duplication.
+- **Non-Empty Delta ($\Delta \neq \emptyset$)**: The follower gateway provides specialized hardware subsystems not supported by the primary (e.g. MyHomeServer1 + H4890, where H4890 provides Burglar Alarm WHO 5, Auxiliary WHO 9, and Multi-room Sound WHO 16/22). The follower is assigned as **Secondary** with delegated subsystems $\Delta$.
 
 ### Why it matters
 Without configuration, each gateway discovers the same physical devices and registers duplicate entities in Home Assistant (e.g. `light.kitchen_light` and `light.kitchen_light_2`), and simultaneous startup sweeps cause SCS bus collisions and NACK storms.
 
 ### How to resolve
-1. Navigate to **Settings → Devices & Services → MyHOME**.
-2. Identify which gateway should serve as the **Primary Gateway** (usually the newest or most capable gateway, e.g. MH201 or F454) and which as **Secondary** (e.g. MH200N).
-3. On the primary gateway card, click **Configure** and set **Bus Topology** to `shared` and **Gateway Role** to `primary`.
-4. On the secondary gateway card, click **Configure**:
-   - Set **Bus Topology** to `shared`.
-   - Set **Gateway Role** to `secondary`.
-   - Select the primary gateway under **Primary Gateway**.
-   - (Optional) If the secondary gateway is dedicated to specific subsystems (e.g. Burglar Alarm WHO=5 or Audio WHO=16), select them under **Delegated Subsystems**.
-5. Click **Submit**. The gateway reloads with its new role, prunes the duplicate entities the primary already has, and stops its redundant sweeps.
+1. **1-Click Repair Flow (Recommended)**:
+   - Click **Submit** on the Repair issue card (*Settings → System → Repairs*).
+   - Home Assistant displays the inferred topology dialog showing the assigned Primary, Follower, Role, and Delegated Subsystems with full rationale.
+   - Click **Submit** to apply the configuration automatically and reload both gateways.
+2. **Manual Configuration (Options Flow)**:
+   - Navigate to **Settings → Devices & Services → MyHOME**.
+   - On the primary gateway card, click **Configure** and set **Bus Topology** to `shared` and **Gateway Role** to `primary`.
+   - On the follower gateway card, click **Configure**:
+     - Set **Bus Topology** to `shared`.
+     - Select the primary gateway under **Primary Gateway**.
+     - Notice that **Gateway Role** and **Delegated Subsystems** are automatically pre-populated with the inferred smart defaults.
+     - Click **Submit**. The gateway reloads with its new role, prunes duplicate entities, and stops redundant sweeps.
 
 ---
 

@@ -313,7 +313,18 @@
     },
     "shared_bus_detected": {
       "title": "Shared OpenWebNet bus detected ({gateway_a} & {gateway_b})",
-      "description": "Gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic, but they are not configured on the same bus. Operating several gateways on one bus without that configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nOpen Configure on the gateway that should lead, set its Bus Topology to Shared and its role to Primary. Then open Configure on the other gateway, set its Bus Topology to Shared, its role to Secondary or Warm standby, and select the first gateway as its Primary gateway."
+      "description": "Gateways {gateway_a} and {gateway_b} are observing the same SCS bus traffic, but they are not configured on the same bus. Operating several gateways on one bus without that configuration causes duplicate entities, startup sweep contention, and status polling errors.\n\nRecommended configuration:\n- Primary: {primary}\n- Follower: {secondary} ({role})\n- Delegated subsystems: {subsystems}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Configure Shared Bus Topology",
+            "description": "Home Assistant has analyzed the hardware capabilities of your gateways and calculated the recommended shared bus topology:\n\n- **Primary Gateway**: {primary}\n- **Follower Gateway**: {secondary}\n- **Assigned Role**: {role}\n- **Delegated Subsystems**: {subsystems}\n\n**Rationale**: {rationale}\n\nClick Submit to apply this recommended configuration automatically and reload both gateways."
+          }
+        },
+        "abort": {
+          "gateway_missing": "One of the gateways is no longer configured."
+        }
+      }
     },
     "gateway_failover_active": {
       "title": "High Availability failover active: {primary} offline",

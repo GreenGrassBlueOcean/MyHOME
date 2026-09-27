@@ -15,10 +15,23 @@ from homeassistant.helpers.issue_registry import (
 )
 
 from .const import (
+    CONF_BUS_TOPOLOGY,
+    CONF_DELEGATED_WHOS,
+    CONF_GATEWAY_ROLE,
+    CONF_PRIMARY_GATEWAY,
     DOMAIN,
     ISSUE_GATEWAY_FAILOVER,
     ISSUE_PRIMARY_GATEWAY_MISSING,
     ISSUE_SHARED_BUS_DETECTED,
+    ROLE_PRIMARY,
+    ROLE_SECONDARY,
+    TOPOLOGY_SHARED,
+)
+from .topology import (
+    RecommendedTopology,
+    entry_for_mac,
+    entry_model,
+    infer_shared_bus_topology,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,15 +173,35 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
     """Create a repair issue when two gateways observe the same SCS bus traffic."""
     _, _, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
     disp_a, disp_b = sorted([mac_a, mac_b])
+    entry_a = entry_for_mac(hass, mac_a)
+    entry_b = entry_for_mac(hass, mac_b)
+    rec: RecommendedTopology | None = None
+    if entry_a and entry_b:
+        rec = infer_shared_bus_topology(entry_a, entry_b)
+
+    subsystems_str = (
+        ", ".join(f"WHO {w}" for w in sorted(rec.delegated_whos))
+        if rec and rec.delegated_whos
+        else "None (Warm Standby)"
+    )
+
     async_create_issue(
         hass,
         DOMAIN,
         issue_id,
-        is_fixable=False,
+        is_fixable=True,
         severity=IssueSeverity.WARNING,
         translation_key=ISSUE_SHARED_BUS_DETECTED,
-        translation_placeholders={"gateway_a": disp_a, "gateway_b": disp_b},
+        translation_placeholders={
+            "gateway_a": disp_a,
+            "gateway_b": disp_b,
+            "primary": rec.primary_mac if rec else disp_a,
+            "secondary": rec.secondary_mac if rec else disp_b,
+            "role": rec.role.title() if rec else "Standby",
+            "subsystems": subsystems_str,
+        },
         learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issues/#unconfigured-shared-bus-detected",
+        data={"mac_a": mac_a, "mac_b": mac_b},
     )
 
 
@@ -322,6 +355,79 @@ class IncompatibleDecoderRepairFlow(RepairsFlow):
         )
 
 
+class SharedBusRepairFlow(RepairsFlow):
+    """Handler for automatically configuring an unconfigured shared bus."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        """Initialize the repair flow."""
+        self._mac_a: str = str(data.get("mac_a") or "")
+        self._mac_b: str = str(data.get("mac_b") or "")
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Confirm applying the recommended shared-bus topology."""
+        entry_a = entry_for_mac(self.hass, self._mac_a)
+        entry_b = entry_for_mac(self.hass, self._mac_b)
+
+        if not entry_a or not entry_b:
+            return self.async_abort(reason="gateway_missing")
+
+        rec = infer_shared_bus_topology(entry_a, entry_b)
+        pri_entry = entry_for_mac(self.hass, rec.primary_mac)
+        sec_entry = entry_for_mac(self.hass, rec.secondary_mac)
+
+        if not pri_entry or not sec_entry:
+            return self.async_abort(reason="gateway_missing")
+
+        if user_input is not None:
+            # Apply Primary settings
+            pri_opts = dict(pri_entry.options)
+            pri_opts[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
+            pri_opts[CONF_GATEWAY_ROLE] = ROLE_PRIMARY
+            pri_opts.pop(CONF_PRIMARY_GATEWAY, None)
+            pri_opts.pop(CONF_DELEGATED_WHOS, None)
+            self.hass.config_entries.async_update_entry(pri_entry, options=pri_opts)
+
+            # Apply Secondary/Standby settings
+            sec_opts = dict(sec_entry.options)
+            sec_opts[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED
+            sec_opts[CONF_GATEWAY_ROLE] = rec.role
+            sec_opts[CONF_PRIMARY_GATEWAY] = rec.primary_mac
+            if rec.role == ROLE_SECONDARY:
+                sec_opts[CONF_DELEGATED_WHOS] = sorted(rec.delegated_whos)
+            else:
+                sec_opts.pop(CONF_DELEGATED_WHOS, None)
+            self.hass.config_entries.async_update_entry(sec_entry, options=sec_opts)
+
+            # Reload both entries
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(pri_entry.entry_id)
+            )
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(sec_entry.entry_id)
+            )
+
+            async_delete_shared_bus_issue(self.hass, self._mac_a, self._mac_b)
+            return self.async_create_entry(data={})
+
+        subsystems = (
+            ", ".join(f"WHO {w}" for w in sorted(rec.delegated_whos))
+            if rec.delegated_whos
+            else "None (Warm Standby failover)"
+        )
+        return self.async_show_form(
+            step_id="init",
+            description_placeholders={
+                "primary": f"{entry_model(pri_entry)} ({rec.primary_mac})",
+                "secondary": f"{entry_model(sec_entry)} ({rec.secondary_mac})",
+                "role": rec.role.title(),
+                "subsystems": subsystems,
+                "rationale": rec.rationale,
+            },
+        )
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant,
     issue_id: str,
@@ -332,6 +438,10 @@ async def async_create_fix_flow(
         flow: RepairsFlow = IncompatibleDecoderRepairFlow(data or {})
         flow.hass = hass
         return flow
+    if issue_id.startswith(f"{ISSUE_SHARED_BUS_DETECTED}_"):
+        shared_flow: RepairsFlow = SharedBusRepairFlow(data or {})
+        shared_flow.hass = hass
+        return shared_flow
     from homeassistant.components.repairs import ConfirmRepairFlow
 
     confirm_flow: RepairsFlow = ConfirmRepairFlow()

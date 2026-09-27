@@ -293,6 +293,45 @@
     },
     "incompatible_decoder_platform": {
       "title": "Il decoder {decoder} usa un'integrazione non supportata ({platform})"
+    },
+    "gateway_authentication_failed": {
+      "title": "Autenticazione gateway non riuscita",
+      "description": "Il gateway ha rifiutato le credenziali OpenWebNet. Riconfigura la password."
+    },
+    "bus_collision_storm": {
+      "title": "Rilevato un elevato tasso di collisioni sul bus SCS ({count} NACK)",
+      "description": "È stato rilevato un tasso insolitamente elevato di collisioni sul bus o trame NACK. Controlla il cablaggio degli attuatori e la terminazione fisica della linea."
+    },
+    "gateway_identity_mismatch": {
+      "title": "Discrepanza del modello del gateway per {configured}",
+      "description": "Il gateway è configurato come {configured} ma segnala il tipo OpenWebNet {code}, che identifica {reported} secondo {basis}."
+    },
+    "gateway_identity_corrected": {
+      "title": "Modello del gateway corretto in {corrected}",
+      "description": "Il gateway era configurato come {previous} ma segnala il codice modello {code} che identifica {corrected}. Il profilo e il registro del dispositivo sono stati aggiornati."
+    },
+    "shared_bus_detected": {
+      "title": "Rilevato bus OpenWebNet condiviso ({gateway_a} e {gateway_b})",
+      "description": "I gateway {gateway_a} e {gateway_b} osservano lo stesso traffico del bus SCS, ma non sono configurati sullo stesso bus. L'utilizzo di più gateway su un unico bus senza tale configurazione causa entità duplicate, conflitti di scansione all'avvio ed errori di interrogazione.\n\nConfigurazione consigliata:\n- Principale: {primary}\n- Secondario: {secondary} ({role})\n- Sottosistemi delegati: {subsystems}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Configura la topologia del bus condiviso",
+            "description": "Home Assistant ha analizzato le funzionalità hardware dei tuoi gateway e calcolato la topologia consigliata per il bus condiviso:\n\n- **Gateway principale**: {primary}\n- **Gateway secondario**: {secondary}\n- **Ruolo assegnato**: {role}\n- **Sottosistemi delegati**: {subsystems}\n\n**Motivazione**: {rationale}\n\nFai clic su Invia per applicare automaticamente questa configurazione consigliata e ricaricare entrambi i gateway."
+          }
+        },
+        "abort": {
+          "gateway_missing": "Uno dei gateway non è più configurato."
+        }
+      }
+    },
+    "gateway_failover_active": {
+      "title": "Failover ad alta disponibilità attivo: {primary} offline",
+      "description": "Il gateway principale MyHOME {primary} è attualmente offline o non raggiungibile. Il failover in standby caldo ha instradato automaticamente il traffico del bus tramite il gateway di standby {standby}.\n\nQuando {primary} si riconnette, Home Assistant ripristinerà automaticamente il gateway principale."
+    },
+    "primary_gateway_missing": {
+      "title": "Gateway principale di {gateway} mancante",
+      "description": "{gateway} è configurato come gateway secondario o standby per {primary}, ma tale gateway non è più configurato come gateway principale condiviso. {gateway} sospende il rilevamento fino alla riconfigurazione."
     }
   },
   "exceptions": {

@@ -293,6 +293,45 @@
     },
     "incompatible_decoder_platform": {
       "title": "Decoder {decoder} gebruikt een niet-ondersteunde integratie ({platform})"
+    },
+    "gateway_authentication_failed": {
+      "title": "Gateway-authenticatie mislukt",
+      "description": "De gateway heeft de OpenWebNet-inloggegevens geweigerd. Configureer het wachtwoord opnieuw."
+    },
+    "bus_collision_storm": {
+      "title": "Hoge SCS-busbotsingssnelheid gedetecteerd ({count} NACK's)",
+      "description": "Er is een ongewoon hoog aantal busbotsingen of NACK-frames gedetecteerd op de SCS-bus. Controleer de bedrading van actuatoren en de fysieke busafsluiting."
+    },
+    "gateway_identity_mismatch": {
+      "title": "Gatewaymodel komt niet overeen voor {configured}",
+      "description": "De gateway is geconfigureerd als {configured}, maar meldt OpenWebNet-apparaattype {code}, wat {reported} identificeert volgens {basis}."
+    },
+    "gateway_identity_corrected": {
+      "title": "Gatewaymodel gecorrigeerd naar {corrected}",
+      "description": "De gateway was geconfigureerd als {previous}, maar meldt modelcode {code} die {corrected} identificeert. Het profiel en het apparaatregister zijn bijgewerkt."
+    },
+    "shared_bus_detected": {
+      "title": "Gedeelde OpenWebNet-bus gedetecteerd ({gateway_a} & {gateway_b})",
+      "description": "Gateways {gateway_a} en {gateway_b} zien hetzelfde SCS-busverkeer, maar zijn niet geconfigureerd op dezelfde bus. Het gebruik van meerdere gateways op één bus zonder die configuratie veroorzaakt dubbele entiteiten, conflicten bij het opstarten en status-pollingfouten.\n\nAanbevolen configuratie:\n- Primair: {primary}\n- Volger: {secondary} ({role})\n- Gedelegeerde subsystemen: {subsystems}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Gedeelde bustopologie configureren",
+            "description": "Home Assistant heeft de hardwaremogelijkheden van uw gateways geanalyseerd en de aanbevolen bustopologie berekend:\n\n- **Primaire gateway**: {primary}\n- **Volgende gateway**: {secondary}\n- **Toegewezen rol**: {role}\n- **Gedelegeerde subsystemen**: {subsystems}\n\n**Onderbouwing**: {rationale}\n\nKlik op Verzenden om deze aanbevolen configuratie automatisch toe te passen en beide gateways opnieuw te laden."
+          }
+        },
+        "abort": {
+          "gateway_missing": "Een van de gateways is niet langer geconfigureerd."
+        }
+      }
+    },
+    "gateway_failover_active": {
+      "title": "High Availability failover actief: {primary} offline",
+      "description": "Primaire MyHOME-gateway {primary} is momenteel offline of onbereikbaar. De warm-standby failover heeft busverkeer en statusmonitoring automatisch gerouteerd via standby-gateway {standby}.\n\nWanneer {primary} herstelt, schakelt Home Assistant automatisch terug naar de primaire gateway en wordt dit probleem opgelost."
+    },
+    "primary_gateway_missing": {
+      "title": "Primaire gateway van {gateway} ontbreekt",
+      "description": "{gateway} is geconfigureerd als secundaire of warm-standby gateway voor {primary}, maar die gateway is niet langer geconfigureerd als gedeelde primaire gateway. {gateway} onderdrukt detectie totdat deze opnieuw is geconfigureerd."
     }
   },
   "exceptions": {
