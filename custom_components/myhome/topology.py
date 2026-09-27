@@ -5,8 +5,9 @@ do not depend on the order in which the gateways were set up.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.const import CONF_MAC, CONF_NAME
@@ -26,6 +27,8 @@ from .const import (
     TOPOLOGY_STANDALONE,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class RecommendedTopology:
@@ -36,6 +39,8 @@ class RecommendedTopology:
     role: str  # ROLE_SECONDARY or ROLE_STANDBY
     delegated_whos: set[int]
     rationale: str
+    capability_delta: set[int] = field(default_factory=set)
+    audio_coupled: bool = False
 
 
 def entry_model(entry: Any) -> str | None:
@@ -116,43 +121,89 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
         pri_mac, sec_mac = mac_a, mac_b
         pri_whos, sec_whos = whos_a, whos_b
         pri_model, sec_model = model_a or "Gateway A", model_b or "Gateway B"
+        selection_reason = f"Tier {tier_a} < Tier {tier_b}"
     elif tier_b < tier_a:
         pri_mac, sec_mac = mac_b, mac_a
         pri_whos, sec_whos = whos_b, whos_a
         pri_model, sec_model = model_b or "Gateway B", model_a or "Gateway A"
-    elif len(whos_a) >= len(whos_b):
+        selection_reason = f"Tier {tier_b} < Tier {tier_a}"
+    elif len(whos_a) > len(whos_b):
         pri_mac, sec_mac = mac_a, mac_b
         pri_whos, sec_whos = whos_a, whos_b
         pri_model, sec_model = model_a or "Gateway A", model_b or "Gateway B"
+        selection_reason = f"WHO count {len(whos_a)} > {len(whos_b)}"
+    elif len(whos_b) > len(whos_a):
+        pri_mac, sec_mac = mac_b, mac_a
+        pri_whos, sec_whos = whos_b, whos_a
+        pri_model, sec_model = model_b or "Gateway B", model_a or "Gateway A"
+        selection_reason = f"WHO count {len(whos_b)} > {len(whos_a)}"
+    elif mac_a <= mac_b:
+        pri_mac, sec_mac = mac_a, mac_b
+        pri_whos, sec_whos = whos_a, whos_b
+        pri_model, sec_model = model_a or "Gateway A", model_b or "Gateway B"
+        selection_reason = "Equal tier and WHO count; deterministic MAC sort"
     else:
         pri_mac, sec_mac = mac_b, mac_a
         pri_whos, sec_whos = whos_b, whos_a
         pri_model, sec_model = model_b or "Gateway B", model_a or "Gateway A"
+        selection_reason = "Equal tier and WHO count; deterministic MAC sort"
 
     # Compute capability delta: subsystems supported by secondary that primary lacks
-    delta = sec_whos - pri_whos
+    raw_delta = sec_whos - pri_whos
+    delta = set(raw_delta)
+    audio_coupled = False
     # If secondary supports Audio Diffusion (WHO 22) or Audio (WHO 16), keep audio coupled
     if (22 in delta or 16 in delta) and (16 in sec_whos or 22 in sec_whos):
-        if 16 in sec_whos:
+        if 16 in sec_whos and 16 not in delta:
             delta.add(16)
-        if 22 in sec_whos:
+            audio_coupled = True
+        if 22 in sec_whos and 22 not in delta:
             delta.add(22)
+            audio_coupled = True
 
     if not delta:
         role = ROLE_STANDBY
         delegated: set[int] = set()
         rationale = (
-            f"{pri_model} ({pri_mac}) selected as Primary. "
-            f"{sec_model} ({sec_mac}) capabilities are fully covered by Primary; configured as Warm Standby for failover."
+            f"{pri_model} (Tier {gateway_tier(pri_model)}) selected as Primary ({selection_reason}). "
+            f"{sec_model} (Tier {gateway_tier(sec_model)}) capabilities are fully covered by Primary; configured as Warm Standby for failover."
         )
     else:
         role = ROLE_SECONDARY
         delegated = delta
         subsystems_str = ", ".join(f"WHO {w}" for w in sorted(delegated))
+        coupling_note = " (Audio coupled)" if audio_coupled else ""
         rationale = (
-            f"{pri_model} ({pri_mac}) selected as Primary. "
-            f"{sec_model} ({sec_mac}) delegated unique subsystems: {subsystems_str}."
+            f"{pri_model} (Tier {gateway_tier(pri_model)}) selected as Primary ({selection_reason}). "
+            f"{sec_model} (Tier {gateway_tier(sec_model)}) delegated unique subsystems: {subsystems_str}{coupling_note}."
         )
+
+    _LOGGER.debug(
+        "Evaluating shared bus topology between %s (Tier %d, WHOs %s) and %s (Tier %d, WHOs %s). "
+        "Primary selection: %s (%s). Secondary capability delta: %s (audio coupled: %s)",
+        pri_model,
+        gateway_tier(pri_model),
+        sorted(pri_whos),
+        sec_model,
+        gateway_tier(sec_model),
+        sorted(sec_whos),
+        pri_model,
+        selection_reason,
+        sorted(delta),
+        audio_coupled,
+    )
+    _LOGGER.info(
+        "Inferred shared bus topology: Primary=%s (%s, Tier %d), Follower=%s (%s, Tier %d, role=%s, delegated=%s). %s",
+        pri_model,
+        pri_mac,
+        gateway_tier(pri_model),
+        sec_model,
+        sec_mac,
+        gateway_tier(sec_model),
+        role,
+        sorted(delegated),
+        rationale,
+    )
 
     return RecommendedTopology(
         primary_mac=pri_mac,
@@ -160,6 +211,8 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
         role=role,
         delegated_whos=delegated,
         rationale=rationale,
+        capability_delta=raw_delta,
+        audio_coupled=audio_coupled,
     )
 
 

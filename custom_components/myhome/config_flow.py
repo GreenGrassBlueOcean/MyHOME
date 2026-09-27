@@ -1140,6 +1140,13 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         suggested_role = rec.role if rec.secondary_mac == my_mac else ROLE_PRIMARY
                     if not suggested_whos and rec.secondary_mac == my_mac and rec.role == ROLE_SECONDARY:
                         suggested_whos = [str(w) for w in sorted(rec.delegated_whos)]
+                    LOGGER.debug(
+                        "Inferred shared-bus smart defaults for %s: role=%s, delegated_whos=%s (selected primary %s)",
+                        my_mac,
+                        suggested_role,
+                        suggested_whos,
+                        selected_pri,
+                    )
 
             if suggested_role is None:
                 suggested_role = ROLE_PRIMARY

@@ -1641,3 +1641,187 @@ async def test_options_flow_smart_defaults_inferred(hass: HomeAssistant) -> None
         elif str(k) == CONF_DELEGATED_WHOS:
             assert set(k.description["suggested_value"]) == {"5", "9", "16", "22"}
 
+
+async def test_options_flow_suggested_role_default_when_no_primary(hass: HomeAssistant) -> None:
+    """Test options flow suggested role defaults to PRIMARY when primary gateway lookup fails."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        ROLE_PRIMARY,
+    )
+
+    other_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Other Gateway",
+        data={"name": "F454", "mac": "00:03:50:11:11:11"},
+    )
+    solo_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Solo Gateway",
+        data={"name": "F454", "mac": "00:03:50:99:88:77"},
+        options={CONF_PRIMARY_GATEWAY: "00:03:50:99:99:99"},
+    )
+    other_entry.add_to_hass(hass)
+    solo_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(solo_entry.entry_id)
+    assert result["type"] == "form"
+    schema = result["data_schema"]
+    for k in schema.schema:
+        if str(k) == CONF_GATEWAY_ROLE:
+            assert k.description["suggested_value"] == ROLE_PRIMARY
+
+
+def test_entry_model_fallbacks() -> None:
+    """Test entry_model extracts from options or title if data is missing."""
+    from unittest.mock import MagicMock
+
+    from custom_components.myhome.topology import entry_model
+
+    # Options fallback
+    mock_opt = MagicMock()
+    mock_opt.data = {}
+    mock_opt.options = {"name": "FromOptions"}
+    mock_opt.title = ""
+    assert entry_model(mock_opt) == "FromOptions"
+
+    # Title fallback with ' Gateway'
+    mock_title = MagicMock()
+    mock_title.data = None
+    mock_title.options = None
+    mock_title.title = "F454 Gateway"
+    assert entry_model(mock_title) == "F454"
+
+
+def test_gateway_supported_whos_profile_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test gateway_supported_whos handles exception during get_gateway_profile."""
+    import OWNd.profiles
+
+    from custom_components.myhome.topology import gateway_supported_whos
+
+    def raise_err(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(OWNd.profiles, "get_gateway_profile", raise_err)
+    # Should safely catch exception and return empty (or known enrichments)
+    whos = gateway_supported_whos("UnknownBoom")
+    assert whos == set()
+
+
+def test_infer_shared_bus_topology_equal_tier_b_has_more_whos(hass: HomeAssistant) -> None:
+    """Test infer_shared_bus_topology when tier_a == tier_b but entry_b has more supported WHOs."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.topology import infer_shared_bus_topology
+
+    # MH202 (Tier 2, 7 WHOs) vs H4890 (Tier 2, 9 WHOs)
+    mh202 = MockConfigEntry(domain=DOMAIN, title="MH202 Gateway", data={"name": "MH202", "mac": "00:03:50:00:01:01"})
+    h4890 = MockConfigEntry(domain=DOMAIN, title="H4890 Gateway", data={"name": "H4890", "mac": "00:03:50:00:01:02"})
+
+    rec = infer_shared_bus_topology(mh202, h4890)
+    assert rec.primary_mac == "00:03:50:00:01:02"  # H4890 wins Primary
+    assert rec.secondary_mac == "00:03:50:00:01:01"  # MH202 is Follower
+    assert "WHO count" in rec.rationale
+
+    # Invert to test tier_a == tier_b with whos_a > whos_b
+    rec_inv = infer_shared_bus_topology(h4890, mh202)
+    assert rec_inv.primary_mac == "00:03:50:00:01:02"
+    assert rec_inv.secondary_mac == "00:03:50:00:01:01"
+
+
+def test_infer_shared_bus_topology_audio_coupling_who22_added(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test audio coupling adds WHO 22 to delta when secondary supports both WHO 16 and 22, but primary lacks 16."""
+    from unittest.mock import MagicMock
+
+    from custom_components.myhome import topology
+
+    entry_a = MagicMock()
+    entry_a.data = {"mac": "00:03:50:00:00:01", "name": "GW_A"}
+    entry_a.options = {}
+    entry_a.title = "GW_A"
+
+    entry_b = MagicMock()
+    entry_b.data = {"mac": "00:03:50:00:00:02", "name": "GW_B"}
+    entry_b.options = {}
+    entry_b.title = "GW_B"
+
+    # Gateway A supports 1, 2, 22. Gateway B supports 1, 2, 16, 22. Both Tier 3.
+    def mock_whos(model: str | None) -> set[int]:
+        if model == "GW_A":
+            return {1, 2, 22}
+        return {1, 2, 16, 22}
+
+    monkeypatch.setattr(topology, "gateway_supported_whos", mock_whos)
+
+    # GW_B has more WHOs (4 vs 3), so GW_B would be primary unless tier differs.
+    # Force GW_A as primary by making GW_A Tier 1:
+    def mock_tier(model: str | None) -> int:
+        return 1 if model == "GW_A" else 2
+
+    monkeypatch.setattr(topology, "gateway_tier", mock_tier)
+
+    rec = topology.infer_shared_bus_topology(entry_a, entry_b)
+    assert rec.primary_mac == "00:03:50:00:00:01"
+    assert rec.secondary_mac == "00:03:50:00:00:02"
+    assert rec.audio_coupled is True
+    # WHO 16 was delta; WHO 22 was added via audio coupling even though primary also supported 22
+    assert 16 in rec.delegated_whos
+    assert 22 in rec.delegated_whos
+    assert "(Audio coupled)" in rec.rationale
+
+
+async def test_shared_bus_repair_flow_standby_and_abort(hass: HomeAssistant) -> None:
+    """Test shared bus repair flow configuring standby and aborting when gateway missing."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        ROLE_STANDBY,
+        TOPOLOGY_SHARED,
+    )
+    from custom_components.myhome.repairs import SharedBusRepairFlow
+
+    f454 = MockConfigEntry(
+        domain=DOMAIN,
+        title="F454 Gateway",
+        data={"name": "F454", "mac": "00:03:50:aa:bb:01"},
+        options={},
+    )
+    mh202 = MockConfigEntry(
+        domain=DOMAIN,
+        title="MH202 Gateway",
+        data={"name": "MH202", "mac": "00:03:50:aa:bb:02"},
+        options={CONF_DELEGATED_WHOS: [1, 2]},  # Pre-existing WHOs to verify removal in standby
+    )
+    f454.add_to_hass(hass)
+    mh202.add_to_hass(hass)
+
+    flow = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
+    flow.hass = hass
+
+    # Form step
+    res_form = await flow.async_step_init()
+    assert res_form["type"] == "form"
+    assert "Warm Standby" in res_form["description_placeholders"]["subsystems"]
+
+    # Submit step -> sets role standby and removes delegated_whos
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        res_create = await flow.async_step_init(user_input={})
+    assert res_create["type"] == "create_entry"
+    assert mh202.options[CONF_BUS_TOPOLOGY] == TOPOLOGY_SHARED
+    assert mh202.options[CONF_GATEWAY_ROLE] == ROLE_STANDBY
+    assert CONF_DELEGATED_WHOS not in mh202.options
+
+    # Abort when gateway deleted
+    await hass.config_entries.async_remove(mh202.entry_id)
+    flow2 = SharedBusRepairFlow({"mac_a": "00:03:50:aa:bb:01", "mac_b": "00:03:50:aa:bb:02"})
+    flow2.hass = hass
+    res_abort = await flow2.async_step_init(user_input={})
+    assert res_abort["type"] == "abort"
+    assert res_abort["reason"] == "gateway_missing"
+
+

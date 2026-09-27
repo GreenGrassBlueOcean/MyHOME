@@ -29,6 +29,7 @@ from .const import (
 )
 from .topology import (
     entry_for_mac,
+    entry_mac,
     entry_model,
     infer_shared_bus_topology,
 )
@@ -173,6 +174,7 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
     _, _, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
     disp_a, disp_b = sorted([mac_a, mac_b])
 
+    _LOGGER.info("Detected shared SCS bus between %s and %s; repair issue created (%s)", disp_a, disp_b, issue_id)
     async_create_issue(
         hass,
         DOMAIN,
@@ -192,6 +194,7 @@ def async_create_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -
 def async_delete_shared_bus_issue(hass: HomeAssistant, mac_a: str, mac_b: str) -> None:
     """Delete the shared bus repair issue once the gateways are configured."""
     clean_a, clean_b, issue_id = _canonical_shared_bus_pair(mac_a, mac_b)
+    _LOGGER.debug("Dismissed shared SCS bus repair issue %s for %s and %s", issue_id, mac_a, mac_b)
     async_delete_issue(hass, DOMAIN, issue_id)
     domain_data = hass.data.get(DOMAIN)
     if isinstance(domain_data, dict):
@@ -213,6 +216,13 @@ def async_create_failover_issue(
     """Create a repair issue when primary gateway fails over to standby."""
     clean_pri = primary_mac.replace(":", "").lower()
     issue_id = f"{ISSUE_GATEWAY_FAILOVER}_{clean_pri}"
+    _LOGGER.warning(
+        "Primary gateway %s (%s) offline; failover activated on warm standby %s (%s)",
+        primary_name,
+        primary_mac,
+        standby_name,
+        standby_mac,
+    )
     async_create_issue(
         hass,
         DOMAIN,
@@ -232,6 +242,7 @@ def async_delete_failover_issue(hass: HomeAssistant, primary_mac: str) -> None:
     """Delete the failover repair issue once primary gateway reconnects."""
     clean_pri = primary_mac.replace(":", "").lower()
     issue_id = f"{ISSUE_GATEWAY_FAILOVER}_{clean_pri}"
+    _LOGGER.info("Primary gateway %s reconnected; failover resolved", primary_mac)
     async_delete_issue(hass, DOMAIN, issue_id)
 
 
@@ -358,11 +369,8 @@ class SharedBusRepairFlow(RepairsFlow):
             return self.async_abort(reason="gateway_missing")
 
         rec = infer_shared_bus_topology(entry_a, entry_b)
-        pri_entry = entry_for_mac(self.hass, rec.primary_mac)
-        sec_entry = entry_for_mac(self.hass, rec.secondary_mac)
-
-        if not pri_entry or not sec_entry:
-            return self.async_abort(reason="gateway_missing")
+        pri_entry = entry_a if entry_mac(entry_a) == rec.primary_mac else entry_b
+        sec_entry = entry_b if pri_entry is entry_a else entry_a
 
         if user_input is not None:
             # Apply Primary settings
@@ -393,6 +401,15 @@ class SharedBusRepairFlow(RepairsFlow):
             )
 
             async_delete_shared_bus_issue(self.hass, self._mac_a, self._mac_b)
+            _LOGGER.info(
+                "Applied recommended shared bus topology via 1-click repair: Primary=%s (%s), Follower=%s (%s, role=%s, delegated WHOs=%s)",
+                entry_model(pri_entry),
+                rec.primary_mac,
+                entry_model(sec_entry),
+                rec.secondary_mac,
+                rec.role,
+                sorted(rec.delegated_whos),
+            )
             return self.async_create_entry(data={})
 
         subsystems = (
