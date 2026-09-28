@@ -327,8 +327,9 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 #   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
 #        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21),
 #        MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
-#        #292/#297), and H4890 (issue #466 sweep, firmware 4.0.15); reported for
-#        F461 in issue #370, no diagnostics yet. Shared across modern Linux-based
+#        #292/#297), H4890 (issue #466 sweep, firmware 4.0.15), and F461 (issue
+#        #466 comment 5870342995 sweep, firmware 2.0.11; reported without
+#        diagnostics in issue #370). Shared across modern Linux-based
 #        gateway families, so it identifies none of them (see WHO13_SHARED_DEVICE_TYPES).
 #        It contradicts legacy gateways (e.g. MH200/F452), but only as field evidence.
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
@@ -387,16 +388,18 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # only brand value ever traced is 5, "Legrand BTicino", which does not
 # discriminate - so the BTicino name is always the one displayed.
 #
-# Three codes are confirmed on physical hardware (PR #420, fixtures under
-# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. The rest of
-# the table is from the database, untraced.
+# Four codes are confirmed on physical hardware: 51 F454, 5 MH202, and 67
+# MyHomeServer1 (PR #420, fixtures under tests/fixtures/plants/pr_420_*), and 134
+# F461 (issue #466 comment 5870342995, fixtures under
+# tests/fixtures/plants/issue_466_f461/). The rest of the table is from the
+# database, untraced.
 #
 # A dimension-1 reply is four values, not one (@anotherjulien in #420, from the
 # OpenWebNet Encyclopedia's work on MHCatalogue.db):
 #
 #     *#1013**1*OBJECT_MODEL*N_CONF*BRAND*LINE##
 #
-# All three traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
+# All four traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
 # BTicino), LINE 0 (undefined). N_CONF 15 sits outside the ordinary 0..12 physical
 # configurator range and looks like the 0xF sentinel, so its gateway-specific
 # meaning stays unresolved. None of the three identifies the model, so only
