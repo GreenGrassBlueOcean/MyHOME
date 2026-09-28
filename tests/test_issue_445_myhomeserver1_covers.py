@@ -38,6 +38,8 @@ from custom_components.myhome.const import (
 TRACES_DIR = Path(__file__).resolve().parent / "fixtures" / "traces" / "issue_445"
 UP_TRACE_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_LN4660M2_centralized_up_then_stop_2026-09-26.json"
 DOWN_TRACE_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_LN4660M2_centralized_down_then_stop_2026-09-26.json"
+STATIONARY_STOP_TRACE_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_LN4660M2_stationary_stop_2026-09-28.json"
+LOCAL_KEYPAD_TRACE_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_LN4660M2_local_room_down_then_stop_2026-09-28.json"
 
 
 @pytest.mark.asyncio
@@ -313,5 +315,166 @@ async def test_centralized_button_fires_general_automation_bus_events(hass: Home
         "gateway_mac": mac,
         "entry_id": entry.entry_id,
     }
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_myhomeserver1_stationary_stop_trace_fires_single_general_stop_event(hass: HomeAssistant) -> None:
+    """Replay the 2026-09-28 stationary STOP/PRESET capture (#445 comment 5868017035).
+
+    Confirms that pressing the LN-4660M2 STOP/PRESET button while every shutter is
+    already stationary dispatches exactly one `myhome_general_automation_event` with
+    event `stop`, followed only by per-actuator Dimension 10 / point-stop telemetry
+    that must not itself trigger a general automation event (WHERE != "0").
+    """
+    assert STATIONARY_STOP_TRACE_FILE.is_file(), f"Missing trace fixture: {STATIONARY_STOP_TRACE_FILE}"
+
+    with open(STATIONARY_STOP_TRACE_FILE, encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    assert trace_data["gateway"]["model"] == "MyHomeServer1"
+    raw_frames = trace_data["frames"]
+    assert len(raw_frames) == 15
+
+    mac = "00:03:50:00:01:04"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.53",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MyHomeServer1",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MyHomeServer1 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "Unknown",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    captured_events: list[dict] = []
+    hass.bus.async_listen("myhome_general_automation_event", lambda event: captured_events.append(event.data))
+
+    replayed = 0
+    for item in raw_frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic MyHomeServer1 frame {raw!r}: {exc}")
+
+        if msg is not None:
+            await handler._process_message(msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 15
+
+    # Exactly one general (centralized) STOP event, from the *2*10#001#1*0## frame;
+    # the seven per-actuator Dimension 10 reports and *2*0*WHERE## confirmations
+    # that follow must not themselves fire a general automation event.
+    assert len(captured_events) == 1
+    assert captured_events[0]["event"] == "stop"
+    assert captured_events[0]["where"] == "0"
+    assert captured_events[0]["gateway_mac"] == mac
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_myhomeserver1_local_room_keypad_does_not_fire_general_automation_event(hass: HomeAssistant) -> None:
+    """Replay the 2026-09-28 local room keypad capture (#445 comment 5868017035).
+
+    A local room button (as opposed to the LN-4660M2 centralized button) moves a
+    single actuator at its own point address using the basic `*2*WHAT*WHERE##`
+    syntax, not the multi-parameter Advanced form seen on General address 0. It
+    must not dispatch `myhome_general_automation_event`, which is reserved for
+    centralized/area/group commands.
+    """
+    assert LOCAL_KEYPAD_TRACE_FILE.is_file(), f"Missing trace fixture: {LOCAL_KEYPAD_TRACE_FILE}"
+
+    with open(LOCAL_KEYPAD_TRACE_FILE, encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    assert trace_data["gateway"]["model"] == "MyHomeServer1"
+    raw_frames = trace_data["frames"]
+    assert len(raw_frames) == 4
+
+    mac = "00:03:50:00:01:05"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.54",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "pass",
+            CONF_MAC: mac,
+            CONF_NAME: "MyHomeServer1",
+            CONF_DEVICE_TYPE: "urn:schemas-bticino-it:device:lightingcontrolunit:1",
+            CONF_FRIENDLY_NAME: "MyHomeServer1 Gateway",
+            CONF_MANUFACTURER: "BTicino S.p.A.",
+            CONF_FIRMWARE: "Unknown",
+        },
+        unique_id=mac,
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.myhome.gateway.OWNSession.test_connection",
+            return_value={"Success": True, "Message": None},
+        ),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"),
+        patch("custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    handler = hass.data[DOMAIN][mac][CONF_ENTITY]
+    handler._on_event_connection_state_change(True)
+
+    captured_events: list[dict] = []
+    hass.bus.async_listen("myhome_general_automation_event", lambda event: captured_events.append(event.data))
+
+    replayed = 0
+    for item in raw_frames:
+        raw = item.get("raw")
+        if not raw or raw in ("*#*1##", "*#*0##"):
+            continue
+
+        try:
+            msg = OWNMessage.parse(raw)
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(f"Failed to parse authentic MyHomeServer1 frame {raw!r}: {exc}")
+
+        assert isinstance(msg, OWNAutomationEvent)
+        assert msg.is_general is False
+
+        if msg is not None:
+            await handler._process_message(msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+    assert replayed == 4
+    assert captured_events == []
 
     await hass.config_entries.async_unload(entry.entry_id)
