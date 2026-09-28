@@ -340,9 +340,9 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
     # 1. _get_gateway_handler prefers primary gateway when unspecified
     assert _get_gateway_handler(hass, None) == gw_a
 
-    # 2. sync_time without gateway parameter sets the clock once per bus (primaries only)
+    # 2. sync_time without gateway parameter sets the clock once per bus (primaries only: datetime + time)
     await hass.services.async_call(DOMAIN, SERVICE_SYNC_TIME, {}, blocking=True)
-    gw_a.send.assert_called_once()
+    assert gw_a.send.call_count == 2
     gw_b.send.assert_not_called()
 
     gw_a.send.reset_mock()

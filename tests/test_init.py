@@ -187,18 +187,24 @@ async def test_services(hass: HomeAssistant):
         gateway = hass.data[DOMAIN]["00:03:50:00:12:34"]["entity"]
         gateway.send = AsyncMock()
 
-        # Test sync_time service
+        # Test sync_time service (sends combined datetime *#13**#22... and time *#13**#0...)
         await hass.services.async_call(
             DOMAIN, "sync_time", {ATTR_GATEWAY: "00:03:50:00:12:34"}, blocking=True
         )
-        gateway.send.assert_called_once()
+        assert gateway.send.call_count == 2
+        calls = [str(c.args[0]) for c in gateway.send.call_args_list]
+        assert calls[0].startswith("*#13**#22*")
+        assert calls[1].startswith("*#13**#0*")
         gateway.send.reset_mock()
 
         # Test sync_time without gateway specified
         await hass.services.async_call(
             DOMAIN, "sync_time", {}, blocking=True
         )
-        gateway.send.assert_called_once()
+        assert gateway.send.call_count == 2
+        calls = [str(c.args[0]) for c in gateway.send.call_args_list]
+        assert calls[0].startswith("*#13**#22*")
+        assert calls[1].startswith("*#13**#0*")
         gateway.send.reset_mock()
 
         # Test send_message service (valid)
