@@ -548,6 +548,11 @@ def test_get_gateway_mac_from_device_branches():
     dev5.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc-1-12")}
     assert _get_gateway_mac_from_device(dev5) is None
 
+    # 6. A child device has no connections to read; only its identifiers count
+    child = MagicMock(spec=dr.ChildDeviceEntry)
+    child.identifiers = {(DOMAIN, "00:03:50:dd:ee:ff")}
+    assert _get_gateway_mac_from_device(child) == "00:03:50:dd:ee:ff"
+
 
 @pytest.mark.asyncio
 async def test_async_get_triggers_gateway_includes_centralized_shutter_triggers(hass: HomeAssistant):

@@ -87,9 +87,11 @@ TRIGGER_SCHEMA = vol.Any(
 )
 
 
-def _get_gateway_mac_from_device(device: dr.BaseDeviceEntry) -> str | None:
+def _get_gateway_mac_from_device(device: dr.AnyDeviceEntry) -> str | None:
     """Extract gateway MAC address from device entry."""
-    for conn_type, conn_val in device.connections:
+    # A child device has no network connections; reading them is deprecated.
+    connections = () if isinstance(device, dr.ChildDeviceEntry) else device.connections
+    for conn_type, conn_val in connections:
         if conn_type == dr.CONNECTION_NETWORK_MAC:
             return str(conn_val)
     for identifier in device.identifiers:
