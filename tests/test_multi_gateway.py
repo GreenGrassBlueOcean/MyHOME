@@ -1353,6 +1353,7 @@ async def test_options_flow_standalone_with_secondary_role_rejected(hass: HomeAs
 @pytest.mark.asyncio
 async def test_standby_failover_cen_event_bridged_to_primary(hass: HomeAssistant) -> None:
     """Test that CEN events on standby during failover are bridged with primary MAC and entry ID (#459)."""
+    from homeassistant.core import callback
     from homeassistant.helpers.dispatcher import async_dispatcher_connect
     from OWNd.message import OWNCENPlusEvent
 
@@ -1375,11 +1376,19 @@ async def test_standby_failover_cen_event_bridged_to_primary(hass: HomeAssistant
     cen_events = []
     dispatched_events = []
 
-    unsub_bus = hass.bus.async_listen("myhome_cenplus_event", lambda e: cen_events.append(e))
+    @callback
+    def _on_cen_event(e: Any) -> None:
+        cen_events.append(e)
+
+    @callback
+    def _on_dispatched(payload: Any) -> None:
+        dispatched_events.append(payload)
+
+    unsub_bus = hass.bus.async_listen("myhome_cenplus_event", _on_cen_event)
     unsub_disp = async_dispatcher_connect(
         hass,
         f"myhome_cenplus_event_{gw_pri.mac}",
-        lambda payload: dispatched_events.append(payload),
+        _on_dispatched,
     )
 
     msg = OWNCENPlusEvent.parse("*25*21#1*01##")
@@ -1476,6 +1485,7 @@ async def test_primary_gateway_ignores_delegated_away_whos(hass: HomeAssistant) 
 @pytest.mark.asyncio
 async def test_standby_failover_cen_who15_bridged_to_primary(hass: HomeAssistant) -> None:
     """Test that CEN (WHO 15) events on standby during failover are bridged with primary MAC (#459)."""
+    from homeassistant.core import callback
     from homeassistant.helpers.dispatcher import async_dispatcher_connect
     from OWNd.message import OWNCENEvent
 
@@ -1498,11 +1508,19 @@ async def test_standby_failover_cen_who15_bridged_to_primary(hass: HomeAssistant
     cen_events = []
     dispatched_events = []
 
-    unsub_bus = hass.bus.async_listen("myhome_cen_event", lambda e: cen_events.append(e))
+    @callback
+    def _on_cen_event(e: Any) -> None:
+        cen_events.append(e)
+
+    @callback
+    def _on_dispatched(payload: Any) -> None:
+        dispatched_events.append(payload)
+
+    unsub_bus = hass.bus.async_listen("myhome_cen_event", _on_cen_event)
     unsub_disp = async_dispatcher_connect(
         hass,
         f"myhome_cen_event_{gw_pri.mac}",
-        lambda payload: dispatched_events.append(payload),
+        _on_dispatched,
     )
 
     # Standby receives WHO=15 CEN event during failover -> bridged to primary
