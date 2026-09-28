@@ -76,11 +76,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 return
             timezone = hass.config.as_dict().get("time_zone", "UTC")
             from OWNd.message import OWNGatewayCommand
-            cmd = OWNGatewayCommand.set_datetime_to_now(timezone)
+            cmd_datetime = OWNGatewayCommand.set_datetime_to_now(timezone)
+            cmd_time = OWNGatewayCommand.set_time_to_now(timezone)
             # Once per bus: a secondary/standby shares its primary's bus
             for gw_handler in gateways.values():
                 if getattr(gw_handler, "is_follower", False) is not True:
-                    await gw_handler.send(cmd)
+                    await gw_handler.send(cmd_datetime)
+                    await gw_handler.send(cmd_time)
             return
 
         gateway = dr.format_mac(gateway)
@@ -89,6 +91,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if handler is not None:
             from OWNd.message import OWNGatewayCommand
             await handler.send(OWNGatewayCommand.set_datetime_to_now(timezone))
+            await handler.send(OWNGatewayCommand.set_time_to_now(timezone))
             return
 
         _LOGGER.error(
