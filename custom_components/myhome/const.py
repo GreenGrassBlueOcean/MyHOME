@@ -94,6 +94,9 @@ CONF_ROTARY_CW_SLOW = "rotary_cw_slow"
 CONF_ROTARY_CW_FAST = "rotary_cw_fast"
 CONF_ROTARY_CCW_SLOW = "rotary_ccw_slow"
 CONF_ROTARY_CCW_FAST = "rotary_ccw_fast"
+CONF_CENTRALIZED_SHUTTER_OPEN = "centralized_shutter_open"
+CONF_CENTRALIZED_SHUTTER_CLOSE = "centralized_shutter_close"
+CONF_CENTRALIZED_SHUTTER_STOP = "centralized_shutter_stop"
 CONF_TRAVEL_TIME = "travel_time"
 DEFAULT_TRAVEL_TIME = 25
 

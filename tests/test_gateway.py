@@ -430,9 +430,18 @@ async def test_listening_loop_automation(gateway_handler):
         except asyncio.CancelledError:
             pass
 
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_general_automation_event", {"message": str(msg_gen), "event": "open"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_area_automation_event", {"message": str(msg_area), "area": "2", "event": "close"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_group_automation_event", {"message": str(msg_group), "group": "6", "event": "stop"})
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_general_automation_event",
+            {"message": str(msg_gen), "event": "open", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_area_automation_event",
+            {"message": str(msg_area), "area": "2", "event": "close", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_group_automation_event",
+            {"message": str(msg_group), "group": "6", "event": "stop", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
 
 
 @pytest.mark.asyncio
@@ -514,12 +523,30 @@ async def test_listening_loop_automation_remaining_branches(gateway_handler):
         except asyncio.CancelledError:
             pass
 
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_general_automation_event", {"message": str(msg_gen_close), "event": "close"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_general_automation_event", {"message": str(msg_gen_stop), "event": "stop"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_area_automation_event", {"message": str(msg_area_open), "area": "3", "event": "open"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_area_automation_event", {"message": str(msg_area_stop), "area": "3", "event": "stop"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_group_automation_event", {"message": str(msg_grp_open), "group": "7", "event": "open"})
-        gateway_handler.hass.bus.async_fire.assert_any_call("myhome_group_automation_event", {"message": str(msg_grp_close), "group": "7", "event": "close"})
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_general_automation_event",
+            {"message": str(msg_gen_close), "event": "close", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_general_automation_event",
+            {"message": str(msg_gen_stop), "event": "stop", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_area_automation_event",
+            {"message": str(msg_area_open), "area": "3", "event": "open", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_area_automation_event",
+            {"message": str(msg_area_stop), "area": "3", "event": "stop", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_group_automation_event",
+            {"message": str(msg_grp_open), "group": "7", "event": "open", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
+        gateway_handler.hass.bus.async_fire.assert_any_call(
+            "myhome_group_automation_event",
+            {"message": str(msg_grp_close), "group": "7", "event": "close", "where": "0", "gateway_mac": gateway_handler.mac},
+        )
 
 
 @pytest.mark.asyncio
