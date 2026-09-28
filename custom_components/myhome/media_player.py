@@ -135,6 +135,19 @@ _STREAM_INCOMPATIBLE_PLATFORMS: dict[str, frozenset[str]] = {
     "cambridge_audio": frozenset({"preset", "airable", "internet_radio"}),
 }
 
+# A member dropped from a group without an explicit handover to it — its own
+# unjoin, or left out of a join snapshot — is not switched off right away.
+# Music Assistant sometimes removes a departing member from its old group
+# first and only starts play_media on it as a new leader a couple of seconds
+# later (the leader->member handover in async_unjoin_player, via
+# DecoderPool.transfer_leadership, already covers the deselect-the-leader
+# case atomically and needs no grace period). Sending the OFF immediately
+# here would silence the room and immediately wake it again. Waiting lets a
+# follow-up play_media (or turn_on/join) cancel the OFF and keep playing
+# without a gap. A room that is not reused this way is switched off once the
+# grace period elapses, same as before, just delayed.
+_GROUP_LEAVE_GRACE = 5.0  # seconds
+
 
 def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> DecoderPool:
     """Build a :class:`DecoderPool` from the current options entry.
@@ -460,6 +473,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
+        self._pending_off_task: asyncio.Task[None] | None = None  # grace-period group-leave OFF
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -737,10 +751,44 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             zone.async_write_ha_state()
 
     async def _async_power_off_zone(self, zone: MyHOMEMediaPlayer) -> None:
-        """Switch ``zone``'s amplifier off because its group no longer includes it."""
-        await zone._gateway_handler.send(OWNSoundCommand.turn_off(zone._where))
-        zone._attr_state = MediaPlayerState.OFF
-        zone.async_write_ha_state()
+        """Schedule ``zone``'s amplifier off because its group no longer includes it.
+
+        Not sent immediately: see :data:`_GROUP_LEAVE_GRACE`.
+        """
+        zone._schedule_delayed_off()
+
+    @callback
+    def _schedule_delayed_off(self) -> None:
+        """Turn this zone off after :data:`_GROUP_LEAVE_GRACE`, unless reclaimed first.
+
+        Replaces any grace period already pending, so repeated departures
+        (e.g. dropped from one group, then another) do not stack up timers.
+        """
+        self._cancel_pending_off()
+        self._pending_off_task = self.hass.async_create_task(
+            self._async_delayed_off(), f"{self.entity_id} group-leave OFF"
+        )
+
+    async def _async_delayed_off(self) -> None:
+        """Send the OFF frame once the grace period elapses without a reclaim."""
+        await asyncio.sleep(_GROUP_LEAVE_GRACE)
+        self._pending_off_task = None
+        await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+        self._attr_state = MediaPlayerState.OFF
+        self.async_write_ha_state()
+
+    @callback
+    def _cancel_pending_off(self) -> None:
+        """Cancel a scheduled group-leave OFF: the zone is in use again.
+
+        Called wherever a zone is woken, joined, or otherwise put back to
+        work — see :data:`_GROUP_LEAVE_GRACE` for why the OFF is delayed at
+        all. Cancelling a task that already finished sending its OFF is a
+        harmless no-op; the reference is cleared either way.
+        """
+        if self._pending_off_task is not None:
+            self._pending_off_task.cancel()
+            self._pending_off_task = None
 
     # ── Dynamic feature flags ─────────────────────────────────────────────────
 
@@ -833,8 +881,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         Removal happens on every integration reload, options change and
         entity_id rename, none of which is a request to silence a room, so no
         frame is sent: the amplifiers and the decoder keep playing and only
-        the group bookkeeping is cleared.
+        the group bookkeeping is cleared. A pending group-leave OFF is
+        cancelled outright rather than sent, for the same reason.
         """
+        self._cancel_pending_off()
         if self._auto_off_unsub:
             self._auto_off_unsub()
             self._auto_off_unsub = None
@@ -1092,6 +1142,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 translation_placeholders={"entity_id": str(self.entity_id)},
             )
 
+        # Leading a group means this zone is in active use, even though the
+        # loop below never calls _async_wake_zone() on self (it is presumed
+        # already playing).
+        self._cancel_pending_off()
+
         leader_env = _zone_environment(self._where)
         if leader_env in (None, "0"):
             raise HomeAssistantError(
@@ -1196,7 +1251,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self.async_write_ha_state()
 
     async def async_unjoin_player(self) -> None:
-        """Unjoin this player from whichever group it belongs to."""
+        """Unjoin this player from whichever group it belongs to.
+
+        A departing member's amplifier is not switched off immediately — see
+        :data:`_GROUP_LEAVE_GRACE` — since it may be dropped from its old
+        group right before becoming a new leader elsewhere.
+        """
         pool = self._get_pool()
         if not pool:
             return
@@ -1234,12 +1294,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             leader_id = pool.get_leader(self.entity_id)
             if leader_id:
                 await pool.remove_group_member(self.entity_id)
-                self._turning_off = True
-                try:
-                    await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-                finally:
-                    self._turning_off = False
-                self._attr_state = MediaPlayerState.OFF
+                self._schedule_delayed_off()
                 self.async_write_ha_state()
                 leader_ent = runtime.media_players.get(leader_id) if runtime else None
                 if leader_ent:
@@ -1326,7 +1381,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         sent is kept so :meth:`handle_event` can tell that echo from a wall
         switch; treating it as a real OFF would release the decoder this
         zone just claimed, or drop the member that is joining a group.
+
+        Cancels a pending group-leave OFF unconditionally, even when the zone
+        is already on and the wake sequence below is skipped: this is called
+        exactly where a zone is put back to work, which is what a pending OFF
+        is waiting to find out about.
         """
+        self._cancel_pending_off()
         if self._attr_state != MediaPlayerState.ON:
             self._wake_off_sent_at = time.monotonic()
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
@@ -1866,12 +1927,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                     CONF_SOURCE_SLOTS,
                 )
         elif message.is_on:
+            self._cancel_pending_off()  # confirmed on: nothing left to time out
             self._attr_state = MediaPlayerState.ON
         elif message.is_off:
             if self._is_wake_echo():
                 # Our own wake sequence's OFF: the ON follows it.
                 LOGGER.debug("%s: ignoring the OFF echo of the wake sequence", self.entity_id)
             else:
+                # A real OFF (wall switch or otherwise) makes any pending
+                # group-leave OFF redundant; _async_handle_turn_off below
+                # covers the same cleanup.
+                self._cancel_pending_off()
                 self._attr_state = MediaPlayerState.OFF
                 if not self._turning_off:
                     self.hass.async_create_task(self._async_handle_turn_off(from_bus=True))

@@ -1322,7 +1322,14 @@ async def test_join_players_environment_conflict(hass, mock_gateway):
 
 @pytest.mark.asyncio
 async def test_unjoin_player_member(hass, mock_gateway):
-    """Member unjoining turns off its own amplifier and removes from group."""
+    """Member unjoining removes it from the group and grants a grace period.
+
+    The amplifier is not switched off immediately — see _GROUP_LEAVE_GRACE —
+    since the same room may be reassigned elsewhere (e.g. as a new leader)
+    right after leaving. Deselecting the leader itself goes through the
+    separate transfer_leadership handover (test_unjoin_player_leader_disbands)
+    and is unaffected by this.
+    """
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.dec": 2})
     runtime.decoder_pool = pool
@@ -1340,15 +1347,19 @@ async def test_unjoin_player_member(hass, mock_gateway):
     mock_gateway.send.reset_mock()
     await z23.async_unjoin_player()
 
-    # Member turns off its amplifier
+    # No frame yet: the amplifier stays on through the grace period.
     sent_frames = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
-    assert "*16*0*23##" in sent_frames or "*16*13*23##" in sent_frames
-    assert z23.state == MediaPlayerState.OFF
+    assert "*16*0*23##" not in sent_frames and "*16*13*23##" not in sent_frames
+    assert z23.state == MediaPlayerState.ON
+    assert z23._pending_off_task is not None
     assert z23.group_members is None
     assert z22.group_members is None
     assert pool.get_assignment("media_player.audio_zone_23") is None
     # Leader is still streaming
     assert pool.get_assignment("media_player.audio_zone_22") == "media_player.dec"
+
+    # Nothing reclaims zone23 in this test; cancel the real grace timer.
+    z23._cancel_pending_off()
 
 
 @pytest.mark.asyncio
@@ -2823,3 +2834,178 @@ async def test_auto_power_off_cancels_pending_timer_on_off_transition(hass, play
     assert player._auto_off_unsub is None
     player.async_turn_off.assert_called_once()
 
+
+
+# ── Group-leave grace period: a departing member keeps playing ──────────────
+#
+# Motivated by a captured trace (music-assistant.log, single-decoder install,
+# decoder_1 on source 2, source_defaults routing every environment to it)
+# where deselecting the current leader in the Music Assistant UI produced:
+#
+#   Transferring leadership of badkamer to audio_zone_23 (1 remaining member(s))
+#   Calling set_members on native player badkamer with add=[], remove=['audio_zone_23']
+#   Clearing active output protocol on badkamer
+#   Setting active output protocol on Eetkamer to Native      (+2.0s)
+#   Start Queue Flow stream for Queue Eetkamer                (+1.3s)
+#
+# Deselecting the leader itself is handled elsewhere: DecoderPool.transfer_leadership
+# hands the decoder to the first remaining member atomically the moment the
+# leader calls unjoin, with no timing window needed (see
+# test_unjoin_player_leader_disbands). What still needs protecting is a plain
+# member being dropped from its group without becoming the new leader in the
+# same call — its own unjoin, or being left out of a join snapshot — since
+# Music Assistant (and other players) may still remove a room from a group
+# and only decide what to do with it a couple of seconds later. Turning the
+# room off immediately in that window silences it and then wakes it again
+# for no reason.
+
+
+def _echo_to_zones(mock_gateway, runtime):
+    """Report amplifier ON/OFF commands back to their zone, as the event session does.
+
+    The gateway puts every command it executes on the bus, so the OFF of the
+    wake sequence reaches the zone that sent it.
+    """
+    async def send(command):
+        who, what, where = str(command).strip("*#").split("*")[:3]
+        if who != "16" or what not in ("3", "13") or len(where) != 2:
+            return
+        for zone in list(runtime.media_players.values()):
+            if zone._where == where:
+                zone.handle_event(MagicMock(
+                    spec=OWNSoundEvent, is_source_event=False, where=where,
+                    is_on=what == "3", is_off=what == "13", volume=None,
+                ))
+
+    mock_gateway.send = AsyncMock(side_effect=send)
+
+
+@pytest.mark.asyncio
+async def test_member_departure_survives_the_wake_sequence_echo(hass, mock_gateway):
+    """A member dropped from its group and reclaimed stays on through its own wake echo."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec1", MediaPlayerState.IDLE)
+    leader = _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    _echo_to_zones(mock_gateway, runtime)
+
+    with patch("asyncio.sleep", return_value=None), patch(
+        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
+    ):
+        await leader.async_play_media("music", "http://stream")
+        await leader.async_join_players(["media_player.zone22"])
+        assert member.state == MediaPlayerState.ON
+
+    mock_gateway.send.reset_mock()
+    await member.async_unjoin_player()
+
+    # The room must not go silent: no OFF frame yet, state still ON.
+    # (No hass.async_block_till_done() here: it waits for every background
+    # task, including the real 5s grace timer just scheduled, which would
+    # defeat this very assertion.)
+    assert "*16*13*22##" not in _sent(mock_gateway)
+    assert member.state == MediaPlayerState.ON
+    assert member._pending_off_task is not None
+    assert pool.get_leader("media_player.zone22") is None
+
+    # The old leader stops (releasing decoder_1), and play_media targets the
+    # departed member shortly after — well within the grace window. Its
+    # amplifier was never turned off, so the wake sequence is skipped.
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await leader.async_turn_off()
+    assert pool.get_assignment("media_player.zone11") is None
+
+    mock_gateway.send.reset_mock()
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await member.async_play_media("music", "http://stream.new")
+
+    assert member._active_decoder == "media_player.dec1"
+    assert member._pending_off_task is None
+    assert "*16*13*22##" not in _sent(mock_gateway)
+    assert "*16*3*22##" not in _sent(mock_gateway)
+
+
+@pytest.mark.asyncio
+async def test_group_departure_turns_off_after_the_grace_period(hass, mock_gateway):
+    """A member that leaves and is never reused is still switched off — just later."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    await pool.add_member("media_player.zone11", "media_player.zone22")
+    member._attr_state = MediaPlayerState.ON
+
+    with patch(
+        "custom_components.myhome.media_player._GROUP_LEAVE_GRACE", 0.01
+    ):
+        mock_gateway.send.reset_mock()
+        await member.async_unjoin_player()
+        assert "*16*13*22##" not in _sent(mock_gateway)
+
+        await asyncio.sleep(0.05)
+        await hass.async_block_till_done()
+
+    assert "*16*13*22##" in _sent(mock_gateway)
+    assert member._attr_state == MediaPlayerState.OFF
+    assert member._pending_off_task is None
+
+
+@pytest.mark.asyncio
+async def test_join_snapshot_drop_grants_a_grace_period_too(hass, mock_gateway):
+    """A member dropped by a join snapshot (not unjoin) gets the same grace period."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec1", "idle")
+    leader = _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    dropped = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    _create_test_zone(hass, mock_gateway, runtime, "33", "media_player.zone33")
+    leader._attr_source = "Radio"
+
+    # Sleep is only mocked for the first join, which wakes both amplifiers.
+    # The second join wakes nobody new (zone33 stays, zone22 is dropped via
+    # the grace-period path), so patching sleep there is unnecessary and
+    # would wrongly fast-forward the grace-period task started below.
+    with patch("asyncio.sleep", return_value=None):
+        await leader.async_join_players(["media_player.zone22", "media_player.zone33"])
+
+    mock_gateway.send.reset_mock()
+
+    # Snapshot join that drops zone22 but keeps zone33.
+    await leader.async_join_players(["media_player.zone33"])
+
+    assert "*16*13*22##" not in _sent(mock_gateway)
+    assert dropped._pending_off_task is not None
+    assert dropped.state == MediaPlayerState.ON
+    assert pool.get_members("media_player.zone11") == ["media_player.zone33"]
+
+    # Nothing reclaims zone22 in this test; cancel its real grace timer so it
+    # does not keep sleeping past the test's own teardown.
+    dropped._cancel_pending_off()
+
+
+@pytest.mark.asyncio
+async def test_rejoining_during_the_grace_period_cancels_the_off(hass, mock_gateway):
+    """A departing member that is immediately joined into a new group is not switched off."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1, "media_player.dec2": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec2", "idle")
+    _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
+    zone = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    new_leader = _create_test_zone(hass, mock_gateway, runtime, "44", "media_player.zone44")
+    await pool.add_member("media_player.zone11", "media_player.zone22")
+    zone._attr_state = MediaPlayerState.ON
+    new_leader._attr_source = "Cambridge"
+
+    await zone.async_unjoin_player()
+    assert zone._pending_off_task is not None
+
+    with patch("asyncio.sleep", return_value=None):
+        await new_leader.async_join_players(["media_player.zone22"])
+
+    assert zone._pending_off_task is None
+    assert pool.get_leader("media_player.zone22") == "media_player.zone44"
