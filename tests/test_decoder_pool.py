@@ -12,7 +12,7 @@ Tests cover:
 
 import asyncio
 import platform
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -873,3 +873,53 @@ async def test_claim_reassigns_idle_decoder_from_powered_off_owner(hass):
     assert pool.get_assignment("media_player.zone2") == "media_player.dec"
     assert pool.get_assignment("media_player.zone1") is None
     assert pool.get_members("media_player.zone1") == []
+
+
+@pytest.mark.asyncio
+async def test_claim_handover_from_former_leader_turns_off_displaced_leader(hass):
+    """When a leader's last member is removed and immediately claims the decoder, it takes over."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    hass.states.async_set("media_player.zone1", "on")
+
+    # zone1 claims dec and groups zone2
+    await pool.claim("media_player.zone1", environment="1")
+    await pool.add_member("media_player.zone1", "media_player.zone2", environment="2")
+
+    # MA unselects zone1: removes zone2 from group
+    await pool.set_group("media_player.zone1", {})
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_call:
+        # zone2 now claims the decoder within the handover window
+        claimed = await pool.claim("media_player.zone2", environment="2")
+        assert claimed == ("media_player.dec", 1)
+        assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+        assert pool.get_assignment("media_player.zone1") is None
+
+        # Verify displaced leader was instructed to turn off to prevent hiss
+        mock_call.assert_called_once_with(
+            "media_player", "turn_off", {"entity_id": "media_player.zone1"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_claim_handover_survives_turn_off_service_failure(hass):
+    """A failure turning off the displaced leader is logged, not raised."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    hass.states.async_set("media_player.zone1", "on")
+
+    await pool.claim("media_player.zone1", environment="1")
+    await pool.add_member("media_player.zone1", "media_player.zone2", environment="2")
+    await pool.set_group("media_player.zone1", {})
+
+    with patch(
+        "homeassistant.core.ServiceRegistry.async_call",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("boom"),
+    ):
+        claimed = await pool.claim("media_player.zone2", environment="2")
+
+    assert claimed == ("media_player.dec", 1)
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+

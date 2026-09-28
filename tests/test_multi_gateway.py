@@ -1441,14 +1441,14 @@ async def test_primary_gateway_ignores_delegated_away_whos(hass: HomeAssistant) 
     from OWNd.message import OWNAutomationEvent, OWNLightingEvent
 
     _, gw_pri = _create_mock_gateway(
-        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+        hass, "00:03:50:aa:99:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
     )
     _, _ = _create_mock_gateway(
         hass,
-        "00:03:50:aa:bb:02",
+        "00:03:50:aa:99:02",
         topology=TOPOLOGY_SHARED,
         role=ROLE_SECONDARY,
-        primary_gateway="00:03:50:aa:bb:01",
+        primary_gateway="00:03:50:aa:99:01",
         delegated_whos=[2],
     )
     gw_pri.is_connected = True

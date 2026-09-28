@@ -88,7 +88,7 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
 
 from .const import (
@@ -458,6 +458,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._turning_off: bool = False  # guard flag — dampens bus-OFF echo loops
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
+        self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
 
         # ── Base hardware features (always available) ──────────────────────
@@ -834,6 +835,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         frame is sent: the amplifiers and the decoder keep playing and only
         the group bookkeeping is cleared.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         runtime = self._runtime_data
         if runtime is not None:
             runtime.media_players.pop(self.entity_id, None)
@@ -871,6 +875,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             HomeAssistantError: If all decoders are busy or the decoder fails
                 to start playback.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
+
         pool = self._get_pool()
         if not pool or not pool.is_configured:
             LOGGER.warning(
@@ -1283,6 +1291,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
     async def async_media_play(self) -> None:
         """Resume playback on the active decoder."""
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
+        if self._attr_state == MediaPlayerState.OFF:
+            await self._async_wake_zone()
         await self._forward_to_decoder("media_play")
 
     async def async_media_stop(self) -> None:
@@ -1332,12 +1345,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         and a zone that is already on is never re-routed: the route is shared
         by the whole environment and may be carrying a stream.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         if self._attr_state != MediaPlayerState.ON:
             await self._async_wake_zone()
             await self._apply_default_source()
 
     async def _async_handle_turn_off(self, from_bus: bool = False) -> None:
         """Coordinated turn-off sequence for zones, groups, and decoders."""
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         if self._turning_off:
             return
         self._turning_off = True
@@ -1725,6 +1744,42 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                         # Reverse the pre_gain offset to get approximate zone volume
                         zone_vol = max(0.0, float(ext_vol) - pre_gain_pct / 100.0)
                         self._attr_volume_level = zone_vol
+
+        # Auto power-off when decoder stops playing (anti-hiss)
+        new_state = event.data.get("new_state")
+        event_entity = event.data.get("entity_id")
+        if self._active_decoder and new_state and event_entity:
+            target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
+            if event_entity in (self._active_decoder, target_dec):
+                new_state_val = new_state.state
+                if new_state_val == MediaPlayerState.PLAYING:
+                    if self._auto_off_unsub:
+                        self._auto_off_unsub()
+                        self._auto_off_unsub = None
+                elif new_state_val in (MediaPlayerState.OFF, "off"):
+                    if self._auto_off_unsub:
+                        self._auto_off_unsub()
+                        self._auto_off_unsub = None
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                        self.hass.async_create_task(self.async_turn_off())
+                elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                        @callback
+                        def _auto_turn_off(_now: Any) -> None:
+                            self._auto_off_unsub = None
+                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                                self.hass.async_create_task(self.async_turn_off())
+
+                        self._auto_off_unsub = async_call_later(self.hass, 3.0, _auto_turn_off)
+                elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                        @callback
+                        def _auto_turn_off_paused(_now: Any) -> None:
+                            self._auto_off_unsub = None
+                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                                self.hass.async_create_task(self.async_turn_off())
+
+                        self._auto_off_unsub = async_call_later(self.hass, 60.0, _auto_turn_off_paused)
 
         self.async_schedule_update_ha_state()
 

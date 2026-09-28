@@ -2645,3 +2645,181 @@ async def test_decoders_refusing_companion_coverage(hass, mock_gateway):
 
     refusing = p._decoders_refusing(pool, "music")
     assert "media_player.cambridge_cxn" not in refusing
+
+
+@pytest.mark.asyncio
+async def test_auto_power_off_anti_hiss_on_decoder_states(hass, player, mock_gateway):
+    """Test anti-hiss auto power-off when decoder stops, goes idle, or pauses."""
+    from homeassistant.core import State
+
+    player._active_decoder = "media_player.squeezelite_1"
+    player._attr_state = MediaPlayerState.ON
+    player.async_turn_off = AsyncMock()
+
+    # 1. State change from unassigned decoder is ignored
+    unassigned_event = MagicMock(
+        data={
+            "entity_id": "media_player.other_dec",
+            "new_state": State("media_player.other_dec", "idle"),
+        }
+    )
+    player._async_decoder_state_changed(unassigned_event)
+    assert player._auto_off_unsub is None
+    player.async_turn_off.assert_not_called()
+
+    # 2. Decoder transitions to OFF: turns off zone immediately
+    off_event = MagicMock(
+        data={
+            "entity_id": "media_player.squeezelite_1",
+            "new_state": State("media_player.squeezelite_1", "off"),
+        }
+    )
+    player._async_decoder_state_changed(off_event)
+    await hass.async_block_till_done()
+    player.async_turn_off.assert_called_once()
+    player.async_turn_off.reset_mock()
+
+    # 3. Decoder transitions to IDLE: schedules 3s timer
+    callbacks = []
+
+    def mock_call_later(_hass, delay, action):
+        callbacks.append((delay, action))
+        return MagicMock()
+
+    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+        idle_event = MagicMock(
+            data={
+                "entity_id": "media_player.squeezelite_1",
+                "new_state": State("media_player.squeezelite_1", "idle"),
+            }
+        )
+        player._async_decoder_state_changed(idle_event)
+        assert len(callbacks) == 1
+        assert callbacks[0][0] == 3.0
+        # Trigger timer callback
+        callbacks[0][1](None)
+        await hass.async_block_till_done()
+        player.async_turn_off.assert_called_once()
+        player.async_turn_off.reset_mock()
+
+    # 4. Decoder transitions to PLAYING: cancels scheduled auto-off
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+    play_event = MagicMock(
+        data={
+            "entity_id": "media_player.squeezelite_1",
+            "new_state": State("media_player.squeezelite_1", "playing"),
+        }
+    )
+    player._async_decoder_state_changed(play_event)
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+
+    # 5. Decoder transitions to PAUSED: schedules 60s timer
+    callbacks.clear()
+    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+        paused_event = MagicMock(
+            data={
+                "entity_id": "media_player.squeezelite_1",
+                "new_state": State("media_player.squeezelite_1", "paused"),
+            }
+        )
+        player._async_decoder_state_changed(paused_event)
+        assert len(callbacks) == 1
+        assert callbacks[0][0] == 60.0
+        # Trigger timer callback
+        callbacks[0][1](None)
+        await hass.async_block_till_done()
+        player.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_media_play_wakes_zone_if_off(hass, player):
+    """Test async_media_play wakes the zone when it is in OFF state."""
+    player._active_decoder = "media_player.squeezelite_1"
+    player._attr_state = MediaPlayerState.OFF
+    player._async_wake_zone = AsyncMock()
+    player._forward_to_decoder = AsyncMock()
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+
+    await player.async_media_play()
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+    player._async_wake_zone.assert_called_once()
+    player._forward_to_decoder.assert_called_once_with("media_play")
+
+
+@pytest.mark.asyncio
+async def test_auto_off_unsub_cancelled_on_turn_on(hass, player, mock_gateway):
+    """A pending auto-off timer is cancelled when the zone is explicitly turned on."""
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+    player._attr_state = MediaPlayerState.ON  # skip the wake sequence
+
+    await player.async_turn_on()
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_auto_off_unsub_cancelled_on_handle_turn_off(hass, player, mock_gateway):
+    """A pending auto-off timer is cancelled by the coordinated turn-off sequence."""
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+
+    await player._async_handle_turn_off()
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_auto_off_unsub_cancelled_on_will_remove_from_hass(hass, player, mock_gateway):
+    """A pending auto-off timer is cancelled when the entity is removed from hass."""
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+
+    await player.async_will_remove_from_hass()
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_auto_off_unsub_cancelled_on_play_media(hass, player, mock_gateway):
+    """A pending auto-off timer is cancelled when new playback is requested."""
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+    _set_pool(player, None)  # short-circuit right after the cancellation
+
+    await player.async_play_media("music", "http://stream.url")
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_auto_power_off_cancels_pending_timer_on_off_transition(hass, player, mock_gateway):
+    """A decoder going straight to OFF cancels any pending idle/paused auto-off timer."""
+    player._active_decoder = "media_player.squeezelite_1"
+    player._attr_state = MediaPlayerState.ON
+    player.async_turn_off = AsyncMock()
+    mock_unsub = MagicMock()
+    player._auto_off_unsub = mock_unsub
+
+    off_event = MagicMock(
+        data={
+            "entity_id": "media_player.squeezelite_1",
+            "new_state": State("media_player.squeezelite_1", "off"),
+        }
+    )
+    player._async_decoder_state_changed(off_event)
+    await hass.async_block_till_done()
+
+    mock_unsub.assert_called_once()
+    assert player._auto_off_unsub is None
+    player.async_turn_off.assert_called_once()
+
