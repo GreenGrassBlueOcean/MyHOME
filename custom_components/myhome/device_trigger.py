@@ -89,9 +89,12 @@ TRIGGER_SCHEMA = vol.Any(
 
 def _get_gateway_mac_from_device(device: dr.BaseDeviceEntry) -> str | None:
     """Extract gateway MAC address from device entry."""
-    for conn_type, conn_val in device.connections:
-        if conn_type == dr.CONNECTION_NETWORK_MAC:
-            return str(conn_val)
+    # Child devices carry no connections of their own, and Home Assistant
+    # reports (and will eventually refuse) reading them from one.
+    if isinstance(device, dr.DeviceEntry):
+        for conn_type, conn_val in device.connections:
+            if conn_type == dr.CONNECTION_NETWORK_MAC:
+                return str(conn_val)
     for identifier in device.identifiers:
         if identifier[0] != DOMAIN:
             continue

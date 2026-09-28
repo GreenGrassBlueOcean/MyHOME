@@ -300,7 +300,7 @@ Go to **Settings → Devices & Services → MyHOME → Configure** to fine-tune 
 - **Light Transition Mode**: Select how brightness transitions are handled:
   - `software_stepped` *(Default & Recommended)*: Smooth 0.3s stepped fades interpolated in software, compatible with all MyHOME dimmers.
   - `native`: Passes through the OpenWebNet hardware speed parameter directly (for supported hardware dimmers).
-- **Audio Decoders Pool**: Map network media players (Music Assistant, Spotify Connect, WiiM, Squeezelite) to physical matrix inputs 1–4 with per-source analog pre-gain offsets (0–50%).
+- **Audio Decoders Pool**: Map network media players (Music Assistant, Spotify Connect, WiiM, Squeezelite) to physical matrix inputs 1–4 with per-source analog pre-gain offsets (0–100%).
 
 ---
 

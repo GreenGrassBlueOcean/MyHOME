@@ -519,34 +519,39 @@ def test_get_gateway_mac_from_device_branches():
     from custom_components.myhome.device_trigger import _get_gateway_mac_from_device
 
     # 1. MAC address in connections
-    dev1 = MagicMock()
+    dev1 = MagicMock(spec=dr.DeviceEntry)
     dev1.connections = {(dr.CONNECTION_NETWORK_MAC, "00:03:50:11:22:33")}
     dev1.identifiers = set()
     assert _get_gateway_mac_from_device(dev1) == "00:03:50:11:22:33"
 
     # 2. Other connection type skipped, falls back to CEN identifier
-    dev2 = MagicMock()
+    dev2 = MagicMock(spec=dr.DeviceEntry)
     dev2.connections = {("ip", "192.168.1.50")}
     dev2.identifiers = {(DOMAIN, "00:03:50:44:55:66-15-1")}
     assert _get_gateway_mac_from_device(dev2) == "00:03:50:44:55:66"
 
     # 3. Single-part gateway identifier
-    dev3 = MagicMock()
+    dev3 = MagicMock(spec=dr.DeviceEntry)
     dev3.connections = set()
     dev3.identifiers = {(DOMAIN, "00:03:50:77:88:99")}
     assert _get_gateway_mac_from_device(dev3) == "00:03:50:77:88:99"
 
     # 4. Foreign domain identifier skipped
-    dev4 = MagicMock()
+    dev4 = MagicMock(spec=dr.DeviceEntry)
     dev4.connections = set()
     dev4.identifiers = {("other_domain", "00:03:50:aa:bb:cc")}
     assert _get_gateway_mac_from_device(dev4) is None
 
     # 5. Multi-part non-CEN identifier (e.g. Light WHO=1) falls through to None
-    dev5 = MagicMock()
+    dev5 = MagicMock(spec=dr.DeviceEntry)
     dev5.connections = set()
     dev5.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc-1-12")}
     assert _get_gateway_mac_from_device(dev5) is None
+
+    # 6. Child devices have no connections to read: identifiers only
+    dev6 = MagicMock(spec=dr.BaseDeviceEntry)
+    dev6.identifiers = {(DOMAIN, "00:03:50:cc:dd:ee")}
+    assert _get_gateway_mac_from_device(dev6) == "00:03:50:cc:dd:ee"
 
 
 @pytest.mark.asyncio

@@ -201,7 +201,7 @@ Sources, defaults and the Dynamic Proxy are all configured in the integration's 
 5. **Decoder mapping**, one row per streaming decoder (up to 4):
    - **Media player entity**: your backend player (e.g. `media_player.squeezelite_salon`).
    - **Source input**: the F441M input it is wired to, chosen from a list that shows your source names (e.g. `S1 — Streamer`).
-   - **Pre-gain offset**: percentage added to the decoder volume (0–50 %, e.g. `15`). See [Gain Staging](#gain-staging-bus-noise-elimination).
+   - **Pre-gain offset**: percentage added to the decoder volume (0–100 %, e.g. `15`). See [Gain Staging](#gain-staging-bus-noise-elimination).
 6. Click **Submit**.
 
 Naming a source or setting a default is what switches on automatic routing for

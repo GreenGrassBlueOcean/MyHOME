@@ -770,12 +770,16 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         )
 
     async def _async_delayed_off(self) -> None:
-        """Send the OFF frame once the grace period elapses without a reclaim."""
+        """Turn the zone off once the grace period elapses without a reclaim.
+
+        Runs the full turn-off rather than just the OFF frame: it must not
+        depend on the gateway echoing the frame back, since the echo is what
+        otherwise stops the decoder and frees the pool. The echo, when it
+        does arrive, finds the sequence done (or under way) and skips it.
+        """
         await asyncio.sleep(_GROUP_LEAVE_GRACE)
         self._pending_off_task = None
-        await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-        self._attr_state = MediaPlayerState.OFF
-        self.async_write_ha_state()
+        await self._async_handle_turn_off(from_bus=False)
 
     @callback
     def _cancel_pending_off(self) -> None:
@@ -840,8 +844,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             # Saving options rebuilds the pool without reloading the entry:
             # the decoders to watch may have changed, and the new pool holds
             # no claims, so a decoder remembered from the old one is not ours.
+            # The stream keeps playing though, and nothing would ever stop it
+            # once forgotten. It is stopped rather than handed over: the new
+            # pool may not contain the decoder, and, as with release_all,
+            # playback has to be started again after an options change.
+            old_decoder = self._active_decoder
             self._track_decoders()
             self._active_decoder = None
+            if old_decoder:
+                self.hass.async_create_task(
+                    self._async_stop_decoder(old_decoder),
+                    f"{self.entity_id} stop decoder of replaced pool",
+                )
             self.async_write_ha_state()
 
         self.async_on_remove(
@@ -1428,6 +1442,33 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             await self._async_wake_zone()
             await self._apply_default_source()
 
+    async def _async_stop_decoder(self, decoder_id: str) -> None:
+        """Stop ``decoder_id`` and its streaming companion, if it has one."""
+        target_dec = self._streaming_target(decoder_id) or decoder_id
+        try:
+            await self.hass.services.async_call(
+                "media_player", "media_stop", {"entity_id": target_dec}
+            )
+        except Exception as err:
+            LOGGER.debug(
+                "%s: failed to stop streaming decoder %s: %s",
+                self.entity_id,
+                target_dec,
+                err,
+            )
+        if target_dec != decoder_id:
+            try:
+                await self.hass.services.async_call(
+                    "media_player", "media_stop", {"entity_id": decoder_id}
+                )
+            except Exception as err:
+                LOGGER.debug(
+                    "%s: failed to stop hardware decoder %s: %s",
+                    self.entity_id,
+                    decoder_id,
+                    err,
+                )
+
     async def _async_handle_turn_off(self, from_bus: bool = False) -> None:
         """Coordinated turn-off sequence for zones, groups, and decoders."""
         if self._auto_off_unsub:
@@ -1445,30 +1486,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             runtime = self._runtime_data
 
             if self._active_decoder:
-                target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
-                try:
-                    await self.hass.services.async_call(
-                        "media_player", "media_stop", {"entity_id": target_dec}
-                    )
-                except Exception as err:
-                    LOGGER.debug(
-                        "%s: failed to stop streaming decoder %s: %s",
-                        self.entity_id,
-                        target_dec,
-                        err,
-                    )
-                if target_dec != self._active_decoder:
-                    try:
-                        await self.hass.services.async_call(
-                            "media_player", "media_stop", {"entity_id": self._active_decoder}
-                        )
-                    except Exception as err:
-                        LOGGER.debug(
-                            "%s: failed to stop hardware decoder %s: %s",
-                            self.entity_id,
-                            self._active_decoder,
-                            err,
-                        )
+                await self._async_stop_decoder(self._active_decoder)
 
             if pool:
                 members = pool.get_members(self.entity_id)

@@ -19,7 +19,7 @@ Architecture
 
 Gain staging (anti-hiss)
 ------------------------
-Each decoder carries an optional ``pre_gain`` offset (0–50 %).  When the user
+Each decoder carries an optional ``pre_gain`` offset (0–100 %).  When the user
 adjusts the BTicino zone volume the proxy also sets the decoder volume to
 ``zone_volume + pre_gain``, capped at 1.0.  This keeps the analog signal level
 high and the BTicino amplifier gain low, which reduces the inherent noise floor
@@ -127,7 +127,7 @@ class DecoderPool:
                 explicit routing commands are ever needed.
 
             pre_gain_map: Optional mapping of ``{entity_id: pre_gain_pct}``
-                where ``pre_gain_pct`` is an integer between 0 and 50.
+                where ``pre_gain_pct`` is an integer between 0 and 100.
                 Defaults to 0 for any decoder not listed.
 
             stream_incompatible: Decoders whose integration does not accept
@@ -189,6 +189,16 @@ class DecoderPool:
         target_state = self._hass.states.get(target_dec_id) if target_dec_id != dec_id else None
         target_state_val = target_state.state if target_state else None
         return state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES)
+
+    def _is_decoder_paused(self, dec_id: str) -> bool:
+        """Return True if decoder entity (or its companion) is paused.
+
+        A paused decoder that no zone holds is most likely somebody's own
+        session (a native Spotify Connect stream, say), not a free input.
+        """
+        target_dec_id = self.get_streaming_decoder(dec_id)
+        states = (self._hass.states.get(dec_id), self._hass.states.get(target_dec_id))
+        return any(state is not None and state.state == MediaPlayerState.PAUSED for state in states)
 
     async def claim(
         self,
@@ -265,12 +275,15 @@ class DecoderPool:
             # Candidates in slot order, but a decoder wired to the caller's
             # preferred source comes first: routing the matrix to the input
             # the room already defaults to avoids an audible source switch.
+            # Paused decoders come after the idle ones, whatever their source:
+            # they may hold someone's session, so they are a last resort.
             # Unassigned decoders are always prioritized over assigned ones.
             candidates = list(self._assignments)
             if preferred_source is not None:
                 candidates.sort(
                     key=lambda dec: self._decoder_map.get(dec) != preferred_source
                 )
+            candidates.sort(key=self._is_decoder_paused)
             candidates.sort(key=lambda dec: self._assignments[dec] is not None)
 
             # Find the first decoder that is unassigned AND idle, or can be handed over.
@@ -736,7 +749,7 @@ class DecoderPool:
             decoder_entity_id: The ``entity_id`` of the decoder.
 
         Returns:
-            The pre-gain percent (0–50).  Defaults to ``0`` if not configured.
+            The pre-gain percent (0–100).  Defaults to ``0`` if not configured.
 
         Example::
 

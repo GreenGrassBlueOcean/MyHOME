@@ -800,16 +800,70 @@ async def test_transfer_leadership(hass):
 
 @pytest.mark.asyncio
 async def test_claim_idle_states_paused_and_standby(hass):
-    """Decoders in paused or standby states are treated as idle and available for claiming."""
+    """Decoders in paused or standby states can still be claimed.
+
+    Standby is as good as idle. Paused is only a last resort (see the
+    ordering tests below), so it comes second despite the lower slot.
+    """
     pool = DecoderPool(hass, {"media_player.dec_paused": 1, "media_player.dec_standby": 2})
     hass.states.async_set("media_player.dec_paused", "paused")
     hass.states.async_set("media_player.dec_standby", "standby")
 
     claim1 = await pool.claim("media_player.zone1")
-    assert claim1 == ("media_player.dec_paused", 1)
+    assert claim1 == ("media_player.dec_standby", 2)
 
     claim2 = await pool.claim("media_player.zone2")
-    assert claim2 == ("media_player.dec_standby", 2)
+    assert claim2 == ("media_player.dec_paused", 1)
+
+
+@pytest.mark.asyncio
+async def test_claim_skips_a_paused_decoder_for_an_idle_one(hass):
+    """A paused decoder nobody holds may be a native Spotify Connect session.
+
+    An idle decoder is taken first, in spite of slot order and of the
+    zone's preferred source.
+    """
+    pool = DecoderPool(
+        hass,
+        {"media_player.slot_one": 1, "media_player.slot_two": 2, "media_player.slot_three": 3},
+    )
+    hass.states.async_set("media_player.slot_one", "paused")
+    hass.states.async_set("media_player.slot_two", "paused")
+    hass.states.async_set("media_player.slot_three", "idle")
+
+    assert await pool.claim("media_player.zone", preferred_source=1) == (
+        "media_player.slot_three",
+        3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_claim_falls_back_to_a_paused_decoder_when_nothing_is_idle(hass):
+    """Paused stays claimable once every other decoder is taken or unavailable."""
+    pool = DecoderPool(
+        hass,
+        {"media_player.slot_one": 1, "media_player.slot_two": 2, "media_player.slot_three": 3},
+    )
+    hass.states.async_set("media_player.slot_one", "playing")
+    hass.states.async_set("media_player.slot_two", "paused")
+    hass.states.async_set("media_player.slot_three", "unavailable")
+
+    assert await pool.claim("media_player.zone") == ("media_player.slot_two", 2)
+
+
+@pytest.mark.asyncio
+async def test_claim_treats_a_paused_companion_as_paused(hass):
+    """A hardware decoder whose streaming companion is paused ranks as paused."""
+    pool = DecoderPool(
+        hass,
+        {"media_player.cxn": 1, "media_player.other": 2},
+        companion_map={"media_player.cxn": "media_player.cxn_dlna"},
+    )
+    hass.states.async_set("media_player.cxn", "idle")
+    hass.states.async_set("media_player.cxn_dlna", "paused")
+    hass.states.async_set("media_player.other", "idle")
+
+    assert await pool.claim("media_player.zone") == ("media_player.other", 2)
 
 
 @pytest.mark.asyncio

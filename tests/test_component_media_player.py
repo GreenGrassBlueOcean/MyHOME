@@ -2644,6 +2644,41 @@ async def test_decoder_watch_follows_the_rebuilt_pool(hass, player, mock_gateway
     assert player._unsub_decoders is None
 
 @pytest.mark.asyncio
+async def test_pool_rebuild_stops_the_decoder_of_the_replaced_pool(hass, player, mock_gateway):
+    """The decoder a zone streamed from keeps playing unless it is stopped on the rebuild.
+
+    The new pool holds no claim on it, so nothing would ever stop it again;
+    it is stopped rather than handed over, as release_all documents.
+    """
+    _set_pool(player, DecoderPool(hass, {"media_player.old": 1}))
+    player.async_write_ha_state = MagicMock()
+    await player.async_added_to_hass()
+    player._active_decoder = "media_player.old"
+
+    _set_pool(player, DecoderPool(hass, {"media_player.old": 1}))
+    with patch(
+        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
+    ) as mock_call:
+        async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
+        await hass.async_block_till_done()
+
+    assert player._active_decoder is None
+    mock_call.assert_called_once_with(
+        "media_player", "media_stop", {"entity_id": "media_player.old"}
+    )
+    # Only the decoder is stopped: the amplifier and the zone's state stay put.
+    assert "*16*13*1##" not in _sent(mock_gateway)
+
+    # A zone without a decoder has nothing to stop.
+    with patch(
+        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
+    ) as mock_call:
+        async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
+        await hass.async_block_till_done()
+    mock_call.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_decoders_refusing_companion_coverage(hass, mock_gateway):
     """Test coverage for _decoders_refusing when a companion exists."""
     from custom_components.myhome.decoder_pool import DecoderPool
@@ -2968,6 +3003,70 @@ async def test_group_departure_turns_off_after_the_grace_period(hass, mock_gatew
     assert "*16*13*22##" in _sent(mock_gateway)
     assert member._attr_state == MediaPlayerState.OFF
     assert member._pending_off_task is None
+
+
+@pytest.mark.asyncio
+async def test_group_departure_runs_the_whole_turn_off_without_an_echo(hass, mock_gateway):
+    """The delayed OFF stops the decoder and frees the pool by itself.
+
+    The mock gateway never echoes the OFF frame back, so nothing but the
+    delayed OFF can clean up. It must not send the frame twice either.
+    """
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec1", MediaPlayerState.IDLE)
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    member._attr_state = MediaPlayerState.ON
+    member._active_decoder = "media_player.dec1"
+    await pool.claim("media_player.zone22")
+    assert pool.get_assignment("media_player.zone22") == "media_player.dec1"
+
+    with patch(
+        "custom_components.myhome.media_player._GROUP_LEAVE_GRACE", 0.01
+    ), patch(
+        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
+    ) as mock_call:
+        member._schedule_delayed_off()
+        mock_gateway.send.reset_mock()
+        await asyncio.sleep(0.05)
+        await hass.async_block_till_done()
+
+    assert _sent(mock_gateway).count("*16*13*22##") == 1
+    assert member._attr_state == MediaPlayerState.OFF
+    assert member._active_decoder is None
+    assert member._turning_off is False
+    assert member._pending_off_task is None
+    assert pool.get_assignment("media_player.zone22") is None
+    mock_call.assert_any_call(
+        "media_player", "media_stop", {"entity_id": "media_player.dec1"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_group_departure_turn_off_is_not_repeated_by_its_own_echo(hass, mock_gateway):
+    """The gateway's echo of the delayed OFF finds the turn-off done or under way."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    runtime.decoder_pool = DecoderPool(hass, {})
+    member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    member._attr_state = MediaPlayerState.ON
+    _echo_to_zones(mock_gateway, runtime)
+
+    with patch(
+        "custom_components.myhome.media_player._GROUP_LEAVE_GRACE", 0.01
+    ), patch.object(
+        member, "_async_handle_turn_off", wraps=member._async_handle_turn_off
+    ) as turn_off:
+        member._schedule_delayed_off()
+        mock_gateway.send.reset_mock()
+        await asyncio.sleep(0.05)
+        await hass.async_block_till_done()
+
+    # The echo arrives inside the send, while the sequence is still running.
+    turn_off.assert_called_once_with(from_bus=False)
+    assert _sent(mock_gateway) == ["*16*13*22##"]
+    assert member._attr_state == MediaPlayerState.OFF
+    assert member._turning_off is False
 
 
 @pytest.mark.asyncio
