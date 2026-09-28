@@ -105,7 +105,7 @@
           "transition_mode": "Brightness transition method",
           "decoder_1_entity": "Decoder 1 — Media player entity (e.g. media_player.cambridge_audio_cxn)",
           "decoder_1_source": "Decoder 1 — BTicino source input number (1–4)",
-          "decoder_1_pre_gain": "Decoder 1 — Pre-gain offset % (0 = Cambridge with Pre-Amp OFF, 20 = squeezelite)",
+          "decoder_1_pre_gain": "Decoder 1 — Pre-gain offset % (0 = Pre-Amp OFF, 20 = squeezelite, 100 = lock source volume at 100%)",
           "decoder_2_entity": "Decoder 2 — Media player entity",
           "decoder_2_source": "Decoder 2 — BTicino source input number (1–4)",
           "decoder_2_pre_gain": "Decoder 2 — Pre-gain offset %",

@@ -9,9 +9,10 @@ Tests cover:
 - Pre-gain lookup
 - UNAVAILABLE state treated as busy (not idle)
 """
+
 import asyncio
 import platform
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,6 +29,7 @@ from custom_components.myhome.decoder_pool import DecoderPool, EnvironmentBusyEr
 
 # -- Overrides ----------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Override conftest autouse to suppress Windows SocketBlockedError.
@@ -40,6 +42,7 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 
 
 # -- Helpers ------------------------------------------------------------------
+
 
 def _make_hass(state_map: dict) -> MagicMock:
     """Build a minimal hass mock with pre-configured entity states.
@@ -88,10 +91,12 @@ def pool_one_decoder():
 @pytest.fixture
 def pool_two_decoders():
     """Two-decoder pool -- Cambridge at source 1, HiFiBerry at source 2."""
-    hass = _make_hass({
-        DECODER_1: MediaPlayerState.IDLE,
-        DECODER_2: MediaPlayerState.IDLE,
-    })
+    hass = _make_hass(
+        {
+            DECODER_1: MediaPlayerState.IDLE,
+            DECODER_2: MediaPlayerState.IDLE,
+        }
+    )
     return DecoderPool(
         hass,
         decoder_map={DECODER_1: 1, DECODER_2: 2},
@@ -100,6 +105,7 @@ def pool_two_decoders():
 
 
 # -- Tests: claim / release ---------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_claim_idle_decoder(pool_one_decoder):
@@ -126,7 +132,7 @@ async def test_claim_reuse_existing(pool_one_decoder):
 @pytest.mark.asyncio
 async def test_claim_all_busy(pool_one_decoder):
     """Returns None when all decoders are already claimed."""
-    await pool_one_decoder.claim(ZONE_A)       # zone A takes the only decoder
+    await pool_one_decoder.claim(ZONE_A)  # zone A takes the only decoder
     result = await pool_one_decoder.claim(ZONE_B)  # zone B should get None
     assert result is None
 
@@ -160,6 +166,7 @@ async def test_release_no_assignment_returns_none(pool_one_decoder):
 
 # -- Tests: multi-decoder -----------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_two_zones_get_different_decoders(pool_two_decoders):
     """Two simultaneous zones each claim a different decoder."""
@@ -191,6 +198,7 @@ async def test_concurrent_claims_no_race(pool_two_decoders):
 
 # -- Tests: release_all -------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_release_all(pool_two_decoders):
     """release_all() clears all assignments so both decoders become available."""
@@ -207,6 +215,7 @@ async def test_release_all(pool_two_decoders):
 
 
 # -- Tests: pre-gain ----------------------------------------------------------
+
 
 def test_get_pre_gain_configured(pool_two_decoders):
     """get_pre_gain returns the configured value."""
@@ -227,6 +236,7 @@ def test_get_pre_gain_unknown_entity(pool_two_decoders):
 
 
 # -- Tests: UNAVAILABLE treated as busy ---------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_unavailable_decoder_not_claimed():
@@ -251,6 +261,7 @@ async def test_playing_decoder_not_claimed():
 
 # -- Tests: is_configured / decoder_entity_ids --------------------------------
 
+
 def test_is_configured_true(pool_one_decoder):
     """is_configured is True when at least one decoder is mapped."""
     assert pool_one_decoder.is_configured is True
@@ -272,6 +283,7 @@ def test_decoder_entity_ids(pool_two_decoders):
 
 
 # -- Tests: get_assignment ----------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_assignment_returns_decoder(pool_one_decoder):
@@ -374,6 +386,7 @@ async def test_claim_without_environment_keeps_the_old_behaviour(hass):
 
 # -- Tests: Grouping & Members ------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_add_member_when_leader_not_assigned(hass):
     """add_member returns None if the leader has no active decoder."""
@@ -398,7 +411,9 @@ async def test_add_member_success_and_idempotent(hass):
     assert pool.environment_owner("2") == "media_player.member"
 
     # Idempotent call
-    joined_again = await pool.add_member("media_player.leader", "media_player.member", environment="2")
+    joined_again = await pool.add_member(
+        "media_player.leader", "media_player.member", environment="2"
+    )
     assert joined_again == ("media_player.slot_one", 1)
 
 
@@ -578,9 +593,10 @@ async def test_environment_without_a_stream_does_not_block(hass):
     await pool.add_member("media_player.passive_leader", "media_player.passive", environment="2")
     assert pool.environment_owner("2") is None
 
-    assert await pool.add_member(
-        "media_player.leader", "media_player.member", environment="2"
-    ) == ("media_player.slot_one", 1)
+    assert await pool.add_member("media_player.leader", "media_player.member", environment="2") == (
+        "media_player.slot_one",
+        1,
+    )
     assert pool.environment_owner("2", exclude="media_player.passive") == "media_player.member"
 
 
@@ -602,7 +618,11 @@ async def test_refused_join_changes_nothing(hass):
     await pool.claim("media_player.joiner", environment="3")
     await pool.add_member("media_player.joiner", "media_player.joiner_member", environment="3")
     await pool.claim("media_player.other", environment="2")
-    before = (dict(pool._assignments), {k: set(v) for k, v in pool._groups.items()}, dict(pool._environments))
+    before = (
+        dict(pool._assignments),
+        {k: set(v) for k, v in pool._groups.items()},
+        dict(pool._environments),
+    )
 
     with pytest.raises(EnvironmentBusyError) as err:
         await pool.set_group(
@@ -610,7 +630,11 @@ async def test_refused_join_changes_nothing(hass):
             {"media_player.joiner": "3", "media_player.blocked": "2"},
         )
     assert err.value.owner == "media_player.other"
-    after = (dict(pool._assignments), {k: set(v) for k, v in pool._groups.items()}, dict(pool._environments))
+    after = (
+        dict(pool._assignments),
+        {k: set(v) for k, v in pool._groups.items()},
+        dict(pool._environments),
+    )
     assert after == before
 
 
@@ -622,7 +646,9 @@ async def test_set_group_reports_what_changed(hass):
     hass.states.async_set("media_player.slot_two", "idle")
 
     await pool.claim("media_player.leader", environment="1")
-    await pool.set_group("media_player.leader", {"media_player.stays": "2", "media_player.goes": "3"})
+    await pool.set_group(
+        "media_player.leader", {"media_player.stays": "2", "media_player.goes": "3"}
+    )
     # A zone that leads its own streaming group joins: it gives up both.
     await pool.claim("media_player.joiner", environment="4")
     await pool.add_member("media_player.joiner", "media_player.orphan", environment="5")
@@ -637,7 +663,9 @@ async def test_set_group_reports_what_changed(hass):
     assert change.orphaned == ["media_player.orphan"]
     assert change.released == ["media_player.slot_two"]
     assert pool.get_members("media_player.leader") == [
-        "media_player.joiner", "media_player.no_env", "media_player.stays",
+        "media_player.joiner",
+        "media_player.no_env",
+        "media_player.stays",
     ]
     assert pool.get_assignment("media_player.joiner") == "media_player.slot_one"
     assert pool.get_assignment("media_player.orphan") is None
@@ -645,7 +673,11 @@ async def test_set_group_reports_what_changed(hass):
 
     # An empty snapshot dissolves the group.
     change = await pool.set_group("media_player.leader", {})
-    assert sorted(change.left) == ["media_player.joiner", "media_player.no_env", "media_player.stays"]
+    assert sorted(change.left) == [
+        "media_player.joiner",
+        "media_player.no_env",
+        "media_player.stays",
+    ]
     assert pool.get_group_members("media_player.leader") is None
 
 
@@ -693,7 +725,9 @@ async def test_failed_claim_keeps_the_member_in_its_group(hass):
     with pytest.raises(EnvironmentBusyError):
         await pool.claim("media_player.second", environment="3")
     assert pool.get_members("media_player.leader") == [
-        "media_player.member", "media_player.neighbour", "media_player.second",
+        "media_player.member",
+        "media_player.neighbour",
+        "media_player.second",
     ]
     await pool.remove_member("media_player.second")
 
@@ -736,4 +770,156 @@ async def test_companion_map_and_streaming_decoder(hass):
     assert pool.decoder_entity_ids == ["media_player.cxn", "media_player.cxn_dlna"]
 
 
+@pytest.mark.asyncio
+async def test_transfer_leadership(hass):
+    """transfer_leadership atomically moves decoder and remaining members to new leader."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+
+    # Set up group with leader and 2 members
+    await pool.claim("media_player.zone1")
+    await pool.set_group(
+        "media_player.zone1", {"media_player.zone2": "2", "media_player.zone3": "3"}
+    )
+    assert pool.is_leader("media_player.zone1")
+    assert pool.get_members("media_player.zone1") == ["media_player.zone2", "media_player.zone3"]
+
+    # Transfer leadership from zone1 to zone2
+    result = await pool.transfer_leadership("media_player.zone1", "media_player.zone2")
+    assert result == ("media_player.dec", 1)
+    assert not pool.is_leader("media_player.zone1")
+    assert pool.is_leader("media_player.zone2")
+    assert pool.get_members("media_player.zone2") == ["media_player.zone3"]
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+    assert pool.get_assignment("media_player.zone1") is None
+
+    # Invalid transfers
+    assert await pool.transfer_leadership("media_player.not_a_leader", "media_player.zone3") is None
+    assert await pool.transfer_leadership("media_player.zone2", "media_player.stranger") is None
+
+
+@pytest.mark.asyncio
+async def test_claim_idle_states_paused_and_standby(hass):
+    """Decoders in paused or standby states are treated as idle and available for claiming."""
+    pool = DecoderPool(hass, {"media_player.dec_paused": 1, "media_player.dec_standby": 2})
+    hass.states.async_set("media_player.dec_paused", "paused")
+    hass.states.async_set("media_player.dec_standby", "standby")
+
+    claim1 = await pool.claim("media_player.zone1")
+    assert claim1 == ("media_player.dec_paused", 1)
+
+    claim2 = await pool.claim("media_player.zone2")
+    assert claim2 == ("media_player.dec_standby", 2)
+
+
+@pytest.mark.asyncio
+async def test_pre_gain_up_to_100_percent(hass):
+    """pre_gain allows up to 100% (locking source volume at 100% line level for max SNR)."""
+    pool = DecoderPool(
+        hass,
+        decoder_map={"media_player.streamer": 1},
+        pre_gain_map={"media_player.streamer": 100},
+    )
+    assert pool.get_pre_gain("media_player.streamer") == 100
+
+
+@pytest.mark.asyncio
+async def test_transfer_leadership_last_member(hass):
+    """transfer_leadership when only one member remains dissolves group into standalone player."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+
+    # Set up group with leader and exactly 1 member
+    await pool.claim("media_player.zone1")
+    await pool.set_group("media_player.zone1", {"media_player.zone2": "2"})
+    assert pool.get_members("media_player.zone1") == ["media_player.zone2"]
+
+    # Transfer leadership from zone1 to zone2: remaining members is empty
+    result = await pool.transfer_leadership("media_player.zone1", "media_player.zone2")
+    assert result == ("media_player.dec", 1)
+    assert not pool.is_leader("media_player.zone1")
+    assert not pool.is_leader("media_player.zone2")
+    assert pool.get_members("media_player.zone2") == []
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+    assert pool.get_assignment("media_player.zone1") is None
+
+
+@pytest.mark.asyncio
+async def test_transfer_leadership_without_decoder(hass):
+    """transfer_leadership when old leader has no active decoder returns None."""
+    pool = DecoderPool(hass, {})
+    pool._groups["media_player.zone1"] = {"media_player.zone2"}
+
+    result = await pool.transfer_leadership("media_player.zone1", "media_player.zone2")
+    assert result is None
+    assert pool.get_assignment("media_player.zone2") is None
+
+
+@pytest.mark.asyncio
+async def test_claim_reassigns_idle_decoder_from_powered_off_owner(hass):
+    """claim reassigns an idle decoder from an owner zone that is powered off."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    hass.states.async_set("media_player.zone1", "off")
+
+    # Force zone1 as assignment
+    pool._assignments["media_player.dec"] = "media_player.zone1"
+    pool._environments["media_player.zone1"] = "1"
+    pool._groups["media_player.zone1"] = {"media_player.orphan"}
+
+    # zone2 now claims: zone1 is off and dec is idle, so dec is reassigned to zone2
+    claimed = await pool.claim("media_player.zone2", environment="2")
+    assert claimed == ("media_player.dec", 1)
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+    assert pool.get_assignment("media_player.zone1") is None
+    assert pool.get_members("media_player.zone1") == []
+
+
+@pytest.mark.asyncio
+async def test_claim_handover_from_former_leader_turns_off_displaced_leader(hass):
+    """When a leader's last member is removed and immediately claims the decoder, it takes over."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    hass.states.async_set("media_player.zone1", "on")
+
+    # zone1 claims dec and groups zone2
+    await pool.claim("media_player.zone1", environment="1")
+    await pool.add_member("media_player.zone1", "media_player.zone2", environment="2")
+
+    # MA unselects zone1: removes zone2 from group
+    await pool.set_group("media_player.zone1", {})
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_call:
+        # zone2 now claims the decoder within the handover window
+        claimed = await pool.claim("media_player.zone2", environment="2")
+        assert claimed == ("media_player.dec", 1)
+        assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+        assert pool.get_assignment("media_player.zone1") is None
+
+        # Verify displaced leader was instructed to turn off to prevent hiss
+        mock_call.assert_called_once_with(
+            "media_player", "turn_off", {"entity_id": "media_player.zone1"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_claim_handover_survives_turn_off_service_failure(hass):
+    """A failure turning off the displaced leader is logged, not raised."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    hass.states.async_set("media_player.zone1", "on")
+
+    await pool.claim("media_player.zone1", environment="1")
+    await pool.add_member("media_player.zone1", "media_player.zone2", environment="2")
+    await pool.set_group("media_player.zone1", {})
+
+    with patch(
+        "homeassistant.core.ServiceRegistry.async_call",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("boom"),
+    ):
+        claimed = await pool.claim("media_player.zone2", environment="2")
+
+    assert claimed == ("media_player.dec", 1)
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
 

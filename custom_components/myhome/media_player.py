@@ -65,6 +65,7 @@ If no decoders are configured in Options Flow the entity behaves exactly as
 before — it controls the BTicino amplifier zone via WHO=16 commands only.
 ``PLAY_MEDIA`` is not advertised and Music Assistant will not try to use it.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -87,7 +88,7 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
 
 from .const import (
@@ -158,11 +159,11 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
 
     for i in range(1, CONF_DECODER_SLOTS + 1):
         entity_id = options.get(CONF_DECODER_ENTITY.format(i), "").strip()
-        source_num = options.get(CONF_DECODER_SOURCE.format(i), i)      # int
-        pre_gain = options.get(CONF_DECODER_PRE_GAIN.format(i), 0)      # int
+        source_num = options.get(CONF_DECODER_SOURCE.format(i), i)  # int
+        pre_gain = options.get(CONF_DECODER_PRE_GAIN.format(i), 0)  # int
 
         if entity_id and entity_id.startswith("media_player."):
-            decoder_map[entity_id] = int(source_num)   # always int — never f"Source N"
+            decoder_map[entity_id] = int(source_num)  # always int — never f"Source N"
             pre_gain_map[entity_id] = int(pre_gain)
             reg_entry = ent_reg.async_get(entity_id)
             if reg_entry and reg_entry.platform in _STREAM_INCOMPATIBLE_PLATFORMS:
@@ -175,18 +176,14 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
                         companion,
                     )
                     companion_map[entity_id] = companion
-                    async_delete_incompatible_decoder_issue(
-                        hass, config_entry.entry_id, entity_id
-                    )
+                    async_delete_incompatible_decoder_issue(hass, config_entry.entry_id, entity_id)
                 else:
                     stream_incompatible.add(entity_id)
                     async_create_incompatible_decoder_issue(
                         hass, config_entry.entry_id, entity_id, reg_entry.platform
                     )
             else:
-                async_delete_incompatible_decoder_issue(
-                    hass, config_entry.entry_id, entity_id
-                )
+                async_delete_incompatible_decoder_issue(hass, config_entry.entry_id, entity_id)
 
     # Clean up any previously flagged decoder issues that are no longer configured
     async_prune_incompatible_decoder_issues(hass, config_entry.entry_id, decoder_map)
@@ -241,10 +238,17 @@ async def async_setup_entry(
         async_add_entities(sound_sources)
 
     discovery = PlatformDiscovery(
-        hass, config_entry, async_add_entities,
-        platform=Platform.MEDIA_PLAYER, who="16", event_type=OWNSoundEvent, build=build,
-        address=_zone_address, pre_message=_route_pseudo_zones(runtime.router),
-        route_keys=_sound_route_keys, key_suffix="#16",
+        hass,
+        config_entry,
+        async_add_entities,
+        platform=Platform.MEDIA_PLAYER,
+        who="16",
+        event_type=OWNSoundEvent,
+        build=build,
+        address=_zone_address,
+        pre_message=_route_pseudo_zones(runtime.router),
+        route_keys=_sound_route_keys,
+        key_suffix="#16",
     )
     # Audio zones are keyed "<zone>#16" in unique ids; the registry restore reads that key back.
     discovery.start()
@@ -366,9 +370,7 @@ def _parse_routing_address(pseudo: str) -> tuple[int, str] | None:
     return None
 
 
-def _route_pseudo_zones(
-    router: Any
-) -> Callable[[Any, Address, KnownDevices], bool]:
+def _route_pseudo_zones(router: Any) -> Callable[[Any, Address, KnownDevices], bool]:
     """Stereo-module pseudo zones (10x-14x) select the source for an environment."""
 
     @callback
@@ -451,11 +453,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         # ── Proxy state ────────────────────────────────────────────────────
         self._active_decoder: str | None = None  # entity_id of the claimed decoder
-        self._syncing_volume: bool = False        # guard flag — prevents volume feedback loop
+        self._syncing_volume: bool = False  # guard flag — prevents volume feedback loop
         self._pre_mute_volume: float | None = None  # volume to restore on unmute
-        self._turning_off: bool = False          # guard flag — dampens bus-OFF echo loops
+        self._turning_off: bool = False  # guard flag — dampens bus-OFF echo loops
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
+        self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
 
         # ── Base hardware features (always available) ──────────────────────
@@ -511,7 +514,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 if pool:
                     return pool.get_decoder_for_source(source_num)
         return None
-
 
     # ── Source configuration ──────────────────────────────────────────────────
 
@@ -590,7 +592,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return None
         prefix = "Source "
         if source.startswith(prefix):
-            candidate = source[len(prefix):]
+            candidate = source[len(prefix) :]
             if candidate.isdigit() and 1 <= int(candidate) <= CONF_SOURCE_SLOTS:
                 return int(candidate)
         return None
@@ -643,8 +645,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         frames = self._routing_frames(source_num)
         if frames is None:
             LOGGER.warning(
-                "%s: cannot route amplifier %s to matrix source %s; "
-                "leaving the routing unchanged",
+                "%s: cannot route amplifier %s to matrix source %s; leaving the routing unchanged",
                 self.entity_id,
                 self._where,
                 source_num,
@@ -834,6 +835,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         frame is sent: the amplifiers and the decoder keep playing and only
         the group bookkeeping is cleared.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         runtime = self._runtime_data
         if runtime is not None:
             runtime.media_players.pop(self.entity_id, None)
@@ -871,6 +875,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             HomeAssistantError: If all decoders are busy or the decoder fails
                 to start playback.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
+
         pool = self._get_pool()
         if not pool or not pool.is_configured:
             LOGGER.warning(
@@ -1038,7 +1046,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 translation_domain=DOMAIN,
                 translation_key="decoder_start_failed",
                 translation_placeholders={
-                    "entity_id": str(self.entity_id), "decoder": str(target_decoder), "error": str(err),
+                    "entity_id": str(self.entity_id),
+                    "decoder": str(target_decoder),
+                    "error": str(err),
                 },
             ) from err
 
@@ -1193,28 +1203,50 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         runtime = self._runtime_data
         members = pool.get_members(self.entity_id)
         if members:
-            # We are the leader: disband all members
-            await pool.disband_group(self.entity_id)
-            for member_id in members:
-                member_ent = runtime.media_players.get(member_id) if runtime else None
-                if member_ent:
-                    await member_ent._gateway_handler.send(
-                        OWNSoundCommand.turn_off(member_ent._where)
-                    )
-                    member_ent._attr_state = MediaPlayerState.OFF
-                    member_ent.async_write_ha_state()
+            # We are the leader: handover to the first remaining member
+            new_leader_id = members[0]
+            new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
+
+            # Handover leadership and claimed decoder in the pool
+            result = await pool.transfer_leadership(self.entity_id, new_leader_id)
+            if new_leader_ent and result:
+                new_leader_ent._active_decoder = result[0]
+
+            # Turn off this unjoining leader and release its state
+            self._turning_off = True
+            try:
+                await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+            finally:
+                self._turning_off = False
+            self._attr_state = MediaPlayerState.OFF
+            self._active_decoder = None
             self.async_write_ha_state()
+
+            # Update new leader and remaining members
+            if new_leader_ent:
+                new_leader_ent.async_write_ha_state()
+            for mem_id in members[1:]:
+                mem_ent = runtime.media_players.get(mem_id) if runtime else None
+                if mem_ent:
+                    mem_ent.async_write_ha_state()
         else:
             # We are a member: leave our group
             leader_id = pool.get_leader(self.entity_id)
             if leader_id:
                 await pool.remove_group_member(self.entity_id)
-                await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+                self._turning_off = True
+                try:
+                    await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+                finally:
+                    self._turning_off = False
                 self._attr_state = MediaPlayerState.OFF
                 self.async_write_ha_state()
                 leader_ent = runtime.media_players.get(leader_id) if runtime else None
                 if leader_ent:
                     leader_ent.async_write_ha_state()
+            else:
+                # Standalone player: power off cleanly
+                await self.async_turn_off()
 
     # ── Transport controls ────────────────────────────────────────────────────
 
@@ -1239,9 +1271,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         eff_dec = self._effective_decoder
         if eff_dec:
             target_dec = self._streaming_target(eff_dec) or eff_dec
-            await self.hass.services.async_call(
-                "media_player", service, {"entity_id": target_dec}
-            )
+            await self.hass.services.async_call("media_player", service, {"entity_id": target_dec})
             if target_dec != eff_dec and service == "media_stop":
                 try:
                     await self.hass.services.async_call(
@@ -1261,6 +1291,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
     async def async_media_play(self) -> None:
         """Resume playback on the active decoder."""
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
+        if self._attr_state == MediaPlayerState.OFF:
+            await self._async_wake_zone()
         await self._forward_to_decoder("media_play")
 
     async def async_media_stop(self) -> None:
@@ -1310,12 +1345,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         and a zone that is already on is never re-routed: the route is shared
         by the whole environment and may be carrying a stream.
         """
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         if self._attr_state != MediaPlayerState.ON:
             await self._async_wake_zone()
             await self._apply_default_source()
 
     async def _async_handle_turn_off(self, from_bus: bool = False) -> None:
         """Coordinated turn-off sequence for zones, groups, and decoders."""
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         if self._turning_off:
             return
         self._turning_off = True
@@ -1435,11 +1476,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 decoder_volume = min(1.0, volume + pre_gain_pct / 100.0)
                 self._syncing_volume = True
                 try:
+                    target_dec = (
+                        self._streaming_target(self._active_decoder) or self._active_decoder
+                    )
                     await self.hass.services.async_call(
                         "media_player",
                         "volume_set",
                         {
-                            "entity_id": self._active_decoder,
+                            "entity_id": target_dec,
                             "volume_level": decoder_volume,
                         },
                     )
@@ -1457,7 +1501,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             mute: ``True`` to mute, ``False`` to unmute.
         """
         if mute:
-            self._pre_mute_volume = self._attr_volume_level if self._attr_volume_level is not None else 0.5
+            self._pre_mute_volume = (
+                self._attr_volume_level if self._attr_volume_level is not None else 0.5
+            )
             await self.async_set_volume_level(0.0)
         else:
             restore_volume = self._pre_mute_volume if self._pre_mute_volume is not None else 0.3
@@ -1467,13 +1513,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         # Propagate mute to decoder if it supports the attribute
         if self._active_decoder:
-            dec_state = self.hass.states.get(self._active_decoder)
+            target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
+            dec_state = self.hass.states.get(target_dec)
             if dec_state and dec_state.attributes.get("is_volume_muted") is not None:
                 try:
                     await self.hass.services.async_call(
                         "media_player",
                         "volume_mute",
-                        {"entity_id": self._active_decoder, "is_volume_muted": mute},
+                        {"entity_id": target_dec, "is_volume_muted": mute},
                     )
                 except Exception:  # pylint: disable=broad-except
                     pass  # Not all decoders support mute; volume=0 covers the rest
@@ -1520,7 +1567,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 translation_domain=DOMAIN,
                 translation_key="unknown_source",
                 translation_placeholders={
-                    "entity_id": str(self.entity_id), "source": str(source),
+                    "entity_id": str(self.entity_id),
+                    "source": str(source),
                 },
             )
         if self._routing_frames(source_num) is None:
@@ -1529,7 +1577,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 translation_domain=DOMAIN,
                 translation_key="routing_unsupported",
                 translation_placeholders={
-                    "entity_id": str(self.entity_id), "where": str(self._where),
+                    "entity_id": str(self.entity_id),
+                    "where": str(self._where),
                 },
             )
         streamer = self._environment_streamer()
@@ -1695,6 +1744,42 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                         # Reverse the pre_gain offset to get approximate zone volume
                         zone_vol = max(0.0, float(ext_vol) - pre_gain_pct / 100.0)
                         self._attr_volume_level = zone_vol
+
+        # Auto power-off when decoder stops playing (anti-hiss)
+        new_state = event.data.get("new_state")
+        event_entity = event.data.get("entity_id")
+        if self._active_decoder and new_state and event_entity:
+            target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
+            if event_entity in (self._active_decoder, target_dec):
+                new_state_val = new_state.state
+                if new_state_val == MediaPlayerState.PLAYING:
+                    if self._auto_off_unsub:
+                        self._auto_off_unsub()
+                        self._auto_off_unsub = None
+                elif new_state_val in (MediaPlayerState.OFF, "off"):
+                    if self._auto_off_unsub:
+                        self._auto_off_unsub()
+                        self._auto_off_unsub = None
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                        self.hass.async_create_task(self.async_turn_off())
+                elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                        @callback
+                        def _auto_turn_off(_now: Any) -> None:
+                            self._auto_off_unsub = None
+                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                                self.hass.async_create_task(self.async_turn_off())
+
+                        self._auto_off_unsub = async_call_later(self.hass, 3.0, _auto_turn_off)
+                elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                        @callback
+                        def _auto_turn_off_paused(_now: Any) -> None:
+                            self._auto_off_unsub = None
+                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                                self.hass.async_create_task(self.async_turn_off())
+
+                        self._auto_off_unsub = async_call_later(self.hass, 60.0, _auto_turn_off_paused)
 
         self.async_schedule_update_ha_state()
 

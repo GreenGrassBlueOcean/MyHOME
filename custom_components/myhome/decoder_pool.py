@@ -31,6 +31,7 @@ Typical values
 - Squeezelite / piCorePlayer:       ``pre_gain = 20``
 """
 import asyncio
+import time
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 
@@ -88,9 +89,15 @@ class DecoderPool:
     # HA states that mean "this decoder is available for claiming".
     # UNAVAILABLE is intentionally excluded: treat an offline Cambridge as busy
     # rather than risking a claim on a device that cannot actually play.
-    _IDLE_STATES: frozenset[MediaPlayerState | None] = frozenset({
+    _IDLE_STATES: frozenset[MediaPlayerState | str | None] = frozenset({
         MediaPlayerState.IDLE,
         MediaPlayerState.OFF,
+        MediaPlayerState.PAUSED,
+        MediaPlayerState.STANDBY,
+        "idle",
+        "off",
+        "paused",
+        "standby",
         None,  # entity not yet registered / state unknown
     })
 
@@ -150,6 +157,7 @@ class DecoderPool:
         self._environments: dict[str, str] = {}                   # zone_entity_id → environment
         self._stream_incompatible: frozenset[str] = frozenset(stream_incompatible)
         self._companion_map: dict[str, str] = dict(companion_map or {})
+        self._former_leaders: dict[str, tuple[str, float]] = {}  # member -> (former_leader, monotonic_time)
         self._lock = asyncio.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -172,6 +180,15 @@ class DecoderPool:
     def get_streaming_decoder(self, decoder_id: str) -> str:
         """Return the streaming companion entity for decoder_id if one exists, else decoder_id."""
         return self._companion_map.get(decoder_id, decoder_id)
+
+    def _is_decoder_hw_idle(self, dec_id: str) -> bool:
+        """Return True if decoder entity (and any companion) is in an idle state."""
+        state = self._hass.states.get(dec_id)
+        state_val = state.state if state else None
+        target_dec_id = self.get_streaming_decoder(dec_id)
+        target_state = self._hass.states.get(target_dec_id) if target_dec_id != dec_id else None
+        target_state_val = target_state.state if target_state else None
+        return state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES)
 
     async def claim(
         self,
@@ -216,6 +233,8 @@ class DecoderPool:
                 raise HomeAssistantError("All inputs are busy!")
             decoder_id, source_num = result
         """
+        displaced_owner: str | None = None
+        claimed: tuple[str, int] | None = None
         async with self._lock:
             # A member playing on its own leaves its group, but only once it
             # has a decoder: a refused or failed claim keeps it in the group.
@@ -230,6 +249,15 @@ class DecoderPool:
             if environment is not None:
                 # The zone's own members follow it onto the new decoder.
                 ignore = {zone_entity_id, *self._groups.get(zone_entity_id, ())}
+                former_leader, former_time = self._former_leaders.get(
+                    zone_entity_id, (None, 0.0)
+                )
+                if (
+                    former_leader is not None
+                    and (time.monotonic() - former_time) < 30.0
+                    and len(self._groups.get(former_leader, set())) == 0
+                ):
+                    ignore.add(former_leader)
                 owners = self._environment_owners(environment, ignore)
                 if owners:
                     raise EnvironmentBusyError(environment, owners[0])
@@ -237,27 +265,56 @@ class DecoderPool:
             # Candidates in slot order, but a decoder wired to the caller's
             # preferred source comes first: routing the matrix to the input
             # the room already defaults to avoids an audible source switch.
+            # Unassigned decoders are always prioritized over assigned ones.
             candidates = list(self._assignments)
             if preferred_source is not None:
                 candidates.sort(
                     key=lambda dec: self._decoder_map.get(dec) != preferred_source
                 )
+            candidates.sort(key=lambda dec: self._assignments[dec] is not None)
 
-            # Find the first decoder that is unassigned AND idle.
+            # Find the first decoder that is unassigned AND idle, or can be handed over.
             for dec_id in candidates:
                 if dec_id in exclude:
                     continue
                 owner = self._assignments[dec_id]
+                is_hw_idle = self._is_decoder_hw_idle(dec_id)
+                former_leader, former_time = self._former_leaders.get(
+                    zone_entity_id, (None, 0.0)
+                )
+                is_handover = (
+                    owner is not None
+                    and owner == former_leader
+                    and (time.monotonic() - former_time) < 30.0
+                    and len(self._groups.get(owner, set())) == 0
+                )
+
                 if owner is not None:
-                    continue  # already in use by another zone
+                    owner_state = self._hass.states.get(owner)
+                    owner_val = owner_state.state if owner_state else None
+                    is_owner_off = (
+                        is_hw_idle and owner_val in (MediaPlayerState.OFF, "off")
+                    )
+                    if is_owner_off or is_handover:
+                        LOGGER.info(
+                            "DecoderPool: reassigning decoder %s from zone %s (state=%s, hw_idle=%s, handover=%s) to %s",
+                            dec_id,
+                            owner,
+                            owner_val,
+                            is_hw_idle,
+                            is_handover,
+                            zone_entity_id,
+                        )
+                        if owner != zone_entity_id and owner_val not in (MediaPlayerState.OFF, "off"):
+                            displaced_owner = owner
+                        self._disband_group_locked(owner)
+                        self._environments.pop(owner, None)
+                        self._assignments[dec_id] = None
+                        owner = None
+                    else:
+                        continue  # already in use by an active zone
 
-                state = self._hass.states.get(dec_id)
-                state_val = state.state if state else None
-                target_dec_id = self.get_streaming_decoder(dec_id)
-                target_state = self._hass.states.get(target_dec_id) if target_dec_id != dec_id else None
-                target_state_val = target_state.state if target_state else None
-
-                if state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES):
+                if is_hw_idle or is_handover:
                     self._remove_member_locked(zone_entity_id)
                     self._assignments[dec_id] = zone_entity_id
                     if environment is not None:
@@ -268,13 +325,25 @@ class DecoderPool:
                         zone_entity_id,
                         self._decoder_map[dec_id],
                     )
-                    return (dec_id, self._decoder_map[dec_id])
+                    claimed = (dec_id, self._decoder_map[dec_id])
+                    break
 
-            # All decoders are busy.
-            LOGGER.warning(
-                "DecoderPool: all decoders busy — zone %s cannot play", zone_entity_id
-            )
-            return None
+        if displaced_owner:
+            try:
+                await self._hass.services.async_call(
+                    "media_player", "turn_off", {"entity_id": displaced_owner}
+                )
+            except Exception as err:
+                LOGGER.debug("DecoderPool: failed to turn off displaced zone %s: %s", displaced_owner, err)
+
+        if claimed:
+            return claimed
+
+        # All decoders are busy.
+        LOGGER.warning(
+            "DecoderPool: all decoders busy — zone %s cannot play", zone_entity_id
+        )
+        return None
 
     async def set_group(
         self,
@@ -423,6 +492,7 @@ class DecoderPool:
         for leader_id, members in list(self._groups.items()):
             if member_entity_id in members:
                 members.remove(member_entity_id)
+                self._former_leaders[member_entity_id] = (leader_id, time.monotonic())
                 if not members:
                     self._groups.pop(leader_id, None)
                 self._environments.pop(member_entity_id, None)
@@ -440,7 +510,9 @@ class DecoderPool:
     def _disband_group_locked(self, leader_entity_id: str) -> list[str]:
         """Disband group members while holding lock."""
         members = list(self._groups.pop(leader_entity_id, set()))
+        now = time.monotonic()
         for mem in members:
+            self._former_leaders[mem] = (leader_entity_id, now)
             self._environments.pop(mem, None)
         if members:
             LOGGER.info(
@@ -454,6 +526,53 @@ class DecoderPool:
         """Disband a group owned by leader_entity_id."""
         async with self._lock:
             return self._disband_group_locked(leader_entity_id)
+
+    async def transfer_leadership(
+        self, old_leader: str, new_leader: str
+    ) -> tuple[str, int] | None:
+        """Transfer group leadership and active decoder from old_leader to new_leader.
+
+        Args:
+            old_leader: Current group leader entity_id.
+            new_leader: Member entity_id that will become the new leader.
+
+        Returns:
+            ``(decoder_entity_id, source_num)`` if a decoder was transferred, or ``None``.
+        """
+        async with self._lock:
+            return self._transfer_leadership_locked(old_leader, new_leader)
+
+    def _transfer_leadership_locked(
+        self, old_leader: str, new_leader: str
+    ) -> tuple[str, int] | None:
+        """Transfer group leadership while holding self._lock."""
+        if old_leader not in self._groups or new_leader not in self._groups[old_leader]:
+            return None
+        current_members = self._groups.pop(old_leader, set())
+        remaining = current_members - {new_leader}
+        if remaining:
+            self._groups[new_leader] = remaining
+        else:
+            self._groups.pop(new_leader, None)
+
+        decoder = None
+        for dec_id, owner in self._assignments.items():
+            if owner == old_leader:
+                self._assignments[dec_id] = new_leader
+                decoder = dec_id
+                break
+
+        self._environments.pop(old_leader, None)
+        LOGGER.info(
+            "DecoderPool: leadership of group transferred from %s to %s (members: %s, decoder: %s)",
+            old_leader,
+            new_leader,
+            sorted(remaining),
+            decoder,
+        )
+        if decoder:
+            return (decoder, self._decoder_map[decoder])
+        return None
 
     async def release(self, zone_entity_id: str) -> str | None:
         """Release the decoder assigned to *zone_entity_id* or detach from group.
@@ -554,6 +673,10 @@ class DecoderPool:
                 return leader_id
         return None
 
+    def is_leader(self, entity_id: str) -> bool:
+        """Return True if entity_id is currently the leader of an active group."""
+        return bool(self._groups.get(entity_id))
+
     def get_members(self, leader_entity_id: str) -> list[str]:
         """Return the list of member entity IDs joined with *leader_entity_id*."""
         return sorted(self._groups.get(leader_entity_id, set()))
@@ -589,14 +712,15 @@ class DecoderPool:
         return owners[0] if owners else None
 
     def _environment_owners(self, environment: str, exclude: Collection[str]) -> list[str]:
-        """Return every zone outside ``exclude`` streaming from a decoder in ``environment``."""
-        return [
-            zone
-            for zone, zone_environment in self._environments.items()
-            if zone_environment == environment
-            and zone not in exclude
-            and self.get_assignment(zone) is not None
-        ]
+        """Return every zone outside ``exclude`` actively streaming from a decoder in ``environment``."""
+        active = []
+        for zone, zone_environment in self._environments.items():
+            if zone_environment == environment and zone not in exclude and self.get_assignment(zone) is not None:
+                state = self._hass.states.get(zone)
+                state_val = state.state if state else None
+                if state_val not in (MediaPlayerState.OFF, "off"):
+                    active.append(zone)
+        return active
 
     def _owned_decoder(self, zone_entity_id: str) -> str | None:
         """Return the decoder ``zone_entity_id`` claimed itself (not one it shares as a member)."""

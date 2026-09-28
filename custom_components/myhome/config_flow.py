@@ -1044,7 +1044,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                 default=int(self.options.get(gain_key, 0) or 0),  # type: ignore
             )] = selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0, max=50, step=1,
+                    min=0, max=100, step=1,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.BOX,
                 )
