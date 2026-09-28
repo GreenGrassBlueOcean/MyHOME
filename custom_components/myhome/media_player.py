@@ -474,6 +474,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
         self._pending_off_task: asyncio.Task[None] | None = None  # grace-period group-leave OFF
+        self._status_seen: bool = False  # first bus status report received since being added
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -1403,6 +1404,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         is waiting to find out about.
         """
         self._cancel_pending_off()
+        self._status_seen = True  # switched on from here: not a leftover of before
         if self._attr_state != MediaPlayerState.ON:
             self._wake_off_sent_at = time.monotonic()
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
@@ -1801,7 +1803,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         triggered by our own ``async_set_volume_level`` to avoid a feedback
         loop.
         """
-        eff_dec = self._effective_decoder
+        watched = self._active_decoder or self._stray_decoder()
+        eff_dec = self._effective_decoder or watched
         if not eff_dec:
             return
         companion = self._streaming_target(eff_dec)
@@ -1821,43 +1824,98 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                         zone_vol = max(0.0, float(ext_vol) - pre_gain_pct / 100.0)
                         self._attr_volume_level = zone_vol
 
-        # Auto power-off when decoder stops playing (anti-hiss)
+        # Auto power-off when decoder stops playing (anti-hiss). Applies to the
+        # zone that owns the decoder and to any other room that is on and
+        # listening to its input (see _stray_decoder).
         new_state = event.data.get("new_state")
         event_entity = event.data.get("entity_id")
-        if self._active_decoder and new_state and event_entity:
-            target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
-            if event_entity in (self._active_decoder, target_dec):
-                new_state_val = new_state.state
-                if new_state_val == MediaPlayerState.PLAYING:
-                    if self._auto_off_unsub:
-                        self._auto_off_unsub()
-                        self._auto_off_unsub = None
-                elif new_state_val in (MediaPlayerState.OFF, "off"):
-                    if self._auto_off_unsub:
-                        self._auto_off_unsub()
-                        self._auto_off_unsub = None
-                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
-                        self.hass.async_create_task(self.async_turn_off())
-                elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
-                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
-                        @callback
-                        def _auto_turn_off(_now: Any) -> None:
-                            self._auto_off_unsub = None
-                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
-                                self.hass.async_create_task(self.async_turn_off())
-
-                        self._auto_off_unsub = async_call_later(self.hass, 3.0, _auto_turn_off)
-                elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
-                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
-                        @callback
-                        def _auto_turn_off_paused(_now: Any) -> None:
-                            self._auto_off_unsub = None
-                            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
-                                self.hass.async_create_task(self.async_turn_off())
-
-                        self._auto_off_unsub = async_call_later(self.hass, 60.0, _auto_turn_off_paused)
+        if watched and new_state and event_entity:
+            target_dec = self._streaming_target(watched) or watched
+            if event_entity in (watched, target_dec):
+                old_state = event.data.get("old_state")
+                unchanged = old_state is not None and old_state.state == new_state.state
+                # A room without a claim only follows real transitions: an
+                # attribute update on an idle decoder (volume, position) must
+                # not switch off a room someone just turned on to start playing.
+                if not (unchanged and not self._active_decoder):
+                    self._apply_decoder_state(new_state.state)
 
         self.async_schedule_update_ha_state()
+
+    @callback
+    def _apply_decoder_state(self, new_state_val: str) -> None:
+        """Arm or cancel the anti-hiss auto-off for a decoder state this zone hears."""
+        if new_state_val == MediaPlayerState.PLAYING:
+            if self._auto_off_unsub:
+                self._auto_off_unsub()
+                self._auto_off_unsub = None
+        elif new_state_val in (MediaPlayerState.OFF, "off"):
+            if self._auto_off_unsub:
+                self._auto_off_unsub()
+                self._auto_off_unsub = None
+            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                self.hass.async_create_task(self.async_turn_off())
+        elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
+            if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                @callback
+                def _auto_turn_off(_now: Any) -> None:
+                    self._auto_off_unsub = None
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                        self.hass.async_create_task(self.async_turn_off())
+
+                self._auto_off_unsub = async_call_later(self.hass, 3.0, _auto_turn_off)
+        elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
+            if self._attr_state != MediaPlayerState.OFF and not self._turning_off and not self._auto_off_unsub:
+                @callback
+                def _auto_turn_off_paused(_now: Any) -> None:
+                    self._auto_off_unsub = None
+                    if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
+                        self.hass.async_create_task(self.async_turn_off())
+
+                self._auto_off_unsub = async_call_later(self.hass, 60.0, _auto_turn_off_paused)
+
+    def _stray_decoder(self) -> str | None:
+        """Return the decoder this room hears without holding a claim on it.
+
+        A room that is on plays whatever its environment is routed to, whether
+        or not Home Assistant or Music Assistant grouped it: after a restart
+        the group books are empty while the amplifiers stay on, and a wall
+        panel can switch a room onto a decoder's input at any time. Such a
+        room has no decoder assigned, so nothing would ever turn it off when
+        the music stops.
+
+        The input is the one reported on the bus, or else the environment's
+        default source from the options (nothing is reported after a restart).
+        ``None`` when the room is off, is about to be switched off anyway, or
+        listens to an input no decoder is wired to (a tuner, say).
+        """
+        if self._attr_state != MediaPlayerState.ON or self._pending_off_task is not None:
+            return None
+        pool = self._get_pool()
+        if pool is None:
+            return None
+        source_num = self._source_number(self._attr_source) if self._attr_source else None
+        if source_num is None:
+            source_num = self._default_source()
+        if source_num is None:
+            return None
+        return pool.get_decoder_for_source(source_num)
+
+    @callback
+    def _check_stray_at_startup(self) -> None:
+        """Switch a room off that was found on while its decoder is not playing.
+
+        Runs once, on the first status report after the entity is added:
+        there is no "decoder stopped" moment to react to after a restart.
+        Later ON reports (a wall panel, or Home Assistant's own turn-on) are
+        left alone, since the music may be about to start.
+        """
+        decoder_id = self._stray_decoder()
+        if decoder_id is None:
+            return
+        dec_state = self.hass.states.get(self._streaming_target(decoder_id) or decoder_id)
+        if dec_state is not None:
+            self._apply_decoder_state(dec_state.state)
 
     # ── BTicino OWN event handlers ────────────────────────────────────────────
 
@@ -1944,11 +2002,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         elif message.is_on:
             self._cancel_pending_off()  # confirmed on: nothing left to time out
             self._attr_state = MediaPlayerState.ON
+            if not self._status_seen:
+                self._status_seen = True
+                self._check_stray_at_startup()
         elif message.is_off:
             if self._is_wake_echo():
                 # Our own wake sequence's OFF: the ON follows it.
                 LOGGER.debug("%s: ignoring the OFF echo of the wake sequence", self.entity_id)
             else:
+                self._status_seen = True
                 # A real OFF (wall switch or otherwise) makes any pending
                 # group-leave OFF redundant; _async_handle_turn_off below
                 # covers the same cleanup.
