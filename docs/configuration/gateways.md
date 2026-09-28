@@ -397,7 +397,7 @@ $$\Delta = S_{\text{sec}} \setminus S_{\text{pri}}$$
 The integration passively compares the traffic of every pair of gateways that is not configured on the same bus. Due to false positives with external automation platforms, concurrent RX triggers are ignored. The only accepted evidence is a strict **TX-to-RX echo**:
 - Gateway B receives a physical point-to-point frame on the bus that Gateway A transmitted less than 1.5 seconds prior (SHARED_BUS_TX_ECHO_S = 1.5).
 - General lighting (WHERE=0), general automation (WHERE=0), area commands (WHERE starting with # or area codes), and group commands (WHERE=#0) are filtered out to prevent false correlations when automations trigger synchronized broadcast scenes across separate physical buses.
-- Three correlated frames within an evidence window of 5 minutes (SHARED_BUS_EVIDENCE_WINDOW_S = 300.0) raise an actionable **Home Assistant Repair Issue** (shared_bus_detected), alerting you to configure the shared bus relationship. Gateway-local WHO=13/1013 frames are ignored. Configuring the pair on one bus dismisses the issue.
+- Three correlated frames within an evidence window of 10 minutes (SHARED_BUS_EVIDENCE_WINDOW_S = 600.0) raise an actionable **Home Assistant Repair Issue** (shared_bus_detected), alerting you to configure the shared bus relationship. Gateway-local WHO=13/1013 frames are ignored. Configuring the pair on one bus dismisses the issue.
 
 #### Multi-Gateway Logging & Diagnostic Traces
 When commissioning or diagnosing multi-gateway installations, Home Assistant logs every step of the topology evaluation and failover lifecycle.

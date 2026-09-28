@@ -190,7 +190,6 @@ ISSUE_PRIMARY_GATEWAY_MISSING = "primary_gateway_missing"
 # Shared-bus detection. The #453 traces (F454 + MH202 on one bus) put the same
 # physical frame on both event sessions 4-47 ms apart.
 SHARED_BUS_TX_ECHO_S = 1.5
-SHARED_BUS_RX_WINDOW_S = 0.3
 SHARED_BUS_EVIDENCE_COUNT = 3
 SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
 
