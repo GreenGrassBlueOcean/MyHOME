@@ -3360,3 +3360,45 @@ async def test_group_member_is_left_to_its_leader(hass, mock_gateway):
     zone._async_decoder_state_changed(_dec_event("off"))
     await hass.async_block_till_done()
     zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_off_is_not_armed_twice_or_for_a_room_already_off(hass, mock_gateway):
+    """One timer per room; nothing is armed for a room that is off or turning off."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._async_decoder_state_changed(_dec_event("idle"))  # already pending
+        assert len(timers) == 1
+
+        zone._auto_off_unsub = None
+        zone._turning_off = True
+        zone._arm_auto_off(3.0, "media_player.dec1")
+        zone._turning_off = False
+        zone._attr_state = MediaPlayerState.OFF
+        zone._arm_auto_off(3.0, "media_player.dec1")
+        assert len(timers) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_off_timer_does_nothing_if_the_room_went_off_meanwhile(hass, mock_gateway):
+    """A room switched off (or switching off) while the timer runs is not switched off again."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._attr_state = MediaPlayerState.OFF
+        timers[0][1](None)
+
+        zone._attr_state = MediaPlayerState.ON
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._turning_off = True
+        timers[1][1](None)
+        zone._turning_off = False
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
