@@ -2033,8 +2033,17 @@ async def test_error_handling_in_join_and_turn_off(hass, mock_gateway):
 
 
 @pytest.mark.asyncio
-async def test_join_snapshot_replace_semantics(hass, mock_gateway):
-    """Joining with an updated list replaces the group; omitted members are turned off and dropped."""
+async def test_join_players_is_additive_not_a_snapshot(hass, mock_gateway):
+    """Joining a new member keeps every existing one — group_members means "add", not "replace".
+
+    Reported live: adding a third room to an already-playing two-room group
+    silently dropped the second room instead of ending up with three. Music
+    Assistant's HA player only ever calls join with the newly added entities
+    (verified against its source), never the full desired membership, and
+    removes a room with a separate unjoin call — never a smaller
+    group_members list. A snapshot interpretation of group_members breaks on
+    exactly that call shape.
+    """
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.dec1": 1})
     runtime.decoder_pool = pool
@@ -2045,22 +2054,30 @@ async def test_join_snapshot_replace_semantics(hass, mock_gateway):
     z1._attr_source = "Radio"
 
     with patch("asyncio.sleep", return_value=None):
-        # Initial join with both members
-        await z1.async_join_players(["media_player.zone22", "media_player.zone33"])
-        assert pool.get_members("media_player.zone11") == ["media_player.zone22", "media_player.zone33"]
-        assert z2.state == MediaPlayerState.ON
-        assert z3.state == MediaPlayerState.ON
-
-        # Replace group with only z2 (omitting z3)
+        # Start a group with one member.
         await z1.async_join_players(["media_player.zone22"])
         assert pool.get_members("media_player.zone11") == ["media_player.zone22"]
         assert z2.state == MediaPlayerState.ON
-        assert z3.state == MediaPlayerState.OFF
 
-        # Disband group by joining only self
+        # Add a second: zone22 must stay, zone33 must be added — this is the
+        # exact call Music Assistant makes and the exact case that broke.
+        mock_gateway.send.reset_mock()
+        await z1.async_join_players(["media_player.zone33"])
+        assert pool.get_members("media_player.zone11") == ["media_player.zone22", "media_player.zone33"]
+        assert z2.state == MediaPlayerState.ON
+        assert z3.state == MediaPlayerState.ON
+        assert "*16*13*22##" not in _sent(mock_gateway)  # zone22 never touched
+
+        # Joining an already-present member again is a harmless no-op.
+        await z1.async_join_players(["media_player.zone22"])
+        assert pool.get_members("media_player.zone11") == ["media_player.zone22", "media_player.zone33"]
+
+        # Naming only the leader adds nothing and drops nobody (unjoin is the
+        # only way to shrink a group).
         await z1.async_join_players(["media_player.zone11"])
-        assert pool.get_members("media_player.zone11") == []
-        assert z2.state == MediaPlayerState.OFF
+        assert pool.get_members("media_player.zone11") == ["media_player.zone22", "media_player.zone33"]
+        assert z2.state == MediaPlayerState.ON
+        assert z3.state == MediaPlayerState.ON
 
 
 @pytest.mark.asyncio
@@ -2954,37 +2971,27 @@ async def test_group_departure_turns_off_after_the_grace_period(hass, mock_gatew
 
 
 @pytest.mark.asyncio
-async def test_join_snapshot_drop_grants_a_grace_period_too(hass, mock_gateway):
-    """A member dropped by a join snapshot (not unjoin) gets the same grace period."""
+async def test_join_does_not_drop_members_reaching_three(hass, mock_gateway):
+    """A group already at two members accepts a third without dropping either.
+
+    Same scenario reported live: badkamer (leader) + eetkamer already
+    playing, adding keuken must end with all three grouped.
+    """
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.dec1": 1})
     runtime.decoder_pool = pool
     hass.states.async_set("media_player.dec1", "idle")
     leader = _create_test_zone(hass, mock_gateway, runtime, "11", "media_player.zone11")
-    dropped = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
-    _create_test_zone(hass, mock_gateway, runtime, "33", "media_player.zone33")
+    _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.zone22")
+    third = _create_test_zone(hass, mock_gateway, runtime, "33", "media_player.zone33")
     leader._attr_source = "Radio"
 
-    # Sleep is only mocked for the first join, which wakes both amplifiers.
-    # The second join wakes nobody new (zone33 stays, zone22 is dropped via
-    # the grace-period path), so patching sleep there is unnecessary and
-    # would wrongly fast-forward the grace-period task started below.
     with patch("asyncio.sleep", return_value=None):
-        await leader.async_join_players(["media_player.zone22", "media_player.zone33"])
+        await leader.async_join_players(["media_player.zone22"])
+        await leader.async_join_players(["media_player.zone33"])
 
-    mock_gateway.send.reset_mock()
-
-    # Snapshot join that drops zone22 but keeps zone33.
-    await leader.async_join_players(["media_player.zone33"])
-
-    assert "*16*13*22##" not in _sent(mock_gateway)
-    assert dropped._pending_off_task is not None
-    assert dropped.state == MediaPlayerState.ON
-    assert pool.get_members("media_player.zone11") == ["media_player.zone33"]
-
-    # Nothing reclaims zone22 in this test; cancel its real grace timer so it
-    # does not keep sleeping past the test's own teardown.
-    dropped._cancel_pending_off()
+    assert pool.get_members("media_player.zone11") == ["media_player.zone22", "media_player.zone33"]
+    assert third.state == MediaPlayerState.ON
 
 
 @pytest.mark.asyncio
