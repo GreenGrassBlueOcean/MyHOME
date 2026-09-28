@@ -736,4 +736,56 @@ async def test_companion_map_and_streaming_decoder(hass):
     assert pool.decoder_entity_ids == ["media_player.cxn", "media_player.cxn_dlna"]
 
 
+@pytest.mark.asyncio
+async def test_transfer_leadership(hass):
+    """transfer_leadership atomically moves decoder and remaining members to new leader."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+
+    # Set up group with leader and 2 members
+    await pool.claim("media_player.zone1")
+    await pool.set_group("media_player.zone1", {"media_player.zone2": "2", "media_player.zone3": "3"})
+    assert pool.is_leader("media_player.zone1")
+    assert pool.get_members("media_player.zone1") == ["media_player.zone2", "media_player.zone3"]
+
+    # Transfer leadership from zone1 to zone2
+    result = await pool.transfer_leadership("media_player.zone1", "media_player.zone2")
+    assert result == ("media_player.dec", 1)
+    assert not pool.is_leader("media_player.zone1")
+    assert pool.is_leader("media_player.zone2")
+    assert pool.get_members("media_player.zone2") == ["media_player.zone3"]
+    assert pool.get_assignment("media_player.zone2") == "media_player.dec"
+    assert pool.get_assignment("media_player.zone1") is None
+
+    # Invalid transfers
+    assert await pool.transfer_leadership("media_player.not_a_leader", "media_player.zone3") is None
+    assert await pool.transfer_leadership("media_player.zone2", "media_player.stranger") is None
+
+
+@pytest.mark.asyncio
+async def test_claim_idle_states_paused_and_standby(hass):
+    """Decoders in paused or standby states are treated as idle and available for claiming."""
+    pool = DecoderPool(hass, {"media_player.dec_paused": 1, "media_player.dec_standby": 2})
+    hass.states.async_set("media_player.dec_paused", "paused")
+    hass.states.async_set("media_player.dec_standby", "standby")
+
+    claim1 = await pool.claim("media_player.zone1")
+    assert claim1 == ("media_player.dec_paused", 1)
+
+    claim2 = await pool.claim("media_player.zone2")
+    assert claim2 == ("media_player.dec_standby", 2)
+
+
+@pytest.mark.asyncio
+async def test_pre_gain_up_to_100_percent(hass):
+    """pre_gain allows up to 100% (locking source volume at 100% line level for max SNR)."""
+    pool = DecoderPool(
+        hass,
+        decoder_map={"media_player.streamer": 1},
+        pre_gain_map={"media_player.streamer": 100},
+    )
+    assert pool.get_pre_gain("media_player.streamer") == 100
+
+
+
 

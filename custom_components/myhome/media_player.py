@@ -1193,17 +1193,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         runtime = self._runtime_data
         members = pool.get_members(self.entity_id)
         if members:
-            # We are the leader: disband all members
-            await pool.disband_group(self.entity_id)
-            for member_id in members:
-                member_ent = runtime.media_players.get(member_id) if runtime else None
-                if member_ent:
-                    await member_ent._gateway_handler.send(
-                        OWNSoundCommand.turn_off(member_ent._where)
-                    )
-                    member_ent._attr_state = MediaPlayerState.OFF
-                    member_ent.async_write_ha_state()
+            # We are the leader: handover to the first remaining member
+            new_leader_id = members[0]
+            new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
+
+            # Handover leadership and claimed decoder in the pool
+            result = await pool.transfer_leadership(self.entity_id, new_leader_id)
+            if new_leader_ent and result:
+                new_leader_ent._active_decoder = result[0]
+
+            # Turn off this unjoining leader and release its state
+            await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+            self._attr_state = MediaPlayerState.OFF
+            self._active_decoder = None
             self.async_write_ha_state()
+
+            # Update new leader and remaining members
+            if new_leader_ent:
+                new_leader_ent.async_write_ha_state()
+            for mem_id in members[1:]:
+                mem_ent = runtime.media_players.get(mem_id) if runtime else None
+                if mem_ent:
+                    mem_ent.async_write_ha_state()
         else:
             # We are a member: leave our group
             leader_id = pool.get_leader(self.entity_id)
@@ -1215,6 +1226,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 leader_ent = runtime.media_players.get(leader_id) if runtime else None
                 if leader_ent:
                     leader_ent.async_write_ha_state()
+            else:
+                # Standalone player: power off cleanly
+                await self.async_turn_off()
 
     # ── Transport controls ────────────────────────────────────────────────────
 
@@ -1435,14 +1449,27 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 decoder_volume = min(1.0, volume + pre_gain_pct / 100.0)
                 self._syncing_volume = True
                 try:
+                    target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
                     await self.hass.services.async_call(
                         "media_player",
                         "volume_set",
                         {
-                            "entity_id": self._active_decoder,
+                            "entity_id": target_dec,
                             "volume_level": decoder_volume,
                         },
                     )
+                    if target_dec != self._active_decoder:
+                        try:
+                            await self.hass.services.async_call(
+                                "media_player",
+                                "volume_set",
+                                {
+                                    "entity_id": self._active_decoder,
+                                    "volume_level": decoder_volume,
+                                },
+                            )
+                        except Exception:
+                            pass
                 finally:
                     self._syncing_volume = False
 
@@ -1467,13 +1494,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         # Propagate mute to decoder if it supports the attribute
         if self._active_decoder:
-            dec_state = self.hass.states.get(self._active_decoder)
+            target_dec = self._streaming_target(self._active_decoder) or self._active_decoder
+            dec_state = self.hass.states.get(target_dec)
             if dec_state and dec_state.attributes.get("is_volume_muted") is not None:
                 try:
                     await self.hass.services.async_call(
                         "media_player",
                         "volume_mute",
-                        {"entity_id": self._active_decoder, "is_volume_muted": mute},
+                        {"entity_id": target_dec, "is_volume_muted": mute},
                     )
                 except Exception:  # pylint: disable=broad-except
                     pass  # Not all decoders support mute; volume=0 covers the rest

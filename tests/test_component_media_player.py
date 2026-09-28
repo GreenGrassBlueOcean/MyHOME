@@ -1353,7 +1353,7 @@ async def test_unjoin_player_member(hass, mock_gateway):
 
 @pytest.mark.asyncio
 async def test_unjoin_player_leader_disbands(hass, mock_gateway):
-    """Leader unjoining disbands the group and turns off all members."""
+    """Leader unjoining transfers leadership to the next member and leaves remaining members playing."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.dec": 2})
     runtime.decoder_pool = pool
@@ -1372,13 +1372,21 @@ async def test_unjoin_player_leader_disbands(hass, mock_gateway):
     await z22.async_unjoin_player()
 
     sent_frames = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
-    assert any("23##" in f for f in sent_frames)
-    assert any("35##" in f for f in sent_frames)
-    assert z23.state == MediaPlayerState.OFF
-    assert z35.state == MediaPlayerState.OFF
+    # Leader turns off its own amplifier
+    assert any("22##" in f for f in sent_frames)
+    # Remaining members are NOT turned off
+    assert not any("23##" in f for f in sent_frames)
+    assert not any("35##" in f for f in sent_frames)
+    assert z22.state == MediaPlayerState.OFF
     assert z22.group_members is None
-    assert z23.group_members is None
-    assert z35.group_members is None
+    # Leadership transferred to z23
+    assert pool.is_leader("media_player.audio_zone_23")
+    assert pool.get_members("media_player.audio_zone_23") == ["media_player.audio_zone_35"]
+    assert z23.group_members == ["media_player.audio_zone_23", "media_player.audio_zone_35"]
+    assert z35.group_members == ["media_player.audio_zone_23", "media_player.audio_zone_35"]
+    assert z23._active_decoder == "media_player.dec"
+    assert pool.get_assignment("media_player.audio_zone_23") == "media_player.dec"
+    assert pool.get_assignment("media_player.audio_zone_22") is None
 
 
 @pytest.mark.asyncio
