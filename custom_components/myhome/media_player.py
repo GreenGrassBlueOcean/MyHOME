@@ -89,6 +89,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
+from homeassistant.helpers.storage import Store
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
 
 from .const import (
@@ -108,7 +109,12 @@ from .const import (
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData, get_runtime_data
 from .decoder_companion import async_find_streaming_companion
-from .decoder_pool import DecoderPool, EnvironmentBusyError
+from .decoder_pool import (
+    DECODER_PLAYING_STATES,
+    DecoderPool,
+    EnvironmentBusyError,
+    audio_group_store,
+)
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery
 from .myhome_device import MyHOMEEntity
 from .repairs import (
@@ -133,14 +139,14 @@ _WAKE_ECHO_WINDOW = 3.0  # seconds
 _AUTO_OFF_IDLE_DELAY = 3.0  # seconds
 _AUTO_OFF_PAUSED_DELAY = 60.0  # seconds
 
-# Decoder states that mean music is coming out, or about to: a track change
-# or a Spotify Connect handshake passes through "buffering".
-_DECODER_PLAYING_STATES = frozenset({
-    MediaPlayerState.PLAYING,
-    MediaPlayerState.BUFFERING,
-    "playing",
-    "buffering",
-})
+_DECODER_PLAYING_STATES = DECODER_PLAYING_STATES
+
+# After a restart the decoder claims of the previous run are kept as candidates
+# until the amplifiers have answered the status request and the decoder has
+# reported its state. The decoder's own integration may come up long after the
+# gateway does, so this is generous; a candidate that is still unconfirmed when
+# it runs out is dropped.
+_RESTORE_WINDOW = 300.0  # seconds
 
 # Integrations that cannot play a stream URL, and the media types they do take.
 # ``cambridge_audio`` (StreamMagic) accepts presets, Airable and internet radio
@@ -163,7 +169,11 @@ _STREAM_INCOMPATIBLE_PLATFORMS: dict[str, frozenset[str]] = {
 _GROUP_LEAVE_GRACE = 5.0  # seconds
 
 
-def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> DecoderPool:
+def _build_pool(
+    hass: HomeAssistant,
+    config_entry: MyHOMEConfigEntry,
+    store: Store[dict[str, Any]] | None = None,
+) -> DecoderPool:
     """Build a :class:`DecoderPool` from the current options entry.
 
     Called both from :func:`async_setup_entry` and from the pool-rebuild
@@ -172,6 +182,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
     Args:
         hass: Home Assistant instance.
         config_entry: The active config entry for this MyHOME gateway.
+        store: Where the pool keeps its claims across restarts, if anywhere.
 
     Returns:
         A fully configured :class:`DecoderPool` (may have zero decoders if
@@ -221,6 +232,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
         pre_gain_map,
         stream_incompatible=stream_incompatible,
         companion_map=companion_map,
+        store=store,
     )
 
 
@@ -233,8 +245,17 @@ async def async_setup_entry(
     runtime = config_entry.runtime_data
 
     # ── Build and store the decoder pool ─────────────────────────────────────
-    pool = _build_pool(hass, config_entry)
+    pool = _build_pool(hass, config_entry, audio_group_store(hass, config_entry.entry_id))
+    await pool.async_load()
     runtime.decoder_pool = pool
+    if pool.has_restorable:
+        # The claims of the previous run wait for the zones' status reports
+        # and the decoder's state (see MyHOMEMediaPlayer._reconcile_restored_groups).
+        @callback
+        def _restore_window_over(_now: Any) -> None:
+            pool.expire_restorable()
+
+        config_entry.async_on_unload(async_call_later(hass, _RESTORE_WINDOW, _restore_window_over))
 
     LOGGER.info(
         "MyHOME media player: decoder pool initialised with %d decoder(s)",
@@ -765,6 +786,31 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         zone = runtime.media_players.get(entity_id) if runtime and entity_id else None
         if zone is not None and zone is not self:
             zone.async_write_ha_state()
+
+    @callback
+    def _reconcile_restored_groups(self, is_on: bool | None = None) -> None:
+        """Settle the claims stored by the previous run and show the ones taken back.
+
+        Runs on every bus report of a zone and every decoder state change
+        until the pool has decided all stored claims. ``is_on`` is what this
+        zone just reported, when the call comes from a report.
+
+        The amplifiers and decoders keep playing across a restart or reload,
+        so the leader gets its decoder back (transport, volume and the
+        anti-hiss auto-off follow it) and every room of the group is
+        republished with its restored ``group_members``.
+        """
+        runtime = self._runtime_data
+        if runtime is None or (pool := runtime.decoder_pool) is None or not pool.has_restorable:
+            return
+        if is_on is not None:
+            pool.note_zone_status(self.entity_id, is_on)
+        for group in pool.reconcile_restored():
+            leader = runtime.media_players.get(group.leader)
+            if leader is not None:
+                leader._active_decoder = group.decoder
+            for zone_id in group.zones:
+                self._write_zone_state(zone_id)
 
     async def _async_power_off_zone(self, zone: MyHOMEMediaPlayer) -> None:
         """Schedule ``zone``'s amplifier off because its group no longer includes it.
@@ -1829,6 +1875,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         triggered by our own ``async_set_volume_level`` to avoid a feedback
         loop.
         """
+        self._reconcile_restored_groups()
         watched = self._active_decoder or self._stray_decoder()
         eff_dec = self._effective_decoder or watched
         if not eff_dec:
@@ -2077,6 +2124,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         elif message.is_on:
             self._cancel_pending_off()  # confirmed on: nothing left to time out
             self._attr_state = MediaPlayerState.ON
+            self._reconcile_restored_groups(True)
             if not self._status_seen:
                 self._status_seen = True
                 self._check_stray_at_startup()
@@ -2091,6 +2139,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 # covers the same cleanup.
                 self._cancel_pending_off()
                 self._attr_state = MediaPlayerState.OFF
+                self._reconcile_restored_groups(False)
                 if not self._turning_off:
                     self.hass.async_create_task(self._async_handle_turn_off(from_bus=True))
 

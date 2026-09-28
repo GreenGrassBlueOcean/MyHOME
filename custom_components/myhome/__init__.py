@@ -26,6 +26,7 @@ from .const import (
     get_ownd_version,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
+from .decoder_pool import audio_group_store
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
 from .migrate import migrate_entry_and_registries, prune_stale_devices
@@ -356,6 +357,7 @@ async def async_remove_config_entry_device(
 async def async_remove_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> None:
     """Flag the secondary/standby gateways a removed primary leaves behind (#453)."""
     async_check_primary_links(hass, removed=entry.entry_id)
+    await audio_group_store(hass, entry.entry_id).async_remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> bool:
@@ -364,6 +366,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> b
 
     runtime = getattr(entry, "runtime_data", None)
     if isinstance(runtime, MyHOMERuntimeData) and runtime.decoder_pool:
+        # A reload is not the music ending: keep the claims for the next run
+        # before releasing them.
+        await runtime.decoder_pool.async_shutdown()
         await runtime.decoder_pool.release_all()
 
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):

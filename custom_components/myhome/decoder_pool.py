@@ -16,6 +16,20 @@ Architecture
   the last available decoder.
 - State-aware: inspects the live HA entity state of each decoder to determine
   whether it is truly idle before claiming.
+- Restart-aware: claims and groups are kept in a :class:`~homeassistant.helpers.storage.Store`
+  and taken back after a restart or reload, but only once the bus and the
+  decoder confirm them (see "Restoring claims" below).
+
+Restoring claims
+----------------
+The amplifiers and the decoders keep playing while Home Assistant restarts, so
+an empty pool would show a leader alone while other rooms still play its
+stream.  The stored claims are therefore kept as *candidates* and turned into
+real claims one at a time, when the evidence is in: every zone of the claim has
+reported ON on the bus, and the decoder is playing.  A zone reporting OFF, a
+decoder that is idle, paused or off, another claim on the same decoder or
+zone, or the restore window running out drops the candidate.  Groups whose
+leader holds no decoder are not kept: nothing tells whether they still exist.
 
 Gain staging (anti-hiss)
 ------------------------
@@ -30,15 +44,36 @@ Typical values
 - Cambridge Audio with Pre-Amp OFF: ``pre_gain = 0`` (already at full line level)
 - Squeezelite / piCorePlayer:       ``pre_gain = 20``
 """
+from __future__ import annotations
+
 import asyncio
 import time
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from homeassistant.components.media_player.const import MediaPlayerState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
-from .const import LOGGER
+from .const import DOMAIN, LOGGER
+
+STORAGE_VERSION = 1
+_SAVE_DELAY = 1.0  # seconds; bursts of joins and leaves are written once
+
+# Decoder states that mean music is coming out, or about to: a track change
+# or a Spotify Connect handshake passes through "buffering".
+DECODER_PLAYING_STATES = frozenset({
+    MediaPlayerState.PLAYING,
+    MediaPlayerState.BUFFERING,
+    "playing",
+    "buffering",
+})
+
+
+def audio_group_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """Return the store that keeps one gateway's decoder claims across restarts."""
+    return Store(hass, STORAGE_VERSION, f"{DOMAIN}.audio_groups_{entry_id}")
 
 
 @dataclass
@@ -57,6 +92,52 @@ class GroupChange:
     """Members of groups that a joining zone used to lead, now disbanded."""
     released: list[str] = field(default_factory=list)
     """Decoders that joining zones held and gave up."""
+
+
+@dataclass(frozen=True)
+class RestoredGroup:
+    """A decoder claim, and the rooms that follow it, taken back after a restart."""
+
+    leader: str
+    decoder: str
+    source: int
+    members: tuple[str, ...] = ()
+    environments: Mapping[str, str] = field(default_factory=dict)
+    """Environment digit per zone, for the zones that have one."""
+
+    @property
+    def zones(self) -> tuple[str, ...]:
+        """The leader followed by its members."""
+        return (self.leader, *self.members)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the JSON form kept in the store."""
+        return {
+            "leader": self.leader,
+            "decoder": self.decoder,
+            "source": self.source,
+            "members": list(self.members),
+            "environments": dict(self.environments),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: object) -> RestoredGroup | None:
+        """Parse one stored claim; ``None`` when it is not shaped like one."""
+        if not isinstance(raw, dict):
+            return None
+        leader, decoder, source = raw.get("leader"), raw.get("decoder"), raw.get("source")
+        members, environments = raw.get("members"), raw.get("environments")
+        if not (
+            isinstance(leader, str)
+            and isinstance(decoder, str)
+            and isinstance(source, int)
+            and isinstance(members, list)
+            and all(isinstance(zone, str) for zone in members)
+            and isinstance(environments, dict)
+            and all(isinstance(zone, str) and isinstance(env, str) for zone, env in environments.items())
+        ):
+            return None
+        return cls(leader, decoder, source, tuple(members), environments)
 
 
 class EnvironmentBusyError(Exception):
@@ -108,6 +189,7 @@ class DecoderPool:
         pre_gain_map: dict[str, int] | None = None,
         stream_incompatible: Collection[str] = (),
         companion_map: Mapping[str, str] | None = None,
+        store: Store[dict[str, Any]] | None = None,
     ) -> None:
         """Initialise the decoder pool.
 
@@ -139,6 +221,9 @@ class DecoderPool:
                 where a hardware decoder (e.g. ``cambridge_audio``) is dynamically
                 bridged to its companion DLNA DMR entity for URL streaming.
 
+            store: Optional store that keeps the claims across restarts.
+                Without one the books live in memory only.
+
         Example::
 
             pool = DecoderPool(
@@ -159,6 +244,182 @@ class DecoderPool:
         self._companion_map: dict[str, str] = dict(companion_map or {})
         self._former_leaders: dict[str, tuple[str, float]] = {}  # member -> (former_leader, monotonic_time)
         self._lock = asyncio.Lock()
+        self._store = store
+        self._persist = store is not None
+        self._save_pending = False
+        self._last_snapshot: dict[str, Any] | None = None  # what the store holds, or will hold
+        self._restorable: list[RestoredGroup] = []  # stored claims awaiting confirmation
+        self._reported: dict[str, bool] = {}  # zone -> ON/OFF as last reported on the bus
+
+    # ── Persistence ───────────────────────────────────────────────────────────
+
+    async def async_load(self) -> None:
+        """Read the claims of the previous run as candidates; the books stay empty.
+
+        Candidates naming a decoder that is no longer configured, or is now
+        wired to another matrix input, are dropped here: the installation has
+        changed since they were written.
+        """
+        if self._store is None:
+            return
+        data = await self._store.async_load()
+        stored = data if isinstance(data, dict) else {}
+        raw_claims = stored.get("claims")
+        self._last_snapshot = {"claims": raw_claims if isinstance(raw_claims, list) else []}
+        for raw in self._last_snapshot["claims"]:
+            claim = RestoredGroup.from_dict(raw)
+            if claim is None:
+                LOGGER.debug("DecoderPool: ignoring a malformed stored claim: %r", raw)
+            elif self._decoder_map.get(claim.decoder) != claim.source:
+                LOGGER.info(
+                    "DecoderPool: not restoring %s on decoder %s: it is no longer wired to input %s",
+                    claim.leader,
+                    claim.decoder,
+                    claim.source,
+                )
+            else:
+                self._restorable.append(claim)
+
+    async def async_shutdown(self) -> None:
+        """Write out unsaved changes and stop persisting.
+
+        Called when the entry unloads, before the books are emptied: removing
+        the zones and releasing the decoders on a reload is not the user
+        ending the music, and must not wipe what the next run restores.
+        """
+        if self._store is not None and self._save_pending:
+            await self._store.async_save(self._snapshot())
+            self._save_pending = False
+        self._persist = False
+
+    def _snapshot(self) -> dict[str, Any]:
+        """Return the claims worth keeping: live ones first, then those still awaiting proof."""
+        claims: list[RestoredGroup] = []
+        for decoder, leader in self._assignments.items():
+            if leader is not None:
+                zones = [leader, *sorted(self._groups.get(leader, ()))]
+                claims.append(
+                    RestoredGroup(
+                        leader,
+                        decoder,
+                        self._decoder_map[decoder],
+                        tuple(zones[1:]),
+                        {zone: self._environments[zone] for zone in zones if zone in self._environments},
+                    )
+                )
+        claims.extend(c for c in self._restorable if self._assignments.get(c.decoder) is None)
+        return {"claims": [claim.as_dict() for claim in claims]}
+
+    def _schedule_save(self) -> None:
+        """Queue a write of the books if they differ from what the store holds."""
+        if self._store is None or not self._persist:
+            return
+        snapshot = self._snapshot()
+        if snapshot == self._last_snapshot:
+            return
+        self._last_snapshot = snapshot
+        self._save_pending = True
+        self._store.async_delay_save(self._data_to_save, _SAVE_DELAY)
+
+    def _data_to_save(self) -> dict[str, Any]:
+        """Return the data of a delayed write, as of the moment it happens."""
+        self._save_pending = False
+        return self._snapshot()
+
+    # ── Restoring claims ──────────────────────────────────────────────────────
+
+    @property
+    def has_restorable(self) -> bool:
+        """Return ``True`` while stored claims still await confirmation."""
+        return bool(self._restorable)
+
+    def note_zone_status(self, zone_entity_id: str, is_on: bool) -> None:
+        """Record what the bus last reported for a zone; call :meth:`reconcile_restored` next."""
+        if self._restorable:
+            self._reported[zone_entity_id] = is_on
+
+    def reconcile_restored(self) -> list[RestoredGroup]:
+        """Take back the stored claims the evidence now supports, and drop the refuted ones.
+
+        A candidate waits while a zone has not reported yet or the decoder
+        has no state, and is decided on the report that completes the evidence.
+
+        Returns:
+            The claims that were just put back into the books, for the caller
+            to reflect on the entities.
+        """
+        restored: list[RestoredGroup] = []
+        for claim in list(self._restorable):
+            reason = self._refutation(claim)
+            if reason is None:
+                if not self._on_all_zones(claim) or self._decoder_playing(claim.decoder) is None:
+                    continue
+                self._adopt(claim)
+                restored.append(claim)
+            else:
+                LOGGER.info(
+                    "DecoderPool: not restoring %s on decoder %s: %s", claim.leader, claim.decoder, reason
+                )
+            self._restorable.remove(claim)
+        self._schedule_save()
+        return restored
+
+    def expire_restorable(self) -> None:
+        """Drop every candidate still waiting: the restore window is over."""
+        for claim in self._restorable:
+            LOGGER.info(
+                "DecoderPool: not restoring %s on decoder %s: no confirmation in time",
+                claim.leader,
+                claim.decoder,
+            )
+        self._restorable.clear()
+        self._reported.clear()
+        self._schedule_save()
+
+    def _on_all_zones(self, claim: RestoredGroup) -> bool:
+        """Return whether every zone of the claim has reported ON."""
+        return all(self._reported.get(zone) for zone in claim.zones)
+
+    def _refutation(self, claim: RestoredGroup) -> str | None:
+        """Return why the evidence rules the claim out, or ``None`` when it does not (yet)."""
+        if any(self._reported.get(zone) is False for zone in claim.zones):
+            return "a zone reported off"
+        if self._on_all_zones(claim) and self._decoder_playing(claim.decoder) is False:
+            return "the decoder is not playing"
+        if self._assignments.get(claim.decoder) is not None or any(
+            self.get_group_members(zone) is not None or self.get_assignment(zone) is not None
+            for zone in claim.zones
+        ):
+            return "the decoder or a zone has been claimed since"
+        for environment in set(claim.environments.values()):
+            if self._environment_owners(environment, claim.zones):
+                return f"environment {environment} streams from another decoder"
+        return None
+
+    def _decoder_playing(self, decoder_id: str) -> bool | None:
+        """Return whether ``decoder_id`` (or its streaming companion) is playing; ``None`` if unknown."""
+        states: list[str | None] = []
+        for entity_id in dict.fromkeys((decoder_id, self.get_streaming_decoder(decoder_id))):
+            state = self._hass.states.get(entity_id)
+            reported = state is not None and state.state not in ("unavailable", "unknown")
+            states.append(state.state if state is not None and reported else None)
+        if any(state in DECODER_PLAYING_STATES for state in states):
+            return True
+        # One entity of a hardware/companion pair may not report yet: that says nothing.
+        return None if None in states else False
+
+    def _adopt(self, claim: RestoredGroup) -> None:
+        """Put a confirmed claim into the books."""
+        self._assignments[claim.decoder] = claim.leader
+        if claim.members:
+            self._groups[claim.leader] = set(claim.members)
+        self._environments.update(claim.environments)
+        LOGGER.info(
+            "DecoderPool: restored %s on decoder %s with members %s",
+            claim.leader,
+            claim.decoder,
+            list(claim.members),
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -319,6 +580,7 @@ class DecoderPool:
                     self._assignments[dec_id] = zone_entity_id
                     if environment is not None:
                         self._environments[zone_entity_id] = environment
+                    self._schedule_save()
                     LOGGER.info(
                         "DecoderPool: %s claimed by zone %s (source %s)",
                         dec_id,
@@ -423,6 +685,7 @@ class DecoderPool:
             else:
                 self._environments[zone] = environment
 
+        self._schedule_save()
         if joining or leaving:
             LOGGER.info(
                 "DecoderPool: group of %s is now %s (decoder %s)",
@@ -496,6 +759,7 @@ class DecoderPool:
                 if not members:
                     self._groups.pop(leader_id, None)
                 self._environments.pop(member_entity_id, None)
+                self._schedule_save()
                 LOGGER.info(
                     "DecoderPool: member %s removed from leader %s",
                     member_entity_id,
@@ -515,6 +779,7 @@ class DecoderPool:
             self._former_leaders[mem] = (leader_entity_id, now)
             self._environments.pop(mem, None)
         if members:
+            self._schedule_save()
             LOGGER.info(
                 "DecoderPool: group of %s disbanded (%d members)",
                 leader_entity_id,
@@ -563,6 +828,7 @@ class DecoderPool:
                 break
 
         self._environments.pop(old_leader, None)
+        self._schedule_save()
         LOGGER.info(
             "DecoderPool: leadership of group transferred from %s to %s (members: %s, decoder: %s)",
             old_leader,
@@ -608,6 +874,7 @@ class DecoderPool:
                 if owner == zone_entity_id:
                     self._assignments[dec_id] = None
                     self._environments.pop(zone_entity_id, None)
+                    self._schedule_save()
                     LOGGER.info(
                         "DecoderPool: %s released by leader %s (group disbanded)",
                         dec_id,
@@ -632,6 +899,7 @@ class DecoderPool:
                 self._assignments[dec_id] = None
             self._groups.clear()
             self._environments.clear()
+            self._schedule_save()
             LOGGER.info("DecoderPool: all assignments released (options reload)")
 
     def get_assignment(self, zone_entity_id: str) -> str | None:
