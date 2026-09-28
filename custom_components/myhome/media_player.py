@@ -1120,10 +1120,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     # ── Multi-room grouping ───────────────────────────────────────────────────
 
     async def async_join_players(self, group_members: list[str]) -> None:
-        """Join multiple sound players into a shared multi-room audio group.
+        """Add players to this zone's group (additive; existing members stay).
 
-        Replaces the group members with the desired group list (snapshot semantics).
-        Any previously grouped member not in ``group_members`` is dropped (amplifier turned off).
+        ``group_members`` is treated as the members to add, not the desired
+        total membership: Music Assistant's own HA player provider calls this
+        with only the newly added entities, and removes a member with a
+        separate ``unjoin`` call rather than a smaller ``group_members`` list
+        (confirmed against its source — see ``set_members`` in
+        ``music_assistant/providers/hass_players/player.py``, upstream). A
+        snapshot interpretation silently dropped every existing member on the
+        next add: adding a third zone to a two-zone group replaced the second
+        zone instead of joining the third.
+
         Any newly specified member is validated, routed to the leader's source
         (once matrix routing is configured), and turned on. All members are
         validated before any of them is touched.
@@ -1159,7 +1167,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
 
-        desired_members = {m for m in group_members if m != self.entity_id}
+        # Additive: keep every current member, add the newly requested ones.
+        # See the docstring for why — dropping to a snapshot of just
+        # group_members is exactly the bug this guards against.
+        current_members = set(pool.get_members(self.entity_id))
+        desired_members = current_members | {m for m in group_members if m != self.entity_id}
 
         for member_id in desired_members:
             if member_id not in runtime.media_players:
@@ -1222,8 +1234,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         for member_id in change.joined:
             runtime.media_players[member_id]._active_decoder = None
 
-        # Rooms that left, and rooms of groups a joining zone used to lead,
-        # would keep listening to a stream nobody controls any more.
+        # change.left is always empty via this additive call (desired_members
+        # is a superset of current_members); kept for symmetry with
+        # set_group's general contract. Rooms of a group a joining zone used
+        # to lead (change.orphaned) would keep listening to a stream nobody
+        # controls any more.
         for zone_id in [*change.left, *change.orphaned]:
             zone_ent = runtime.media_players.get(zone_id)
             if zone_ent:
