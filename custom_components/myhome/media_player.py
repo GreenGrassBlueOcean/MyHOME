@@ -128,6 +128,20 @@ PARALLEL_UPDATES = 0
 # arrives this soon after a wake is our own and must not tear the zone down.
 _WAKE_ECHO_WINDOW = 3.0  # seconds
 
+# Anti-hiss auto-off: how long a room stays on after the decoder it hears
+# stops (idle, standby or off) or pauses.
+_AUTO_OFF_IDLE_DELAY = 3.0  # seconds
+_AUTO_OFF_PAUSED_DELAY = 60.0  # seconds
+
+# Decoder states that mean music is coming out, or about to: a track change
+# or a Spotify Connect handshake passes through "buffering".
+_DECODER_PLAYING_STATES = frozenset({
+    MediaPlayerState.PLAYING,
+    MediaPlayerState.BUFFERING,
+    "playing",
+    "buffering",
+})
+
 # Integrations that cannot play a stream URL, and the media types they do take.
 # ``cambridge_audio`` (StreamMagic) accepts presets, Airable and internet radio
 # only; a Music Assistant stream is refused with ``unsupported_media_type``.
@@ -472,6 +486,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
+        self._auto_off_key: tuple[float, str | None] | None = None  # (delay, decoder) of that timer
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
         self._pending_off_task: asyncio.Task[None] | None = None  # grace-period group-leave OFF
         self._status_seen: bool = False  # first bus status report received since being added
@@ -853,11 +868,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
         )
 
-        # Ask the bus whether this amplifier is on. Gateway profiles that skip
-        # the collective WHO=16 status request (the MH200's, for one) would
-        # otherwise leave every room looking off after a restart, whatever the
-        # amplifier is doing.
-        await self.async_update()
+        # Ask the bus whether this amplifier is on when the startup sweep will
+        # not: profiles that skip the collective WHO=16 status request (the
+        # MH200's) would otherwise leave every room looking off after a
+        # restart, whatever the amplifier is doing. Gateways that do send it
+        # get one frame for all zones instead of one per zone.
+        if not self._gateway_handler.profile_supports_who(16):
+            await self.async_update()
 
     @callback
     def _track_decoders(self) -> None:
@@ -1856,38 +1873,57 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Arm or cancel the anti-hiss auto-off for a decoder state this zone hears.
 
         ``decoder_id`` is the decoder being heard. A timer only switches the
-        room off if it still hears it when the timer fires: the input can be
-        changed at a wall panel, or the room put to work in a group, while the
-        timer runs.
+        room off if the room still hears that decoder when the timer fires:
+        the input can be changed at a wall panel, or the room given a decoder
+        of its own, while the timer runs.
+
+        A decoder that goes ``off`` gets the short timer rather than an
+        immediate OFF: decoder integrations report ``off`` while reloading or
+        reconnecting, and a decoder that comes back playing within the delay
+        should not have taken every room down with it. ``unavailable`` and
+        ``unknown`` say nothing about playback and are ignored.
         """
-        if new_state_val == MediaPlayerState.PLAYING:
-            if self._auto_off_unsub:
-                self._auto_off_unsub()
-                self._auto_off_unsub = None
+        if new_state_val in _DECODER_PLAYING_STATES:
+            self._cancel_auto_off()
         elif new_state_val in (MediaPlayerState.OFF, "off"):
-            if self._auto_off_unsub:
-                self._auto_off_unsub()
-                self._auto_off_unsub = None
-            if self._attr_state != MediaPlayerState.OFF and not self._turning_off:
-                self.hass.async_create_task(self.async_turn_off())
+            self._arm_auto_off(_AUTO_OFF_IDLE_DELAY, decoder_id)
         elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
-            self._arm_auto_off(3.0, decoder_id)
+            self._arm_auto_off(_AUTO_OFF_IDLE_DELAY, decoder_id)
         elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
-            self._arm_auto_off(60.0, decoder_id)
+            self._arm_auto_off(_AUTO_OFF_PAUSED_DELAY, decoder_id)
+
+    @callback
+    def _cancel_auto_off(self) -> None:
+        """Drop a pending anti-hiss auto-off: the music is (about to be) playing."""
+        if self._auto_off_unsub:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
 
     @callback
     def _arm_auto_off(self, delay: float, decoder_id: str | None) -> None:
-        """Switch this room off in ``delay`` seconds unless the music resumes first."""
-        if self._attr_state == MediaPlayerState.OFF or self._turning_off or self._auto_off_unsub:
+        """Switch this room off in ``delay`` seconds unless the music resumes first.
+
+        A timer already running for the same decoder and delay is kept, so
+        repeated state reports do not push the deadline back. One for another
+        decoder (the room was moved to another input) or another delay (a
+        pause turned into a stop, or the other way round) is replaced.
+        """
+        if self._attr_state == MediaPlayerState.OFF or self._turning_off:
             return
+        key = (delay, decoder_id)
+        if self._auto_off_unsub:
+            if self._auto_off_key == key:
+                return
+            self._cancel_auto_off()
+        self._auto_off_key = key
 
         @callback
         def _auto_turn_off(_now: Any) -> None:
             self._auto_off_unsub = None
             if self._attr_state == MediaPlayerState.OFF or self._turning_off:
                 return
-            if self._active_decoder is None and self._stray_decoder() != decoder_id:
-                return  # re-routed, grouped or otherwise put to work meanwhile
+            if (self._active_decoder or self._stray_decoder()) != decoder_id:
+                return  # re-routed, grouped or given a decoder of its own meanwhile
             self.hass.async_create_task(self.async_turn_off())
 
         self._auto_off_unsub = async_call_later(self.hass, delay, _auto_turn_off)
@@ -1943,7 +1979,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             if (state := self.hass.states.get(entity_id)) is not None
             and state.state not in ("unavailable", "unknown")
         }
-        if not states or MediaPlayerState.PLAYING in states or "buffering" in states:
+        if not states or states & _DECODER_PLAYING_STATES:
             return
         for candidate in (MediaPlayerState.PAUSED, MediaPlayerState.IDLE, MediaPlayerState.STANDBY, MediaPlayerState.OFF):
             if candidate in states:
