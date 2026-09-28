@@ -60,6 +60,20 @@
           "port": "Poort / baudrate",
           "password": "Wachtwoord"
         }
+      },
+      "bus_topology": {
+        "title": "Zit deze {name} op dezelfde bus als een andere gateway?",
+        "description": "Er is al een andere MyHOME-gateway geconfigureerd. Als deze {name} op dezelfde SCS-bus is aangesloten, voeg hem dan nu toe als secundaire of stand-by van die gateway: zelfstandig ingesteld zou hij elk apparaat dat de andere gateway al heeft nog een keer ontdekken. Je kunt dit later wijzigen in de opties van de gateway.",
+        "data": {
+          "bus_topology": "Bustopologie",
+          "primary_gateway": "Primaire gateway (alleen bij dezelfde bus)",
+          "gateway_role": "Rol van deze gateway (alleen bij dezelfde bus)",
+          "delegated_whos": "Gedelegeerde subsystemen (alleen secundair)"
+        },
+        "data_description": {
+          "gateway_role": "Voorgesteld op basis van de mogelijkheden van beide gateways: secundair als deze gateway subsystemen ondersteunt die de primaire mist, anders stand-by.",
+          "delegated_whos": "Subsystemen waarvan deze gateway nieuwe apparaten detecteert. Apparaten die de primaire gateway al heeft, blijven bij de primaire."
+        }
       }
     },
     "error": {
@@ -68,7 +82,9 @@
       "invalid_mac": "Ongeldig MAC address",
       "invalid_password": "Ongeldig wachtwoord",
       "password_retry": "Gateway refusing password negotiation, wait 60s before retrying.",
-      "password_error": "Ongeldig wachtwoord"
+      "password_error": "Ongeldig wachtwoord",
+      "primary_gateway_required": "Voor de rollen secundair en stand-by op een gedeelde bus moet een primaire gateway worden gekozen.",
+      "primary_gateway_not_found": "De gekozen primaire gateway is niet gevonden."
     },
     "abort": {
       "discover_timeout": "Geen MyHome gateway gevonden",

@@ -3,12 +3,15 @@ import asyncio
 import ipaddress
 import re
 import typing
+from types import SimpleNamespace
 from typing import Dict, Optional
 
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_IGNORE,
     ConfigEntry,
     ConfigFlow,
+    ConfigFlowResult,
     OptionsFlowWithReload,
 )
 from homeassistant.const import (
@@ -77,7 +80,10 @@ from .const import (
 from .decoder_companion import async_get_excluded_decoders
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .topology import (
+    entry_for_mac,
+    entry_is_follower,
     entry_mac,
+    recommend_follower,
     validate_shared_bus_topology,
 )
 
@@ -122,6 +128,8 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         self.gateway_handler: Optional[OWNGateway] = None
         self.discovered_gateways: Optional[Dict[str, dict[str, typing.Any]]] = None
         self._existing_entry: ConfigEntry | None = None
+        # (title, data, options) of an entry held back by the bus topology step
+        self._pending_entry: tuple[str, dict[str, typing.Any], dict[str, typing.Any]] | None = None
 
     async def async_step_user(self, user_input=None):  # type: ignore
         """Handle a flow initialized by the user."""
@@ -454,6 +462,10 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_WORKER_COUNT: 1,
             }
 
+            if self._bus_primaries():
+                self._pending_entry = (f"{gateway.model_name} Gateway", _new_entry_data, _new_entry_options)
+                return await self.async_step_bus_topology()
+
             return self.async_create_entry(
                 title=f"{gateway.model_name} Gateway",
                 data=_new_entry_data,
@@ -467,6 +479,128 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_password(errors=errors)  # type: ignore
             else:
                 return self.async_abort(reason=test_result["Message"])
+
+    def _bus_primaries(self) -> list[ConfigEntry]:
+        """Configured gateways a new one could share an SCS bus with.
+
+        IP gateways that are not followers themselves; a USB / serial gateway
+        is not on an SCS bus.
+        """
+        return [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.source != SOURCE_IGNORE
+            and entry.data.get("transport_type") != "serial"
+            and not entry_is_follower(entry)
+        ]
+
+    async def async_step_bus_topology(self, user_input: dict[str, typing.Any] | None = None) -> ConfigFlowResult:
+        """Ask whether the new gateway shares its SCS bus with a configured one (#524).
+
+        Asked before the entry exists: a gateway set up as a standalone primary
+        sweeps and discovers the whole bus at once, duplicating every device
+        the other gateway already has. Joining as that gateway's secondary or
+        standby from the start avoids it.
+        """
+        assert self._pending_entry is not None
+        title, data, options = self._pending_entry
+        primaries = self._bus_primaries()
+        pending = SimpleNamespace(entry_id=None, data=data, options={}, unique_id=data[CONF_MAC], title=title)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if user_input.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_SHARED:
+                return self.async_create_entry(
+                    title=title, data=data, options={**options, CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE}
+                )
+
+            primary_mac = dr.format_mac(str(user_input.get(CONF_PRIMARY_GATEWAY) or ""))
+            primary = entry_for_mac(self.hass, primary_mac) if primary_mac else None
+            role = user_input.get(CONF_GATEWAY_ROLE, ROLE_SECONDARY)
+            follower_options = {
+                **options,
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: role,
+                CONF_PRIMARY_GATEWAY: primary_mac,
+            }
+            if role == ROLE_SECONDARY:
+                follower_options[CONF_DELEGATED_WHOS] = sorted(
+                    int(w) for w in user_input.get(CONF_DELEGATED_WHOS, []) if str(w).isdigit()
+                )
+            # A standalone gateway becomes the shared bus's primary.
+            primary_options = dict(primary.options) if primary is not None else {}
+            primary_options.update({CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY})
+            primary_options.pop(CONF_PRIMARY_GATEWAY, None)
+            primary_options.pop(CONF_DELEGATED_WHOS, None)
+
+            errors = validate_shared_bus_topology(
+                self.hass, pending, follower_options, target_primary_options=primary_options
+            )
+            if not errors and primary is not None:
+                if primary_options != dict(primary.options):
+                    self.hass.config_entries.async_update_entry(primary, options=primary_options)
+                from .repairs import async_delete_shared_bus_issue
+
+                async_delete_shared_bus_issue(self.hass, data[CONF_MAC], primary_mac)
+                return self.async_create_entry(title=title, data=data, options=follower_options)
+
+        if not primaries:  # the other gateway was removed while the form was open
+            return self.async_create_entry(title=title, data=data, options=options)
+
+        gw_options = [
+            selector.SelectOptionDict(value=str(entry_mac(e)), label=f"{e.title} ({e.data.get(CONF_HOST)})")
+            for e in primaries
+        ]
+        suggested_primary = (user_input or {}).get(CONF_PRIMARY_GATEWAY) or gw_options[0]["value"]
+        role, delegated = ROLE_STANDBY, set[int]()
+        if (suggested_entry := entry_for_mac(self.hass, dr.format_mac(str(suggested_primary)))) is not None:
+            role, delegated = recommend_follower(suggested_entry, pending)
+
+        return self.async_show_form(
+            step_id="bus_topology",
+            data_schema=Schema(
+                {
+                    Required(
+                        CONF_BUS_TOPOLOGY, default=(user_input or {}).get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
+                            mode=selector.SelectSelectorMode.LIST,
+                            translation_key=CONF_BUS_TOPOLOGY,
+                        )
+                    ),
+                    Required(CONF_PRIMARY_GATEWAY, default=suggested_primary): selector.SelectSelector(
+                        selector.SelectSelectorConfig(options=gw_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                    ),
+                    Required(
+                        CONF_GATEWAY_ROLE, default=(user_input or {}).get(CONF_GATEWAY_ROLE, role)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[ROLE_SECONDARY, ROLE_STANDBY],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key=CONF_GATEWAY_ROLE,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_DELEGATED_WHOS,
+                        description={
+                            "suggested_value": (user_input or {}).get(
+                                CONF_DELEGATED_WHOS, [str(w) for w in sorted(delegated)]
+                            )
+                        },
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key=CONF_DELEGATED_WHOS,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={CONF_NAME: str(data.get(CONF_NAME) or "gateway")},
+            errors=errors,
+        )
 
     async def async_step_port(self, user_input=None, errors=None):  # type: ignore
         """Port information for the gateway is missing.

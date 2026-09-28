@@ -60,6 +60,20 @@
           "port": "Port / Baudrate",
           "password": "Password"
         }
+      },
+      "bus_topology": {
+        "title": "Is this {name} on the same bus as another gateway?",
+        "description": "Another MyHOME gateway is already configured. If this {name} is connected to the same SCS bus, add it as that gateway's secondary or warm standby now: set up on its own, it would discover every device the other gateway already has a second time. You can change this later in the gateway's options.",
+        "data": {
+          "bus_topology": "Bus topology",
+          "primary_gateway": "Primary gateway (same bus only)",
+          "gateway_role": "Role of this gateway (same bus only)",
+          "delegated_whos": "Delegated subsystems (secondary only)"
+        },
+        "data_description": {
+          "gateway_role": "Suggested from the capabilities of both gateways: secondary when this gateway supports subsystems the primary lacks, otherwise warm standby.",
+          "delegated_whos": "Subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary."
+        }
       }
     },
     "error": {
@@ -68,7 +82,12 @@
       "invalid_mac": "Invalid MAC address",
       "invalid_password": "Invalid password",
       "password_retry": "Gateway refusing password negotiation, wait 60s before retrying.",
-      "password_error": "Invalid password"
+      "password_error": "Invalid password",
+      "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
+      "primary_gateway_not_found": "The selected primary gateway could not be found.",
+      "overlapping_delegated_whos": "One or more of the selected WHOs are already delegated to another secondary gateway on this bus.",
+      "who_not_supported_by_gateway": "One or more of the selected WHOs are not supported by this gateway model's profile.",
+      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary."
     },
     "abort": {
       "discover_timeout": "Unable to discover MyHome gateways",

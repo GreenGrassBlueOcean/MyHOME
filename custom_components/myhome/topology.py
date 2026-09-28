@@ -98,6 +98,39 @@ def gateway_supported_whos(model: str | None) -> set[int]:
     return {w for w in whos if w in {1, 2, 4, 5, 9, 15, 16, 18, 22, 25}}
 
 
+def _follower_delegation(pri_whos: set[int], sec_whos: set[int]) -> tuple[str, set[int], bool]:
+    """Role, delegated WHOs and audio coupling of a follower next to a primary.
+
+    The follower takes the subsystems the primary lacks; when that includes
+    sound (WHO 16 or 22) it takes both, so audio stays on one gateway. With
+    nothing to delegate it is a warm standby.
+    """
+    delta = sec_whos - pri_whos
+    audio_coupled = False
+    if (22 in delta or 16 in delta) and (16 in sec_whos or 22 in sec_whos):
+        if 16 in sec_whos and 16 not in delta:
+            delta.add(16)
+            audio_coupled = True
+        if 22 in sec_whos and 22 not in delta:
+            delta.add(22)
+            audio_coupled = True
+    if not delta:
+        return ROLE_STANDBY, set(), False
+    return ROLE_SECONDARY, delta, audio_coupled
+
+
+def recommend_follower(primary: Any, follower: Any) -> tuple[str, set[int]]:
+    """Role and delegated WHOs for ``follower`` joining the bus of an existing ``primary``.
+
+    Unlike :func:`infer_shared_bus_topology` the primary is fixed: a gateway
+    added next to one that already owns the bus's devices joins as its follower.
+    """
+    role, delegated, _ = _follower_delegation(
+        gateway_supported_whos(entry_model(primary)), gateway_supported_whos(entry_model(follower))
+    )
+    return role, delegated
+
+
 def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology:
     """Infer optimal primary/secondary role and delegated WHOs for a gateway pair on a shared bus."""
     mac_a = entry_mac(entry_a) or ""
@@ -145,29 +178,16 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
         pri_model, sec_model = model_b or "Gateway B", model_a or "Gateway A"
         selection_reason = "Equal tier and WHO count; deterministic MAC sort"
 
-    # Compute capability delta: subsystems supported by secondary that primary lacks
+    # Capability delta: subsystems supported by the follower that the primary lacks
     raw_delta = sec_whos - pri_whos
-    delta = set(raw_delta)
-    audio_coupled = False
-    # If secondary supports Audio Diffusion (WHO 22) or Audio (WHO 16), keep audio coupled
-    if (22 in delta or 16 in delta) and (16 in sec_whos or 22 in sec_whos):
-        if 16 in sec_whos and 16 not in delta:
-            delta.add(16)
-            audio_coupled = True
-        if 22 in sec_whos and 22 not in delta:
-            delta.add(22)
-            audio_coupled = True
+    role, delegated, audio_coupled = _follower_delegation(pri_whos, sec_whos)
 
-    if not delta:
-        role = ROLE_STANDBY
-        delegated: set[int] = set()
+    if not delegated:
         rationale = (
             f"{pri_model} (Tier {gateway_tier(pri_model)}) selected as Primary ({selection_reason}). "
             f"{sec_model} (Tier {gateway_tier(sec_model)}) capabilities are fully covered by Primary; configured as Warm Standby for failover."
         )
     else:
-        role = ROLE_SECONDARY
-        delegated = delta
         subsystems_str = ", ".join(f"WHO {w}" for w in sorted(delegated))
         coupling_note = " (Audio coupled)" if audio_coupled else ""
         rationale = (
@@ -186,7 +206,7 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
         sorted(sec_whos),
         pri_model,
         selection_reason,
-        sorted(delta),
+        sorted(delegated),
         audio_coupled,
     )
     _LOGGER.info(

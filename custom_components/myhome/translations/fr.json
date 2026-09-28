@@ -60,6 +60,20 @@
           "port": "Port / débit en bauds",
           "password": "Mot de passe"
         }
+      },
+      "bus_topology": {
+        "title": "Cette passerelle {name} est-elle sur le même bus qu'une autre ?",
+        "description": "Une autre passerelle MyHOME est déjà configurée. Si cette passerelle {name} est raccordée au même bus SCS, ajoutez-la maintenant comme passerelle secondaire ou de secours de celle-ci : configurée seule, elle découvrirait une seconde fois chaque appareil que l'autre passerelle possède déjà. Vous pourrez modifier ce choix plus tard dans les options de la passerelle.",
+        "data": {
+          "bus_topology": "Topologie du bus",
+          "primary_gateway": "Passerelle principale (même bus uniquement)",
+          "gateway_role": "Rôle de cette passerelle (même bus uniquement)",
+          "delegated_whos": "Sous-systèmes délégués (secondaire uniquement)"
+        },
+        "data_description": {
+          "gateway_role": "Proposé d'après les capacités des deux passerelles : secondaire si cette passerelle prend en charge des sous-systèmes absents de la principale, sinon secours.",
+          "delegated_whos": "Sous-systèmes dont cette passerelle découvre les nouveaux appareils. Les appareils que la principale possède déjà restent sur la principale."
+        }
       }
     },
     "error": {
@@ -68,7 +82,9 @@
       "invalid_mac": "Adresse MAC invalide",
       "invalid_password": "Mot de passe invalide",
       "password_retry": "Le serveur refuse la négociation, attendez 60s avant de réessayer.",
-      "password_error": "Mot de passe invalide"
+      "password_error": "Mot de passe invalide",
+      "primary_gateway_required": "Une passerelle principale doit être sélectionnée pour les rôles secondaire ou de secours sur un bus partagé.",
+      "primary_gateway_not_found": "La passerelle principale sélectionnée est introuvable."
     },
     "abort": {
       "discover_timeout": "Impossible de découvrir des serveurs MyHome",
