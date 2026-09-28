@@ -3256,3 +3256,107 @@ async def test_stray_room_ignores_attribute_only_updates_of_an_idle_decoder(hass
         zone._async_decoder_state_changed(pause)
         assert [delay for delay, _ in timers] == [3.0, 60.0]
     zone.async_turn_off.assert_not_called()
+
+
+# ── Stray rooms: audit follow-ups ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_zone_asks_the_bus_for_its_own_status_when_added(hass, mock_gateway):
+    """Profiles without the collective WHO=16 query (MH200) would leave every room 'off'."""
+    zone = _stray_setup(hass, mock_gateway)
+    mock_gateway.send_status_request.reset_mock()
+
+    await zone.async_added_to_hass()
+
+    mock_gateway.send_status_request.assert_called_once()
+    assert str(mock_gateway.send_status_request.call_args.args[0]) == "*#16*23*5##"
+
+
+@pytest.mark.asyncio
+async def test_decoder_reporting_late_is_followed_by_its_state_change(hass, mock_gateway):
+    """The status reply can beat the decoder's first state: unavailable -> idle still arms it."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    _on_report(zone)  # no decoder state yet: nothing to decide
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(
+            MagicMock(
+                data={
+                    "entity_id": "media_player.dec1",
+                    "old_state": State("media_player.dec1", "unavailable"),
+                    "new_state": State("media_player.dec1", "idle"),
+                }
+            )
+        )
+    assert [delay for delay, _ in timers] == [3.0]
+
+
+@pytest.mark.asyncio
+async def test_pending_auto_off_is_dropped_when_the_room_moves_to_another_input(hass, mock_gateway):
+    """A pause starts a 60 s timer; switching the room to the tuner meanwhile cancels its effect."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("paused"))
+        assert [delay for delay, _ in timers] == [60.0]
+        zone._attr_source = "Radio"  # a wall panel routed the room to source 1
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pending_auto_off_is_cancelled_when_the_room_joins_a_group(hass, mock_gateway):
+    """Waking a room (join, play_media, turn_on) drops an auto-off timer from before."""
+    zone = _stray_setup(hass, mock_gateway)
+    unsub = MagicMock()
+    zone._auto_off_unsub = unsub
+
+    with patch("asyncio.sleep", return_value=None):
+        await zone._async_wake_zone()
+
+    unsub.assert_called_once()
+    assert zone._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_startup_check_treats_a_playing_companion_as_playing(hass, mock_gateway):
+    """Cambridge playing Spotify Connect natively: hardware entity playing, DLNA companion idle."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    zone._companion_cache = {"media_player.dec1": "media_player.dec1_dlna"}
+    hass.states.async_set("media_player.dec1", "playing")
+    hass.states.async_set("media_player.dec1_dlna", "idle")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+    assert timers == []
+
+    # Both quiet: paused outranks idle, so the longer timer wins.
+    zone._status_seen = False
+    hass.states.async_set("media_player.dec1", "idle")
+    hass.states.async_set("media_player.dec1_dlna", "paused")
+    with patcher:
+        _on_report(zone)
+    assert [delay for delay, _ in timers] == [60.0]
+
+
+@pytest.mark.asyncio
+async def test_group_member_is_left_to_its_leader(hass, mock_gateway):
+    """A member goes off with its leader; it does not run a timer of its own."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    pool = zone._get_pool()
+    leader = _create_test_zone(hass, mock_gateway, zone._runtime_data, "36", "media_player.zone36")
+    await pool.claim(leader.entity_id)
+    await pool.add_member(leader.entity_id, zone.entity_id)
+    assert zone._stray_decoder() is None
+
+    zone._async_decoder_state_changed(_dec_event("off"))
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
