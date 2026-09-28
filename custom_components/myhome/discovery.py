@@ -33,6 +33,7 @@ from typing import Any, cast
 
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import Entity
@@ -159,6 +160,50 @@ class KnownDevices:
 
     def __len__(self) -> int:
         return len(self._keys)
+
+
+#: Buttons button.py hangs off an actuator, as suffixes of the actuator's unique id.
+COMPANION_SUFFIXES = ("-disable", "-enable", "-calibrate")
+#: Platforms whose entities get those buttons.
+ACTUATOR_DOMAINS = ("light", "switch", "cover")
+
+
+@callback
+def prune_entity(hass: HomeAssistant, registry: er.EntityRegistry, entry: er.RegistryEntry, config_entry_id: str) -> None:
+    """Remove an entity with its lock / unlock / calibrate buttons, and its device once empty (#524).
+
+    Removing only the entity would leave its buttons behind as orphans ("no
+    longer provided") on a device without its actuator.
+    """
+    registry.async_remove(entry.entity_id)
+    for suffix in COMPANION_SUFFIXES:
+        button = registry.async_get_entity_id("button", DOMAIN, f"{entry.unique_id}{suffix}")
+        if button is not None:
+            registry.async_remove(button)
+    if entry.device_id and not er.async_entries_for_device(registry, entry.device_id, include_disabled_entities=True):
+        dr.async_get(hass).async_update_device(entry.device_id, remove_config_entry_id=config_entry_id)
+
+
+@callback
+def prune_orphaned_companions(hass: HomeAssistant, config_entry_id: str, own_mac: str, primary_mac: str) -> None:
+    """Remove a follower's buttons whose actuator was pruned in favour of the primary (#524).
+
+    Earlier versions removed only the actuator, leaving its buttons and device
+    behind. A button counts as orphaned when this gateway no longer has its
+    actuator and the primary does; buttons of an actuator the user deleted are
+    left alone.
+    """
+    registry = er.async_get(hass)
+    for entry in er.async_entries_for_config_entry(registry, config_entry_id):
+        if entry.domain != "button" or not entry.unique_id.endswith(COMPANION_SUFFIXES):
+            continue
+        actuator = entry.unique_id.rsplit("-", 1)[0]
+        peer = peer_unique_id(actuator, own_mac, primary_mac)
+        if peer is None or any(registry.async_get_entity_id(d, DOMAIN, actuator) for d in ACTUATOR_DOMAINS):
+            continue
+        if any(registry.async_get_entity_id(d, DOMAIN, peer) for d in ACTUATOR_DOMAINS):
+            LOGGER.info("Pruned orphaned button %s: its actuator lives on primary gateway %s", entry.entity_id, primary_mac)
+            prune_entity(hass, registry, entry, config_entry_id)
 
 
 @callback
@@ -377,7 +422,7 @@ class PlatformDiscovery:
                     entry.entity_id,
                     getattr(self.runtime, "primary_gateway_mac", None),
                 )
-                registry.async_remove(entry.entity_id)
+                prune_entity(self.hass, registry, entry, self.config_entry.entry_id)
                 continue
 
             if self.accept and not self.accept(ctx):

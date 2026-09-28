@@ -35,7 +35,7 @@ from .const import (
     SERVICE_CALIBRATE_COVER,
 )
 from .data import MyHOMEConfigEntry, get_runtime_data
-from .discovery import Address, parse_unique_id
+from .discovery import Address, parse_unique_id, prune_orphaned_companions
 from .myhome_device import MyHOMEEntity
 
 PARALLEL_UPDATES = 0
@@ -63,6 +63,8 @@ async def async_setup_entry(
     if runtime is None or PLATFORM not in runtime.platforms:
         return True
     mac = runtime.mac
+    if runtime.is_follower and runtime.primary_gateway_mac:
+        prune_orphaned_companions(hass, config_entry.entry_id, mac, runtime.primary_gateway_mac)
 
     _buttons: list[ButtonEntity] = []
     _configured_buttons = runtime.platforms[PLATFORM]

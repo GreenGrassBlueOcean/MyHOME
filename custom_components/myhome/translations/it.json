@@ -60,6 +60,20 @@
           "port": "Porta / baudrate",
           "password": "Password"
         }
+      },
+      "bus_topology": {
+        "title": "Questo gateway {name} è sullo stesso bus di un altro?",
+        "description": "È già configurato un altro gateway MyHOME. Se questo gateway {name} è collegato allo stesso bus SCS, aggiungilo ora come secondario o di riserva di quel gateway: configurato da solo, rileverebbe una seconda volta ogni dispositivo che l'altro gateway ha già. Potrai cambiarlo in seguito nelle opzioni del gateway.",
+        "data": {
+          "bus_topology": "Topologia del bus",
+          "primary_gateway": "Gateway primario (solo stesso bus)",
+          "gateway_role": "Ruolo di questo gateway (solo stesso bus)",
+          "delegated_whos": "Sottosistemi delegati (solo secondario)"
+        },
+        "data_description": {
+          "gateway_role": "Suggerito in base alle capacità dei due gateway: secondario se questo gateway supporta sottosistemi che mancano al primario, altrimenti di riserva.",
+          "delegated_whos": "Sottosistemi di cui questo gateway rileva i nuovi dispositivi. I dispositivi che il primario ha già restano sul primario."
+        }
       }
     },
     "error": {
@@ -68,7 +82,9 @@
       "invalid_mac": "Indirizzo MAC non valido",
       "invalid_password": "Password non valida",
       "password_retry": "Il gateway non ha accettato la password, aspetta 60s prima di riprovare.",
-      "password_error": "Password non valida"
+      "password_error": "Password non valida",
+      "primary_gateway_required": "Per i ruoli secondario o di riserva su un bus condiviso è necessario selezionare un gateway primario.",
+      "primary_gateway_not_found": "Il gateway primario selezionato non è stato trovato."
     },
     "abort": {
       "discover_timeout": "Impossibile trovare il gateway MyHome",
