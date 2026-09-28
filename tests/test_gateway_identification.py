@@ -878,7 +878,7 @@ def _who1013(h, code):
     h._handle_gateway_identity_diagnostics(OWNEvent.parse(f"*#1013**1*{code}##"))
 
 
-# ── golden samples: real WHO=13 / WHO=1013 exchanges captured on hardware (PR #420) ──
+# ── golden samples: real WHO=13 / WHO=1013 exchanges captured on hardware (PR #420, issue #466) ──
 
 FIXTURES_PLANTS_DIR = Path(__file__).resolve().parent / "fixtures" / "plants"
 
@@ -889,14 +889,15 @@ FIXTURES_PLANTS_DIR = Path(__file__).resolve().parent / "fixtures" / "plants"
         ("pr_420_f454", "F454", "51", "2.0.51"),
         ("pr_420_mh202", "MH202", "5", "1.0.21"),
         ("pr_420_myhomeserver1", "MyHomeServer1", "67", "2.87.13"),
+        ("issue_466_f461", "F461", "134", "2.0.11"),
     ],
 )
 def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, firmware):
     """Replay the identification frames of a physical gateway, in the order the bus produced them.
 
-    All three announced themselves over SSDP, answer the shared WHO=13 device type 200,
+    All four announced themselves over SSDP, answer the shared WHO=13 device type 200,
     and answer ``*#1013*0*1##`` with their catalogue OBJECT_MODEL followed by N_CONF,
-    BRAND and LINE (``*15*5*0`` on all three). The handler must queue exactly the
+    BRAND and LINE (``*15*5*0`` on all four). The handler must queue exactly the
     request the reporter's installation sent, and end corroborated, not in conflict.
     """
     create, delete, corrected = issues
@@ -974,7 +975,7 @@ def test_real_who1013_reply_is_object_model_n_conf_brand_line(dev_reg, issues):
     assert n_conf not in (ident["who1013_code"], ident["who13_code"])
 
     # every traced gateway answers the same trailing metadata
-    for plant in ("pr_420_f454", "pr_420_mh202", "pr_420_myhomeserver1"):
+    for plant in ("pr_420_f454", "pr_420_mh202", "pr_420_myhomeserver1", "issue_466_f461"):
         diag = json.loads((FIXTURES_PLANTS_DIR / plant / "diagnostic_summary.json").read_text(encoding="utf-8"))
         replies = [f["raw"] for f in diag["data"]["bus_monitor"]["recent_frames"] if f["raw"].startswith("*#1013**1*")]
         assert replies, plant
