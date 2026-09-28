@@ -444,7 +444,8 @@ class CalibrateAllCoversButtonEntity(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        return bool(getattr(self._gateway_handler, "available", True))
+        """Unavailable with no covers to calibrate: a follower whose covers all live on its primary (#525)."""
+        return bool(getattr(self._gateway_handler, "available", True)) and bool(self._cover_entity_ids())
 
     def _cover_entity_ids(self) -> list[str]:
         registry = er.async_get(self.hass)
