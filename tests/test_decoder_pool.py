@@ -5,13 +5,15 @@ Tests cover:
 - Idempotent re-claim (same zone gets same decoder back)
 - Pool exhaustion (all decoders busy)
 - Concurrent claims via asyncio (lock validation)
-- release_all for options reload
+- Saving and restoring the books across restarts
+- Not taking over a decoder another player paused
 - Pre-gain lookup
 - UNAVAILABLE state treated as busy (not idle)
 """
 
 import asyncio
 import platform
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,8 +26,15 @@ if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from homeassistant.components.media_player import MediaPlayerState
+from homeassistant.util import dt as dt_util
 
-from custom_components.myhome.decoder_pool import DecoderPool, EnvironmentBusyError
+from custom_components.myhome.decoder_pool import (
+    PAUSE_TAKEOVER_AFTER,
+    STORAGE_VERSION,
+    DecoderPool,
+    EnvironmentBusyError,
+    decoder_pool_store,
+)
 
 # -- Overrides ----------------------------------------------------------------
 
@@ -196,24 +205,6 @@ async def test_concurrent_claims_no_race(pool_two_decoders):
     assert len(claimed) == 2  # only 2 decoders available
 
 
-# -- Tests: release_all -------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_release_all(pool_two_decoders):
-    """release_all() clears all assignments so both decoders become available."""
-    await pool_two_decoders.claim(ZONE_A)
-    await pool_two_decoders.claim(ZONE_B)
-
-    await pool_two_decoders.release_all()
-
-    # Both decoders should now be claimable again
-    result_a = await pool_two_decoders.claim(ZONE_A)
-    result_b = await pool_two_decoders.claim(ZONE_B)
-    assert result_a is not None
-    assert result_b is not None
-
-
 # -- Tests: pre-gain ----------------------------------------------------------
 
 
@@ -368,7 +359,7 @@ async def test_claim_is_refused_while_the_environment_streams(hass):
     await pool.release("media_player.zone_22")
     assert pool.environment_owner("2") is None
 
-    await pool.release_all()
+    await pool.release("media_player.zone_31")
     assert pool.environment_owner("3") is None
 
 
@@ -546,8 +537,8 @@ async def test_add_member_steals_and_releases_decoder(hass):
 
 
 @pytest.mark.asyncio
-async def test_disband_group_explicit_and_release_all(hass):
-    """Test disband_group and release_all clear all groups and environments."""
+async def test_disband_group_explicit(hass):
+    """disband_group clears the group and the environments of its members."""
     pool = DecoderPool(hass, {"media_player.slot_one": 1})
     hass.states.async_set("media_player.slot_one", "idle")
 
@@ -557,13 +548,6 @@ async def test_disband_group_explicit_and_release_all(hass):
     disbanded = await pool.disband_group("media_player.leader")
     assert disbanded == ["media_player.member"]
     assert pool.get_members("media_player.leader") == []
-    assert pool.environment_owner("2") is None
-
-    # Re-group and release_all
-    await pool.add_member("media_player.leader", "media_player.member", environment="2")
-    await pool.release_all()
-    assert pool.get_members("media_player.leader") == []
-    assert pool.environment_owner("1") is None
     assert pool.environment_owner("2") is None
 
 
@@ -800,16 +784,17 @@ async def test_transfer_leadership(hass):
 
 @pytest.mark.asyncio
 async def test_claim_idle_states_paused_and_standby(hass):
-    """Decoders in paused or standby states are treated as idle and available for claiming."""
+    """Standby is idle; a decoder paused long enough is idle too."""
     pool = DecoderPool(hass, {"media_player.dec_paused": 1, "media_player.dec_standby": 2})
     hass.states.async_set("media_player.dec_paused", "paused")
     hass.states.async_set("media_player.dec_standby", "standby")
 
-    claim1 = await pool.claim("media_player.zone1")
-    assert claim1 == ("media_player.dec_paused", 1)
+    # The fresh pause is somebody's music: standby is taken first.
+    assert await pool.claim("media_player.zone1") == ("media_player.dec_standby", 2)
 
-    claim2 = await pool.claim("media_player.zone2")
-    assert claim2 == ("media_player.dec_standby", 2)
+    later = dt_util.utcnow() + timedelta(seconds=PAUSE_TAKEOVER_AFTER + 1)
+    with patch("custom_components.myhome.decoder_pool.dt_util.utcnow", return_value=later):
+        assert await pool.claim("media_player.zone2") == ("media_player.dec_paused", 1)
 
 
 @pytest.mark.asyncio
@@ -923,3 +908,190 @@ async def test_claim_handover_survives_turn_off_service_failure(hass):
     assert claimed == ("media_player.dec", 1)
     assert pool.get_assignment("media_player.zone2") == "media_player.dec"
 
+
+
+# -- Tests: a decoder another player paused ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_decoder_paused_by_another_player_is_not_taken_over_at_once(hass):
+    """Spotify Connect straight to the decoder, paused: play_media must not steal it."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "paused")
+
+    assert await pool.claim("media_player.zone_22") is None
+
+    later = dt_util.utcnow() + timedelta(seconds=PAUSE_TAKEOVER_AFTER + 1)
+    with patch("custom_components.myhome.decoder_pool.dt_util.utcnow", return_value=later):
+        assert await pool.claim("media_player.zone_22") == ("media_player.dec", 1)
+
+
+@pytest.mark.asyncio
+async def test_a_paused_streaming_companion_counts_as_well(hass):
+    """The pause can sit on the streaming companion of a hardware decoder."""
+    pool = DecoderPool(
+        hass,
+        {"media_player.cx": 1},
+        companion_map={"media_player.cx": "media_player.cx_dlna"},
+    )
+    hass.states.async_set("media_player.cx", "idle")
+    hass.states.async_set("media_player.cx_dlna", "paused")
+
+    assert await pool.claim("media_player.zone_22") is None
+
+
+# -- Tests: the books survive a restart ----------------------------------------
+
+
+def _fake_store(loaded=None):
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=loaded)
+    store.async_save = AsyncMock()
+    store.async_delay_save = MagicMock()
+    return store
+
+
+def test_decoder_pool_store_is_keyed_by_the_config_entry(hass):
+    store = decoder_pool_store(hass, "abc")
+    assert store.key == "myhome.decoder_pool.abc"
+    assert store.version == STORAGE_VERSION
+
+
+@pytest.mark.asyncio
+async def test_books_are_saved_after_a_change_and_only_then(hass):
+    store = _fake_store()
+    pool = DecoderPool(hass, {"media_player.dec": 1}, store=store)
+    hass.states.async_set("media_player.dec", "idle")
+
+    await pool.claim("media_player.zone_22", environment="2")
+    store.async_delay_save.assert_called_once()
+    books = store.async_delay_save.call_args.args[0]()
+    assert books == {
+        "assignments": {"media_player.dec": "media_player.zone_22"},
+        "groups": {},
+        "environments": {"media_player.zone_22": "2"},
+    }
+
+    store.async_delay_save.reset_mock()
+    await pool.claim("media_player.zone_22", environment="2")  # nothing changed
+    store.async_delay_save.assert_not_called()
+
+    await pool.add_member("media_player.zone_22", "media_player.zone_31", environment="3")
+    store.async_delay_save.assert_called_once()
+    assert store.async_delay_save.call_args.args[0]()["groups"] == {
+        "media_player.zone_22": ["media_player.zone_31"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_load_and_save_go_through_the_store(hass):
+    # No store: nothing to do, nothing to fail.
+    bare = DecoderPool(hass, {"media_player.dec": 1})
+    await bare.async_load()
+    await bare.async_save()
+    assert not bare.has_unconfirmed
+
+    store = _fake_store({"assignments": {"media_player.dec": "media_player.zone_22"}})
+    pool = DecoderPool(hass, {"media_player.dec": 1}, store=store)
+    await pool.async_load()
+    assert pool.get_assignment("media_player.zone_22") == "media_player.dec"
+    assert pool.owned_decoder("media_player.zone_22") == "media_player.dec"
+    store.async_delay_save.assert_not_called()  # what was just loaded is not a change
+
+    await pool.async_save()
+    store.async_save.assert_awaited_once_with(
+        {
+            "assignments": {"media_player.dec": "media_player.zone_22"},
+            "groups": {},
+            "environments": {},
+        }
+    )
+
+
+def test_restore_takes_over_valid_books_and_ignores_the_rest(hass):
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    pool.restore(
+        {
+            "assignments": {
+                "media_player.dec": "media_player.zone_22",
+                "media_player.gone": "media_player.zone_23",  # decoder no longer configured
+            },
+            "groups": {
+                "media_player.zone_22": ["media_player.zone_31", "media_player.zone_22", 5],
+                "media_player.zone_23": ["media_player.zone_31"],  # already taken
+                "media_player.zone_24": "not a list",
+                7: [],
+            },
+            "environments": {
+                "media_player.zone_22": "2",
+                "media_player.zone_31": "3",
+                "media_player.bad": 3,
+                4: "x",
+            },
+        }
+    )
+
+    assert pool.get_assignment("media_player.zone_22") == "media_player.dec"
+    assert pool.get_assignment("media_player.zone_23") is None
+    assert pool.get_members("media_player.zone_22") == ["media_player.zone_31"]
+    assert pool.get_members("media_player.zone_23") == []
+    assert pool.environment_owner("2") == "media_player.zone_22"
+    assert pool.environment_owner("3") == "media_player.zone_31"
+    assert pool.has_unconfirmed
+
+
+@pytest.mark.parametrize(
+    "junk",
+    [None, "junk", {"assignments": [], "groups": [], "environments": []}],
+)
+def test_restore_ignores_books_of_the_wrong_shape(hass, junk):
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    pool.restore(junk)
+    assert not pool.has_unconfirmed
+    assert pool.get_assignment("media_player.zone_22") is None
+
+
+@pytest.mark.asyncio
+async def test_a_restored_claim_keeps_another_stream_out_of_its_environment(hass):
+    """The amplifiers kept playing: a second decoder must not re-route the room."""
+    hass.states.async_set("media_player.dec1", "playing")
+    hass.states.async_set("media_player.dec2", "idle")
+    pool = DecoderPool(hass, {"media_player.dec1": 1, "media_player.dec2": 2})
+    pool.restore(
+        {
+            "assignments": {"media_player.dec1": "media_player.zone_22"},
+            "environments": {"media_player.zone_22": "2"},
+        }
+    )
+
+    with pytest.raises(EnvironmentBusyError) as err:
+        await pool.claim("media_player.zone_23", environment="2")
+    assert err.value.owner == "media_player.zone_22"
+
+
+@pytest.mark.asyncio
+async def test_zones_the_bus_never_reports_are_dropped(hass):
+    store = _fake_store()
+    pool = DecoderPool(hass, {"media_player.dec": 1}, store=store)
+    pool.restore(
+        {
+            "assignments": {"media_player.dec": "media_player.zone_22"},
+            "groups": {"media_player.zone_22": ["media_player.zone_31", "media_player.zone_32"]},
+            "environments": {
+                "media_player.zone_22": "2",
+                "media_player.zone_31": "3",
+                "media_player.zone_32": "3",
+            },
+        }
+    )
+    pool.confirm_zone("media_player.zone_31")
+
+    assert await pool.drop_unconfirmed() == ["media_player.zone_22", "media_player.zone_32"]
+
+    assert pool.get_assignment("media_player.zone_22") is None  # the decoder is free again
+    assert pool.get_leader("media_player.zone_31") is None  # its group went with the leader
+    assert pool.environment_owner("2") is None
+    assert not pool.has_unconfirmed
+    store.async_delay_save.assert_called_once()
+
+    assert await pool.drop_unconfirmed() == []

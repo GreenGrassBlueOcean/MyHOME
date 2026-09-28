@@ -26,6 +26,7 @@ from .const import (
     get_ownd_version,
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
+from .decoder_pool import decoder_pool_store
 from .gateway import MyHOMEGatewayHandler, command_session_limit
 from .legacy_yaml import load_legacy_myhome_yaml
 from .migrate import migrate_entry_and_registries, prune_stale_devices
@@ -355,6 +356,7 @@ async def async_remove_config_entry_device(
 
 async def async_remove_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> None:
     """Flag the secondary/standby gateways a removed primary leaves behind (#453)."""
+    await decoder_pool_store(hass, entry.entry_id).async_remove()
     async_check_primary_links(hass, removed=entry.entry_id)
 
 
@@ -364,7 +366,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: MyHOMEConfigEntry) -> b
 
     runtime = getattr(entry, "runtime_data", None)
     if isinstance(runtime, MyHOMERuntimeData) and runtime.decoder_pool:
-        await runtime.decoder_pool.release_all()
+        # A reload leaves the amplifiers playing: keep the groups for the next setup.
+        await runtime.decoder_pool.async_save()
 
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False

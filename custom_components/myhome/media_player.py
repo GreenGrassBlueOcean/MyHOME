@@ -71,6 +71,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.media_player import (
@@ -86,7 +87,6 @@ from homeassistant.core import Event, EventStateChangedData, HomeAssistant, call
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from OWNd.message import OWNSoundCommand, OWNSoundEvent
@@ -108,7 +108,7 @@ from .const import (
 )
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData, get_runtime_data
 from .decoder_companion import async_find_streaming_companion
-from .decoder_pool import DecoderPool, EnvironmentBusyError
+from .decoder_pool import DecoderPool, EnvironmentBusyError, decoder_pool_store
 from .discovery import Address, DeviceContext, KnownDevices, PlatformDiscovery
 from .myhome_device import MyHOMEEntity
 from .repairs import (
@@ -127,6 +127,7 @@ PARALLEL_UPDATES = 0
 # that frame back on the event session like any other bus traffic. An OFF that
 # arrives this soon after a wake is our own and must not tear the zone down.
 _WAKE_ECHO_WINDOW = 3.0  # seconds
+_RESTORE_CONFIRM_WINDOW = 120.0  # seconds a restored zone has to show up on the bus
 
 # Anti-hiss auto-off: how long a room stays on after the decoder it hears
 # stops (idle, standby or off) or pauses.
@@ -221,6 +222,7 @@ def _build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> Decoder
         pre_gain_map,
         stream_incompatible=stream_incompatible,
         companion_map=companion_map,
+        store=decoder_pool_store(hass, config_entry.entry_id),
     )
 
 
@@ -234,7 +236,19 @@ async def async_setup_entry(
 
     # ── Build and store the decoder pool ─────────────────────────────────────
     pool = _build_pool(hass, config_entry)
+    # The amplifiers keep playing through a restart or reload: pick the groups
+    # up again, and let the bus vouch for each zone (or not) as it reports.
+    await pool.async_load()
     runtime.decoder_pool = pool
+    if pool.has_unconfirmed:
+
+        @callback
+        def _drop_unconfirmed(_now: datetime) -> None:
+            hass.async_create_task(pool.drop_unconfirmed())
+
+        config_entry.async_on_unload(
+            async_call_later(hass, _RESTORE_CONFIRM_WINDOW, _drop_unconfirmed)
+        )
 
     LOGGER.info(
         "MyHOME media player: decoder pool initialised with %d decoder(s)",
@@ -786,11 +800,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         )
 
     async def _async_delayed_off(self) -> None:
-        """Send the OFF frame once the grace period elapses without a reclaim."""
+        """Switch the room off once the grace period elapses without a reclaim.
+
+        The full turn-off, not just the frame: it also releases whatever the
+        room still holds and stops a decoder it owns, instead of leaving that
+        to the bus echo of the OFF, which may never arrive.
+        """
         await asyncio.sleep(_GROUP_LEAVE_GRACE)
         self._pending_off_task = None
-        await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-        self._attr_state = MediaPlayerState.OFF
+        await self._async_handle_turn_off(from_bus=False)
         self.async_write_ha_state()
 
     @callback
@@ -844,29 +862,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # ── Decoder state listener ────────────────────────────────────────
         self._track_decoders()
         self.async_on_remove(self._untrack_decoders)
-
-        # ── Pool rebuild listener (Options Flow saved) ────────────────────
-        # When the user configures decoders via the UI, supported_features
-        # changes.  We must fire a state update so Music Assistant re-reads
-        # our features and discovers the new PLAY_MEDIA capability.
-        @callback
-        def _pool_updated(*args: Any) -> None:
-            """Follow the rebuilt pool and re-publish state."""
-            LOGGER.debug("%s: decoder pool updated — re-publishing features", self.entity_id)
-            # Saving options rebuilds the pool without reloading the entry:
-            # the decoders to watch may have changed, and the new pool holds
-            # no claims, so a decoder remembered from the old one is not ours.
-            self._track_decoders()
-            self._active_decoder = None
-            self.async_write_ha_state()
-
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"myhome_pool_updated_{self._gateway_handler.mac}",
-                _pool_updated,
-            )
-        )
 
         # Ask the bus whether this amplifier is on when the startup sweep will
         # not: profiles that skip the collective WHO=16 status request (the
@@ -1423,7 +1418,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         self._cancel_pending_off()
         self._cancel_auto_off()  # put to work: a timer from before no longer applies
-        self._status_seen = True  # switched on from here: not a leftover of before
+        self._mark_status_seen()  # switched on from here: not a leftover of before
         if self._attr_state != MediaPlayerState.ON:
             self._wake_off_sent_at = time.monotonic()
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
@@ -1951,6 +1946,30 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         return pool.get_decoder_for_source(source_num)
 
     @callback
+    def _mark_status_seen(self) -> None:
+        """Note the first word from the bus about this room, and tell the pool.
+
+        The pool restores its books after a restart but only trusts a zone once
+        its amplifier has been heard from.
+        """
+        self._status_seen = True
+        pool = self._get_pool()
+        if pool is not None:
+            pool.confirm_zone(self.entity_id)
+
+    @callback
+    def _restore_claim(self) -> None:
+        """Take back the decoder the restored books say this room holds.
+
+        The room was playing it before the restart and its amplifier is still
+        on, so the claim is as good as ever; the decoder's own state decides
+        whether that music is still going (see :meth:`_check_stray_at_startup`).
+        """
+        pool = self._get_pool()
+        if pool is not None and self._active_decoder is None:
+            self._active_decoder = pool.owned_decoder(self.entity_id)
+
+    @callback
     def _check_stray_at_startup(self) -> None:
         """Switch a room off that was found on while its decoder is not playing.
 
@@ -1959,7 +1978,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         Later ON reports (a wall panel, or Home Assistant's own turn-on) are
         left alone, since the music may be about to start.
         """
-        decoder_id = self._stray_decoder()
+        decoder_id = self._active_decoder or self._stray_decoder()
         if decoder_id is None:
             return
         # A decoder can be two entities (hardware and streaming companion),
@@ -2071,14 +2090,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             self._cancel_pending_off()  # confirmed on: nothing left to time out
             self._attr_state = MediaPlayerState.ON
             if not self._status_seen:
-                self._status_seen = True
+                self._mark_status_seen()
+                self._restore_claim()
                 self._check_stray_at_startup()
         elif message.is_off:
             if self._is_wake_echo():
                 # Our own wake sequence's OFF: the ON follows it.
                 LOGGER.debug("%s: ignoring the OFF echo of the wake sequence", self.entity_id)
             else:
-                self._status_seen = True
+                self._mark_status_seen()
                 # A real OFF (wall switch or otherwise) makes any pending
                 # group-leave OFF redundant; _async_handle_turn_off below
                 # covers the same cleanup.
