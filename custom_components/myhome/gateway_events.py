@@ -222,46 +222,59 @@ class GatewayEventDispatcher:
                     ):
                         self.handler._schedule_resync(message)
                 elif isinstance(message, OWNAutomationEvent) and self._is_active_for_who(2):
+                    if message.is_opening and not message.is_closing:
+                        event = "open"
+                    elif message.is_closing and not message.is_opening:
+                        event = "close"
+                    else:
+                        event = "stop"
+
+                    where_raw = getattr(message, "where", None)
+                    where_val = str(where_raw) if (where_raw is not None and not str(where_raw).startswith("<MagicMock")) else "0"
+
+                    auto_payload: dict[str, Any] = {
+                        "message": str(message),
+                        "event": event,
+                        "where": where_val,
+                        "gateway_mac": self.handler.mac,
+                    }
+                    config_entry = getattr(self.handler, "config_entry", None)
+                    if config_entry and hasattr(config_entry, "entry_id") and isinstance(config_entry.entry_id, str):
+                        auto_payload["entry_id"] = config_entry.entry_id
+
                     if message.is_general:
-                        if message.is_opening and not message.is_closing:
-                            event = "open"
-                        elif message.is_closing and not message.is_opening:
-                            event = "close"
-                        else:
-                            event = "stop"
                         self.hass.bus.async_fire(
                             "myhome_general_automation_event",
-                            {"message": str(message), "event": event},
+                            auto_payload,
+                        )
+                        dispatcher_send(
+                            self.hass,
+                            f"myhome_general_automation_event_{self.handler.mac}",
+                            auto_payload,
                         )
                     elif message.is_area:
-                        if message.is_opening and not message.is_closing:
-                            event = "open"
-                        elif message.is_closing and not message.is_opening:
-                            event = "close"
-                        else:
-                            event = "stop"
+                        area_payload = dict(auto_payload)
+                        area_payload["area"] = getattr(message, "area", None)
                         self.hass.bus.async_fire(
                             "myhome_area_automation_event",
-                            {
-                                "message": str(message),
-                                "area": message.area,
-                                "event": event,
-                            },
+                            area_payload,
+                        )
+                        dispatcher_send(
+                            self.hass,
+                            f"myhome_area_automation_event_{self.handler.mac}",
+                            area_payload,
                         )
                     elif message.is_group:
-                        if message.is_opening and not message.is_closing:
-                            event = "open"
-                        elif message.is_closing and not message.is_opening:
-                            event = "close"
-                        else:
-                            event = "stop"
+                        group_payload = dict(auto_payload)
+                        group_payload["group"] = getattr(message, "group", None)
                         self.hass.bus.async_fire(
                             "myhome_group_automation_event",
-                            {
-                                "message": str(message),
-                                "group": message.group,
-                                "event": event,
-                            },
+                            group_payload,
+                        )
+                        dispatcher_send(
+                            self.hass,
+                            f"myhome_group_automation_event_{self.handler.mac}",
+                            group_payload,
                         )
             else:
                 self._logger.debug(

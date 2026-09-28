@@ -94,6 +94,9 @@ CONF_ROTARY_CW_SLOW = "rotary_cw_slow"
 CONF_ROTARY_CW_FAST = "rotary_cw_fast"
 CONF_ROTARY_CCW_SLOW = "rotary_ccw_slow"
 CONF_ROTARY_CCW_FAST = "rotary_ccw_fast"
+CONF_CENTRALIZED_SHUTTER_OPEN = "centralized_shutter_open"
+CONF_CENTRALIZED_SHUTTER_CLOSE = "centralized_shutter_close"
+CONF_CENTRALIZED_SHUTTER_STOP = "centralized_shutter_stop"
 CONF_TRAVEL_TIME = "travel_time"
 DEFAULT_TRAVEL_TIME = 25
 
@@ -187,7 +190,6 @@ ISSUE_PRIMARY_GATEWAY_MISSING = "primary_gateway_missing"
 # Shared-bus detection. The #453 traces (F454 + MH202 on one bus) put the same
 # physical frame on both event sessions 4-47 ms apart.
 SHARED_BUS_TX_ECHO_S = 1.5
-SHARED_BUS_RX_WINDOW_S = 0.3
 SHARED_BUS_EVIDENCE_COUNT = 3
 SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
 

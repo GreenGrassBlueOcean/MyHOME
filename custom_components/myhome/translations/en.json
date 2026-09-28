@@ -149,6 +149,7 @@
           "delegated_whos": "Delegated subsystems"
         },
         "data_description": {
+          "decoder_1_pre_gain": "Calibrate against the hardware, not a guess: if this decoder's line-out feeds a BTicino Ingresso RCA (L/N/NT4560) or Controllo Stereo (L4561) module, raise Pre-Gain while playing until that module's signal LED blinks orange — not steady green (signal too low) or steady red/orange (clipping). Always wire the decoder's fixed line-out ('OUT'), never a variable headphone/AUX output — a second uncontrolled gain stage there causes the same distortion BTicino's own troubleshooting guide warns about.",
           "delegated_whos": "Secondary role only: subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary."
         }
       }
@@ -505,6 +506,22 @@
         "22": "22 - Sound diffusion (audio matrix)",
         "25": "25 - CEN+ scenarios"
       }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "pushbutton_short_press": "\"{subtype}\" pressed",
+      "pushbutton_short_release": "\"{subtype}\" released after short press",
+      "pushbutton_long_press": "\"{subtype}\" held down",
+      "pushbutton_long_press_repeat": "\"{subtype}\" held down (repeating)",
+      "pushbutton_long_release": "\"{subtype}\" released after long press",
+      "rotary_cw_slow": "\"{subtype}\" turned clockwise slowly",
+      "rotary_cw_fast": "\"{subtype}\" turned clockwise quickly",
+      "rotary_ccw_slow": "\"{subtype}\" turned counter-clockwise slowly",
+      "rotary_ccw_fast": "\"{subtype}\" turned counter-clockwise quickly",
+      "centralized_shutter_open": "Centralized shutter OPEN command received",
+      "centralized_shutter_close": "Centralized shutter CLOSE command received",
+      "centralized_shutter_stop": "Centralized shutter STOP command received"
     }
   }
 }
