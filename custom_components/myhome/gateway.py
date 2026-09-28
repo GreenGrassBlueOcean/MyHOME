@@ -753,7 +753,7 @@ class MyHOMEGatewayHandler:
         seen = evidence_map.setdefault(pair_key, collections.deque(maxlen=SHARED_BUS_EVIDENCE_COUNT))
         seen.append(now)
         # Only evidence inside one window counts: coincidences spread over days do not add up.
-        # Exactly matches documented rule: three confirmed TX->RX echoes within 5 minutes (Issue #459).
+        # Exactly matches documented rule: three confirmed TX->RX echoes within 10 minutes (Issue #459).
         if len(seen) == SHARED_BUS_EVIDENCE_COUNT and seen[-1] - seen[0] <= SHARED_BUS_EVIDENCE_WINDOW_S:
             seen.clear()
             from .repairs import async_create_shared_bus_issue
