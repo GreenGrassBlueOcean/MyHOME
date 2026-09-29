@@ -410,6 +410,26 @@ async def test_volume_controls_and_gain_staging(hass, player, mock_gateway):
         assert player._attr_is_volume_muted is False
 
 
+def test_diagnostics_state_reports_the_zone_without_an_entity_id(player):
+    """The diagnostics view of a zone: state, source number, volume, mute, parked - no names."""
+    _name_sources(player, s1="Camebridge")
+    player._attr_state = MediaPlayerState.ON
+    player._attr_source = "Camebridge"
+    player._attr_volume_level = 0.0
+    player._parked = True
+
+    assert player.diagnostics_state() == {
+        "state": "on",
+        "source": 1,
+        "volume_level": 0.0,
+        "is_volume_muted": False,
+        "has_decoder": False,
+        "parked": True,
+        "wake_pending": False,
+        "status_seen": False,
+    }
+
+
 def _name_sources(player, **names):
     """Give the entry configured matrix source names, e.g. ``_name_sources(p, s2="Cambridge")``."""
     options = dict(player.platform.config_entry.options or {})

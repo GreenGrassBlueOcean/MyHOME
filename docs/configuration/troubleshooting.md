@@ -88,6 +88,10 @@ The zone only advertises `play_media` when at least one decoder is mapped in the
 
 Every playing zone claims one decoder; map more decoders or stop playback in another room.
 
+### Reporting an audio problem
+
+Download the MyHOME diagnostics (*Devices & services → MyHOME → ⋮ → Download diagnostics*) and attach it to the issue; its `audio` block shows every zone, decoder and group without room names. Add the Music Assistant log only if the problem is on the Music Assistant side. See [Reporting an audio problem](media_player.md#reporting-an-audio-problem).
+
 ## Bus and gateway behaviour
 
 ### `Could not send message *#16*0##` (or `*#2*0##`, `*#4*0##`) at every start

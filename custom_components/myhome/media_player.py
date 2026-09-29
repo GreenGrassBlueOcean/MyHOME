@@ -535,6 +535,19 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """Return the zone OpenWebNet address."""
         return self._where
 
+    def diagnostics_state(self) -> dict[str, Any]:
+        """Return what a bug report needs to know about this zone (no entity ids)."""
+        return {
+            "state": str(self._attr_state) if self._attr_state is not None else None,
+            "source": self._source_number(self._attr_source) if self._attr_source else None,
+            "volume_level": self._attr_volume_level,
+            "is_volume_muted": self._attr_is_volume_muted,
+            "has_decoder": self._active_decoder is not None,
+            "parked": self._parked,
+            "wake_pending": self._wake_pending,
+            "status_seen": self._status_seen,
+        }
+
     @property
     def group_members(self) -> list[str] | None:
         """Return a list of entity ids belonging to this entity's group, leader first."""
