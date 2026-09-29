@@ -3858,3 +3858,57 @@ async def test_members_of_a_parked_group_say_on_before_their_slow_wake_frames_go
     assert sent == ["*16*13*36##", "*16*3*36##"]
     assert not member._parked and not member._wake_pending
     assert member.state == MediaPlayerState.ON
+
+
+@pytest.mark.asyncio
+async def test_turn_on_of_a_parked_leader_wakes_the_whole_group(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await leader._async_park_group()
+    mock_gateway.send.reset_mock()
+
+    with patch("asyncio.sleep", return_value=None):
+        await leader.async_turn_on()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert "*16*3*23##" in sent and "*16*3*36##" in sent
+    assert not leader._parked and not member._parked
+
+
+@pytest.mark.asyncio
+async def test_parking_without_a_pool_or_while_turning_off_does_nothing(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    mock_gateway.send.reset_mock()
+
+    leader._turning_off = True
+    await leader._async_park_group()
+    leader._turning_off = False
+    leader._runtime_data.decoder_pool = None
+    await leader._async_park_group()
+
+    mock_gateway.send.assert_not_called()
+    assert not leader._parked
+
+
+@pytest.mark.asyncio
+async def test_a_gateway_error_while_parking_does_not_keep_the_other_rooms_on(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    mock_gateway.send.side_effect = [RuntimeError("gateway busy"), None]
+
+    await leader._async_park_group()
+
+    assert leader._parked and member._parked
+    assert leader._attr_state == member._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_unparking_without_a_pool_just_wakes_the_zone(hass, mock_gateway):
+    leader, _member, _pool = await _leader_with_member(hass, mock_gateway)
+    leader._parked = True
+    leader._runtime_data.decoder_pool = None
+    mock_gateway.send.reset_mock()
+
+    with patch("asyncio.sleep", return_value=None):
+        await leader._async_unpark_group()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*13*23##", "*16*3*23##"]
