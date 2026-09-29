@@ -7,6 +7,7 @@ from scripts.verify_ha_standards import (
     check_future_annotations_and_syntax,
     check_manifest_requirements_rule,
     check_no_blocking_calls,
+    check_no_update_listener_reload_conflict,
     check_ruff_standards,
     check_supported_domains_rule,
     check_translation_coverage,
@@ -84,3 +85,26 @@ def test_future_annotations_catches_misplaced_import(tmp_path):
 
 
 
+
+
+def test_no_update_listener_reload_conflict():
+    """Verify the integration never registers an update listener or reloads directly in a flow (#510)."""
+    checker = StandardsChecker()
+    check_no_update_listener_reload_conflict(checker)
+    assert not checker.errors, f"Update listener / reload violations found: {checker.errors}"
+
+
+def test_update_listener_rule_catches_violations(tmp_path):
+    """The rule flags add_update_listener anywhere and async_reload inside config_flow.py."""
+    (tmp_path / "__init__.py").write_text(
+        "def setup(entry):\n    entry.async_on_unload(entry.add_update_listener(cb))\n"
+    )
+    (tmp_path / "config_flow.py").write_text(
+        "async def step(self):\n    await self.hass.config_entries.async_reload('x')\n"
+    )
+    (tmp_path / "repairs.py").write_text(
+        "async def fix(self):\n    await self.hass.config_entries.async_reload('x')\n"
+    )
+    checker = StandardsChecker()
+    check_no_update_listener_reload_conflict(checker, target_dir=tmp_path)
+    assert len(checker.errors) == 2

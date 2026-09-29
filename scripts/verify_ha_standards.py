@@ -287,6 +287,46 @@ def check_future_annotations_and_syntax(checker: StandardsChecker, target_dir: P
     checker.log_ok(f"All {checked_files} Python source files verified for valid syntax and correct __future__ positioning.")
 
 
+def check_no_update_listener_reload_conflict(checker: StandardsChecker, target_dir: Path | None = None):
+    """Rule 5: A config entry update listener must not coexist with flow reload helpers (#510).
+
+    Home Assistant 2026.12 turns the combination of ``add_update_listener`` and
+    reload helpers in config flows into an error (duplicate reloads / races).
+    The integration therefore uses no update listener at all, and config flows
+    must not call ``async_reload`` directly: use ``async_update_reload_and_abort``,
+    ``OptionsFlowWithReload`` or ``async_schedule_reload`` instead.
+    """
+    base = target_dir or CUSTOM_COMPONENTS_DIR
+    for py_path in sorted(base.rglob("*.py")):
+        try:
+            tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+        except SyntaxError:
+            continue
+        is_flow = py_path.name == "config_flow.py"
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr == "add_update_listener":
+                checker.log_error(
+                    "RULE_NO_UPDATE_LISTENER",
+                    py_path,
+                    node.lineno,
+                    "add_update_listener() conflicts with config-flow reload helpers and breaks in "
+                    "Home Assistant 2026.12. Use OptionsFlowWithReload / async_update_reload_and_abort "
+                    "and apply changes on the coordinated reload instead (see issue #510).",
+                )
+            elif is_flow and node.func.attr == "async_reload":
+                checker.log_error(
+                    "RULE_NO_FLOW_ASYNC_RELOAD",
+                    py_path,
+                    node.lineno,
+                    "Direct async_reload() in a config flow can double-reload. Use "
+                    "async_update_reload_and_abort(), OptionsFlowWithReload or async_schedule_reload().",
+                )
+
+    checker.log_ok("No update listener / direct flow reload conflicts (HA 2026.12).")
+
+
 def check_no_blocking_calls(checker: StandardsChecker):
     """Rule 5: Verify no synchronous sleep or blocking calls in async functions."""
     for root, _, files in os.walk(CUSTOM_COMPONENTS_DIR):
@@ -757,6 +797,7 @@ def main():
     check_translation_coverage(checker)
     check_deprecated_constants(checker)
     check_no_blocking_calls(checker)
+    check_no_update_listener_reload_conflict(checker)
     check_ruff_standards(checker)
     check_manifest_requirements_rule(checker)
     check_future_annotations_and_syntax(checker)
