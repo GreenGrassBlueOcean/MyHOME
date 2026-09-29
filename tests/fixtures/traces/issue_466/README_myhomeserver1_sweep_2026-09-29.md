@@ -14,3 +14,14 @@ Verbatim bus trace contributed by **@gdluck** on [#466](https://github.com/OpenW
   Setpoint below: pump stops (`*4*4002#55*0#3##`, `*#4*0#3*20*0##`, `*4*4002*55##`) about 2 s **before** the valve closes (`*#4*55#1*20*0##`).
 - `*#1*66*4*100*4##`: unsolicited WHO 1 dimension 4 report on point 66 (undocumented for WHO 1).
 - Dimension 12 carries mode `3` on an ordinary manual heating write.
+
+## Diagnostics download (startup poll)
+
+`diagnostics_MyHomeServer1_startup_poll_2026-09-29T18-31.json`: the same gateway's HA diagnostics download
+([#466 comment 5896287944](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5896287944)), with 500 bus frames
+of one startup poll (18:29:10 - 18:31:17). The config-entry id (also in the `setup_times` key) and the time zone were made
+synthetic (`01PLANT000000000000000466`, `UTC`); host, MAC and password were already redacted. `scripts/anonymize_plant_fixture.py --check` passes.
+
+- The integration polls `*#4*Z##` once per climate zone, one after the other. A zone that answers costs ~1.3 s of the queue.
+- Eleven restored zones (0-4, 6, 32, 33, 71, 75, 76) never answer: the gateway NACKs each request after ~6.4 s (OWNd waits up to 10 s), ~70 s in total.
+- Zones 36, 40, 42, 55, 60 and 68 answer dimensions 0, 12, 13 and 14 but no dimension 7 (#454).
