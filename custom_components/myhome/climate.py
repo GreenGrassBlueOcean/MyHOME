@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Any
 
@@ -16,6 +17,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
@@ -57,6 +59,8 @@ from .data import get_runtime_data
 from .discovery import Address, DeviceContext, PlatformDiscovery, config_for, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .poll_health import PollHealth
+from .repairs import async_create_unresponsive_zone_issue, async_delete_unresponsive_zone_issue
 from .where_grammar import is_probe, is_pump, where_param, zone_number
 
 PLATFORM = Platform.CLIMATE
@@ -328,6 +332,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._knob_pos: str = "UNKNOWN"
         self._local_target_temperature: float | None = None
         self._nominal_before_dim12: tuple[float | None, float] | None = None
+        self._poll_health = PollHealth()
 
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_hvac_action: HVACAction | None = None
@@ -355,10 +360,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 attrs["running_fan_speed"] = self._running_fan_speed
         if self._interface is not None:
             attrs["Int"] = self._interface
+        attrs.update(self._poll_health.attributes())
         return attrs
 
     async def async_restore_last_state(self, last_state: State | None) -> None:
         """Restore climate state from HA storage."""
+        if last_state is not None:
+            self._poll_health.restore(last_state.attributes)
         if last_state is not None and last_state.state is not None:
             try:
                 restored_mode = HVACMode(last_state.state)
@@ -383,15 +391,54 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._attr_fan_mode = restored_fan_mode
 
     async def async_update(self) -> None:
-        """Request status update from gateway."""
+        """Request status update from gateway, unless the zone has stopped answering."""
+        if self._poll_health.should_skip(time.time()):
+            LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
+            self._raise_unresponsive_issue()
+            return
         if self._central:
-            await self._gateway_handler.send_status_request(OWNHeatingCommand.central_status(self._where))
+            request = OWNHeatingCommand.central_status(self._where)
         else:
-            await self._gateway_handler.send_status_request(OWNHeatingCommand.status(self._full_where))
-            if self._fan:
-                await self._gateway_handler.send_status_request(
-                    OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
-                )
+            request = OWNHeatingCommand.status(self._full_where)
+        frames_before = self._poll_health.frames
+        written = await self._gateway_handler.send_status_request(request)
+        if isinstance(written, asyncio.Future):
+            written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
+        if self._fan and not self._central:
+            await self._gateway_handler.send_status_request(
+                OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Drop the "zone no longer answers" repair when the owner removes the entity (not on a reload)."""
+        await super().async_will_remove_from_hass()
+        hass = self.hass or self._hass
+        if hass is not None and self.entity_id and er.async_get(hass).async_get(self.entity_id) is None:
+            self._clear_unresponsive_issue()
+
+    @callback
+    def _poll_answered(self, written: asyncio.Future[float], frames_before: int) -> None:
+        """Count a status request the gateway refused or never answered (see ``poll_health``)."""
+        if written.cancelled():
+            if not getattr(self._gateway_handler, "is_connected", False) or self._poll_health.frames != frames_before:
+                return  # the gateway was away, or the zone did answer
+            if self._poll_health.failed(time.time()):
+                LOGGER.info("%s %s did not answer its status request twice in a row", self._gateway_handler.log_id, self._display_name)
+                self._raise_unresponsive_issue()
+            self._publish_state()
+        elif self._poll_health.answered():
+            self._clear_unresponsive_issue()
+            self._publish_state()
+
+    def _raise_unresponsive_issue(self) -> None:
+        hass = self.hass or self._hass
+        if hass is not None and self.unique_id:
+            async_create_unresponsive_zone_issue(hass, self.unique_id, self._display_name, self._gateway_handler.name)
+
+    def _clear_unresponsive_issue(self) -> None:
+        hass = self.hass or self._hass
+        if hass is not None and self.unique_id:
+            async_delete_unresponsive_zone_issue(hass, self.unique_id)
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
@@ -620,6 +667,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     @callback
     def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
+        if self._poll_health.frame_seen():
+            self._clear_unresponsive_issue()
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
             LOGGER.debug(
                 "%s %s",
