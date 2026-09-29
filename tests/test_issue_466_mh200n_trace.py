@@ -246,7 +246,13 @@ def test_new_trace_payload_parsing(trace_file: Path) -> None:
     with open(trace_file, "r", encoding="utf-8") as f:
         trace_data = json.load(f)
 
-    raw_frames = trace_data.get("frames", trace_data.get("history", []))
+    # Bus card exports hold "frames" (or legacy "history"); an HA diagnostics
+    # download holds its bus monitor buffer under data.bus_monitor.recent_frames.
+    raw_frames = (
+        trace_data.get("frames")
+        or trace_data.get("history")
+        or trace_data.get("data", {}).get("bus_monitor", {}).get("recent_frames", [])
+    )
     assert len(raw_frames) > 0
 
     parsed_count = 0
