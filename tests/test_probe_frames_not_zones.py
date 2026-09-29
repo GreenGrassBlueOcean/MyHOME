@@ -1,10 +1,10 @@
-"""A temperature probe (WHERE >= 100) is not heating zone ``WHERE - 100``.
+"""A probe frame (WHERE ``PZZ`` >= 100) is not a frame of heating zone ``ZZ``.
 
-OWNd reads the zone of an unhashed WHERE as its last two digits, so the probe
-``105`` arrives as zone 5 and ``169`` as zone 69. The climate platform trusted
-that: every frame of a probe was delivered to the zone sharing its last two
-digits (and discovered a phantom zone when none existed). Found in the #466
-MyHomeServer1 capture from @gdluck, whose plant has zones 35-70 and probe 169.
+OWNd decodes ``105`` correctly as probe 1 of zone 5 (``sensor`` 1, ``zone`` 5), but
+the climate platform then treated it as zone 5's own frame: it delivered the probe's
+frames to that zone and, where no heating zone 5 exists (an external probe 105 beside
+zones 1-4), discovered a phantom one. Found in the #466 MyHomeServer1 capture from
+@gdluck, whose plant has zones 35-70 and a probe 169.
 """
 import json
 from pathlib import Path
@@ -70,9 +70,9 @@ def _send(hass, frame):
     [("*#4*105*0*0296##", "5"), ("*#4*169*0*0250##", "69"), ("*#4*100*0*0210##", "0"), ("*#4*199*0*0210##", "99"), ("*#4*0105*0*0296##", "5")],
 )
 def test_probe_frame_names_no_zone(frame, zone):
-    """OWNd's ``zone`` of a probe frame is the last two digits; the platform must not use it."""
+    """OWNd's ``zone`` of a probe frame is the probe's zone; the platform must not treat it as the zone's own frame."""
     message = OWNEvent.parse(frame)
-    assert message.zone == int(zone)  # the premise: OWNd misreads it, so the platform has to guard
+    assert message.zone == int(zone)  # the premise: OWNd reports the probe's zone
     assert _calling_zones(message)[0] == []
     assert _zone_address(message) is None
     assert zone not in _zone_route_keys(message, None)
