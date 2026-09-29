@@ -210,6 +210,7 @@ class DecoderPool:
         """Return the books in the form that is saved."""
         return {
             "assignments": {dec: zone for dec, zone in self._assignments.items() if zone},
+            "sources": {dec: self._decoder_map[dec] for dec, zone in self._assignments.items() if zone},
             "groups": {leader: sorted(members) for leader, members in self._groups.items() if members},
             "environments": dict(self._environments),
         }
@@ -249,9 +250,14 @@ class DecoderPool:
         if not isinstance(data, dict):
             return
         assignments = data.get("assignments")
+        sources = data.get("sources")
+        rewired: set[str] = set()
         for dec_id, zone in (assignments.items() if isinstance(assignments, dict) else ()):
             if dec_id in self._decoder_map and isinstance(zone, str) and zone:
                 self._assignments[dec_id] = zone
+                saved_source = sources.get(dec_id) if isinstance(sources, dict) else None
+                if saved_source is not None and saved_source != self._decoder_map[dec_id]:
+                    rewired.add(zone)
         groups = data.get("groups")
         taken: set[str] = set()
         for leader, members in (groups.items() if isinstance(groups, dict) else ()):
@@ -265,6 +271,11 @@ class DecoderPool:
         for zone, environment in (environments.items() if isinstance(environments, dict) else ()):
             if isinstance(zone, str) and isinstance(environment, str):
                 self._environments[zone] = environment
+        # A decoder moved to another matrix input while Home Assistant was down
+        # no longer feeds the rooms the books put on it: its claim is stale.
+        for zone in rewired:
+            LOGGER.info("DecoderPool: decoder for %s was rewired while Home Assistant was down, dropping its claim", zone)
+            self._forget_zone_locked(zone)
         self._unconfirmed = {
             *(zone for zone in self._assignments.values() if zone),
             *self._groups,

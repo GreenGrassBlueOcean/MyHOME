@@ -968,6 +968,7 @@ async def test_books_are_saved_after_a_change_and_only_then(hass):
     books = store.async_delay_save.call_args.args[0]()
     assert books == {
         "assignments": {"media_player.dec": "media_player.zone_22"},
+        "sources": {"media_player.dec": 1},
         "groups": {},
         "environments": {"media_player.zone_22": "2"},
     }
@@ -1002,10 +1003,44 @@ async def test_load_and_save_go_through_the_store(hass):
     store.async_save.assert_awaited_once_with(
         {
             "assignments": {"media_player.dec": "media_player.zone_22"},
+            "sources": {"media_player.dec": 1},
             "groups": {},
             "environments": {},
         }
     )
+
+
+def test_restore_drops_a_claim_whose_decoder_was_rewired_while_ha_was_down(hass):
+    """A decoder moved to another matrix input no longer feeds the rooms that were on it."""
+    pool = DecoderPool(hass, {"media_player.dec1": 3, "media_player.dec2": 2})
+    pool.restore(
+        {
+            "assignments": {
+                "media_player.dec1": "media_player.zone_22",  # was on input 2, now 3
+                "media_player.dec2": "media_player.zone_23",  # unchanged
+            },
+            "sources": {"media_player.dec1": 2, "media_player.dec2": 2},
+            "groups": {"media_player.zone_22": ["media_player.zone_31"]},
+            "environments": {
+                "media_player.zone_22": "2",
+                "media_player.zone_31": "3",
+                "media_player.zone_23": "2",
+            },
+        }
+    )
+
+    assert pool.get_assignment("media_player.zone_22") is None
+    assert pool.get_members("media_player.zone_22") == []  # its group went with it
+    assert pool.environment_owner("3") is None
+    assert pool.get_assignment("media_player.zone_23") == "media_player.dec2"
+    assert pool.has_unconfirmed
+
+
+def test_restore_without_saved_sources_trusts_the_assignment(hass):
+    """Books saved before the sources were recorded cannot be checked, so they stay."""
+    pool = DecoderPool(hass, {"media_player.dec": 3})
+    pool.restore({"assignments": {"media_player.dec": "media_player.zone_22"}})
+    assert pool.get_assignment("media_player.zone_22") == "media_player.dec"
 
 
 def test_restore_takes_over_valid_books_and_ignores_the_rest(hass):

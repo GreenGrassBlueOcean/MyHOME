@@ -3614,6 +3614,34 @@ async def test_restored_owner_takes_its_claim_back_when_its_amplifier_reports(ha
 
 
 @pytest.mark.asyncio
+async def test_restored_group_is_visible_to_music_assistant_on_leader_and_member(hass, mock_gateway):
+    """group_members is pool-backed: the state written after each ON report carries the restored group."""
+    leader = _stray_setup(hass, mock_gateway)
+    leader._attr_state = MediaPlayerState.OFF
+    pool = leader._get_pool()
+    runtime = leader._runtime_data
+    member = _create_test_zone(hass, mock_gateway, runtime, "24", "media_player.zone24")
+    member._attr_state = MediaPlayerState.OFF
+    pool.restore(
+        {
+            "assignments": {"media_player.dec1": "media_player.zone23"},
+            "groups": {"media_player.zone23": ["media_player.zone24"]},
+        }
+    )
+    hass.states.async_set("media_player.dec1", "playing")
+    expected = ["media_player.zone23", "media_player.zone24"]
+
+    for zone in (leader, member):
+        zone._publish_state = MagicMock()
+        _on_report(zone)
+        zone._publish_state.assert_called_once()
+        assert zone.group_members == expected
+
+    assert leader._active_decoder == "media_player.dec1"
+    assert not pool.has_unconfirmed
+
+
+@pytest.mark.asyncio
 async def test_restored_owner_follows_an_idle_decoder_off(hass, mock_gateway):
     """The music stopped while Home Assistant was down: the room owning it goes off, not just strays."""
     zone = _stray_setup(hass, mock_gateway)
