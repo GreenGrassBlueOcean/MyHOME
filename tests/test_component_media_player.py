@@ -1264,6 +1264,60 @@ async def test_join_players_single_environment(hass, mock_gateway):
 
 
 @pytest.mark.asyncio
+async def test_rooms_turned_on_and_joined_one_by_one_route_once(hass, mock_gateway):
+    """Music Assistant turns on and joins each room in turn; the shared frames go out once (live capture)."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    zones = {w: _create_test_zone(hass, mock_gateway, runtime, w, f"media_player.audio_zone_{w}") for w in ("21", "22", "23")}
+    zones["21"]._attr_source = "Cambridge"
+    zones["22"]._default_source_number = zones["23"]._default_source_number = 2
+
+    mock_gateway.send.reset_mock()
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=100.0):
+        await zones["22"]._route_to(2, coalesce=True)  # the turn_on's default source
+        await zones["21"].async_join_players(["media_player.audio_zone_22"])
+        await zones["23"]._route_to(2, coalesce=True)
+        await zones["21"].async_join_players(["media_player.audio_zone_23"])
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent.count("*16*3*102##") == 1, sent
+    assert sent.count("*16*3*122##") == 1, sent
+    assert "*16*3*22##" in sent and "*16*3*23##" in sent
+
+    # Well after the burst the routing may have been changed elsewhere: send it again.
+    mock_gateway.send.reset_mock()
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=200.0):
+        await zones["22"]._route_to(2, coalesce=True)
+    assert [str(call.args[0]) for call in mock_gateway.send.call_args_list] == ["*16*3*102##", "*16*3*122##"]
+
+    # A group that is switched off starts from scratch.
+    zones["21"]._forget_recent_routing()
+    assert runtime.routing_recent == {}
+
+
+@pytest.mark.asyncio
+async def test_a_member_leaving_keeps_the_routing_memory_but_a_stopping_leader_clears_it(hass, mock_gateway):
+    """Live 2026-09-29: a room unchecked in Music Assistant must not make the next play repeat the routes."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec", "idle")
+    z21 = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.audio_zone_21")
+    z22 = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.audio_zone_22")
+    z23 = _create_test_zone(hass, mock_gateway, runtime, "23", "media_player.audio_zone_23")
+    for zone in (z21, z22, z23):
+        zone._attr_state = MediaPlayerState.ON
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z21.async_play_media("music", "http://stream")
+    await z21.async_join_players(["media_player.audio_zone_22", "media_player.audio_zone_23"])
+    assert runtime.routing_recent
+
+    await z22.async_turn_off()  # unchecked in Music Assistant
+    assert runtime.routing_recent
+
+    await z21.async_turn_off()  # the leader stops
+    assert runtime.routing_recent == {}
+
+
+@pytest.mark.asyncio
 async def test_join_players_cross_environment(hass, mock_gateway):
     """Joining zones across environments routes member environment and powers on."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
@@ -1285,7 +1339,8 @@ async def test_join_players_cross_environment(hass, mock_gateway):
 
     # Environment 3 should be routed to source 2: *16*3*132##, and amp 35 turned on: *16*3*35##
     sent_frames = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
-    assert "*16*3*102##" in sent_frames
+    # The source-on frame went out with the play a moment ago and is not repeated.
+    assert "*16*3*102##" not in sent_frames
     assert "*16*3*132##" in sent_frames
     assert "*16*3*35##" in sent_frames
     assert z35.state == MediaPlayerState.ON
@@ -3712,6 +3767,7 @@ async def test_restored_zone_found_off_gives_up_its_books(hass, mock_gateway):
 async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
     """After the grace period the room is switched off and cleaned up, not just sent an OFF frame."""
     zone = _stray_setup(hass, mock_gateway)
+    zone._attr_state = MediaPlayerState.ON
     zone._async_handle_turn_off = AsyncMock()
     zone.async_write_ha_state = MagicMock()
 
@@ -3720,6 +3776,24 @@ async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
 
     zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
     assert zone._pending_off_task is None
+
+
+@pytest.mark.asyncio
+async def test_group_leave_off_skips_the_frame_for_a_room_that_is_already_off(hass, mock_gateway):
+    """A parked room leaving a group is cleaned up without a second OFF frame; a room mid-wake still gets one."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._async_handle_turn_off = AsyncMock()
+    zone.async_write_ha_state = MagicMock()
+
+    with patch("custom_components.myhome.media_player.asyncio.sleep", new=AsyncMock()):
+        zone._attr_state = MediaPlayerState.OFF
+        await zone._async_delayed_off()
+        zone._async_handle_turn_off.assert_awaited_once_with(from_bus=True)
+
+        zone._async_handle_turn_off.reset_mock()
+        zone._wake_pending = True  # its amplifier is about to come on
+        await zone._async_delayed_off()
+        zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
 
 
 # -- Tests: anti-hiss switch-off that keeps the group ----------------------------
@@ -3794,6 +3868,66 @@ async def test_resuming_a_parked_leader_wakes_the_whole_group(hass, mock_gateway
     sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
     assert "*16*3*23##" in sent and "*16*3*36##" in sent
     assert not leader._parked and not member._parked
+    leader._forward_to_decoder.assert_awaited_once_with("media_play")
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_parked_group_starts_the_stream_before_the_members_wake(hass, mock_gateway):
+    """Only the leader's frames are in front of the stream; the members follow next to it."""
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await leader._async_park_group()
+    mock_gateway.send.reset_mock()
+
+    async def _slow_send(*_args: object, **_kwargs: object) -> None:
+        await asyncio.sleep(0)  # the real command worker waits for the gateway's ACK
+
+    mock_gateway.send.side_effect = _slow_send
+    seen_at_play: list[str] = []
+
+    async def _play(service: str) -> None:
+        seen_at_play.extend(str(call.args[0]) for call in mock_gateway.send.call_args_list)
+
+    leader._forward_to_decoder = _play
+    await leader.async_media_play()
+
+    assert "*16*3*23##" in seen_at_play
+    assert "*16*3*36##" not in seen_at_play
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert "*16*3*36##" in sent
+    assert not leader._parked and not member._parked
+    assert not member._wake_pending
+
+
+@pytest.mark.asyncio
+async def test_a_failed_resume_of_a_parked_group_stops_the_members_wake(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await leader._async_park_group()
+    mock_gateway.send.reset_mock()
+
+    async def _slow_send(*_args: object, **_kwargs: object) -> None:
+        await asyncio.sleep(0)
+
+    mock_gateway.send.side_effect = _slow_send
+    leader._forward_to_decoder = AsyncMock(side_effect=HomeAssistantError("no stream"))
+
+    with pytest.raises(HomeAssistantError):
+        await leader.async_media_play()
+    await hass.async_block_till_done()
+
+    assert not member._wake_pending
+    assert not leader._wake_pending
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_parked_leader_without_members_has_nothing_left_to_wake(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await pool.remove_group_member(member.entity_id)
+    leader._parked = True
+    leader._forward_to_decoder = AsyncMock()
+
+    await leader.async_media_play()
+
+    assert not leader._parked
     leader._forward_to_decoder.assert_awaited_once_with("media_play")
 
 

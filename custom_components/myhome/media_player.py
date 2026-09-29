@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -127,6 +127,10 @@ PARALLEL_UPDATES = 0
 # that frame back on the event session like any other bus traffic. An OFF that
 # arrives this soon after a wake is our own and must not tear the zone down.
 _WAKE_ECHO_WINDOW = 3.0  # seconds
+# Music Assistant turns on and joins the rooms of a group one call at a time. A routing
+# frame is not sent again while the previous copy is younger than this (seconds); a
+# skipped repeat refreshes the stamp, so a burst with gaps shorter than this stays merged.
+_ROUTE_REPEAT_WINDOW = 8.0
 _RESTORE_CONFIRM_WINDOW = 120.0  # seconds a restored zone has to show up on the bus
 
 # Anti-hiss auto-off: how long a room stays on after the decoder it hears
@@ -689,8 +693,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return None
         return [f"*16*3*{100 + source_num}##", f"*16*3*{route}##"]
 
-    async def _route_to(self, source_num: int) -> bool:
-        """Send the routing frames for ``source_num``; ``False`` if impossible."""
+    async def _route_to(
+        self, source_num: int, sent: set[str] | None = None, *, coalesce: bool = False
+    ) -> bool:
+        """Send the routing frames for ``source_num``; ``False`` if impossible.
+
+        ``sent`` collects the frames already sent while waking a group. The
+        source-on frame is the same for every room and the route is the same
+        for every room of an environment, and each frame costs a full gateway
+        round trip (~0.8 s on the MH200), so a frame is sent once per group.
+        ``coalesce`` (implied by ``sent``) also skips a frame the gateway was given
+        within ``_ROUTE_REPEAT_WINDOW`` by an earlier call, whichever zone sent it.
+        """
         frames = self._routing_frames(source_num)
         if frames is None:
             LOGGER.warning(
@@ -701,6 +715,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
             return False
         for frame in frames:
+            if sent is not None:
+                if frame in sent:
+                    continue
+                sent.add(frame)
+            if (coalesce or sent is not None) and self._runtime_data is not None:
+                recent = self._runtime_data.routing_recent
+                now = time.monotonic()
+                last = recent.get(frame)
+                recent[frame] = now
+                if last is not None and now - last < _ROUTE_REPEAT_WINDOW:
+                    continue
             await self._gateway_handler.send(OWNSoundCommand(frame))
         self._attr_source = self._source_label(source_num)
         return True
@@ -734,7 +759,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 streamer,
             )
             return
-        await self._route_to(target)
+        await self._route_to(target, coalesce=True)
 
     # ── Pool helpers ──────────────────────────────────────────────────────────
 
@@ -813,7 +838,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         await asyncio.sleep(_GROUP_LEAVE_GRACE)
         self._pending_off_task = None
-        await self._async_handle_turn_off(from_bus=False)
+        # A room that is already off (parked, say) needs no second OFF frame:
+        # each one costs the single command session about 0.8 s.
+        already_off = self._attr_state == MediaPlayerState.OFF and not self._wake_pending
+        await self._async_handle_turn_off(from_bus=already_off)
         self.async_write_ha_state()
 
     @callback
@@ -927,6 +955,24 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     # ── Proxy: play_media ─────────────────────────────────────────────────────
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
+        """Play media, showing a parked group as on for as long as the wake takes.
+
+        Whatever way the play ends, no room is left reporting on while its
+        amplifier is still off; see :meth:`_async_play_media` for the steps.
+        """
+        pool = self._get_pool()
+        group = self._group_entities(pool) if pool and pool.is_configured else []
+        if group:
+            self._begin_wake_of_parked_group(pool)
+        try:
+            await self._async_play_media(media_type, media_id, **kwargs)
+        finally:
+            for ent in group:
+                if ent._wake_pending:
+                    ent._wake_pending = False
+                    ent.async_write_ha_state()
+
+    async def _async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Intercept a Music Assistant / Spotify play command and route it.
 
         Steps
@@ -960,7 +1006,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # 1. Claim an idle decoder (thread-safe via asyncio.Lock). With routing
         #    configured the claim is per environment: the zones of one
         #    environment share a matrix output, so they cannot play two streams.
-        self._begin_wake_of_parked_group(pool)
         route = self._routing_configured()
         # Decoders whose integration cannot take this media are skipped rather
         # than claimed and failed, so another idle decoder can play it.
@@ -1057,38 +1102,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # Unconfigured installations keep trusting the wall-panel routing.
         await self._async_wake_zone()
         self.async_write_ha_state()
+        sent: set[str] = set()
         if route:
-            await self._route_to(source_num)
+            await self._route_to(source_num, sent)
 
-        # If this zone is a group leader, route all group members to the source as well
-        if pool:
-            runtime = self._runtime_data
-            members = pool.get_members(self.entity_id)
-            for member_id in members:
-                member_ent = runtime.media_players.get(member_id) if runtime else None
-                member_env = _zone_environment(member_ent._where) if member_ent else None
-                if member_env:
-                    owner = pool.environment_owner(member_env, exclude=member_id)
-                    if owner is not None and pool.get_assignment(owner) != decoder_id:
-                        LOGGER.warning(
-                            "%s: dropping member %s from group — environment %s is already streaming to %s",
-                            self.entity_id,
-                            member_id,
-                            member_env,
-                            owner,
-                        )
-                        await pool.remove_group_member(member_id)
-                        if member_ent:
-                            member_ent.async_write_ha_state()
-                        continue
-
-                # Routing follows the same opt-in as the leader's own; the
-                # member's amplifier is switched on either way.
-                if member_ent:
-                    if route:
-                        await member_ent._route_to(source_num)
-                    await member_ent._async_wake_zone()
-                    member_ent.async_write_ha_state()
+        # If this zone is a group leader, wake and route the members too. The
+        # gateway takes ~0.8 s per frame, so this runs next to the stream start
+        # instead of in front of it: the leader is audible right away and the
+        # members join as their frames go out.
+        members_task = None
+        if pool and pool.get_members(self.entity_id):
+            members_task = self.hass.async_create_background_task(
+                self._async_wake_members(pool, decoder_id, source_num, route, sent),
+                f"{self.entity_id} wake group members",
+            )
 
         # 4. Forward the stream URL to the target decoder (companion or primary)
         service_data: dict[str, Any] = {
@@ -1103,7 +1130,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # Error recovery: if the play_media call fails, release the decoder so
         # it does not remain permanently "stuck" as busy.
         try:
-            await self.hass.services.async_call("media_player", "play_media", service_data)
+            # Blocking: a service error only reaches this except when the call is
+            # awaited to completion, and the release below depends on it.
+            await self.hass.services.async_call("media_player", "play_media", service_data, blocking=True)
         except Exception as err:
             LOGGER.error(
                 "%s: failed to forward play_media to %s: %s — releasing decoder",
@@ -1111,6 +1140,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 target_decoder,
                 err,
             )
+            if members_task is not None:
+                members_task.cancel()
+                await asyncio.gather(members_task, return_exceptions=True)
             await self._async_release_after_failure(pool)
             raise HomeAssistantError(
                 f"{self.entity_id}: decoder {target_decoder} failed to start playback: {err}",
@@ -1123,7 +1155,45 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 },
             ) from err
 
+        if members_task is not None:
+            await members_task
         self.async_schedule_update_ha_state()
+
+    async def _async_wake_members(
+        self,
+        pool: DecoderPool,
+        decoder_id: str,
+        source_num: int,
+        route: bool,
+        sent: set[str],
+    ) -> None:
+        """Wake and route the members of this leader's group, one after another."""
+        runtime = self._runtime_data
+        for member_id in pool.get_members(self.entity_id):
+            member_ent = runtime.media_players.get(member_id) if runtime else None
+            member_env = _zone_environment(member_ent._where) if member_ent else None
+            if member_env:
+                owner = pool.environment_owner(member_env, exclude=member_id)
+                if owner is not None and pool.get_assignment(owner) != decoder_id:
+                    LOGGER.warning(
+                        "%s: dropping member %s from group — environment %s is already streaming to %s",
+                        self.entity_id,
+                        member_id,
+                        member_env,
+                        owner,
+                    )
+                    await pool.remove_group_member(member_id)
+                    if member_ent:
+                        member_ent.async_write_ha_state()
+                    continue
+
+            # Routing follows the same opt-in as the leader's own; the
+            # member's amplifier is switched on either way.
+            if member_ent:
+                if route:
+                    await member_ent._route_to(source_num, sent)
+                await member_ent._async_wake_zone()
+                member_ent.async_write_ha_state()
 
     async def _async_release_after_failure(self, pool: DecoderPool) -> None:
         """Give back a decoder that could not be started, and republish the group.
@@ -1281,7 +1351,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             member_ent = runtime.media_players[member_id]
             if source_num is not None:
                 if route:
-                    await member_ent._route_to(source_num)
+                    await member_ent._route_to(source_num, coalesce=True)
                 await member_ent._async_wake_zone()
             member_ent.async_write_ha_state()
 
@@ -1384,11 +1454,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_media_play(self) -> None:
         """Resume playback on the active decoder."""
         self._cancel_auto_off()
+        members_task = None
         if self._parked:
-            await self._async_unpark_group()
+            members_task = await self._async_unpark_group()
         elif self._attr_state == MediaPlayerState.OFF:
             await self._async_wake_zone()
-        await self._forward_to_decoder("media_play")
+        await self._async_finish_group_wake(members_task, self._forward_to_decoder("media_play"))
 
     async def async_media_stop(self) -> None:
         """Stop playback on the active decoder, or leave group if caller is a member."""
@@ -1431,10 +1502,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._mark_status_seen()  # switched on from here: not a leftover of before
         if self._attr_state != MediaPlayerState.ON or was_parked:
             self._wake_off_sent_at = time.monotonic()
-            await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-            await asyncio.sleep(0.5)
-            await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
-            await asyncio.sleep(0.5)
+            try:
+                # No pause between the two: the command worker waits for the
+                # gateway's ACK (~0.8 s per audio frame) after each frame.
+                written = await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+                self._stamp_wake_echo_when_written(written)
+                await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+            except BaseException:
+                self._parked = was_parked  # cancelled mid-wake: the amplifier is not on
+                raise
             self._attr_state = MediaPlayerState.ON
         self._wake_pending = False
 
@@ -1450,7 +1526,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         self._cancel_auto_off()
         if self._parked:
-            await self._async_unpark_group()
+            await self._async_finish_group_wake(await self._async_unpark_group())
         elif self._attr_state != MediaPlayerState.ON:
             await self._async_wake_zone()
             await self._apply_default_source()
@@ -1465,6 +1541,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._turning_off = True
         self._parked = False
         self._wake_pending = False
+        # A room that merely leaves a group does not change what the others listen to;
+        # a leader that stops does.
+        leaving_pool = self._get_pool()
+        if self._active_decoder or (leaving_pool is not None and leaving_pool.is_leader(self.entity_id)):
+            self._forget_recent_routing()
         try:
             self._attr_state = MediaPlayerState.OFF
             if not from_bus:
@@ -1539,6 +1620,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         ]
         return [self, *members]
 
+    def _forget_recent_routing(self) -> None:
+        """Forget the routing frames sent lately: the amplifiers are about to go off."""
+        if self._runtime_data is not None:
+            self._runtime_data.routing_recent.clear()
+
     async def _async_park_group(self) -> None:
         """Switch the amplifiers of a leader and its members off, but keep the group.
 
@@ -1551,6 +1637,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         pool = self._get_pool()
         if pool is None or self._turning_off:
             return
+        self._forget_recent_routing()
         self._turning_off = True
         try:
             LOGGER.info(
@@ -1582,21 +1669,74 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 ent._wake_pending = True
                 ent.async_write_ha_state()
 
-    async def _async_unpark_group(self) -> None:
-        """Wake a parked group: every amplifier on, and on the leader's input again."""
+    async def _async_unpark_group(self) -> asyncio.Task[None] | None:
+        """Wake the leader of a parked group on its input and start waking the members.
+
+        Only the leader's frames go out in front of the caller: it is audible
+        after about three frames, and the caller can start the stream while the
+        members' frames follow in a background task. That task is returned (None
+        when there is none) and has to be handed to :meth:`_async_finish_group_wake`.
+        """
         pool = self._get_pool()
         if pool is None:
             await self._async_wake_zone()
-            return
+            return None
         self._begin_wake_of_parked_group(pool)
         decoder_id = self._active_decoder or pool.owned_decoder(self.entity_id)
         source_num = pool.decoder_source(decoder_id) if decoder_id else None
         route = self._routing_configured() and source_num is not None
-        for ent in self._group_entities(pool):
+        sent: set[str] = set()
+        await self._async_wake_zone()
+        if route:
+            await self._route_to(source_num, sent)
+        self.async_write_ha_state()
+        members = self._group_entities(pool)[1:]
+        if not members:
+            return None
+        return self.hass.async_create_background_task(
+            self._async_wake_parked_members(members, source_num if route else None, sent),
+            f"{self.entity_id} wake parked group members",
+        )
+
+    async def _async_wake_parked_members(
+        self,
+        members: list[MyHOMEMediaPlayer],
+        source_num: int | None,
+        sent: set[str],
+    ) -> None:
+        """Wake the members of a parked group one after another, routing each to the source."""
+        for ent in members:
             await ent._async_wake_zone()
-            if route:
-                await ent._route_to(source_num)
+            if source_num is not None:
+                await ent._route_to(source_num, sent)
             ent.async_write_ha_state()
+
+    async def _async_finish_group_wake(
+        self,
+        members_task: asyncio.Task[None] | None,
+        play: Coroutine[Any, Any, None] | None = None,
+    ) -> None:
+        """Run ``play`` next to the members' wake, then wait for the wake to end.
+
+        Whatever way it ends, no room is left reporting on while its amplifier is
+        still off, and a failed or cancelled play stops the members' wake.
+        """
+        try:
+            if play is not None:
+                await play
+            if members_task is not None:
+                await members_task
+        except BaseException:
+            if members_task is not None:
+                members_task.cancel()
+                await asyncio.gather(members_task, return_exceptions=True)
+            raise
+        finally:
+            pool = self._get_pool()
+            for ent in self._group_entities(pool) if pool else [self]:
+                if ent._wake_pending:
+                    ent._wake_pending = False
+                    ent.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the zone amplifier off and release any claimed decoder.
@@ -2113,6 +2253,21 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_update(self) -> None:
         """Request a status update from the gateway."""
         await self._gateway_handler.send_status_request(OWNSoundCommand.status(self._where))
+
+    def _stamp_wake_echo_when_written(self, written: Any) -> None:
+        """Start the echo window when the OFF is written, not when it is queued.
+
+        ``send`` only queues; behind a few audio frames the OFF reaches the bus
+        seconds later, and its echo would otherwise arrive after the window.
+        """
+        if not isinstance(written, asyncio.Future):
+            return
+
+        def _on_written(fut: asyncio.Future[float]) -> None:
+            if not fut.cancelled() and fut.exception() is None:
+                self._wake_off_sent_at = fut.result()
+
+        written.add_done_callback(_on_written)
 
     def _is_wake_echo(self) -> bool:
         """Return ``True`` while an OFF frame is most likely our wake sequence's own.

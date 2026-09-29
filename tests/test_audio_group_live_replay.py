@@ -8,6 +8,7 @@ fixture's ``findings`` say how (see also the README beside it).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.components.media_player import MediaPlayerState
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from OWNd.message import OWNSoundEvent
 from pytest_homeassistant_custom_component.common import async_mock_service
@@ -190,6 +192,161 @@ async def test_play_shows_every_room_on_before_the_slow_wake_frames_and_wakes_th
         assert zones[where]._attr_volume_level == pytest.approx(level / 31.0)
 
 
+def _queue_only_send(mock_gateway, events: list[str]) -> list[asyncio.Future]:
+    """``send`` as the real gateway does it: queue the frame, hand back its write future."""
+    futures: list[asyncio.Future] = []
+
+    async def send(command, *_args, **_kwargs):
+        events.append(str(command).strip("*#").replace("*", "-"))
+        future = asyncio.get_running_loop().create_future()
+        futures.append(future)
+        return future
+
+    mock_gateway.send.side_effect = send
+    return futures
+
+
+async def _resume_by_play(hass, zones, events, play_media=None):
+    hass.states.async_set(DECODER, "on")
+
+    async def default_play_media(call):
+        events.append("play_media")
+
+    hass.services.async_register("media_player", "play_media", play_media or default_play_media)
+    async_mock_service(hass, "media_player", "turn_on")
+    with patch("asyncio.sleep", return_value=None):
+        await zones[LEADER].async_play_media("music", "http://example.invalid/stream.mp3")
+
+
+@pytest.mark.asyncio
+async def test_play_queues_each_frame_once_and_the_leader_before_the_stream(hass, mock_gateway):
+    """One OFF/ON per room, one route per environment and source, and the stream after the leader."""
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    mock_gateway.send.reset_mock()
+    events: list[str] = []
+    _queue_only_send(mock_gateway, events)
+
+    await _resume_by_play(hass, zones, events)
+
+    frames = [e for e in events if e != "play_media"]
+    assert frames == [
+        "16-13-36",
+        "16-3-36",
+        "16-3-102",
+        "16-3-132",
+        "16-3-122",
+        "16-13-21",
+        "16-3-21",
+        "16-13-23",
+        "16-3-23",
+    ], frames
+    assert len(frames) == len(set(frames)), frames
+    leader_frames = {"16-13-36", "16-3-36"}
+    assert leader_frames <= set(events[: events.index("play_media")])
+    assert events.index("16-3-36") < events.index("play_media")
+
+
+@pytest.mark.asyncio
+async def test_the_wake_echo_window_starts_when_the_off_is_written_not_when_it_is_queued(hass, mock_gateway):
+    """Behind other frames the OFF reaches the bus late; its echo is still ours."""
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    events: list[str] = []
+    futures = _queue_only_send(mock_gateway, events)
+    member = zones["23"]
+
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=100.0):
+        await member._async_wake_zone()
+    off_written = futures[0]
+    off_written.set_result(106.0)  # six seconds behind the other rooms' frames
+    await hass.async_block_till_done()
+
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=107.0):
+        assert member._is_wake_echo()
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=110.0):
+        assert not member._is_wake_echo()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_play_leaves_no_room_showing_on_while_its_amplifier_is_off(hass, mock_gateway):
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    events: list[str] = []
+    _queue_only_send(mock_gateway, events)
+
+    async def failing_play_media(call):
+        raise RuntimeError("refused")
+
+    with pytest.raises(HomeAssistantError):
+        await _resume_by_play(hass, zones, events, failing_play_media)
+    assert _pool.owned_decoder(_entity_id(LEADER)) is None  # released, not stuck busy
+    await hass.async_block_till_done()
+
+    for zone in zones.values():
+        assert not zone._wake_pending
+        assert (zone.state == MediaPlayerState.ON) != zone._parked  # on only if its frames went out
+    assert not [t for t in asyncio.all_tasks() if "wake group members" in (t.get_name() or "")]
+
+
+@pytest.mark.asyncio
+async def test_a_play_that_finds_every_decoder_busy_does_not_leave_the_group_showing_on(hass, mock_gateway):
+    zones, pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    events: list[str] = []
+    _queue_only_send(mock_gateway, events)
+    hass.states.async_set(DECODER, "playing")  # someone else's stream: nothing to claim
+
+    with patch.object(pool, "claim", AsyncMock(return_value=None)), pytest.raises(HomeAssistantError):
+        await zones["21"].async_play_media("music", "http://example.invalid/stream.mp3")
+
+    for zone in zones.values():
+        assert not zone._wake_pending
+        assert zone.state in (MediaPlayerState.PAUSED, MediaPlayerState.IDLE)
+
+
+@pytest.mark.asyncio
+async def test_a_wake_that_is_interrupted_leaves_the_room_parked(hass, mock_gateway):
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    mock_gateway.send.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await zones["23"]._async_wake_zone()
+
+    assert zones["23"]._parked
+
+
 def test_the_fixture_records_the_matrix_source_and_the_hardware_note():
     assert FIXTURE["meta"]["zones"][LEADER]["role"] == "leader"
     assert any("OFF then ON" in note for note in FIXTURE["meta"]["findings"])
+
+
+WAKE_FIXTURE = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures"
+        / "traces"
+        / "mh200_sound_f441m"
+        / "live_2026-09-29_group_wake_by_play.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.asyncio
+async def test_play_writes_the_same_frames_as_the_live_wake(hass, mock_gateway):
+    """The frames the integration wrote on the plant are the ones a replayed play queues."""
+    live = [
+        f["frame"].strip("*#").replace("*", "-")
+        for f in WAKE_FIXTURE["second_play_after_auto_off"]
+        if f["dir"] == "tx"
+    ]
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    mock_gateway.send.reset_mock()
+    events: list[str] = []
+    _queue_only_send(mock_gateway, events)
+
+    await _resume_by_play(hass, zones, events)
+
+    assert [e for e in events if e != "play_media"] == live
