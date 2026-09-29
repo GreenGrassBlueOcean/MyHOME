@@ -1375,16 +1375,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         deselecting the group leader gives a short gap"); do not try to hide it
         here.
         """
-        runtime = self._runtime_data
-        new_leader_id = members[0]
-        new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
-
-        result = await pool.transfer_leadership(self.entity_id, new_leader_id)
-        if new_leader_ent and result:
-            new_leader_ent._active_decoder = result[0]
-
+        if self._turning_off:
+            return  # a second OFF (HA plus the bus echo) while the first is handing over
         self._turning_off = True
         try:
+            runtime = self._runtime_data
+            new_leader_id = members[0]
+            new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
+            if new_leader_ent is None:
+                LOGGER.warning(
+                    "%s: handing the group to %s, which is not a MyHOME sound zone here",
+                    self.entity_id,
+                    new_leader_id,
+                )
+
+            result = await pool.transfer_leadership(self.entity_id, new_leader_id)
+            if result is None:
+                LOGGER.debug("%s: the group was already handed on; nothing to do", self.entity_id)
+                return
+            if new_leader_ent:
+                new_leader_ent._active_decoder = result[0]
+
+            self._cancel_pending_off()
             self._cancel_auto_off()
             self._parked = False
             self._wake_pending = False
@@ -1561,9 +1573,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         if self._turning_off:
             return
         # A leader that goes off while rooms are still listening hands the
-        # group on instead of stopping it (same path as unjoin).
+        # group on instead of stopping it (same path as unjoin). A parked
+        # group is silent already: turning its leader off is the "I want
+        # silence" and dissolves it, as before.
         handover_pool = self._get_pool()
-        if handover_pool is not None:
+        if handover_pool is not None and not self._parked:
             handover_members = handover_pool.get_members(self.entity_id)
             if handover_members:
                 await self._async_hand_over_leadership(handover_pool, handover_members, from_bus)

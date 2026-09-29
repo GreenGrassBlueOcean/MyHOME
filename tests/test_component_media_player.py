@@ -4057,3 +4057,98 @@ async def test_unparking_without_a_pool_just_wakes_the_zone(hass, mock_gateway):
 
     sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
     assert sent == ["*16*13*23##", "*16*3*23##"]
+
+
+async def _leader_with_members(hass, mock_gateway, count):
+    """Return (runtime, pool, zones) with zone1 leading ``count`` playing members."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+    zones = [
+        _create_test_zone(hass, mock_gateway, runtime, str(11 * (i + 1)), f"media_player.zone{i + 1}")
+        for i in range(count + 1)
+    ]
+    await pool.claim("media_player.zone1")
+    zones[0]._active_decoder = "media_player.streamer"
+    await zones[0].async_join_players([f"media_player.zone{i + 2}" for i in range(count)])
+    for zone in zones:
+        zone._attr_state = MediaPlayerState.ON
+        zone._wake_off_sent_at = None
+    return runtime, pool, zones
+
+
+@pytest.mark.asyncio
+async def test_leader_off_with_two_members_puts_only_its_own_frame_on_the_wire(hass, mock_gateway):
+    """Leader OFF hands on to the first member; the middle room and the decoder are left alone."""
+    _runtime, pool, (z1, z2, z3) = await _leader_with_members(hass, mock_gateway, 2)
+    mock_gateway.send.reset_mock()
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
+        await z1.async_turn_off()
+        mock_service.assert_not_called()
+
+    assert [str(c.args[0]) for c in mock_gateway.send.call_args_list] == ["*16*13*11##"]
+    assert pool.get_members("media_player.zone2") == ["media_player.zone3"]
+    assert z2._active_decoder == "media_player.streamer"
+    assert z3._attr_state == MediaPlayerState.ON
+    assert z1._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_last_room_off_still_stops_and_releases_the_decoder(hass, mock_gateway):
+    """After the hand-over the new leader has no members: its OFF ends the stream."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    await z1.async_turn_off()
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
+        await z2.async_turn_off()
+        mock_service.assert_called_with("media_player", "media_stop", {"entity_id": "media_player.streamer"})
+    assert pool.get_assignment("media_player.zone2") is None
+    assert z2._active_decoder is None
+
+
+@pytest.mark.asyncio
+async def test_bus_off_of_the_leader_sends_no_second_frame(hass, mock_gateway):
+    """A wall-panel OFF already is the frame on the wire: the hand-over must not repeat it."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    mock_gateway.send.reset_mock()
+
+    await z1._async_handle_turn_off(from_bus=True)
+
+    assert mock_gateway.send.call_count == 0
+    assert pool.get_assignment("media_player.zone2") == "media_player.streamer"
+    assert z1._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_parked_leader_off_disbands_the_group(hass, mock_gateway):
+    """A parked group is silent already; turning its leader off dissolves it instead of handing it on."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._parked = True
+    z2._parked = True
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z1.async_turn_off()
+
+    assert pool.get_members("media_player.zone1") == []
+    assert pool.get_assignment("media_player.zone2") is None
+    assert z2._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_hand_over_that_finds_the_group_already_moved_changes_nothing(hass, mock_gateway):
+    """A second OFF that loses the race must not blank the decoder of the room that took over."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z2._active_decoder = "media_player.streamer"
+    await z1.async_turn_off()
+    z1._attr_state = MediaPlayerState.ON
+    z1._active_decoder = "media_player.streamer"
+    mock_gateway.send.reset_mock()
+
+    with patch.object(pool, "transfer_leadership", AsyncMock(return_value=None)):
+        await z1._async_hand_over_leadership(pool, ["media_player.zone2"])
+
+    assert mock_gateway.send.call_count == 0
+    assert z1._active_decoder == "media_player.streamer"
+    assert z1._turning_off is False
