@@ -143,3 +143,24 @@ async def test_restored_unresponsive_zone_is_skipped_at_startup(hass):
     await zone.async_update()
     gateway.send_status_request.assert_not_called()
     assert _issue(hass, zone) is not None
+
+
+async def test_a_reprobe_that_is_answered_clears_the_repair(hass):
+    zone, gateway = _zone(hass)
+    await _poll(hass, zone, gateway, "nack")
+    await _poll(hass, zone, gateway, "nack")
+    assert _issue(hass, zone) is not None
+    zone._poll_health.since = __import__("time").time() - 8 * 24 * 3600  # re-probe is due
+    await _poll(hass, zone, gateway, "ack")
+    assert _issue(hass, zone) is None
+    assert "failed_polls" not in zone.extra_state_attributes
+    zone._publish_state.assert_called()
+
+
+async def test_removing_the_entity_drops_its_repair(hass):
+    zone, gateway = _zone(hass)
+    await _poll(hass, zone, gateway, "nack")
+    await _poll(hass, zone, gateway, "nack")
+    assert _issue(hass, zone) is not None
+    await zone.async_will_remove_from_hass()  # not in the entity registry: the owner deleted it
+    assert _issue(hass, zone) is None
