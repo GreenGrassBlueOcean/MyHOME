@@ -3872,6 +3872,66 @@ async def test_resuming_a_parked_leader_wakes_the_whole_group(hass, mock_gateway
 
 
 @pytest.mark.asyncio
+async def test_resuming_a_parked_group_starts_the_stream_before_the_members_wake(hass, mock_gateway):
+    """Only the leader's frames are in front of the stream; the members follow next to it."""
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await leader._async_park_group()
+    mock_gateway.send.reset_mock()
+
+    async def _slow_send(*_args: object, **_kwargs: object) -> None:
+        await asyncio.sleep(0)  # the real command worker waits for the gateway's ACK
+
+    mock_gateway.send.side_effect = _slow_send
+    seen_at_play: list[str] = []
+
+    async def _play(service: str) -> None:
+        seen_at_play.extend(str(call.args[0]) for call in mock_gateway.send.call_args_list)
+
+    leader._forward_to_decoder = _play
+    await leader.async_media_play()
+
+    assert "*16*3*23##" in seen_at_play
+    assert "*16*3*36##" not in seen_at_play
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert "*16*3*36##" in sent
+    assert not leader._parked and not member._parked
+    assert not member._wake_pending
+
+
+@pytest.mark.asyncio
+async def test_a_failed_resume_of_a_parked_group_stops_the_members_wake(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await leader._async_park_group()
+    mock_gateway.send.reset_mock()
+
+    async def _slow_send(*_args: object, **_kwargs: object) -> None:
+        await asyncio.sleep(0)
+
+    mock_gateway.send.side_effect = _slow_send
+    leader._forward_to_decoder = AsyncMock(side_effect=HomeAssistantError("no stream"))
+
+    with pytest.raises(HomeAssistantError):
+        await leader.async_media_play()
+    await hass.async_block_till_done()
+
+    assert not member._wake_pending
+    assert not leader._wake_pending
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_parked_leader_without_members_has_nothing_left_to_wake(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    await pool.remove_group_member(member.entity_id)
+    leader._parked = True
+    leader._forward_to_decoder = AsyncMock()
+
+    await leader.async_media_play()
+
+    assert not leader._parked
+    leader._forward_to_decoder.assert_awaited_once_with("media_play")
+
+
+@pytest.mark.asyncio
 async def test_switching_a_parked_leader_off_yourself_disbands_the_group(hass, mock_gateway):
     leader, member, pool = await _leader_with_member(hass, mock_gateway)
     leader.async_turn_off = MyHOMEMediaPlayer.async_turn_off.__get__(leader)

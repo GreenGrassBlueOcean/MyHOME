@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -1454,11 +1454,12 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_media_play(self) -> None:
         """Resume playback on the active decoder."""
         self._cancel_auto_off()
+        members_task = None
         if self._parked:
-            await self._async_unpark_group()
+            members_task = await self._async_unpark_group()
         elif self._attr_state == MediaPlayerState.OFF:
             await self._async_wake_zone()
-        await self._forward_to_decoder("media_play")
+        await self._async_finish_group_wake(members_task, self._forward_to_decoder("media_play"))
 
     async def async_media_stop(self) -> None:
         """Stop playback on the active decoder, or leave group if caller is a member."""
@@ -1525,7 +1526,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         self._cancel_auto_off()
         if self._parked:
-            await self._async_unpark_group()
+            await self._async_finish_group_wake(await self._async_unpark_group())
         elif self._attr_state != MediaPlayerState.ON:
             await self._async_wake_zone()
             await self._apply_default_source()
@@ -1668,22 +1669,74 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 ent._wake_pending = True
                 ent.async_write_ha_state()
 
-    async def _async_unpark_group(self) -> None:
-        """Wake a parked group: every amplifier on, and on the leader's input again."""
+    async def _async_unpark_group(self) -> asyncio.Task[None] | None:
+        """Wake the leader of a parked group on its input and start waking the members.
+
+        Only the leader's frames go out in front of the caller: it is audible
+        after about three frames, and the caller can start the stream while the
+        members' frames follow in a background task. That task is returned (None
+        when there is none) and has to be handed to :meth:`_async_finish_group_wake`.
+        """
         pool = self._get_pool()
         if pool is None:
             await self._async_wake_zone()
-            return
+            return None
         self._begin_wake_of_parked_group(pool)
         decoder_id = self._active_decoder or pool.owned_decoder(self.entity_id)
         source_num = pool.decoder_source(decoder_id) if decoder_id else None
         route = self._routing_configured() and source_num is not None
         sent: set[str] = set()
-        for ent in self._group_entities(pool):
+        await self._async_wake_zone()
+        if route:
+            await self._route_to(source_num, sent)
+        self.async_write_ha_state()
+        members = self._group_entities(pool)[1:]
+        if not members:
+            return None
+        return self.hass.async_create_background_task(
+            self._async_wake_parked_members(members, source_num if route else None, sent),
+            f"{self.entity_id} wake parked group members",
+        )
+
+    async def _async_wake_parked_members(
+        self,
+        members: list[MyHOMEMediaPlayer],
+        source_num: int | None,
+        sent: set[str],
+    ) -> None:
+        """Wake the members of a parked group one after another, routing each to the source."""
+        for ent in members:
             await ent._async_wake_zone()
-            if route:
+            if source_num is not None:
                 await ent._route_to(source_num, sent)
             ent.async_write_ha_state()
+
+    async def _async_finish_group_wake(
+        self,
+        members_task: asyncio.Task[None] | None,
+        play: Coroutine[Any, Any, None] | None = None,
+    ) -> None:
+        """Run ``play`` next to the members' wake, then wait for the wake to end.
+
+        Whatever way it ends, no room is left reporting on while its amplifier is
+        still off, and a failed or cancelled play stops the members' wake.
+        """
+        try:
+            if play is not None:
+                await play
+            if members_task is not None:
+                await members_task
+        except BaseException:
+            if members_task is not None:
+                members_task.cancel()
+                await asyncio.gather(members_task, return_exceptions=True)
+            raise
+        finally:
+            pool = self._get_pool()
+            for ent in self._group_entities(pool) if pool else [self]:
+                if ent._wake_pending:
+                    ent._wake_pending = False
+                    ent.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the zone amplifier off and release any claimed decoder.
