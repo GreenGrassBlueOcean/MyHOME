@@ -320,3 +320,33 @@ async def test_a_wake_that_is_interrupted_leaves_the_room_parked(hass, mock_gate
 def test_the_fixture_records_the_matrix_source_and_the_hardware_note():
     assert FIXTURE["meta"]["zones"][LEADER]["role"] == "leader"
     assert any("OFF then ON" in note for note in FIXTURE["meta"]["findings"])
+
+
+WAKE_FIXTURE = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures"
+        / "traces"
+        / "mh200_sound_f441m"
+        / "live_2026-09-29_group_wake_by_play.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.asyncio
+async def test_play_writes_the_same_frames_as_the_live_wake(hass, mock_gateway):
+    """The frames the integration wrote on the plant are the ones a replayed play queues."""
+    live = [
+        f["frame"].strip("*#").replace("*", "-")
+        for f in WAKE_FIXTURE["second_play_after_auto_off"]
+        if f["dir"] == "tx"
+    ]
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    mock_gateway.send.reset_mock()
+    events: list[str] = []
+    _queue_only_send(mock_gateway, events)
+
+    await _resume_by_play(hass, zones, events)
+
+    assert [e for e in events if e != "play_media"] == live

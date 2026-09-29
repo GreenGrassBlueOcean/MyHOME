@@ -27,3 +27,6 @@ Authentic on-wire bus frames and diagnostic configuration captured on a live phy
 
 ### Live group lifecycle, 2026-09-29 (`live_2026-09-29_group_park_and_resume.json`)
 Three rooms (badkamer leads Bureau and Eetkamer) on the Audio Decoder decoder: pause, the anti-hiss switch-off after 60 s that keeps the group, and the resume. The fixture holds the bus frames, the decoder states that were seen, and what Music Assistant did; `tests/test_audio_group_live_replay.py` replays it. Its `findings` list is why each assertion exists.
+
+### Group wake by play, 2026-09-29 (`live_2026-09-29_group_wake_by_play.json`)
+The WHO=16 frames the integration wrote when Music Assistant played into three parked rooms, from the diagnostics bus monitor (build 86a8678c). `test_play_writes_the_same_frames_as_the_live_wake` compares them with a replayed play.
