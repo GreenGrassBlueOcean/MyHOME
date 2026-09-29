@@ -343,6 +343,7 @@ async def test_turn_on_and_turn_off_with_active_decoder(hass, player, mock_gatew
 
     mock_pool = MagicMock(spec=DecoderPool)
     mock_pool.release = AsyncMock()
+    mock_pool.get_members.return_value = []
     _set_pool(player, mock_pool)
 
     # Turn on
@@ -666,6 +667,7 @@ async def test_turn_off_decoder_stop_error_handled(hass, player, mock_gateway):
 
     mock_pool = MagicMock(spec=DecoderPool)
     mock_pool.release = AsyncMock()
+    mock_pool.get_members.return_value = []
     _set_pool(player, mock_pool)
 
     player._active_decoder = "media_player.squeezelite_1"
@@ -1313,7 +1315,12 @@ async def test_a_member_leaving_keeps_the_routing_memory_but_a_stopping_leader_c
     await z22.async_turn_off()  # unchecked in Music Assistant
     assert runtime.routing_recent
 
-    await z21.async_turn_off()  # the leader stops
+    await z21.async_turn_off()  # the leader hands the group on: the routes stay valid
+    assert runtime.routing_recent
+    assert pool.get_assignment("media_player.audio_zone_23") == "media_player.dec"
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z23.async_turn_off()  # the last room stops the stream
     assert runtime.routing_recent == {}
 
 
@@ -1844,15 +1851,19 @@ async def test_async_turn_off_member_and_leader_with_pool(hass, mock_gateway):
     # Re-group
     await z1.async_join_players(["media_player.zone2"])
     z1._active_decoder = "media_player.streamer"
+    z2._attr_state = MediaPlayerState.ON
 
-    # Leader turns off: disbands and removes member via pool, stopping decoder
+    # Leader turns off: the group and decoder pass to the member, nothing stops
+    mock_gateway.send.reset_mock()
     with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
         await z1.async_turn_off()
-        mock_service.assert_called_with(
-            "media_player", "media_stop", {"entity_id": "media_player.streamer"}
-        )
+        mock_service.assert_not_called()
+    assert [str(c.args[0]) for c in mock_gateway.send.call_args_list] == ["*16*13*11##"]
     assert pool.get_members("media_player.zone1") == []
-    assert z2._attr_state == MediaPlayerState.OFF
+    assert pool.get_assignment("media_player.zone2") == "media_player.streamer"
+    assert z1._attr_state == MediaPlayerState.OFF
+    assert z2._attr_state == MediaPlayerState.ON
+    assert z2._active_decoder == "media_player.streamer"
 
 
 @pytest.mark.asyncio
@@ -1896,12 +1907,12 @@ async def test_bus_off_event_on_leader_and_member_with_pool(hass, mock_gateway):
         ev1.volume = None
         z1.handle_event(ev1)
         await asyncio.sleep(0)
-        # Verify media_stop was called on the decoder (High Issue 1 fix!)
-        mock_service.assert_called_with(
-            "media_player", "media_stop", {"entity_id": "media_player.streamer"}
-        )
+        # The leader going off at the wall hands the stream to z3: no stop
+        mock_service.assert_not_called()
     assert pool.get_members("media_player.zone1") == []
-    assert z3._attr_state == MediaPlayerState.OFF
+    assert pool.get_assignment("media_player.zone3") == "media_player.streamer"
+    assert z3._active_decoder == "media_player.streamer"
+    assert z3._attr_state != MediaPlayerState.OFF
 
 
 @pytest.mark.asyncio
@@ -4046,3 +4057,127 @@ async def test_unparking_without_a_pool_just_wakes_the_zone(hass, mock_gateway):
 
     sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
     assert sent == ["*16*13*23##", "*16*3*23##"]
+
+
+async def _leader_with_members(hass, mock_gateway, count):
+    """Return (runtime, pool, zones) with zone1 leading ``count`` playing members."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+    zones = [
+        _create_test_zone(hass, mock_gateway, runtime, str(11 * (i + 1)), f"media_player.zone{i + 1}")
+        for i in range(count + 1)
+    ]
+    await pool.claim("media_player.zone1")
+    zones[0]._active_decoder = "media_player.streamer"
+    await zones[0].async_join_players([f"media_player.zone{i + 2}" for i in range(count)])
+    for zone in zones:
+        zone._attr_state = MediaPlayerState.ON
+        zone._wake_off_sent_at = None
+    return runtime, pool, zones
+
+
+@pytest.mark.asyncio
+async def test_leader_off_with_two_members_puts_only_its_own_frame_on_the_wire(hass, mock_gateway):
+    """Leader OFF hands on to the first member; the middle room and the decoder are left alone."""
+    _runtime, pool, (z1, z2, z3) = await _leader_with_members(hass, mock_gateway, 2)
+    mock_gateway.send.reset_mock()
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
+        await z1.async_turn_off()
+        mock_service.assert_not_called()
+
+    assert [str(c.args[0]) for c in mock_gateway.send.call_args_list] == ["*16*13*11##"]
+    assert pool.get_members("media_player.zone2") == ["media_player.zone3"]
+    assert z2._active_decoder == "media_player.streamer"
+    assert z3._attr_state == MediaPlayerState.ON
+    assert z1._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_last_room_off_still_stops_and_releases_the_decoder(hass, mock_gateway):
+    """After the hand-over the new leader has no members: its OFF ends the stream."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    await z1.async_turn_off()
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
+        await z2.async_turn_off()
+        mock_service.assert_called_with("media_player", "media_stop", {"entity_id": "media_player.streamer"})
+    assert pool.get_assignment("media_player.zone2") is None
+    assert z2._active_decoder is None
+
+
+@pytest.mark.asyncio
+async def test_bus_off_of_the_leader_sends_no_second_frame(hass, mock_gateway):
+    """A wall-panel OFF already is the frame on the wire: the hand-over must not repeat it."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    mock_gateway.send.reset_mock()
+
+    await z1._async_handle_turn_off(from_bus=True)
+
+    assert mock_gateway.send.call_count == 0
+    assert pool.get_assignment("media_player.zone2") == "media_player.streamer"
+    assert z1._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_parked_leader_off_disbands_the_group(hass, mock_gateway):
+    """A parked group is silent already; turning its leader off dissolves it instead of handing it on."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._parked = True
+    z2._parked = True
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z1.async_turn_off()
+
+    assert pool.get_members("media_player.zone1") == []
+    assert pool.get_assignment("media_player.zone2") is None
+    assert z2._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_hand_over_that_finds_the_group_already_moved_changes_nothing(hass, mock_gateway):
+    """A second OFF that loses the race must not blank the decoder of the room that took over."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z2._active_decoder = "media_player.streamer"
+    await z1.async_turn_off()
+    z1._attr_state = MediaPlayerState.ON
+    z1._active_decoder = "media_player.streamer"
+    mock_gateway.send.reset_mock()
+
+    with patch.object(pool, "transfer_leadership", AsyncMock(return_value=None)):
+        await z1._async_hand_over_leadership(pool, ["media_player.zone2"])
+
+    assert mock_gateway.send.call_count == 0
+    assert z1._active_decoder == "media_player.streamer"
+    assert z1._turning_off is False
+
+
+@pytest.mark.asyncio
+async def test_hand_over_ignores_a_second_off_while_the_first_is_handing_over(hass, mock_gateway):
+    """HA's turn_off and the bus echo can overlap: the second one must not start another hand-over."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._turning_off = True
+    mock_gateway.send.reset_mock()
+
+    with patch.object(pool, "transfer_leadership", AsyncMock()) as transfer:
+        await z1._async_hand_over_leadership(pool, ["media_player.zone2"])
+
+    transfer.assert_not_called()
+    assert mock_gateway.send.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_parked_leader_off_still_disbands_when_a_member_frame_fails(hass, mock_gateway):
+    """A member that does not take its OFF frame must not keep the group from being released."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._parked = True
+    z2._parked = True
+    mock_gateway.send.side_effect = [None, OSError("bus down")]
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z1.async_turn_off()
+
+    assert pool.get_members("media_player.zone1") == []
+    assert z2._attr_state == MediaPlayerState.OFF
