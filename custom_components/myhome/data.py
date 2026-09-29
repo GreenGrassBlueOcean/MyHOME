@@ -33,6 +33,10 @@ class MyHOMERuntimeData:
     entities: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Shared multi-room audio decoder pool (media_player), rebuilt on options update.
     decoder_pool: DecoderPool | None = None
+    # When each routing frame of a group was last sent (frame -> monotonic seconds), so
+    # calls that arrive one after another (Music Assistant joins rooms one by one) do not
+    # repeat frames a slow gateway is still working through. Cleared when a group stops.
+    routing_recent: dict[str, float] = field(default_factory=dict)
     # Media player entity instances registered by entity_id
     media_players: dict[str, Any] = field(default_factory=dict)
     # Delivers bus frames to the entities owning their addresses (see router.py).

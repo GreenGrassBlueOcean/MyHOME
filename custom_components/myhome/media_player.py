@@ -127,9 +127,10 @@ PARALLEL_UPDATES = 0
 # that frame back on the event session like any other bus traffic. An OFF that
 # arrives this soon after a wake is our own and must not tear the zone down.
 _WAKE_ECHO_WINDOW = 3.0  # seconds
-# Music Assistant adds the rooms of a group one call at a time; routing frames sent
-# for one join are not repeated for the next join within this window (seconds).
-_JOIN_ROUTE_WINDOW = 15.0
+# Music Assistant turns on and joins the rooms of a group one call at a time. A routing
+# frame is not sent again while the previous copy is younger than this (seconds); a
+# skipped repeat refreshes the stamp, so a burst with gaps shorter than this stays merged.
+_ROUTE_REPEAT_WINDOW = 8.0
 _RESTORE_CONFIRM_WINDOW = 120.0  # seconds a restored zone has to show up on the bus
 
 # Anti-hiss auto-off: how long a room stays on after the decoder it hears
@@ -506,7 +507,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._parked: bool = False  # amplifier off by anti-hiss, group kept in the books
         self._wake_pending: bool = False  # a parked room whose wake-up has been asked for
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
-        self._join_routed: tuple[float, set[str]] = (0.0, set())  # routing frames of recent joins
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._auto_off_key: tuple[float, str | None] | None = None  # (delay, decoder) of that timer
@@ -693,13 +693,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return None
         return [f"*16*3*{100 + source_num}##", f"*16*3*{route}##"]
 
-    async def _route_to(self, source_num: int, sent: set[str] | None = None) -> bool:
+    async def _route_to(
+        self, source_num: int, sent: set[str] | None = None, *, coalesce: bool = False
+    ) -> bool:
         """Send the routing frames for ``source_num``; ``False`` if impossible.
 
         ``sent`` collects the frames already sent while waking a group. The
         source-on frame is the same for every room and the route is the same
         for every room of an environment, and each frame costs a full gateway
         round trip (~0.8 s on the MH200), so a frame is sent once per group.
+        ``coalesce`` (implied by ``sent``) also skips a frame the gateway was given
+        within ``_ROUTE_REPEAT_WINDOW`` by an earlier call, whichever zone sent it.
         """
         frames = self._routing_frames(source_num)
         if frames is None:
@@ -715,6 +719,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 if frame in sent:
                     continue
                 sent.add(frame)
+            if (coalesce or sent is not None) and self._runtime_data is not None:
+                recent = self._runtime_data.routing_recent
+                now = time.monotonic()
+                last = recent.get(frame)
+                recent[frame] = now
+                if last is not None and now - last < _ROUTE_REPEAT_WINDOW:
+                    continue
             await self._gateway_handler.send(OWNSoundCommand(frame))
         self._attr_source = self._source_label(source_num)
         return True
@@ -748,7 +759,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
                 streamer,
             )
             return
-        await self._route_to(target)
+        await self._route_to(target, coalesce=True)
 
     # ── Pool helpers ──────────────────────────────────────────────────────────
 
@@ -1333,15 +1344,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # Routing follows the opt-in of _routing_configured(): until the matrix
         # is described in the options, the wall-panel routing is trusted.
         route = self._routing_configured()
-        now = time.monotonic()
-        if now - self._join_routed[0] > _JOIN_ROUTE_WINDOW:
-            self._join_routed = (now, set())
-        routed = self._join_routed[1]
         for member_id in change.joined:
             member_ent = runtime.media_players[member_id]
             if source_num is not None:
                 if route:
-                    await member_ent._route_to(source_num, routed)
+                    await member_ent._route_to(source_num, coalesce=True)
                 await member_ent._async_wake_zone()
             member_ent.async_write_ha_state()
 
@@ -1530,6 +1537,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._turning_off = True
         self._parked = False
         self._wake_pending = False
+        self._forget_recent_routing()
         try:
             self._attr_state = MediaPlayerState.OFF
             if not from_bus:
@@ -1604,6 +1612,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         ]
         return [self, *members]
 
+    def _forget_recent_routing(self) -> None:
+        """Forget the routing frames sent lately: the amplifiers are about to go off."""
+        if self._runtime_data is not None:
+            self._runtime_data.routing_recent.clear()
+
     async def _async_park_group(self) -> None:
         """Switch the amplifiers of a leader and its members off, but keep the group.
 
@@ -1616,6 +1629,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         pool = self._get_pool()
         if pool is None or self._turning_off:
             return
+        self._forget_recent_routing()
         self._turning_off = True
         try:
             LOGGER.info(

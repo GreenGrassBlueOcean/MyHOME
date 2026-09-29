@@ -33,3 +33,9 @@ The WHO=16 frames the integration wrote when Music Assistant played into three p
 
 ### Rooms joined one by one, 2026-09-29 (`live_2026-09-29_group_joins_one_by_one.json`)
 The frames written while Music Assistant added three rooms to a playing leader, before routing frames were shared between joins. Kept as the evidence for `test_joins_one_after_another_route_once`.
+
+### Rooms turned on and joined one by one, 2026-09-29 (`live_2026-09-29_group_turn_on_and_join_one_by_one.json`)
+The frames written with the join fix alone: each room is also turned on (default-source route) before it joins. Evidence for `test_rooms_turned_on_and_joined_one_by_one_route_once`.
+
+### Members leaving and joining a playing group, 2026-09-29 (`live_2026-09-29_group_members_leave_and_join.json`)
+Two rooms unchecked and one added in Music Assistant while the leader keeps playing: one OFF per room that leaves, OFF/ON plus source and route for the room that joins.
