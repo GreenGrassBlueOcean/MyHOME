@@ -3767,6 +3767,7 @@ async def test_restored_zone_found_off_gives_up_its_books(hass, mock_gateway):
 async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
     """After the grace period the room is switched off and cleaned up, not just sent an OFF frame."""
     zone = _stray_setup(hass, mock_gateway)
+    zone._attr_state = MediaPlayerState.ON
     zone._async_handle_turn_off = AsyncMock()
     zone.async_write_ha_state = MagicMock()
 
@@ -3775,6 +3776,24 @@ async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
 
     zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
     assert zone._pending_off_task is None
+
+
+@pytest.mark.asyncio
+async def test_group_leave_off_skips_the_frame_for_a_room_that_is_already_off(hass, mock_gateway):
+    """A parked room leaving a group is cleaned up without a second OFF frame; a room mid-wake still gets one."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._async_handle_turn_off = AsyncMock()
+    zone.async_write_ha_state = MagicMock()
+
+    with patch("custom_components.myhome.media_player.asyncio.sleep", new=AsyncMock()):
+        zone._attr_state = MediaPlayerState.OFF
+        await zone._async_delayed_off()
+        zone._async_handle_turn_off.assert_awaited_once_with(from_bus=True)
+
+        zone._async_handle_turn_off.reset_mock()
+        zone._wake_pending = True  # its amplifier is about to come on
+        await zone._async_delayed_off()
+        zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
 
 
 # -- Tests: anti-hiss switch-off that keeps the group ----------------------------

@@ -838,7 +838,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         """
         await asyncio.sleep(_GROUP_LEAVE_GRACE)
         self._pending_off_task = None
-        await self._async_handle_turn_off(from_bus=False)
+        # A room that is already off (parked, say) needs no second OFF frame:
+        # each one costs the single command session about 0.8 s.
+        already_off = self._attr_state == MediaPlayerState.OFF and not self._wake_pending
+        await self._async_handle_turn_off(from_bus=already_off)
         self.async_write_ha_state()
 
     @callback
