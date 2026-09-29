@@ -1,5 +1,6 @@
 """Test the MyHOME media player platform and dynamic proxy."""
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -32,11 +33,11 @@ from custom_components.myhome.data import MyHOMERuntimeData
 from custom_components.myhome.decoder_pool import DecoderPool
 from custom_components.myhome.media_player import (
     MyHOMEMediaPlayer,
-    _build_pool,
     _zone_address,
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.myhome.media_player_pool import build_pool
 from tests.conftest import attach_platform, attach_runtime
 
 
@@ -96,7 +97,7 @@ def _set_pool(player, pool):
 
 def test_build_pool(hass, mock_config_entry):
     """Test building decoder pool from config entry options."""
-    pool = _build_pool(hass, mock_config_entry)
+    pool = build_pool(hass, mock_config_entry)
     assert pool._store.key == "myhome.decoder_pool.test_entry_id"  # its books outlive a restart
     assert pool.is_configured is True
     assert len(pool.decoder_entity_ids) == 2
@@ -1044,10 +1045,10 @@ def test_routing_to_a_source_outside_the_matrix_is_not_labelled(hass, player, mo
 
 def test_environment_zero_has_no_routing_address():
     """``10S`` is a source device; environment 0 has no ``1ES`` form."""
-    from custom_components.myhome.media_player import _routing_address
+    from custom_components.myhome.media_player_routing import routing_address
 
-    assert _routing_address("05", 2) is None
-    assert _routing_address("15", 2) == "112"
+    assert routing_address("05", 2) is None
+    assert routing_address("15", 2) == "112"
 
 
 # ── Golden corpus: our addressing against frames captured on real hardware ────
@@ -1079,31 +1080,31 @@ def test_routing_address_matches_captured_frames(environment, source, frame):
     Plant B pins the digit order on its own: amplifier 11 is routed to source 2
     with 112 and to source 1 with 111, and a general power-on sweeps 111..181.
     """
-    from custom_components.myhome.media_player import _parse_routing_address, _routing_address
+    from custom_components.myhome.media_player_routing import parse_routing_address, routing_address
 
     # A two-digit amplifier address in that environment, e.g. environment 2 -> "23"
     zone = f"{environment}3"
-    assert _routing_address(zone, source) == frame.removeprefix("*16*3*").removesuffix("##")
-    assert _parse_routing_address(frame.removeprefix("*16*3*").removesuffix("##")) == (source, environment)
+    assert routing_address(zone, source) == frame.removeprefix("*16*3*").removesuffix("##")
+    assert parse_routing_address(frame.removeprefix("*16*3*").removesuffix("##")) == (source, environment)
 
 
 def test_source_addresses_are_not_routing_addresses():
     """101-109 are source devices; decoding them as routing invents a source 0."""
-    from custom_components.myhome.media_player import _parse_routing_address
+    from custom_components.myhome.media_player_routing import parse_routing_address
 
     for fixture in _golden_sound_fixtures():
         where = str(fixture.get("where"))
         if where.startswith("10") and len(where) == 3:
-            assert _parse_routing_address(where) is None, where
+            assert parse_routing_address(where) is None, where
 
 
 def test_captured_amplifier_addresses_resolve_to_their_environment():
     """Amplifier addresses are EA: the environment is the first digit."""
-    from custom_components.myhome.media_player import _zone_environment
+    from custom_components.myhome.media_player_routing import zone_environment
 
-    assert _zone_environment("23") == "2"   # plant A, eetkamer
-    assert _zone_environment("11") == "1"   # plant B
-    assert _zone_environment("36") == "3"   # plant A, badkamer
+    assert zone_environment("23") == "2"   # plant A, eetkamer
+    assert zone_environment("11") == "1"   # plant B
+    assert zone_environment("36") == "3"   # plant A, badkamer
 
 
 
@@ -1126,10 +1127,10 @@ def test_only_two_digit_amplifiers_are_routed(where, environment, route_s2):
     padding.  A single digit would have to be guessed into an environment, and
     a wrong guess switches somebody else's room, so it is never routed.
     """
-    from custom_components.myhome.media_player import _routing_address, _zone_environment
+    from custom_components.myhome.media_player_routing import routing_address, zone_environment
 
-    assert _zone_environment(where) == environment
-    assert _routing_address(where, 2) == route_s2
+    assert zone_environment(where) == environment
+    assert routing_address(where, 2) == route_s2
 
 
 @pytest.mark.asyncio
@@ -1165,10 +1166,10 @@ def test_routing_agrees_with_the_who22_mirror(who16, environment, source, who22)
     them - this is not our inference, it is the protocol restating itself.
     WHAT is ``2#MULTIMEDIA_TYPE#AREA`` and WHERE ``5#2#SOURCE_ID``.
     """
-    from custom_components.myhome.media_player import _parse_routing_address
+    from custom_components.myhome.media_player_routing import parse_routing_address
 
     pseudo = who16.removeprefix("*16*3*").removesuffix("##")
-    assert _parse_routing_address(pseudo) == (source, environment)
+    assert parse_routing_address(pseudo) == (source, environment)
 
     what_param = who22.split("*")[2].split("#")      # ["2", "4", AREA]
     where_param = who22.split("*")[3].split("#")     # ["5", "2", SOURCE]
@@ -1182,9 +1183,9 @@ def test_routing_agrees_with_the_who22_mirror(who16, environment, source, who22)
 )
 def test_amplifier_address_agrees_with_the_who22_speaker_form(amplifier, area, point):
     """Amplifier ``EA`` is area then point, as WHO=22 writes it as ``3#AREA#POINT``."""
-    from custom_components.myhome.media_player import _zone_environment
+    from custom_components.myhome.media_player_routing import zone_environment
 
-    assert _zone_environment(amplifier) == area
+    assert zone_environment(amplifier) == area
     assert amplifier == f"{area}{point}"
 
 
@@ -1542,8 +1543,8 @@ async def test_cambridge_audio_incompatible_warning_and_error(hass, mock_gateway
         CONF_DECODER_SOURCE.format(1): 2,
     }
 
-    with patch("custom_components.myhome.media_player.async_create_incompatible_decoder_issue") as mock_issue:
-        pool = _build_pool(hass, entry)
+    with patch("custom_components.myhome.media_player_pool.async_create_incompatible_decoder_issue") as mock_issue:
+        pool = build_pool(hass, entry)
         mock_issue.assert_called_once_with(
             hass, "test_gw", "media_player.cambridge_cxn", "cambridge_audio"
         )
@@ -1591,8 +1592,8 @@ async def test_cambridge_audio_with_companion_dlna_bridges_stream(hass, mock_gat
         CONF_DECODER_SOURCE.format(1): 2,
     }
 
-    with patch("custom_components.myhome.media_player.async_create_incompatible_decoder_issue") as mock_issue:
-        pool = _build_pool(hass, entry)
+    with patch("custom_components.myhome.media_player_pool.async_create_incompatible_decoder_issue") as mock_issue:
+        pool = build_pool(hass, entry)
         # Repair issue is NOT created because companion is detected!
         mock_issue.assert_not_called()
 
@@ -1712,7 +1713,7 @@ async def test_passive_metadata_mirroring_and_transport(hass, mock_gateway):
 
 def test_get_group_members_none_runtime():
     """_get_group_members returns None when runtime is None."""
-    from custom_components.myhome.media_player import _get_group_members
+    from custom_components.myhome.media_player_group import _get_group_members
     assert _get_group_members(None, "media_player.any") is None
 
 
@@ -2087,7 +2088,7 @@ async def test_options_reload_cleans_orphaned_repair_issues(hass, mock_gateway):
     assert (DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_gw_clean_media_player_old_cxn") in issue_reg.issues
 
     # Building pool clears the orphaned issue
-    _build_pool(hass, entry)
+    build_pool(hass, entry)
     assert (DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_gw_clean_media_player_old_cxn") not in issue_reg.issues
 
 
@@ -2784,7 +2785,7 @@ async def test_auto_power_off_anti_hiss_on_decoder_states(hass, player, mock_gat
 
     # 2. Decoder transitions to OFF: the same short timer as idle, so a
     #    decoder that reports "off" while reconnecting can come back first.
-    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+    with patch("custom_components.myhome.media_player_decoder.async_call_later", side_effect=mock_call_later):
         off_event = MagicMock(
             data={
                 "entity_id": "media_player.squeezelite_1",
@@ -2799,7 +2800,7 @@ async def test_auto_power_off_anti_hiss_on_decoder_states(hass, player, mock_gat
         player.async_turn_off.reset_mock()
 
     # 3. Decoder transitions to IDLE: schedules 3s timer
-    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+    with patch("custom_components.myhome.media_player_decoder.async_call_later", side_effect=mock_call_later):
         idle_event = MagicMock(
             data={
                 "entity_id": "media_player.squeezelite_1",
@@ -2830,7 +2831,7 @@ async def test_auto_power_off_anti_hiss_on_decoder_states(hass, player, mock_gat
 
     # 5. Decoder transitions to PAUSED: schedules 60s timer
     callbacks.clear()
-    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+    with patch("custom_components.myhome.media_player_decoder.async_call_later", side_effect=mock_call_later):
         paused_event = MagicMock(
             data={
                 "entity_id": "media_player.squeezelite_1",
@@ -3044,7 +3045,7 @@ async def test_group_departure_turns_off_after_the_grace_period(hass, mock_gatew
     member._attr_state = MediaPlayerState.ON
 
     with patch(
-        "custom_components.myhome.media_player._GROUP_LEAVE_GRACE", 0.01
+        "custom_components.myhome.media_player_group._GROUP_LEAVE_GRACE", 0.01
     ):
         mock_gateway.send.reset_mock()
         await member.async_unjoin_player()
@@ -3145,9 +3146,22 @@ def _capture_timers():
         timers.append((delay, action))
         return MagicMock()
 
-    return timers, patch(
-        "custom_components.myhome.media_player.async_call_later", side_effect=call_later
-    )
+    # Setup arms the restore-confirm timer, the decoder layer the anti-hiss ones.
+    class _Patcher:
+        """Re-usable: a test may enter it more than once."""
+
+        def __enter__(self):
+            self._stack = contextlib.ExitStack()
+            for module in ("media_player", "media_player_decoder"):
+                self._stack.enter_context(
+                    patch(f"custom_components.myhome.{module}.async_call_later", side_effect=call_later)
+                )
+            return self
+
+        def __exit__(self, *exc):
+            return self._stack.__exit__(*exc)
+
+    return timers, _Patcher()
 
 
 @pytest.mark.asyncio

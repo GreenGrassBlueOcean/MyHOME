@@ -100,7 +100,7 @@ async def _park(hass, zones) -> None:
         return MagicMock()
 
     hass.states.async_set(DECODER, "paused")
-    with patch("custom_components.myhome.media_player.async_call_later", side_effect=call_later):
+    with patch("custom_components.myhome.media_player_decoder.async_call_later", side_effect=call_later):
         leader._async_decoder_state_changed(
             MagicMock(data={"entity_id": DECODER, "new_state": State(DECODER, "paused")})
         )
