@@ -1472,10 +1472,12 @@ async def test_primary_gateway_ignores_delegated_away_whos(hass: HomeAssistant) 
 
     # Non-delegated WHO=1 event is processed by primary
     await gw_pri._process_message(OWNLightingEvent.parse("*1*1*0##"))
+    await hass.async_block_till_done()  # bus listeners run on the next loop turn
     assert len(events) == 1
 
     # Delegated-away WHO=2 event is ignored by primary
     await gw_pri._process_message(OWNAutomationEvent.parse("*2*1*0##"))
+    await hass.async_block_till_done()
     assert len(events) == 1
 
     unsub_light()
