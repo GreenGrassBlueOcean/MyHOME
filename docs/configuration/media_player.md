@@ -32,7 +32,7 @@ To bridge modern streaming platforms (such as **Music Assistant**, **Spotify Con
          ┌───────────────────────────┐
          │ Decoder Pool Management   │
          │ - Dynamic claim / release │
-         │ - Gain staging (+12 dB)   │
+         │ - Pre-gain (% offset)     │
          │ - State & metadata mirror │
          └─────┬───────────────┬─────┘
                │               │
@@ -192,6 +192,16 @@ $$\text{Decoder Volume} = \text{Zone Volume} + \text{Pre-Gain Offset}$$
 
 - Setting `pre_gain` (e.g., `+10%` to `+20%`) drives the network streamer at maximum undistorted line level.
 - The room amplifier then operates at lower amplification, pushing the analog noise floor below audibility.
+
+### A volume of 0 is not a mute
+
+Turning a room down to 0, from Music Assistant or a wall panel, leaves it
+unmuted: only the mute button mutes. Music Assistant greys out the slider of a
+muted player and leaves it out of the group volume, so a room that reports 0
+would otherwise be stuck there until you pressed the mute icon. Raising the
+volume above 0 (from anywhere) ends a mute. A volume of 0 does not affect the
+anti-hiss auto-off, which only follows the decoder: when the stream stops, the
+room's amplifier still switches off.
 
 ---
 
@@ -406,6 +416,25 @@ filter:
 
 ---
 
+## 🩺 Reporting an audio problem
+
+Audio problems usually involve three parties (this integration, Music Assistant
+and the decoder), so a report needs two files and one sentence:
+
+1. **MyHOME diagnostics**: *Settings → Devices & services → MyHOME → ⋮ → Download diagnostics*.
+   Its `audio` block lists every zone (state, source, volume, mute, whether the
+   anti-hiss auto-off has parked it), the decoders (source, pre-gain, state, who
+   holds them) and the groups. Rooms appear as `zone_<bus address>` and decoders
+   as `decoder_<slot>`, so it carries no room names. The `bus_monitor` block holds
+   the last frames on the bus.
+2. **Music Assistant log**, only when the problem is on the Music Assistant side
+   (group does not form, wrong player, slider locked): *Settings → System → Logs*
+   in Music Assistant, around the time it happened.
+3. What you did, and when: "21:48, pressed play on the *Huis* group, Bureau's
+   slider would not move."
+
+Attach these to the issue instead of pasting log excerpts; two files are enough.
+
 ## 📜 OpenWebNet WHO = 16 Reference Frames
 
 `<WHERE>` is an amplifier (`01`–`99`), an environment (`#0`–`#9`) or `0` for
@@ -422,5 +451,5 @@ all amplifiers. The integration addresses individual amplifiers.
 | **Activate Source `S`** | `*16*3*10S##` | Switches source device `S` on (`101`–`109`). |
 | **Route Environment to Source** | `*16*3*1ES##` | Routes every amplifier of environment `E` to source `S`. Not in `WHO_16.pdf`; established from bus captures on two installations. |
 
-> Released OWNd builds volume down as `*16*1000*<WHERE>##`, which the
-> specification does not define; the library fix is pending.
+> OWNd 2.0.0b8 and earlier send volume down as `*16*1000*<WHERE>##`, which the
+> specification does not define; OWNd 2.0.0b9 sends `*16*1101*<WHERE>##`.

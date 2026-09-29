@@ -48,19 +48,27 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
 
     device = dev_reg.async_get(entry.device_id) if entry.device_id else None
 
+    # Steps 2 and 4 look at other devices. Walk the streaming-capable entities
+    # rather than ``dev_reg.devices``: reading that registry as a mapping is
+    # deprecated in HA 2026.9, and a companion is by definition one of these.
+    candidates = [
+        (cand, other_dev)
+        for cand in ent_reg.entities.values()
+        if cand.domain == "media_player"
+        and cand.platform in STREAMING_COMPANION_PLATFORMS
+        and cand.device_id
+        and (device is None or cand.device_id != device.id)
+        and (other_dev := dev_reg.async_get(cand.device_id)) is not None
+    ]
+
     # 2. Check devices sharing the same MAC address (if not merged by device registry)
     if device is not None:
         macs = {conn[1] for conn in device.connections if conn[0] == dr.CONNECTION_NETWORK_MAC}
         if macs:
-            all_devices = dev_reg.devices.values() if hasattr(dev_reg.devices, "values") else dev_reg.devices
-            for other_dev in all_devices:
-                if other_dev.id == device.id:
-                    continue
+            for cand, other_dev in candidates:
                 other_macs = {conn[1] for conn in other_dev.connections if conn[0] == dr.CONNECTION_NETWORK_MAC}
                 if macs & other_macs:
-                    for cand in er.async_entries_for_device(ent_reg, other_dev.id):
-                        if cand.domain == "media_player" and cand.platform in STREAMING_COMPANION_PLATFORMS:
-                            return cand.entity_id
+                    return cand.entity_id
 
     # 3. Check config entries sharing the same host/IP address
     host = None
@@ -83,15 +91,10 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
     if device is not None:
         dev_name = (device.name_by_user or device.name or "").lower().strip()
         if dev_name:
-            all_devices = dev_reg.devices.values() if hasattr(dev_reg.devices, "values") else dev_reg.devices
-            for other_dev in all_devices:
-                if other_dev.id == device.id:
-                    continue
+            for cand, other_dev in candidates:
                 other_name = (other_dev.name_by_user or other_dev.name or "").lower().strip()
                 if other_name and (other_name == dev_name or other_name in dev_name or dev_name in other_name):
-                    for cand in er.async_entries_for_device(ent_reg, other_dev.id):
-                        if cand.domain == "media_player" and cand.platform in STREAMING_COMPANION_PLATFORMS:
-                            return cand.entity_id
+                    return cand.entity_id
 
     return None
 

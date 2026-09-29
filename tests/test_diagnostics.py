@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from OWNd.message import OWNMessage
 
 from custom_components.myhome.bus_monitor import DEFAULT_RING_BUFFER_SIZE, BusMonitor
-from custom_components.myhome.const import CONF_ENTITIES, CONF_ENTITY, DOMAIN, INTEGRATION_VERSION
+from custom_components.myhome.const import CONF_ENTITY, CONF_PLATFORMS, DOMAIN, INTEGRATION_VERSION
 from custom_components.myhome.diagnostics import async_get_config_entry_diagnostics
 from tests.conftest import attach_runtime
 
@@ -55,6 +55,7 @@ async def test_diagnostics_without_gateway_handler(hass: HomeAssistant):
     assert diag["queue"] == {}
     assert diag["bus_monitor"] == {}
     assert diag["platforms"] == {}
+    assert diag["audio"] == {}
 
 
 @pytest.mark.asyncio
@@ -105,9 +106,9 @@ async def test_diagnostics_with_full_gateway_and_bus_monitor(hass: HomeAssistant
     hass.data[DOMAIN] = {
         mac: {
             CONF_ENTITY: mock_handler,
-            CONF_ENTITIES: {
-                "light": [MagicMock(), MagicMock()],
-                "switch": [MagicMock()],
+            CONF_PLATFORMS: {
+                "light": {"a": {}, "b": {}},
+                "switch": {"c": {}},
             },
         }
     }
@@ -242,7 +243,7 @@ async def test_redaction_is_scoped_to_the_config_entry(hass: HomeAssistant):
     mock_handler.gateway, mock_handler.is_connected, mock_handler.sending_workers = mock_gw, True, []
     mock_handler.send_buffer, mock_handler.bus_monitor = None, bus_mon
     mock_handler.identification.return_value = {"model": "F454", "source": "manual", "conflict": None}
-    hass.data[DOMAIN] = {mac: {CONF_ENTITY: mock_handler, CONF_ENTITIES: {"light": [MagicMock()]}}}
+    hass.data[DOMAIN] = {mac: {CONF_ENTITY: mock_handler, CONF_PLATFORMS: {"light": {"a": {}}}}}
     attach_runtime(hass, mock_entry, mac, mock_handler)
 
     diag = await async_get_config_entry_diagnostics(hass, mock_entry)
@@ -367,3 +368,58 @@ async def test_topology_inference_diagnostics_paired_and_redacted(hass: HomeAssi
     assert sec_mac not in top_str
     assert pri_mac.replace(":", "") not in top_str
     assert sec_mac.replace(":", "") not in top_str
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_audio_block_names_no_room(hass: HomeAssistant):
+    """The audio block reports the sound system by bus address and decoder slot, never by room name."""
+    from types import SimpleNamespace
+
+    from custom_components.myhome.decoder_pool import DecoderPool
+
+    mock_entry = MagicMock()
+    mock_entry.data = {"mac": "00:03:50:11:22:33"}
+    mock_entry.options = {"decoder_1_entity": "media_player.cambridge_living_room", "decoder_1_source": 1}
+    handler = MagicMock()
+    handler.gateway.profile = None
+    handler.send_buffer = handler.bus_monitor = None
+    runtime = attach_runtime(hass, mock_entry, "00:03:50:11:22:33", handler)
+
+    pool = DecoderPool(
+        hass,
+        {"media_player.cambridge_living_room": 1},
+        {"media_player.cambridge_living_room": 20},
+        companion_map={"media_player.cambridge_living_room": "media_player.mxn10_dlna"},
+    )
+    await pool.claim("media_player.bureau", environment="2")
+    await pool.set_group("media_player.bureau", {"media_player.eetkamer": "2"})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.cambridge_living_room", "playing")
+
+    def zone(where: str, **state: object) -> SimpleNamespace:
+        return SimpleNamespace(where=where, diagnostics_state=lambda: state)
+
+    runtime.media_players = {
+        "media_player.bureau": zone("21", state="on", source=1, volume_level=0.0, is_volume_muted=False, parked=False),
+        "media_player.eetkamer": zone("23", state="off", source=None, volume_level=None, is_volume_muted=False, parked=True),
+    }
+
+    audio = (await async_get_config_entry_diagnostics(hass, mock_entry))["audio"]
+
+    assert audio["zones"]["zone_21"]["volume_level"] == 0.0
+    assert audio["zones"]["zone_21"]["is_volume_muted"] is False
+    assert audio["zones"]["zone_23"]["parked"] is True
+    pool_info = audio["decoder_pool"]
+    assert pool_info["decoders"]["decoder_1"] == {
+        "source": 1,
+        "pre_gain_pct": 20,
+        "stream_incompatible": False,
+        "companion": "decoder_1_companion",
+        "state": "playing",
+        "held_by": "zone_21",
+    }
+    assert pool_info["groups"] == {"zone_21": ["zone_23"]}
+    assert pool_info["environments"] == {"zone_21": "2", "zone_23": "2"}
+    dump = str(audio)
+    for identifying in ("bureau", "eetkamer", "living_room", "mxn10"):
+        assert identifying not in dump

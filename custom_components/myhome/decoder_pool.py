@@ -840,6 +840,15 @@ class DecoderPool:
                     return dec_id
         return None
 
+    def books(self) -> dict[str, Any]:
+        """Return a copy of the books (assignments, sources, groups, environments), as saved."""
+        return self._snapshot()
+
+    @property
+    def unconfirmed(self) -> frozenset[str]:
+        """Return the restored zones the bus has not reported on yet."""
+        return frozenset(self._unconfirmed)
+
     def get_assignment(self, zone_entity_id: str) -> str | None:
         """Return the decoder entity_id assigned to *zone_entity_id*, or ``None``.
 

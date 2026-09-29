@@ -18,7 +18,7 @@ from .const import (
     TOPOLOGY_SHARED,
     get_ownd_version,
 )
-from .data import get_runtime_data
+from .data import MyHOMERuntimeData, get_runtime_data
 
 # A diagnostics download is meant to be attached to a public issue. Secrets go
 # without saying; the rest identifies a household - where the gateway lives on
@@ -124,11 +124,10 @@ async def async_get_config_entry_diagnostics(
                 "recent_frames": bus_monitor.get_recent_frames(limit=bus_monitor.maxlen),
             }
 
-    # Count loaded entities per platform
+    # Configured devices per platform (``runtime.entities`` is never filled)
     platforms_info: dict[str, int] = {}
-    entities_dict = runtime.entities if runtime is not None else {}
-    for platform_name, entities in entities_dict.items():
-        platforms_info[platform_name] = len(entities)
+    for platform_name, devices in (runtime.platforms if runtime is not None else {}).items():
+        platforms_info[platform_name] = len(devices)
 
     topology_inference = _build_topology_inference_diagnostics(hass, entry, profile_info)
 
@@ -148,9 +147,73 @@ async def async_get_config_entry_diagnostics(
         "profile": profile_info,
         "queue": queue_info,
         "platforms": platforms_info,
+        "audio": _build_audio_diagnostics(hass, entry, runtime),
         "bus_monitor": bus_monitor_info,
         "topology_inference": topology_inference,
     }
+
+
+def _build_audio_diagnostics(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    runtime: MyHOMERuntimeData | None,
+) -> dict[str, Any]:
+    """Describe the WHO=16 sound system: zones, decoders, groups and what is parked.
+
+    Rooms and decoders are user-named, so they never appear by entity id: a zone
+    is ``zone_<WHERE>`` (its bus address) and a decoder is ``decoder_<slot>``,
+    the same alias the options block uses. What a report needs is which zone is
+    on which source, who leads which group, and whether the anti-hiss auto-off
+    has parked a room, not what the rooms are called.
+    """
+    if runtime is None:
+        return {}
+
+    zones = {
+        entity_id: player for entity_id, player in runtime.media_players.items() if hasattr(player, "diagnostics_state")
+    }
+    alias: dict[str, str] = {entity_id: f"zone_{player.where}" for entity_id, player in zones.items()}
+    slots: dict[str, int] = {}
+    for slot in range(1, CONF_DECODER_SLOTS + 1):
+        decoder = str(entry.options.get(CONF_DECODER_ENTITY.format(slot)) or "").strip()
+        if decoder:
+            slots[decoder] = slot
+            alias[decoder] = f"decoder_{slot}"
+
+    pool = runtime.decoder_pool
+    for decoder, companion in (pool.companion_map if pool is not None else {}).items():
+        if decoder in slots:
+            alias[companion] = f"decoder_{slots[decoder]}_companion"
+
+    def name(entity_id: str | None) -> str | None:
+        return None if entity_id is None else alias.get(entity_id, "unknown")
+
+    audio: dict[str, Any] = {
+        "zones": {alias[entity_id]: player.diagnostics_state() for entity_id, player in zones.items()},
+    }
+    if pool is None or not pool.is_configured:
+        audio["decoder_pool"] = None
+        return audio
+
+    books = pool.books()
+    decoders: dict[str, Any] = {}
+    for decoder, slot in slots.items():
+        state = hass.states.get(decoder)
+        decoders[f"decoder_{slot}"] = {
+            "source": pool.decoder_source(decoder),
+            "pre_gain_pct": pool.get_pre_gain(decoder),
+            "stream_incompatible": decoder in pool.stream_incompatible,
+            "companion": name(pool.companion_map.get(decoder)),
+            "state": state.state if state is not None else None,
+            "held_by": name(next((zone for dec, zone in books["assignments"].items() if dec == decoder), None)),
+        }
+    audio["decoder_pool"] = {
+        "decoders": decoders,
+        "groups": {name(leader): [name(member) for member in members] for leader, members in books["groups"].items()},
+        "environments": {name(zone): environment for zone, environment in books["environments"].items()},
+        "unconfirmed": sorted(name(zone) or "unknown" for zone in pool.unconfirmed),
+    }
+    return audio
 
 
 def _build_topology_inference_diagnostics(
