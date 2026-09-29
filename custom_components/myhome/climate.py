@@ -173,6 +173,10 @@ def _where_param(message: Any) -> list[str]:
 def _bus_zone(message: Any) -> int | None:
     """OWNd's zone of a frame, or ``None`` where OWNd <= 2.0.0b8 misreads it.
 
+    A bare WHERE >= 100 is a temperature probe, not a zone: OWNd keeps its last
+    two digits as the zone (probe 105 -> zone 5, 169 -> 69), which delivered
+    every probe frame to that zone and discovered a phantom one (#466).
+
     On an unhashed WHERE ``0#<p>`` OWNd reports ``p`` as the zone, but ``p`` is
     never one: ``0#<n>`` is actuator ``n`` of zone 0, the pump the zones call
     with ``*4*4001#<zone>*0#<n>##`` (zones 1, 2, 3, 5 and 6 of one plant all
@@ -182,6 +186,9 @@ def _bus_zone(message: Any) -> int | None:
     """
     if str(getattr(message, "where", None)) == "0" and _where_param(message):
         return None
+    where = str(getattr(message, "where", None))
+    if where.isdigit() and int(where) >= 100:
+        return None  # a probe: OWNd's zone is its last two digits, 105 -> 5
     zone: int | None = getattr(message, "zone", None)
     return zone
 
