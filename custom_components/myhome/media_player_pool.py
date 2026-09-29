@@ -32,8 +32,8 @@ STREAM_INCOMPATIBLE_PLATFORMS: dict[str, frozenset[str]] = {
 def build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> DecoderPool:
     """Build a :class:`DecoderPool` from the current options entry.
 
-    Called both from :func:`async_setup_entry` and from the pool-rebuild
-    listener registered in ``__init__.py``.
+    Called from :func:`~.media_player.async_setup_entry`, which an options change
+    re-runs by reloading the entry.
 
     Args:
         hass: Home Assistant instance.

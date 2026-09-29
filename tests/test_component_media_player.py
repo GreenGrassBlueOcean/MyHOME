@@ -2070,7 +2070,7 @@ async def test_bus_routing_different_source_drops_member_from_group(hass, mock_g
 
 @pytest.mark.asyncio
 async def test_options_reload_cleans_orphaned_repair_issues(hass, mock_gateway):
-    """_build_pool removes orphaned incompatible decoder repair issues when decoder is removed."""
+    """build_pool removes orphaned incompatible decoder repair issues when decoder is removed."""
     from homeassistant.helpers import issue_registry as ir
 
     from custom_components.myhome.repairs import (

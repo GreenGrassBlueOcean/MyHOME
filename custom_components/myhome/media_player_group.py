@@ -14,7 +14,7 @@ from OWNd.message import OWNSoundCommand
 from .const import DOMAIN, LOGGER
 from .data import MyHOMERuntimeData
 from .decoder_pool import DecoderPool, EnvironmentBusyError
-from .media_player_decoder import ZoneDecoderMixin
+from .media_player_decoder import ZoneDecoderLayer
 from .media_player_routing import zone_environment
 
 if TYPE_CHECKING:
@@ -41,14 +41,8 @@ def _get_group_members(runtime: MyHOMERuntimeData | None, entity_id: str) -> lis
     return runtime.decoder_pool.get_group_members(entity_id)
 
 
-class ZoneGroupMixin(ZoneDecoderMixin):
+class ZoneGroupLayer(ZoneDecoderLayer):
     """The group a zone leads or belongs to, and its power-down and wake-up."""
-
-    if TYPE_CHECKING:
-
-        async def _async_wake_zone(self) -> None: ...
-
-        async def _async_handle_turn_off(self, from_bus: bool = False) -> None: ...
 
     @property
     def group_members(self) -> list[str] | None:

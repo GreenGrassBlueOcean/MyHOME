@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from homeassistant.components.media_player.const import MediaPlayerState
 from homeassistant.core import Event, EventStateChangedData, callback
@@ -11,7 +11,7 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from .const import LOGGER
 from .decoder_pool import DecoderPool
 from .media_player_pool import STREAM_INCOMPATIBLE_PLATFORMS
-from .media_player_source import ZoneSourceMixin
+from .media_player_source import ZoneSourceLayer
 
 # Anti-hiss auto-off: how long a room stays on after the decoder it hears
 # stops (idle, standby or off) or pauses.
@@ -28,12 +28,8 @@ _DECODER_PLAYING_STATES = frozenset({
 })
 
 
-class ZoneDecoderMixin(ZoneSourceMixin):
+class ZoneDecoderLayer(ZoneSourceLayer):
     """Playback state, metadata and volume of the decoder a zone hears."""
-
-    if TYPE_CHECKING:
-
-        async def _async_park_group(self) -> None: ...
 
     @property
     def _effective_decoder(self) -> str | None:

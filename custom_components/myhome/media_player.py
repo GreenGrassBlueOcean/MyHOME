@@ -67,13 +67,15 @@ before — it controls the BTicino amplifier zone via WHO=16 commands only.
 
 Module layout
 -------------
-The zone entity is one object built from layers, each in its own module and
-reaching the others through ``self``::
+The zone entity is one class cut into layers, each in its own module and each
+extending the one above it in this list (they are a chain, not independent
+mixins). The layers reach each other through ``self``; calls that go down the
+chain are declared as hooks on ``ZoneBase``::
 
     media_player_zone     ZoneBase          state every layer reads, pool access
-    media_player_source   ZoneSourceMixin   source names, matrix routing frames
-    media_player_decoder  ZoneDecoderMixin  decoder state mirroring, anti-hiss auto-off
-    media_player_group    ZoneGroupMixin    join / hand-over / park / wake of a group
+    media_player_source   ZoneSourceLayer   source names, matrix routing frames
+    media_player_decoder  ZoneDecoderLayer  decoder state mirroring, anti-hiss auto-off
+    media_player_group    ZoneGroupLayer    join / hand-over / park / wake of a group
     media_player          MyHOMEMediaPlayer setup, service entry points, power, bus events
 
 ``media_player_routing`` holds the pure address helpers and ``media_player_pool``
@@ -112,7 +114,7 @@ from .const import (
 from .data import MyHOMEConfigEntry
 from .decoder_pool import EnvironmentBusyError
 from .discovery import Address, DeviceContext, PlatformDiscovery
-from .media_player_group import ZoneGroupMixin
+from .media_player_group import ZoneGroupLayer
 from .media_player_pool import STREAM_INCOMPATIBLE_PLATFORMS, build_pool
 from .media_player_routing import parse_routing_address, route_pseudo_zones, zone_environment
 from .sound_source import MyHOMESoundSource, source_address
@@ -267,7 +269,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: MyHOMEConfigEntr
     return True
 
 
-class MyHOMEMediaPlayer(ZoneGroupMixin):
+class MyHOMEMediaPlayer(ZoneGroupLayer):
     """MyHome media player with optional Dynamic Proxy for streaming services.
 
     When decoders are configured via Options Flow this entity acts as a proxy:

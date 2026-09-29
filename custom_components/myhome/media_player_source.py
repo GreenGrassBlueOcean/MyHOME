@@ -25,7 +25,7 @@ from .media_player_zone import ZoneBase
 _ROUTE_REPEAT_WINDOW = 8.0
 
 
-class ZoneSourceMixin(ZoneBase):
+class ZoneSourceLayer(ZoneBase):
     """Which matrix input a zone listens to, and how it is switched."""
 
     def _options(self) -> dict[str, Any]:

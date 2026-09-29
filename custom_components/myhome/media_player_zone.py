@@ -1,13 +1,13 @@
 """State and pool access shared by the layers of a MyHOME audio zone entity.
 
-``MyHOMEMediaPlayer`` is assembled from a chain of mixins, each in its own
-module: :class:`ZoneBase` (this module) holds the state every layer reads,
-``media_player_source`` the source and matrix routing, ``media_player_decoder``
-the mirroring of the decoder's state and the anti-hiss auto-off, and
-``media_player_group`` multi-room grouping.  ``media_player`` adds the
-Home Assistant service entry points on top.  The split is by responsibility
-only: it is one object at run time, and the layers reach each other through
-``self``.
+``MyHOMEMediaPlayer`` is one class cut into layers, each in its own module and
+each extending the one below it: :class:`ZoneBase` (this module) holds the
+state every layer reads, ``media_player_source`` the source and matrix routing,
+``media_player_decoder`` the mirroring of the decoder's state and the anti-hiss
+auto-off, and ``media_player_group`` multi-room grouping.  ``media_player`` adds
+the Home Assistant service entry points on top.  The layers are not
+independent mixins: each needs the ones below it, and they reach each other
+through ``self``.
 """
 
 from __future__ import annotations
@@ -143,3 +143,21 @@ class ZoneBase(MyHOMEEntity, MediaPlayerEntity):
         zone = runtime.media_players.get(entity_id) if runtime and entity_id else None
         if zone is not None and zone is not self:
             zone.async_write_ha_state()
+
+    # ── Hooks implemented further up the chain ────────────────────────────────
+    # A lower layer calls these; the layer that owns them sits above it, so they
+    # are declared here where every layer can see them. mypy checks each override
+    # against the signature below, and a class built without its upper layers
+    # fails with a clear error rather than an AttributeError.
+
+    async def _async_park_group(self) -> None:
+        """Switch a leader's and its members' amplifiers off but keep the group (group layer)."""
+        raise NotImplementedError
+
+    async def _async_wake_zone(self) -> None:
+        """Wake the amplifier with the OFF -> ON sequence (entity)."""
+        raise NotImplementedError
+
+    async def _async_handle_turn_off(self, from_bus: bool = False) -> None:
+        """Coordinated turn-off of a zone, its group and its decoder (entity)."""
+        raise NotImplementedError
