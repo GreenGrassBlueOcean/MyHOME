@@ -53,7 +53,7 @@ For installations equipped with BTicino WHO 16 sound systems (F441, F441M audio 
 
 ### Pattern A: Dynamic Auto-Collapsing Active Speakers Card
 
-Add this card to your main overview dashboard. It uses `custom:auto-entities` to monitor all MyHOME audio zones and automatically renders interactive `custom:mushroom-media-player-card` controls with live volume sliders and transport buttons whenever a zone is `playing` or `on`:
+Add this card to your main overview dashboard. It uses `custom:auto-entities` to monitor all MyHOME audio zones and automatically renders a compact tile card per zone, named after the zone, with transport buttons and a live volume slider whenever a zone is `playing` or `on`:
 
 ```yaml
 type: custom:auto-entities
@@ -61,44 +61,31 @@ card:
   type: vertical-stack
   title: 🔊 Active Speakers
 card_param: cards
+show_empty: false
 filter:
   include:
-    # Captures any playing MyHOME zone and renders a rich Mushroom player
     - integration: myhome
       domain: media_player
-      state: playing
+      state: '/^(playing|on)$/'
       options:
-        type: custom:mushroom-media-player-card
-        use_media_info: true
-        show_volume_level: true
-        media_controls:
-          - on_off
-          - previous
-          - play_pause_stop
-          - next
-        volume_controls:
-          - volume_mute
-          - volume_set
-          - volume_buttons
-    # Also keeps active/unmuted standby zones visible
-    - integration: myhome
-      domain: media_player
-      state: 'on'
-      options:
-        type: custom:mushroom-media-player-card
-        use_media_info: true
-        show_volume_level: true
-        media_controls:
-          - on_off
-          - previous
-          - play_pause_stop
-          - next
-        volume_controls:
-          - volume_mute
-          - volume_set
-          - volume_buttons
-show_empty: false
+        type: tile
+        icon: mdi:speaker
+        state_content:
+          - state
+          - media_title
+          - volume_level
+        features_position: bottom
+        features:
+          - type: media-player-playback
+            controls:
+              - media_previous_track
+              - media_play_pause
+              - media_next_track
+          - type: media-player-volume-slider
 ```
+
+> [!TIP]
+> **Why tile cards?** Each card is named after its zone (the entity's friendly name), so several playing zones are easy to tell apart. `use_media_info` on the Mushroom media player card replaces the zone name with the track title, so two zones playing the same source look identical. Tile cards and their features are built into Home Assistant, so only `custom:auto-entities` is required. To use your own room names, replace the single `include` entry with one entry per zone (`entity_id: media_player.<zone>`) and add `name:` to its `options`.
 
 > [!TIP]
 > **Why `show_empty: false` matters:**  
@@ -334,7 +321,7 @@ entity: media_player.kitchen_sound
 name: Kitchen Audio
 features:
   - type: media-player-volume-slider
-  - type: media-player-playback-control
+  - type: media-player-playback
 ```
 
 #### Option 2: Native Media Control Card
