@@ -1802,7 +1802,10 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         own ON/OFF state (from BTicino hardware events) is used as the fallback.
         """
         if self._attr_state == MediaPlayerState.OFF:
-            return MediaPlayerState.OFF
+            # A parked room has its amplifier off but its group intact. Music
+            # Assistant dissolves a group whose leader reports "off", so a
+            # parked room says what is true of the music: it can resume.
+            return self._parked_state() if self._parked else MediaPlayerState.OFF
         if self._active_decoder:
             active_state = self._resolve_playback_state(self._active_decoder, allow_idle=True)
             if active_state is not None:
@@ -1813,6 +1816,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             if eff_state is not None:
                 return eff_state
         return self._attr_state
+
+    def _parked_state(self) -> MediaPlayerState:
+        """State shown for a parked room: paused if its decoder is paused, else idle."""
+        pool = self._get_pool()
+        if pool is not None:
+            leader_id = pool.get_leader(self.entity_id) or self.entity_id
+            decoder_id = pool.owned_decoder(leader_id)
+            state = self.hass.states.get(decoder_id) if decoder_id else None
+            if state is not None and state.state == MediaPlayerState.PAUSED:
+                return MediaPlayerState.PAUSED
+        return MediaPlayerState.IDLE
 
     @property
     def media_title(self) -> str | None:

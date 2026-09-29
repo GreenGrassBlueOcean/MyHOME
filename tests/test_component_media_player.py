@@ -3811,3 +3811,25 @@ async def test_switching_a_parked_leader_off_yourself_disbands_the_group(hass, m
 
     assert pool.get_members(leader.entity_id) == []
     assert not leader._parked
+
+
+@pytest.mark.asyncio
+async def test_parked_rooms_do_not_report_off_so_music_assistant_keeps_the_group(hass, mock_gateway):
+    """Found live: an "off" leader made Music Assistant dissolve the group 6 ms after the park."""
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    hass.states.async_set("media_player.dec1", "paused")
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+
+    assert leader.state == MediaPlayerState.PAUSED
+    assert member.state == MediaPlayerState.PAUSED
+    hass.states.async_set("media_player.dec1", "idle")
+    assert leader.state == MediaPlayerState.IDLE
+
+    # a real turn-off (or a wall-panel OFF) is off again
+    leader.async_turn_off = MyHOMEMediaPlayer.async_turn_off.__get__(leader)
+    await leader.async_turn_off()
+    assert leader.state == MediaPlayerState.OFF
