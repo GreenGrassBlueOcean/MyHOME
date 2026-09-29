@@ -223,6 +223,24 @@ empty keeps the wall-panel routing in charge.
 
 The MyHOME integration implements native Home Assistant player grouping (`MediaPlayerEntityFeature.GROUPING`). This enables synchronized multi-room playback across BTicino audio zones without playing separate concurrent audio streams.
 
+### Recommended: one Music Assistant *Sync Group* for the house
+
+When you open a room in Music Assistant and add other rooms to it, that room becomes the group's **leader**. Music Assistant always lists the room you started from as ticked in its group panel, and you cannot untick it. If you untick it while nothing is playing, Music Assistant dissolves the whole group and the other rooms disappear from it. That is Music Assistant's temporary ("ad-hoc") grouping, and MyHOME cannot change it: all that reaches the integration is "remove these rooms".
+
+Instead, create a **Sync Group player** in Music Assistant once and play to that. The group player owns the queue, so no room is fixed, and every room can be ticked and unticked, including the one you used to start from.
+
+1. In Music Assistant open **Settings → Players → Add group player → Sync group**.
+2. Name it (for example *Huis*) and add the MyHOME rooms you want to be able to use under **Group members**. These are only the rooms that join when the group starts.
+3. Turn **Dynamic members** on and press **Save**. Without it the member list is fixed and no room can be removed.
+4. In the player bar at the bottom, open the player selector (bottom right) and pick **Huis**. The group icon now shows *Group members — Huis* and lets you tick and untick every room.
+5. Play to **Huis**, not to a room.
+
+Behind the scenes Music Assistant still picks one of the rooms as the *sync leader* and plays the stream to it; MyHOME claims the decoder for that room and routes the other rooms to the same matrix input, as described below. The difference is what happens when that room is unticked:
+
+- **Before you press play**, unticking any room only changes the list. Nothing is sent to the bus.
+- **While music plays**, unticking a room that is not the sync leader switches only that room's amplifier off.
+- **While music plays**, unticking the sync leader makes Music Assistant re-form the group around the remaining rooms and resume from the same position. This costs the short gap explained in [Why deselecting the group leader gives a short gap](#why-deselecting-the-group-leader-gives-a-short-gap).
+
 ### How Grouping Works with the Analog Matrix
 
 When using **Music Assistant (MA)** or Home Assistant's `media_player.join` service:
@@ -272,10 +290,10 @@ Music Assistant itself calls this "accepting a brief audio gap" in its ad-hoc gr
 - Some decoders (Cambridge Audio / StreamMagic) do not accept a Music Assistant stream at all (`unsupported_media_type`), so they can never own a Music Assistant queue.
 - It adds a second entity per decoder next to the room entities, which is easy to pick by mistake, and it needs a policy for when the last room leaves.
 
-This was judged not worth the extra moving parts; the short gap on leader removal is accepted as the best behaviour available with a room as group leader. If you want to avoid it entirely:
+This was judged not worth the extra moving parts; the short gap on leader removal is accepted as the best behaviour available with a room as group leader. What you can do:
 
-- **Choose the leader deliberately.** The leader is the first entry of the group, the room you *play to*. Play to a room that stays on (living room, kitchen) and add rooms that come and go (bathroom, bedroom) as members. Removing a *member* never causes a gap: only that room's amplifier goes off (after the 5-second grace period).
-- Removing the leader itself, from anywhere, always behaves as described above.
+- **Use a Sync Group** (see [Recommended: one Music Assistant Sync Group for the house](#recommended-one-music-assistant-sync-group-for-the-house)). Every room, including the one you started from, can then be unticked. The gap remains only when the room that currently is the sync leader is unticked while music plays.
+- **With temporary groups, choose the leader deliberately.** The leader is the room you *play to*. Play to a room that stays on (living room, kitchen) and add rooms that come and go (bathroom, bedroom) as members. Removing a *member* never causes a gap: only that room's amplifier goes off (after the 5-second grace period).
 
 Before this hand-over existed, turning the leader off from Home Assistant or a wall panel switched off **every** room of the group and stopped the decoder. Now the other rooms carry on, after the short gap.
 
