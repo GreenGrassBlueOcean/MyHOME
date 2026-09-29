@@ -1357,6 +1357,52 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         self.async_write_ha_state()
 
+    async def _async_hand_over_leadership(
+        self, pool: DecoderPool, members: list[str], from_bus: bool = False
+    ) -> None:
+        """Switch this leader's amplifier off and pass the group to its first member.
+
+        The bus audio does not run through the leader's amplifier, so the decoder
+        keeps streaming and the other rooms keep their routes: only this room
+        goes quiet. Music Assistant cannot deselect its group leader, and a
+        leader turned off from Home Assistant or a wall panel must not take the
+        whole house down with it.
+
+        The bus side is uninterrupted, but Music Assistant still moves its queue
+        to the new leader by stopping it and starting a new stream, so the
+        listener hears a short gap. That is inherent to a room owning the queue
+        and is documented in docs/configuration/media_player.md ("Why
+        deselecting the group leader gives a short gap"); do not try to hide it
+        here.
+        """
+        runtime = self._runtime_data
+        new_leader_id = members[0]
+        new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
+
+        result = await pool.transfer_leadership(self.entity_id, new_leader_id)
+        if new_leader_ent and result:
+            new_leader_ent._active_decoder = result[0]
+
+        self._turning_off = True
+        try:
+            self._cancel_auto_off()
+            self._parked = False
+            self._wake_pending = False
+            if not from_bus:
+                await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+        finally:
+            self._turning_off = False
+        self._attr_state = MediaPlayerState.OFF
+        self._active_decoder = None
+        self.async_write_ha_state()
+
+        if new_leader_ent:
+            new_leader_ent.async_write_ha_state()
+        for mem_id in members[1:]:
+            mem_ent = runtime.media_players.get(mem_id) if runtime else None
+            if mem_ent:
+                mem_ent.async_write_ha_state()
+
     async def async_unjoin_player(self) -> None:
         """Unjoin this player from whichever group it belongs to.
 
@@ -1371,31 +1417,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         members = pool.get_members(self.entity_id)
         if members:
             # We are the leader: handover to the first remaining member
-            new_leader_id = members[0]
-            new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
-
-            # Handover leadership and claimed decoder in the pool
-            result = await pool.transfer_leadership(self.entity_id, new_leader_id)
-            if new_leader_ent and result:
-                new_leader_ent._active_decoder = result[0]
-
-            # Turn off this unjoining leader and release its state
-            self._turning_off = True
-            try:
-                await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-            finally:
-                self._turning_off = False
-            self._attr_state = MediaPlayerState.OFF
-            self._active_decoder = None
-            self.async_write_ha_state()
-
-            # Update new leader and remaining members
-            if new_leader_ent:
-                new_leader_ent.async_write_ha_state()
-            for mem_id in members[1:]:
-                mem_ent = runtime.media_players.get(mem_id) if runtime else None
-                if mem_ent:
-                    mem_ent.async_write_ha_state()
+            await self._async_hand_over_leadership(pool, members)
         else:
             # We are a member: leave our group
             leader_id = pool.get_leader(self.entity_id)
@@ -1538,6 +1560,14 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             self._auto_off_unsub = None
         if self._turning_off:
             return
+        # A leader that goes off while rooms are still listening hands the
+        # group on instead of stopping it (same path as unjoin).
+        handover_pool = self._get_pool()
+        if handover_pool is not None:
+            handover_members = handover_pool.get_members(self.entity_id)
+            if handover_members:
+                await self._async_hand_over_leadership(handover_pool, handover_members, from_bus)
+                return
         self._turning_off = True
         self._parked = False
         self._wake_pending = False

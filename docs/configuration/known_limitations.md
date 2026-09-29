@@ -51,6 +51,7 @@ Things the integration does not do, or does with a caveat, and the reason. Where
 | Limitation | Why | Workaround |
 | :--- | :--- | :--- |
 | **Streaming needs a network decoder per concurrent stream.** With two decoders mapped, a third room asks for *All audio matrix inputs are currently in use*. | The F441 matrix routes one physical input per source; the integration claims one decoder per playing zone. | Map more decoders in the options flow, or group rooms on the decoder side. |
+| **Removing the group leader interrupts the music briefly.** Unticking the leader in Music Assistant, or turning it off (Home Assistant or wall panel), stops the sound for a few seconds before the remaining rooms resume. | Music Assistant owns one queue per player and can only move it by stopping it and starting a new stream on another player; a powered-off player cannot keep a queue. The bus itself is not interrupted: MyHOME switches only the leader's amplifier off and hands the decoder to the next room. See [Why deselecting the group leader gives a short gap](media_player.md#why-deselecting-the-group-leader-gives-a-short-gap). | Play to a room that stays on and add the rooms that come and go as members: removing a member never interrupts anything. |
 | **The legacy FM tuner (WHO 22) is not supported.** | Deferred in RFC #248; streaming replaces it. | — |
 
 ## Scenario buttons (WHO 15 / 25)

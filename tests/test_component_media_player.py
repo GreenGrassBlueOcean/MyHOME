@@ -343,6 +343,7 @@ async def test_turn_on_and_turn_off_with_active_decoder(hass, player, mock_gatew
 
     mock_pool = MagicMock(spec=DecoderPool)
     mock_pool.release = AsyncMock()
+    mock_pool.get_members.return_value = []
     _set_pool(player, mock_pool)
 
     # Turn on
@@ -666,6 +667,7 @@ async def test_turn_off_decoder_stop_error_handled(hass, player, mock_gateway):
 
     mock_pool = MagicMock(spec=DecoderPool)
     mock_pool.release = AsyncMock()
+    mock_pool.get_members.return_value = []
     _set_pool(player, mock_pool)
 
     player._active_decoder = "media_player.squeezelite_1"
@@ -1313,7 +1315,12 @@ async def test_a_member_leaving_keeps_the_routing_memory_but_a_stopping_leader_c
     await z22.async_turn_off()  # unchecked in Music Assistant
     assert runtime.routing_recent
 
-    await z21.async_turn_off()  # the leader stops
+    await z21.async_turn_off()  # the leader hands the group on: the routes stay valid
+    assert runtime.routing_recent
+    assert pool.get_assignment("media_player.audio_zone_23") == "media_player.dec"
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z23.async_turn_off()  # the last room stops the stream
     assert runtime.routing_recent == {}
 
 
@@ -1844,15 +1851,19 @@ async def test_async_turn_off_member_and_leader_with_pool(hass, mock_gateway):
     # Re-group
     await z1.async_join_players(["media_player.zone2"])
     z1._active_decoder = "media_player.streamer"
+    z2._attr_state = MediaPlayerState.ON
 
-    # Leader turns off: disbands and removes member via pool, stopping decoder
+    # Leader turns off: the group and decoder pass to the member, nothing stops
+    mock_gateway.send.reset_mock()
     with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
         await z1.async_turn_off()
-        mock_service.assert_called_with(
-            "media_player", "media_stop", {"entity_id": "media_player.streamer"}
-        )
+        mock_service.assert_not_called()
+    assert [str(c.args[0]) for c in mock_gateway.send.call_args_list] == ["*16*13*11##"]
     assert pool.get_members("media_player.zone1") == []
-    assert z2._attr_state == MediaPlayerState.OFF
+    assert pool.get_assignment("media_player.zone2") == "media_player.streamer"
+    assert z1._attr_state == MediaPlayerState.OFF
+    assert z2._attr_state == MediaPlayerState.ON
+    assert z2._active_decoder == "media_player.streamer"
 
 
 @pytest.mark.asyncio
@@ -1896,12 +1907,12 @@ async def test_bus_off_event_on_leader_and_member_with_pool(hass, mock_gateway):
         ev1.volume = None
         z1.handle_event(ev1)
         await asyncio.sleep(0)
-        # Verify media_stop was called on the decoder (High Issue 1 fix!)
-        mock_service.assert_called_with(
-            "media_player", "media_stop", {"entity_id": "media_player.streamer"}
-        )
+        # The leader going off at the wall hands the stream to z3: no stop
+        mock_service.assert_not_called()
     assert pool.get_members("media_player.zone1") == []
-    assert z3._attr_state == MediaPlayerState.OFF
+    assert pool.get_assignment("media_player.zone3") == "media_player.streamer"
+    assert z3._active_decoder == "media_player.streamer"
+    assert z3._attr_state != MediaPlayerState.OFF
 
 
 @pytest.mark.asyncio
