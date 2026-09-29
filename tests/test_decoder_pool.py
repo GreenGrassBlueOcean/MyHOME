@@ -927,6 +927,37 @@ async def test_a_decoder_paused_by_another_player_is_not_taken_over_at_once(hass
 
 
 @pytest.mark.asyncio
+async def test_a_pause_that_began_while_our_zone_held_the_decoder_is_not_foreign(hass):
+    """Pause in Music Assistant, the room switches itself off, play again: the decoder is free.
+
+    Found live on the MH200: the room's own paused stream locked the decoder
+    for 5 minutes and play_media failed with "all decoders busy".
+    """
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    assert await pool.claim("media_player.zone_22") == ("media_player.dec", 1)
+
+    hass.states.async_set("media_player.dec", "paused")
+    await pool.release("media_player.zone_22")  # the 60 s auto-off
+
+    assert await pool.claim("media_player.zone_22") == ("media_player.dec", 1)
+
+
+@pytest.mark.asyncio
+async def test_a_pause_that_began_after_our_zone_let_go_is_foreign(hass):
+    """A Spotify Connect session paused after the release still locks the decoder."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "idle")
+    assert await pool.claim("media_player.zone_22") == ("media_player.dec", 1)
+    await pool.release("media_player.zone_22")
+
+    later = dt_util.utcnow() + timedelta(seconds=5)
+    with patch("custom_components.myhome.decoder_pool.dt_util.utcnow", return_value=later):
+        hass.states.async_set("media_player.dec", "paused")
+    assert await pool.claim("media_player.zone_22") is None
+
+
+@pytest.mark.asyncio
 async def test_a_paused_streaming_companion_counts_as_well(hass):
     """The pause can sit on the streaming companion of a hardware decoder."""
     pool = DecoderPool(

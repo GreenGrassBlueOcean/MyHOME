@@ -40,6 +40,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.media_player.const import MediaPlayerState
@@ -193,6 +194,7 @@ class DecoderPool:
         self._lock = asyncio.Lock()
         self._store = store
         self._saved: dict[str, Any] | None = None                # last books handed to the store
+        self._released_at: dict[str, datetime] = {}               # decoder → when a zone of ours last let go of it
         self._unconfirmed: set[str] = set()                      # restored zones the bus has not reported yet
 
     # ── Persistence ───────────────────────────────────────────────────────────
@@ -333,13 +335,18 @@ class DecoderPool:
             LOGGER.info("DecoderPool: dropped restored zones the bus never reported: %s", gone)
         return gone
 
+    def _unassign_locked(self, dec_id: str) -> None:
+        """Leave a decoder without an owner, noting when: a pause that began before then was ours."""
+        self._assignments[dec_id] = None
+        self._released_at[dec_id] = dt_util.utcnow()
+
     def _forget_zone_locked(self, zone_entity_id: str) -> None:
         """Remove every trace of a zone from the books while holding the lock."""
         self._remove_member_locked(zone_entity_id)
         self._disband_group_locked(zone_entity_id)
         for dec_id, owner in self._assignments.items():
             if owner == zone_entity_id:
-                self._assignments[dec_id] = None
+                self._unassign_locked(dec_id)
         self._environments.pop(zone_entity_id, None)
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -372,6 +379,16 @@ class DecoderPool:
         target_state_val = target_state.state if target_state else None
         return state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES)
 
+    def _paused_while_ours(self, dec_id: str, paused_at: datetime) -> bool:
+        """Return True if the pause began while one of our zones held the decoder.
+
+        The room's own stream that was paused (and whose room then switched
+        itself off) is not "another player": pressing play again must be able
+        to take the decoder back.
+        """
+        released = self._released_at.get(dec_id)
+        return released is not None and paused_at <= released
+
     def _recently_paused(self, dec_id: str) -> bool:
         """Return True if the decoder or its companion has been paused for less than :data:`PAUSE_TAKEOVER_AFTER`."""
         now = dt_util.utcnow()
@@ -381,6 +398,7 @@ class DecoderPool:
                 state is not None
                 and state.state in (MediaPlayerState.PAUSED, "paused")
                 and (now - state.last_changed).total_seconds() < PAUSE_TAKEOVER_AFTER
+                and not self._paused_while_ours(dec_id, state.last_changed)
             ):
                 return True
         return False
@@ -511,7 +529,7 @@ class DecoderPool:
                             displaced_owner = owner
                         self._disband_group_locked(owner)
                         self._environments.pop(owner, None)
-                        self._assignments[dec_id] = None
+                        self._unassign_locked(dec_id)
                         owner = None
                     else:
                         continue  # already in use by an active zone
@@ -610,7 +628,7 @@ class DecoderPool:
             change.orphaned.extend(self._disband_group_locked(zone))
             owned = self._owned_decoder(zone)
             if owned is not None:
-                self._assignments[owned] = None
+                self._unassign_locked(owned)
                 change.released.append(owned)
             self._remove_member_locked(zone)
         change.orphaned = sorted(set(change.orphaned) - set(members))
@@ -808,7 +826,7 @@ class DecoderPool:
             # Check if this zone owns a decoder
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
-                    self._assignments[dec_id] = None
+                    self._unassign_locked(dec_id)
                     self._environments.pop(zone_entity_id, None)
                     LOGGER.info(
                         "DecoderPool: %s released by leader %s (group disbanded)",
