@@ -67,7 +67,7 @@ def _send(hass, frame):
 
 @pytest.mark.parametrize(
     ("frame", "zone"),
-    [("*#4*105*0*0296##", "5"), ("*#4*169*0*0250##", "69"), ("*#4*100*0*0210##", "0"), ("*#4*199*0*0210##", "99")],
+    [("*#4*105*0*0296##", "5"), ("*#4*169*0*0250##", "69"), ("*#4*100*0*0210##", "0"), ("*#4*199*0*0210##", "99"), ("*#4*0105*0*0296##", "5")],
 )
 def test_probe_frame_names_no_zone(frame, zone):
     """OWNd's ``zone`` of a probe frame is the last two digits; the platform must not use it."""
