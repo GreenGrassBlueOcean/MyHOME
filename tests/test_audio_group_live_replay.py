@@ -8,6 +8,7 @@ fixture's ``findings`` say how (see also the README beside it).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -188,6 +189,38 @@ async def test_play_shows_every_room_on_before_the_slow_wake_frames_and_wakes_th
         assert zone.state != MediaPlayerState.OFF
     for where, level in FIXTURE["resume"]["volumes_after"].items():
         assert zones[where]._attr_volume_level == pytest.approx(level / 31.0)
+
+
+@pytest.mark.asyncio
+async def test_play_sends_each_frame_once_and_starts_the_stream_before_the_members_wake(hass, mock_gateway):
+    """The gateway takes ~0.8 s per frame: no duplicates, and the stream need not wait for the members."""
+    zones, _pool = await _plant(hass, mock_gateway)
+    await _park(hass, zones)
+    mock_gateway.send.reset_mock()
+
+    events: list[str] = []
+    real_sleep = asyncio.sleep  # asyncio.sleep is patched below; the slow gateway needs a real wait
+
+    async def record(command, *_args, **_kwargs):
+        events.append(str(command).strip("*#").replace("*", "-"))
+        await real_sleep(0.01)  # a frame takes a gateway round trip
+
+    mock_gateway.send.side_effect = record
+    hass.states.async_set(DECODER, "on")
+
+    async def play_media(call):
+        events.append("play_media")
+
+    hass.services.async_register("media_player", "play_media", play_media)
+    async_mock_service(hass, "media_player", "turn_on")
+    with patch("asyncio.sleep", return_value=None):
+        await zones[LEADER].async_play_media("music", "http://example.invalid/stream.mp3")
+
+    frames = [e for e in events if e != "play_media"]
+    assert len(frames) == len(set(frames)), frames
+    # Only the leader's wake and routing precede the stream; the members follow it.
+    assert events.index("play_media") < events.index("16-3-21")
+    assert events.index("16-3-36") < events.index("play_media")
 
 
 def test_the_fixture_records_the_matrix_source_and_the_hardware_note():
