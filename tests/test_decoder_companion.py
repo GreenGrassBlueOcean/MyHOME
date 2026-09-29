@@ -1,5 +1,5 @@
 """Test decoder companion resolution and discovery."""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -92,6 +92,52 @@ async def test_find_streaming_companion_by_mac_address(hass: HomeAssistant) -> N
 
     companion = async_find_streaming_companion(hass, "media_player.cambridge_streamer")
     assert companion == "media_player.cambridge_dlna"
+
+
+@pytest.mark.asyncio
+async def test_find_streaming_companion_mac_step_skips_child_devices(hass: HomeAssistant) -> None:
+    """A child device has no connections of its own, so the MAC step cannot match it.
+
+    Reading ``connections`` on one is deprecated in HA 2026.9 and an error from 2027.9;
+    the lookup must skip it rather than touch the attribute.
+    """
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    cam_entry = MockConfigEntry(domain="cambridge_audio")
+    cam_entry.add_to_hass(hass)
+    dlna_entry = MockConfigEntry(domain="dlna_dmr")
+    dlna_entry.add_to_hass(hass)
+
+    device1 = dev_reg.async_get_or_create(
+        config_entry_id=cam_entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff")},
+        identifiers={("cambridge_audio", "id1")},
+    )
+    device2 = dev_reg.async_get_or_create(
+        config_entry_id=dlna_entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff")},
+        identifiers={("dlna_dmr", "id2")},
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "cambridge_audio", "cambridge_unique",
+        device_id=device1.id, suggested_object_id="cambridge_streamer",
+    )
+    ent_reg.async_get_or_create(
+        "media_player", "dlna_dmr", "dlna_unique",
+        device_id=device2.id, suggested_object_id="cambridge_dlna",
+    )
+
+    child = MagicMock(spec=dr.ChildDeviceEntry)
+    child.name = None
+    child.name_by_user = None
+    real_async_get = dr.DeviceRegistry.async_get
+
+    def async_get(self, device_id, **kwargs):
+        return child if device_id == device2.id else real_async_get(self, device_id, **kwargs)
+
+    with patch.object(dr.DeviceRegistry, "async_get", async_get):
+        assert async_find_streaming_companion(hass, "media_player.cambridge_streamer") is None
 
 
 @pytest.mark.asyncio

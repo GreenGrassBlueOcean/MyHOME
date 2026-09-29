@@ -62,7 +62,8 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
     ]
 
     # 2. Check devices sharing the same MAC address (if not merged by device registry)
-    # Child devices carry no connections of their own, so only main devices can match here.
+    # Child devices carry no connections of their own (reading them is deprecated in
+    # HA 2026.9), so only main devices can match here.
     if isinstance(device, dr.DeviceEntry):
         macs = {conn[1] for conn in device.connections if conn[0] == dr.CONNECTION_NETWORK_MAC}
         if macs:
