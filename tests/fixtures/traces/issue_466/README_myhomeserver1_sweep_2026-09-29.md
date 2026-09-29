@@ -1,6 +1,6 @@
 # #466 MyHomeServer1 sweep with a controlled setpoint experiment
 
-Verbatim bus trace contributed by **@gdluck** on [#466](https://github.com/OpenWebNet-HA/MyHOME/issues/466)
+Verbatim bus trace (a truncated 200-frame tail: the card was armed at 18:17:14, the buffer starts at 18:19:24; the setpoint experiment is complete) contributed by **@gdluck** on [#466](https://github.com/OpenWebNet-HA/MyHOME/issues/466)
 (bus card export, HA 2026.9.4, integration 2.0.0b13, OWNd 2.0.0b8, gateway firmware 3.87.13). Never edit a frame.
 
 | File | Type | Description |
@@ -19,9 +19,9 @@ Verbatim bus trace contributed by **@gdluck** on [#466](https://github.com/OpenW
 
 `diagnostics_MyHomeServer1_startup_poll_2026-09-29T18-31.json`: the same gateway's HA diagnostics download
 ([#466 comment 5896287944](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5896287944)), with 500 bus frames
-of one startup poll (18:29:10 - 18:31:17). The config-entry id (also in the `setup_times` key) and the time zone were made
-synthetic (`01PLANT000000000000000466`, `UTC`); host, MAC and password were already redacted. `scripts/anonymize_plant_fixture.py --check` passes.
+of one startup poll (18:29:10 - 18:31:17). The config-entry id (`entry_id`, the `setup_times` key and the issue id) and the time zone were made
+synthetic (`01PLANT000000000000000466`, `UTC`); host, MAC and password were already redacted by the download. The `home_assistant` block keeps only the installation type, version and time zone, and only the `myhome` custom component is listed. `scripts/anonymize_plant_fixture.py --check` passes.
 
 - The integration polls `*#4*Z##` once per climate zone, one after the other. A zone that answers costs ~1.3 s of the queue.
-- Eleven restored zones (0-4, 6, 32, 33, 71, 75, 76) never answer: the gateway NACKs each request after ~6.4 s (OWNd waits up to 10 s), ~70 s in total.
+- Eleven restored zones (0-4, 6, 32, 33, 71, 75, 76) never answer: no frame of theirs is on the bus, and consecutive polls are ~6.4 s apart, ~70 s in total. The buffer records no `NACK` frame (a refused status request is not recorded), so what the capture proves is the wait, not how the gateway ended it; the 10 s `COMMAND_TIMEOUT` of OWNd is from its source, not from this trace.
 - Zones 36, 40, 42, 55, 60 and 68 answer dimensions 0, 12, 13 and 14 but no dimension 7 (#454).
