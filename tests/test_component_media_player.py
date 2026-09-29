@@ -3720,3 +3720,94 @@ async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
 
     zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
     assert zone._pending_off_task is None
+
+
+# -- Tests: anti-hiss switch-off that keeps the group ----------------------------
+
+
+async def _leader_with_member(hass, mock_gateway):
+    """Zone 23 leads media_player.zone36 on dec1 (both amplifiers on)."""
+    leader = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    member = _create_test_zone(hass, mock_gateway, leader._runtime_data, "36", "media_player.zone36")
+    member._attr_state = MediaPlayerState.ON
+    pool = leader._get_pool()
+    hass.states.async_set("media_player.dec1", "idle")
+    await pool.claim(leader.entity_id)
+    await pool.add_member(leader.entity_id, member.entity_id)
+    leader._active_decoder = "media_player.dec1"
+    return leader, member, pool
+
+
+def _off_frame():
+    return MagicMock(where="36", is_source_event=False, is_on=False, is_off=True, volume=None)
+
+
+@pytest.mark.asyncio
+async def test_auto_off_of_a_leader_switches_the_amplifiers_off_but_keeps_the_group(hass, mock_gateway):
+    """Hiss protection silences the rooms; the group Music Assistant built stays."""
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+
+    leader.async_turn_off.assert_not_called()
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert "*16*13*23##" in sent and "*16*13*36##" in sent
+    assert leader._attr_state == member._attr_state == MediaPlayerState.OFF
+    assert pool.get_members(leader.entity_id) == [member.entity_id]
+    assert pool.owned_decoder(leader.entity_id) == "media_player.dec1"
+    assert leader.group_members == [leader.entity_id, member.entity_id]
+
+
+@pytest.mark.asyncio
+async def test_the_off_echo_of_a_parked_member_does_not_take_it_out_of_the_group(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+
+    member.handle_event(_off_frame())
+    await hass.async_block_till_done()
+
+    assert pool.get_leader(member.entity_id) == leader.entity_id
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_parked_leader_wakes_the_whole_group(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    mock_gateway.send.reset_mock()
+
+    leader._forward_to_decoder = AsyncMock()
+    with patch("asyncio.sleep", return_value=None):
+        await leader.async_media_play()
+
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert "*16*3*23##" in sent and "*16*3*36##" in sent
+    assert not leader._parked and not member._parked
+    leader._forward_to_decoder.assert_awaited_once_with("media_play")
+
+
+@pytest.mark.asyncio
+async def test_switching_a_parked_leader_off_yourself_disbands_the_group(hass, mock_gateway):
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    leader.async_turn_off = MyHOMEMediaPlayer.async_turn_off.__get__(leader)
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+
+    await leader.async_turn_off()
+
+    assert pool.get_members(leader.entity_id) == []
+    assert not leader._parked
