@@ -4152,3 +4152,32 @@ async def test_hand_over_that_finds_the_group_already_moved_changes_nothing(hass
     assert mock_gateway.send.call_count == 0
     assert z1._active_decoder == "media_player.streamer"
     assert z1._turning_off is False
+
+
+@pytest.mark.asyncio
+async def test_hand_over_ignores_a_second_off_while_the_first_is_handing_over(hass, mock_gateway):
+    """HA's turn_off and the bus echo can overlap: the second one must not start another hand-over."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._turning_off = True
+    mock_gateway.send.reset_mock()
+
+    with patch.object(pool, "transfer_leadership", AsyncMock()) as transfer:
+        await z1._async_hand_over_leadership(pool, ["media_player.zone2"])
+
+    transfer.assert_not_called()
+    assert mock_gateway.send.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_parked_leader_off_still_disbands_when_a_member_frame_fails(hass, mock_gateway):
+    """A member that does not take its OFF frame must not keep the group from being released."""
+    _runtime, pool, (z1, z2) = await _leader_with_members(hass, mock_gateway, 1)
+    z1._parked = True
+    z2._parked = True
+    mock_gateway.send.side_effect = [None, OSError("bus down")]
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z1.async_turn_off()
+
+    assert pool.get_members("media_player.zone1") == []
+    assert z2._attr_state == MediaPlayerState.OFF
