@@ -243,7 +243,10 @@ def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     zones, interface = _calling_zones(message)
     zone = _bus_zone(message)
     keys = [] if zone is None else [f"#{zone}" if zone == 0 else str(zone)]
-    if getattr(message, "where", None) and not _is_probe(str(message.where)):
+    # WHERE "0" with a parameter is pump ``0#N``, not the general "0" (#431).
+    if getattr(message, "where", None) and not _is_probe(str(message.where)) and not (
+        str(message.where) == "0" and _where_param(message)
+    ):
         keys.append(str(message.where))
     for z in zones:
         keys.append(z)
