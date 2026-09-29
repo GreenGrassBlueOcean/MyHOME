@@ -3833,3 +3833,28 @@ async def test_parked_rooms_do_not_report_off_so_music_assistant_keeps_the_group
     leader.async_turn_off = MyHOMEMediaPlayer.async_turn_off.__get__(leader)
     await leader.async_turn_off()
     assert leader.state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_members_of_a_parked_group_say_on_before_their_slow_wake_frames_go_out(hass, mock_gateway):
+    """Music Assistant dropped a member that still reported paused when the leader came on."""
+    leader, member, pool = await _leader_with_member(hass, mock_gateway)
+    timers, patcher = _capture_timers()
+    with patcher:
+        leader._arm_auto_off(60.0, "media_player.dec1")
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    assert member.state == MediaPlayerState.IDLE
+
+    leader._begin_wake_of_parked_group(pool)
+    assert leader.state == MediaPlayerState.ON
+    assert member.state == MediaPlayerState.ON
+    assert member._parked  # the amplifier is still off: the wake frames follow
+
+    mock_gateway.send.reset_mock()
+    with patch("asyncio.sleep", return_value=None):
+        await member._async_wake_zone()
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent == ["*16*13*36##", "*16*3*36##"]
+    assert not member._parked and not member._wake_pending
+    assert member.state == MediaPlayerState.ON

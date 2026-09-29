@@ -501,6 +501,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._pre_mute_volume: float | None = None  # volume to restore on unmute
         self._turning_off: bool = False  # guard flag — dampens bus-OFF echo loops
         self._parked: bool = False  # amplifier off by anti-hiss, group kept in the books
+        self._wake_pending: bool = False  # a parked room whose wake-up has been asked for
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
@@ -959,6 +960,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # 1. Claim an idle decoder (thread-safe via asyncio.Lock). With routing
         #    configured the claim is per environment: the zones of one
         #    environment share a matrix output, so they cannot play two streams.
+        self._begin_wake_of_parked_group(pool)
         route = self._routing_configured()
         # Decoders whose integration cannot take this media are skipped rather
         # than claimed and failed, so another idle decoder can play it.
@@ -1423,16 +1425,18 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         is waiting to find out about.
         """
         self._cancel_pending_off()
+        was_parked = self._parked
         self._parked = False
         self._cancel_auto_off()  # put to work: a timer from before no longer applies
         self._mark_status_seen()  # switched on from here: not a leftover of before
-        if self._attr_state != MediaPlayerState.ON:
+        if self._attr_state != MediaPlayerState.ON or was_parked:
             self._wake_off_sent_at = time.monotonic()
             await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
             await asyncio.sleep(0.5)
             await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
             await asyncio.sleep(0.5)
             self._attr_state = MediaPlayerState.ON
+        self._wake_pending = False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the zone amplifier on.
@@ -1460,6 +1464,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             return
         self._turning_off = True
         self._parked = False
+        self._wake_pending = False
         try:
             self._attr_state = MediaPlayerState.OFF
             if not from_bus:
@@ -1554,6 +1559,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
             for ent in self._group_entities(pool):
                 ent._parked = True  # before the frame: its OFF echo must not leave the group
+                ent._wake_pending = False
                 ent._cancel_auto_off()
                 ent._attr_state = MediaPlayerState.OFF
                 try:
@@ -1564,12 +1570,25 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         finally:
             self._turning_off = False
 
+    def _begin_wake_of_parked_group(self, pool: DecoderPool) -> None:
+        """Show every parked room of this group as on before the slow wake frames go out.
+
+        Waking an amplifier takes about a second a frame. Music Assistant looks
+        at the group the moment the leader is on, and drops a member that is
+        still reporting paused or idle, so the members must already say "on".
+        """
+        for ent in self._group_entities(pool):
+            if ent._parked:
+                ent._wake_pending = True
+                ent.async_write_ha_state()
+
     async def _async_unpark_group(self) -> None:
         """Wake a parked group: every amplifier on, and on the leader's input again."""
         pool = self._get_pool()
         if pool is None:
             await self._async_wake_zone()
             return
+        self._begin_wake_of_parked_group(pool)
         decoder_id = self._active_decoder or pool.owned_decoder(self.entity_id)
         source_num = pool.decoder_source(decoder_id) if decoder_id else None
         route = self._routing_configured() and source_num is not None
@@ -1805,6 +1824,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             # A parked room has its amplifier off but its group intact. Music
             # Assistant dissolves a group whose leader reports "off", so a
             # parked room says what is true of the music: it can resume.
+            if self._wake_pending:
+                return MediaPlayerState.ON
             return self._parked_state() if self._parked else MediaPlayerState.OFF
         if self._active_decoder:
             active_state = self._resolve_playback_state(self._active_decoder, allow_idle=True)
