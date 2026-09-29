@@ -14,6 +14,7 @@ WHO 4 WHERE (OpenWebNet thermoregulation):
 * ``PZZ`` (>= 100)      probe P of zone ZZ: a sensor frame, never a zone's
 * ``*4*4001#Z*0#N##``   zone Z calls pump N: the frame concerns zone Z
 """
+
 import json
 import re
 from pathlib import Path
@@ -23,10 +24,10 @@ from OWNd.message import OWNMessage
 
 from custom_components.myhome.climate import (
     _calling_zones,
-    _is_probe,
     _zone_address,
     _zone_route_keys,
 )
+from custom_components.myhome.where_grammar import is_probe
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FRAME = re.compile(r"^\*#?4\*")
@@ -82,9 +83,14 @@ def _who4_message(raw: str):
 
 
 GRAMMAR = [
-    ("*#4*5*0*0210##", {"5"}), ("*#4*99*0*0210##", {"99"}), ("*#4*12#1*20*1##", {"12"}),
-    ("*#4*0#3*20*1##", set()), ("*#4*105*0*0296##", set()), ("*#4*169*0*0250##", set()),
-    ("*4*1*105##", set()), ("*4*4001#12*0#3##", {"12"}),
+    ("*#4*5*0*0210##", {"5"}),
+    ("*#4*99*0*0210##", {"99"}),
+    ("*#4*12#1*20*1##", {"12"}),
+    ("*#4*0#3*20*1##", set()),
+    ("*#4*105*0*0296##", set()),
+    ("*#4*169*0*0250##", set()),
+    ("*4*1*105##", set()),
+    ("*4*4001#12*0#3##", {"12"}),
 ]
 
 
@@ -127,8 +133,10 @@ def test_every_recorded_who4_frame_reaches_only_the_zones_its_where_names():
         what = getattr(message, "what", None) or getattr(message, "_what", None)
         if what in ("4001", "4002", 4001, 4002):
             continue  # the calling zone is in WHAT; checked by test_grammar_examples
-        assert zones <= expected, f"{raw}: routed to zone(s) {sorted(zones - expected)}, WHERE {where!r} names {sorted(expected)}"
+        assert zones <= expected, (
+            f"{raw}: routed to zone(s) {sorted(zones - expected)}, WHERE {where!r} names {sorted(expected)}"
+        )
         if PROBE.match(where):
-            assert _is_probe(where) and _zone_address(message) is None, raw
+            assert is_probe(where) and _zone_address(message) is None, raw
         checked += 1
     assert checked > 200

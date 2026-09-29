@@ -65,6 +65,7 @@ from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, PlatformDiscovery
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .where_grammar import is_probe
 
 PARALLEL_UPDATES = 0
 
@@ -283,8 +284,8 @@ async def async_setup_entry(
         where = str(message.where)
         clean = where.split("-")[-1].split("#")[0]
         is_probe_reading = dimension == 15 or message_type == MESSAGE_TYPE_SECONDARY_TEMPERATURE
-        is_probe = (message_type == MESSAGE_TYPE_MAIN_TEMPERATURE or dimension == 0) and clean.isdigit() and int(clean) >= 100
-        if dimension in (11, 12, 13, 14, 19, 20) or not (is_probe_reading or is_probe):
+        is_probe_main = (message_type == MESSAGE_TYPE_MAIN_TEMPERATURE or dimension == 0) and is_probe(clean)
+        if dimension in (11, 12, 13, 14, 19, 20) or not (is_probe_reading or is_probe_main):
             return None
         return Address(normalize_where(where) or where)
 
@@ -300,7 +301,7 @@ async def async_setup_entry(
         clean = where.split("-")[-1].split("#")[0]
         primary = normalize_where(where) or normalize_where(clean) or where
         label = normalize_where(clean) or clean
-        name = f"Probe {label}" if clean.isdigit() and int(clean) >= 100 else f"Zone {label}"
+        name = f"Probe {label}" if is_probe(clean) else f"Zone {label}"
         # ``4-<where>``, the id validate.py gives a myhome.yaml probe: one unique id either way (#441)
         sensor = MyHOMETemperatureSensor(
             hass=hass, device_id=f"4-{primary}", who="4", where=primary, name=name,
@@ -699,8 +700,7 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
     @property
     def _is_probe(self) -> bool:
         """Return True for slave/external probe addresses (ZPP >= 100)."""
-        clean_where = str(self._where).split("-")[-1].split("#")[0]
-        return clean_where.isdigit() and int(clean_where) >= 100
+        return is_probe(str(self._where).split("#")[0])
 
     def _push_is_fresh(self) -> bool:
         """Return True when a reading arrived within the last poll interval."""

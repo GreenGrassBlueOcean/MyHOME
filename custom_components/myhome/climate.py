@@ -56,6 +56,7 @@ from .data import get_runtime_data
 from .discovery import Address, DeviceContext, PlatformDiscovery, config_for, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .where_grammar import is_probe, is_pump, where_param, zone_number
 
 PLATFORM = Platform.CLIMATE
 PARALLEL_UPDATES = 0
@@ -89,7 +90,7 @@ async def async_setup_entry(
 
     def build(ctx: DeviceContext) -> MyHOMEClimate:
         where, interface = ctx.address.where, ctx.address.interface
-        zone = _zone_number(where)
+        zone = zone_number(where)
         cfg = _zone_config(configured, ctx.address, ctx.key) or ctx.cfg
         suffix = f"{zone}I{interface}" if interface else zone
         is_central = zone in ("0", "01") or where in ("#0", "#0#1")
@@ -119,7 +120,7 @@ async def async_setup_entry(
         )
 
     def accept(ctx: DeviceContext) -> bool:
-        if _is_probe(ctx.address.where):
+        if is_probe(ctx.address.where):
             LOGGER.debug("Skipping non-zone address %s for climate platform", ctx.address.where)
             return False
         return True
@@ -127,7 +128,7 @@ async def async_setup_entry(
     def known_keys(ctx: DeviceContext) -> list[str]:
         keys = [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where, ctx.config_id or ""]
         if not ctx.address.interface:
-            keys.append(_zone_number(ctx.address.where))
+            keys.append(zone_number(ctx.address.where))
         return [k for k in keys if k]
 
     PlatformDiscovery(
@@ -139,28 +140,13 @@ async def async_setup_entry(
     return True
 
 
-def _zone_number(where: str) -> str:
-    """The zone without a legacy ``4-`` prefix or ``#``: ``"#0"`` -> ``"0"``, ``"4-12"`` -> ``"12"``."""
-    return where.split("-")[-1].replace("#", "")
-
-
-def _is_probe(where: str) -> bool:
-    """A WHERE of ``PZZ``: probe ``P`` of zone ``ZZ`` (``105``, ``0105``, ``#105``, ``4-105``).
-
-    Only a bare number counts. ``12#1`` is actuator 1 of zone 12, and read
-    digit by digit (``121``) it would look like a probe.
-    """
-    bare = where.split("-")[-1].lstrip("#")
-    return bare.isdigit() and int(bare) >= 100
-
-
 def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict[str, Any]:
     """The ``myhome.yaml`` entry of a zone under every spelling older versions accepted.
 
     A routed zone only matches interface-qualified spellings: zone 1 exists
     on every bus, so the bare ones name the local bus's zone (#408).
     """
-    where, zone = address.where, _zone_number(address.where)
+    where, zone = address.where, zone_number(address.where)
     if address.interface:
         routing = f"{BUS_ROUTING}{address.interface}"
         return config_for(configured, address, key, f"4-{zone}{routing}", f"4-{key}", f"#{zone}{routing}")
@@ -169,10 +155,6 @@ def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict
         f"4-{zone}", f"4-{where}", f"4-{key}", f"4-#{zone}", f"4-#{where}",
         f"#{zone}", f"#{where}", f"zone_{zone}", f"zone_{where}",
     )
-
-
-def _where_param(message: Any) -> list[str]:
-    return getattr(message, "where_param", None) or getattr(message, "_where_param", None) or []
 
 
 def _bus_zone(message: Any) -> int | None:
@@ -193,9 +175,9 @@ def _bus_zone(message: Any) -> int | None:
     F422 interface. Taken as zones, pump 2 switched zone 2 (#431) and the F422
     form became zone 4. ``#0#<n>`` (4-zone central unit) keeps OWNd's zone.
     """
-    if str(getattr(message, "where", None)) == "0" and _where_param(message):
+    if is_pump(message):
         return None
-    if _is_probe(str(getattr(message, "where", None))):
+    if is_probe(str(getattr(message, "where", None))):
         return None  # probe P of zone ZZ (105 = probe 1 of zone 5), not the zone's own frame
     zone: int | None = getattr(message, "zone", None)
     return zone
@@ -209,9 +191,9 @@ def _calling_zones(message: Any) -> tuple[list[str], str | None]:
     # OWNHeatingEvent keeps WHAT only as ``_what``; it has no ``what`` property.
     what = getattr(message, "what", None) or getattr(message, "_what", None)
     what_param = getattr(message, "what_param", None) or getattr(message, "_what_param", None) or []
-    where_param = _where_param(message)
-    if not interface and len(where_param) > 1 and where_param[0] == "4":
-        interface = str(where_param[1])
+    tail = where_param(message)
+    if not interface and len(tail) > 1 and tail[0] == "4":
+        interface = str(tail[1])
 
     zones: list[str] = []
     # WHERE ``<zone>#<n>`` names actuator <n> of the zone (``*#4*2#1*20*1##``
@@ -225,7 +207,7 @@ def _calling_zones(message: Any) -> tuple[list[str], str | None]:
             zones.append(str(int(what_param[0])))
         except (ValueError, TypeError):
             pass
-    if not zones and raw_where and raw_where not in ("0", "") and not _is_probe(str(raw_where)):
+    if not zones and raw_where and raw_where not in ("0", "") and not is_probe(str(raw_where)):
         zones.append(str(raw_where))
     return zones, interface
 
@@ -244,8 +226,8 @@ def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     zone = _bus_zone(message)
     keys = [] if zone is None else [f"#{zone}" if zone == 0 else str(zone)]
     # WHERE "0" with a parameter is pump ``0#N``, not the general "0" (#431).
-    if getattr(message, "where", None) and not _is_probe(str(message.where)) and not (
-        str(message.where) == "0" and _where_param(message)
+    if getattr(message, "where", None) and not is_probe(str(message.where)) and not (
+        is_pump(message)
     ):
         keys.append(str(message.where))
     for z in zones:

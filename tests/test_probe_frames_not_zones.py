@@ -6,6 +6,7 @@ frames to that zone and, where no heating zone 5 exists (an external probe 105 b
 zones 1-4), discovered a phantom one. Found in the #466 MyHomeServer1 capture from
 @gdluck, whose plant has zones 35-70 and a probe 169.
 """
+
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -19,12 +20,12 @@ from OWNd.message import OWNEvent
 from custom_components.myhome.climate import (
     MyHOMEClimate,
     _calling_zones,
-    _is_probe,
     _zone_address,
     _zone_route_keys,
     async_setup_entry,
 )
 from custom_components.myhome.const import CONF_ENTITY, CONF_PLATFORMS, DOMAIN
+from custom_components.myhome.where_grammar import is_probe
 from tests.conftest import attach_runtime
 
 MAC = "00:03:50:00:04:66"
@@ -40,7 +41,10 @@ def _setup(hass, wheres):
     gateway.log_id = "[probe routing]"
     gateway.send = AsyncMock()
     gateway.send_status_request = AsyncMock()
-    devices = {w: {"where": w, "name": f"Zone {w}", "heat": True, "cool": False, "standalone": True} for w in wheres}
+    devices = {
+        w: {"where": w, "name": f"Zone {w}", "heat": True, "cool": False, "standalone": True}
+        for w in wheres
+    }
     hass.data[DOMAIN] = {MAC: {CONF_PLATFORMS: {"climate": devices}, CONF_ENTITY: gateway}}
     entry = MagicMock()
     entry.entry_id = "probe_routing"
@@ -68,7 +72,13 @@ def _send(hass, frame):
 
 @pytest.mark.parametrize(
     ("frame", "zone"),
-    [("*#4*105*0*0296##", "5"), ("*#4*169*0*0250##", "69"), ("*#4*100*0*0210##", "0"), ("*#4*199*0*0210##", "99"), ("*#4*0105*0*0296##", "5")],
+    [
+        ("*#4*105*0*0296##", "5"),
+        ("*#4*169*0*0250##", "69"),
+        ("*#4*100*0*0210##", "0"),
+        ("*#4*199*0*0210##", "99"),
+        ("*#4*0105*0*0296##", "5"),
+    ],
 )
 def test_probe_frame_names_no_zone(frame, zone):
     """OWNd's ``zone`` of a probe frame is the probe's zone; the platform must not treat it as the zone's own frame."""
@@ -76,7 +86,9 @@ def test_probe_frame_names_no_zone(frame, zone):
     assert message.zone == int(zone)  # the premise: OWNd reports the probe's zone
     assert _calling_zones(message)[0] == []
     assert _zone_address(message) is None
-    assert _zone_route_keys(message, None) == []  # neither the zone nor the probe's own WHERE targets a climate entity
+    assert (
+        _zone_route_keys(message, None) == []
+    )  # neither the zone nor the probe's own WHERE targets a climate entity
 
 
 @pytest.mark.parametrize(
@@ -92,11 +104,21 @@ def test_probe_command_and_setpoint_frames_name_no_zone(frame):
 
 @pytest.mark.parametrize(
     ("where", "probe"),
-    [("105", True), ("0105", True), ("#105", True), ("4-105", True), ("99", False), ("5", False), ("#0", False), ("12#1", False), ("99#3", False)],
+    [
+        ("105", True),
+        ("0105", True),
+        ("#105", True),
+        ("4-105", True),
+        ("99", False),
+        ("5", False),
+        ("#0", False),
+        ("12#1", False),
+        ("99#3", False),
+    ],
 )
 def test_one_definition_of_a_probe_where(where, probe):
     """``12#1`` is actuator 1 of zone 12, not probe 1 of zone 21 - only a bare number is ``PZZ``."""
-    assert _is_probe(where) is probe
+    assert is_probe(where) is probe
 
 
 @pytest.mark.parametrize(
@@ -139,7 +161,11 @@ async def test_probe_frame_discovers_no_phantom_zone(hass):
 
 def test_gdluck_trace_probe_frames_are_not_zone_frames():
     """Replay of the #466 capture: probe 169's frame, and no other, must not name a zone."""
-    frames = [f["raw"] for f in json.loads(TRACE.read_text(encoding="utf-8"))["frames"] if f["raw"].startswith("*#4*")]
+    frames = [
+        f["raw"]
+        for f in json.loads(TRACE.read_text(encoding="utf-8"))["frames"]
+        if f["raw"].startswith("*#4*")
+    ]
     probe_frames = [f for f in frames if f.startswith("*#4*169*")]
     assert probe_frames, "the capture is expected to hold probe 169 traffic"
     for frame in probe_frames:
