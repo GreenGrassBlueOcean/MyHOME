@@ -3213,6 +3213,63 @@ async def test_room_found_on_at_startup_stays_on_while_the_decoder_plays(hass, m
 
 
 @pytest.mark.asyncio
+async def test_room_found_on_before_its_decoder_reports_goes_off_once_the_decoder_is_idle(hass, mock_gateway):
+    """Decoder not reporting at startup: its first real state (idle) still takes the room off."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    hass.states.async_set("media_player.dec1", "unknown")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+        assert timers == []
+        zone._async_decoder_state_changed(
+            MagicMock(
+                data={
+                    "entity_id": "media_player.dec1",
+                    "old_state": State("media_player.dec1", "unknown"),
+                    "new_state": State("media_player.dec1", "idle"),
+                }
+            )
+        )
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_the_auto_off_forgets_its_key_so_the_same_timer_can_be_rearmed(hass, mock_gateway):
+    """A cancelled timer must not make an identical re-arm look like a running one."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._cancel_auto_off()
+        assert zone._auto_off_key is None
+        zone._async_decoder_state_changed(_dec_event("idle"))
+    assert len(timers) == 2
+    assert zone._auto_off_unsub is not None
+
+
+@pytest.mark.asyncio
+async def test_joining_players_cancels_a_stray_room_timer_on_the_new_leader(hass, mock_gateway):
+    """A room armed as stray that then leads a group must not be switched off by the old timer."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        assert zone._auto_off_unsub is not None
+        # Refused early (no matrix routing address) — after the leader was put to work.
+        zone._where = "0"
+        with pytest.raises(HomeAssistantError):
+            await zone.async_join_players(["media_player.other"])
+    assert zone._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
 async def test_turning_a_room_on_from_home_assistant_is_not_a_startup_finding(hass, mock_gateway):
     """The ON echo of our own wake sequence must not arm the auto-off."""
     zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})

@@ -909,9 +909,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         cancelled outright rather than sent, for the same reason.
         """
         self._cancel_pending_off()
-        if self._auto_off_unsub:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
+        self._cancel_auto_off()
         runtime = self._runtime_data
         if runtime is not None:
             runtime.media_players.pop(self.entity_id, None)
@@ -949,9 +947,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             HomeAssistantError: If all decoders are busy or the decoder fails
                 to start playback.
         """
-        if self._auto_off_unsub:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
+        self._cancel_auto_off()
 
         pool = self._get_pool()
         if not pool or not pool.is_configured:
@@ -1178,6 +1174,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # loop below never calls _async_wake_zone() on self (it is presumed
         # already playing).
         self._cancel_pending_off()
+        self._cancel_auto_off()  # a stray-room timer must not take the new leader down
 
         leader_env = _zone_environment(self._where)
         if leader_env in (None, "0"):
@@ -1385,9 +1382,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
     async def async_media_play(self) -> None:
         """Resume playback on the active decoder."""
-        if self._auto_off_unsub:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
+        self._cancel_auto_off()
         if self._attr_state == MediaPlayerState.OFF:
             await self._async_wake_zone()
         await self._forward_to_decoder("media_play")
@@ -1427,9 +1422,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         is waiting to find out about.
         """
         self._cancel_pending_off()
-        if self._auto_off_unsub:
-            self._auto_off_unsub()  # put to work: a timer from before no longer applies
-            self._auto_off_unsub = None
+        self._cancel_auto_off()  # put to work: a timer from before no longer applies
         self._status_seen = True  # switched on from here: not a leftover of before
         if self._attr_state != MediaPlayerState.ON:
             self._wake_off_sent_at = time.monotonic()
@@ -1449,9 +1442,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         and a zone that is already on is never re-routed: the route is shared
         by the whole environment and may be carrying a stream.
         """
-        if self._auto_off_unsub:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
+        self._cancel_auto_off()
         if self._attr_state != MediaPlayerState.ON:
             await self._async_wake_zone()
             await self._apply_default_source()
@@ -1898,6 +1889,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         if self._auto_off_unsub:
             self._auto_off_unsub()
             self._auto_off_unsub = None
+        self._auto_off_key = None
 
     @callback
     def _arm_auto_off(self, delay: float, decoder_id: str | None) -> None:
@@ -1920,6 +1912,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         @callback
         def _auto_turn_off(_now: Any) -> None:
             self._auto_off_unsub = None
+            self._auto_off_key = None
             if self._attr_state == MediaPlayerState.OFF or self._turning_off:
                 return
             if (self._active_decoder or self._stray_decoder()) != decoder_id:

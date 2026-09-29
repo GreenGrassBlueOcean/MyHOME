@@ -109,6 +109,11 @@ one room share a matrix output and cannot sit on different inputs.
   the environment is streaming.
 - It never overrides routing announced by a wall panel.
 - *Leave routing as it is* (the default) keeps the existing routing.
+- After a Home Assistant restart the bus cannot be asked which input a room is
+  on, so the default stands in for it. A room that was on the tuner while the
+  default is a decoder that is not playing can therefore switch itself off a
+  few seconds after the restart. Turn it back on and it stays on. See
+  *Rooms nobody owns follow the music off* below.
 
 Environment 0 is not offered: it has no routing address.
 
