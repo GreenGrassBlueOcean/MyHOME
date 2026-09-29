@@ -39,3 +39,6 @@ The frames written with the join fix alone: each room is also turned on (default
 
 ### Members leaving and joining a playing group, 2026-09-29 (`live_2026-09-29_group_members_leave_and_join.json`)
 Two rooms unchecked and one added in Music Assistant while the leader keeps playing: one OFF per room that leaves, OFF/ON plus source and route for the room that joins.
+
+### Restart, park, join and play, 2026-09-29 (`live_2026-09-29_group_restart_park_join_and_play.json`)
+Build with the routing memory: two rooms joined and the parked group played; shows the one remaining repeat (a leaving room cleared the memory) that the follow-up commit removes.

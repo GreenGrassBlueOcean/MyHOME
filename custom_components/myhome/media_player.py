@@ -1537,7 +1537,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._turning_off = True
         self._parked = False
         self._wake_pending = False
-        self._forget_recent_routing()
+        # A room that merely leaves a group does not change what the others listen to;
+        # a leader that stops does.
+        leaving_pool = self._get_pool()
+        if self._active_decoder or (leaving_pool is not None and leaving_pool.is_leader(self.entity_id)):
+            self._forget_recent_routing()
         try:
             self._attr_state = MediaPlayerState.OFF
             if not from_bus:

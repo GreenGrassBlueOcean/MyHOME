@@ -1294,6 +1294,30 @@ async def test_rooms_turned_on_and_joined_one_by_one_route_once(hass, mock_gatew
 
 
 @pytest.mark.asyncio
+async def test_a_member_leaving_keeps_the_routing_memory_but_a_stopping_leader_clears_it(hass, mock_gateway):
+    """Live 2026-09-29: a room unchecked in Music Assistant must not make the next play repeat the routes."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.dec", "idle")
+    z21 = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.audio_zone_21")
+    z22 = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.audio_zone_22")
+    z23 = _create_test_zone(hass, mock_gateway, runtime, "23", "media_player.audio_zone_23")
+    for zone in (z21, z22, z23):
+        zone._attr_state = MediaPlayerState.ON
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock):
+        await z21.async_play_media("music", "http://stream")
+    await z21.async_join_players(["media_player.audio_zone_22", "media_player.audio_zone_23"])
+    assert runtime.routing_recent
+
+    await z22.async_turn_off()  # unchecked in Music Assistant
+    assert runtime.routing_recent
+
+    await z21.async_turn_off()  # the leader stops
+    assert runtime.routing_recent == {}
+
+
+@pytest.mark.asyncio
 async def test_join_players_cross_environment(hass, mock_gateway):
     """Joining zones across environments routes member environment and powers on."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
