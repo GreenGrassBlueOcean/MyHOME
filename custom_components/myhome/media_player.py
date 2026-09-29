@@ -937,6 +937,24 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     # ── Proxy: play_media ─────────────────────────────────────────────────────
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
+        """Play media, showing a parked group as on for as long as the wake takes.
+
+        Whatever way the play ends, no room is left reporting on while its
+        amplifier is still off; see :meth:`_async_play_media` for the steps.
+        """
+        pool = self._get_pool()
+        group = self._group_entities(pool) if pool and pool.is_configured else []
+        if group:
+            self._begin_wake_of_parked_group(pool)
+        try:
+            await self._async_play_media(media_type, media_id, **kwargs)
+        finally:
+            for ent in group:
+                if ent._wake_pending:
+                    ent._wake_pending = False
+                    ent.async_write_ha_state()
+
+    async def _async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Intercept a Music Assistant / Spotify play command and route it.
 
         Steps
@@ -970,7 +988,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # 1. Claim an idle decoder (thread-safe via asyncio.Lock). With routing
         #    configured the claim is per environment: the zones of one
         #    environment share a matrix output, so they cannot play two streams.
-        self._begin_wake_of_parked_group(pool)
         route = self._routing_configured()
         # Decoders whose integration cannot take this media are skipped rather
         # than claimed and failed, so another idle decoder can play it.
@@ -1105,6 +1122,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             )
             if members_task is not None:
                 members_task.cancel()
+                await asyncio.gather(members_task, return_exceptions=True)
             await self._async_release_after_failure(pool)
             raise HomeAssistantError(
                 f"{self.entity_id}: decoder {target_decoder} failed to start playback: {err}",
@@ -1463,10 +1481,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._mark_status_seen()  # switched on from here: not a leftover of before
         if self._attr_state != MediaPlayerState.ON or was_parked:
             self._wake_off_sent_at = time.monotonic()
-            # No pause between the two: the gateway ACKs each audio frame
-            # ~0.8 s apart, which already spaces the pair.
-            await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
-            await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+            try:
+                # No pause between the two: the command worker waits for the
+                # gateway's ACK (~0.8 s per audio frame) after each frame.
+                written = await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+                self._stamp_wake_echo_when_written(written)
+                await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
+            except BaseException:
+                self._parked = was_parked  # cancelled mid-wake: the amplifier is not on
+                raise
             self._attr_state = MediaPlayerState.ON
         self._wake_pending = False
 
@@ -2146,6 +2169,21 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
     async def async_update(self) -> None:
         """Request a status update from the gateway."""
         await self._gateway_handler.send_status_request(OWNSoundCommand.status(self._where))
+
+    def _stamp_wake_echo_when_written(self, written: Any) -> None:
+        """Start the echo window when the OFF is written, not when it is queued.
+
+        ``send`` only queues; behind a few audio frames the OFF reaches the bus
+        seconds later, and its echo would otherwise arrive after the window.
+        """
+        if not isinstance(written, asyncio.Future):
+            return
+
+        def _on_written(fut: asyncio.Future[float]) -> None:
+            if not fut.cancelled() and fut.exception() is None:
+                self._wake_off_sent_at = fut.result()
+
+        written.add_done_callback(_on_written)
 
     def _is_wake_echo(self) -> bool:
         """Return ``True`` while an OFF frame is most likely our wake sequence's own.
