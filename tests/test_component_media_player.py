@@ -1264,6 +1264,30 @@ async def test_join_players_single_environment(hass, mock_gateway):
 
 
 @pytest.mark.asyncio
+async def test_joins_one_after_another_route_once(hass, mock_gateway):
+    """Music Assistant adds rooms one call at a time; the shared frames go out once (live capture)."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    zones = {w: _create_test_zone(hass, mock_gateway, runtime, w, f"media_player.audio_zone_{w}") for w in ("21", "22", "23")}
+    zones["21"]._attr_source = "Cambridge"
+
+    mock_gateway.send.reset_mock()
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=100.0):
+        await zones["21"].async_join_players(["media_player.audio_zone_22"])
+        await zones["21"].async_join_players(["media_player.audio_zone_23"])
+    sent = [str(call.args[0]) for call in mock_gateway.send.call_args_list]
+    assert sent.count("*16*3*102##") == 1, sent
+    assert sent.count("*16*3*122##") == 1, sent
+    assert "*16*3*22##" in sent and "*16*3*23##" in sent
+
+    # Well after the burst the routing may have been changed elsewhere: send it again.
+    assert zones["21"]._join_routed[0] == 100.0
+    _create_test_zone(hass, mock_gateway, runtime, "17", "media_player.audio_zone_17")
+    with patch("custom_components.myhome.media_player.time.monotonic", return_value=200.0):
+        await zones["21"].async_join_players(["media_player.audio_zone_17"])
+    assert zones["21"]._join_routed[0] == 200.0
+
+
+@pytest.mark.asyncio
 async def test_join_players_cross_environment(hass, mock_gateway):
     """Joining zones across environments routes member environment and powers on."""
     runtime = MyHOMERuntimeData(gateway=mock_gateway)

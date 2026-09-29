@@ -30,3 +30,6 @@ Three rooms (badkamer leads Bureau and Eetkamer) on the Audio Decoder decoder: p
 
 ### Group wake by play, 2026-09-29 (`live_2026-09-29_group_wake_by_play.json`)
 The WHO=16 frames the integration wrote when Music Assistant played into three parked rooms, from the diagnostics bus monitor (build 86a8678c). `test_play_writes_the_same_frames_as_the_live_wake` compares them with a replayed play.
+
+### Rooms joined one by one, 2026-09-29 (`live_2026-09-29_group_joins_one_by_one.json`)
+The frames written while Music Assistant added three rooms to a playing leader, before routing frames were shared between joins. Kept as the evidence for `test_joins_one_after_another_route_once`.

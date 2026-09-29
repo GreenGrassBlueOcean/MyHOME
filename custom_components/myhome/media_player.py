@@ -127,6 +127,9 @@ PARALLEL_UPDATES = 0
 # that frame back on the event session like any other bus traffic. An OFF that
 # arrives this soon after a wake is our own and must not tear the zone down.
 _WAKE_ECHO_WINDOW = 3.0  # seconds
+# Music Assistant adds the rooms of a group one call at a time; routing frames sent
+# for one join are not repeated for the next join within this window (seconds).
+_JOIN_ROUTE_WINDOW = 15.0
 _RESTORE_CONFIRM_WINDOW = 120.0  # seconds a restored zone has to show up on the bus
 
 # Anti-hiss auto-off: how long a room stays on after the decoder it hears
@@ -503,6 +506,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         self._parked: bool = False  # amplifier off by anti-hiss, group kept in the books
         self._wake_pending: bool = False  # a parked room whose wake-up has been asked for
         self._wake_off_sent_at: float | None = None  # monotonic time of the wake sequence's OFF
+        self._join_routed: tuple[float, set[str]] = (0.0, set())  # routing frames of recent joins
         self._unsub_decoders: Callable[[], None] | None = None  # decoder state watch
         self._auto_off_unsub: Callable[[], None] | None = None  # auto-off when decoder stops (anti-hiss)
         self._auto_off_key: tuple[float, str | None] | None = None  # (delay, decoder) of that timer
@@ -1329,11 +1333,15 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # Routing follows the opt-in of _routing_configured(): until the matrix
         # is described in the options, the wall-panel routing is trusted.
         route = self._routing_configured()
+        now = time.monotonic()
+        if now - self._join_routed[0] > _JOIN_ROUTE_WINDOW:
+            self._join_routed = (now, set())
+        routed = self._join_routed[1]
         for member_id in change.joined:
             member_ent = runtime.media_players[member_id]
             if source_num is not None:
                 if route:
-                    await member_ent._route_to(source_num)
+                    await member_ent._route_to(source_num, routed)
                 await member_ent._async_wake_zone()
             member_ent.async_write_ha_state()
 
