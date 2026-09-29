@@ -1938,7 +1938,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
             self._cancel_auto_off()
         elif new_state_val in (MediaPlayerState.OFF, "off"):
             self._arm_auto_off(_AUTO_OFF_IDLE_DELAY, decoder_id)
-        elif new_state_val in (MediaPlayerState.IDLE, MediaPlayerState.STANDBY, "idle", "standby"):
+        elif new_state_val in (MediaPlayerState.IDLE, "idle", "standby"):
             self._arm_auto_off(_AUTO_OFF_IDLE_DELAY, decoder_id)
         elif new_state_val in (MediaPlayerState.PAUSED, "paused"):
             self._arm_auto_off(_AUTO_OFF_PAUSED_DELAY, decoder_id)
@@ -2062,7 +2062,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         }
         if not states or states & _DECODER_PLAYING_STATES:
             return
-        for candidate in (MediaPlayerState.PAUSED, MediaPlayerState.IDLE, MediaPlayerState.STANDBY, MediaPlayerState.OFF):
+        for candidate in (MediaPlayerState.PAUSED, MediaPlayerState.IDLE, "standby", MediaPlayerState.OFF):
             if candidate in states:
                 LOGGER.info(
                     "%s: found on at startup while decoder %s is %s — switching it off",
