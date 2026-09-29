@@ -3596,6 +3596,37 @@ async def test_setup_restores_the_books_and_drops_zones_the_bus_never_reports(
 
 
 @pytest.mark.asyncio
+async def test_setup_drops_restored_zones_that_are_no_longer_registered(
+    hass, hass_storage, mock_config_entry, mock_gateway
+):
+    """A zone renamed while Home Assistant was down does not hold its decoder for the confirm window."""
+    key = "myhome.decoder_pool.test_entry_id"
+    hass_storage[key] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": key,
+        "data": {
+            "assignments": {"media_player.squeezelite_1": "media_player.old_name"},
+            "environments": {"media_player.old_name": "2"},
+        },
+    }
+    hass.data = {DOMAIN: {mock_config_entry.data[CONF_MAC]: {CONF_ENTITY: mock_gateway}}}
+
+    timers, patcher = _capture_timers()
+    with patch("homeassistant.helpers.entity_registry.async_get") as get_registry, patch(
+        "homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]
+    ), patcher:
+        get_registry.return_value.async_get.return_value = None
+        attach_runtime(hass, mock_config_entry)
+        await async_setup_entry(hass, mock_config_entry, MagicMock())
+
+    pool = mock_config_entry.runtime_data.decoder_pool
+    assert pool.get_assignment("media_player.old_name") is None
+    assert not pool.has_unconfirmed
+    assert timers == []  # nothing left to wait for
+
+
+@pytest.mark.asyncio
 async def test_restored_owner_takes_its_claim_back_when_its_amplifier_reports(hass, mock_gateway):
     """The room was playing before the restart; the decoder still plays: nothing to switch off."""
     zone = _stray_setup(hass, mock_gateway)

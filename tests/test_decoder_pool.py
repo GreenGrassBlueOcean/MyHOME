@@ -1105,6 +1105,30 @@ async def test_a_restored_claim_keeps_another_stream_out_of_its_environment(hass
 
 
 @pytest.mark.asyncio
+async def test_restored_zones_missing_from_the_registry_are_dropped_at_once(hass):
+    """A renamed or deleted zone frees its decoder and environment without waiting out the window."""
+    store = _fake_store()
+    pool = DecoderPool(hass, {"media_player.dec": 1}, store=store)
+    pool.restore(
+        {
+            "assignments": {"media_player.dec": "media_player.old_name"},
+            "groups": {"media_player.old_name": ["media_player.zone_31"]},
+            "environments": {"media_player.old_name": "2", "media_player.zone_31": "3"},
+        }
+    )
+
+    gone = await pool.drop_unregistered(lambda entity_id: entity_id != "media_player.old_name")
+
+    assert gone == ["media_player.old_name"]
+    assert pool.get_assignment("media_player.old_name") is None
+    assert pool.environment_owner("2") is None
+    assert pool.get_leader("media_player.zone_31") is None  # its group went with the leader
+    assert pool.has_unconfirmed  # the member is still waiting for the bus
+    store.async_delay_save.assert_called_once()
+    assert await pool.drop_unregistered(lambda _entity_id: True) == []
+
+
+@pytest.mark.asyncio
 async def test_zones_the_bus_never_reports_are_dropped(hass):
     store = _fake_store()
     pool = DecoderPool(hass, {"media_player.dec": 1}, store=store)

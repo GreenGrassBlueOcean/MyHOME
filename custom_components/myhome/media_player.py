@@ -239,6 +239,9 @@ async def async_setup_entry(
     # The amplifiers keep playing through a restart or reload: pick the groups
     # up again, and let the bus vouch for each zone (or not) as it reports.
     await pool.async_load()
+    # A zone renamed or deleted meanwhile cannot report under its old id.
+    ent_reg = er.async_get(hass)
+    await pool.drop_unregistered(lambda entity_id: ent_reg.async_get(entity_id) is not None)
     runtime.decoder_pool = pool
     if pool.has_unconfirmed:
 

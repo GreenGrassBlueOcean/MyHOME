@@ -37,7 +37,7 @@ Typical values
 """
 import asyncio
 import time
-from collections.abc import AsyncIterator, Collection, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -300,6 +300,23 @@ class DecoderPool:
         turn-off, which releases its books; one that reports *on* keeps them.
         """
         self._unconfirmed.discard(zone_entity_id)
+
+    async def drop_unregistered(self, is_registered: Callable[[str], bool]) -> list[str]:
+        """Forget the restored zones whose entity no longer exists.
+
+        A zone that was renamed or deleted while Home Assistant was down will
+        never report under its old entity id; waiting out the confirm window
+        would keep its decoder and environment busy for nothing.  Returns the
+        zones that were dropped.
+        """
+        async with self._books():
+            gone = sorted(zone for zone in self._unconfirmed if not is_registered(zone))
+            self._unconfirmed.difference_update(gone)
+            for zone in gone:
+                self._forget_zone_locked(zone)
+        if gone:
+            LOGGER.info("DecoderPool: dropped restored zones that are no longer registered: %s", gone)
+        return gone
 
     async def drop_unconfirmed(self) -> list[str]:
         """Forget the restored zones that never showed up on the bus.
