@@ -4222,3 +4222,24 @@ async def test_parked_leader_off_still_disbands_when_a_member_frame_fails(hass, 
 
     assert pool.get_members("media_player.zone1") == []
     assert z2._attr_state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_layer_hooks_are_owned_by_the_layer_above_and_fail_clearly_without_it(player):
+    """The hooks a lower layer calls are declared on ZoneBase and overridden further up.
+
+    Calling one on a layer that does not own it raises NotImplementedError rather
+    than an AttributeError, and the real entity never falls back to the base stub.
+    """
+    from custom_components.myhome.media_player_zone import ZoneBase
+
+    hooks = ("_async_park_group", "_async_wake_zone", "_async_handle_turn_off")
+    for name in hooks:
+        assert getattr(MyHOMEMediaPlayer, name) is not getattr(ZoneBase, name), name
+
+    with pytest.raises(NotImplementedError):
+        await ZoneBase._async_park_group(player)
+    with pytest.raises(NotImplementedError):
+        await ZoneBase._async_wake_zone(player)
+    with pytest.raises(NotImplementedError):
+        await ZoneBase._async_handle_turn_off(player)
