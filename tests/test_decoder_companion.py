@@ -117,21 +117,21 @@ async def test_find_streaming_companion_by_host(hass: HomeAssistant) -> None:
     ent_reg.async_get_or_create(
         "media_player",
         "cambridge_audio",
-        "pnl_cam_unique",
+        "decoder_cam_unique",
         config_entry=cam_entry,
         device_id=dev_cam.id,
-        suggested_object_id="pnl_audio",
+        suggested_object_id="audio_decoder",
     )
     ent_reg.async_get_or_create(
         "media_player",
         "cast",
-        "pnl_cast_unique",
+        "decoder_cast_unique",
         config_entry=cast_entry,
         device_id=dev_cast.id,
         suggested_object_id="mxn10_f1",
     )
 
-    companion = async_find_streaming_companion(hass, "media_player.pnl_audio")
+    companion = async_find_streaming_companion(hass, "media_player.audio_decoder")
     assert companion == "media_player.mxn10_f1"
 
 
@@ -149,12 +149,12 @@ async def test_find_streaming_companion_by_name(hass: HomeAssistant) -> None:
     dev_cam = dev_reg.async_get_or_create(
         config_entry_id=cam_entry.entry_id,
         identifiers={("cambridge_audio", "cam_id_2")},
-        name="PNL Audio",
+        name="Audio Decoder",
     )
     dev_cast = dev_reg.async_get_or_create(
         config_entry_id=cast_entry.entry_id,
         identifiers={("cast", "cast_id_2")},
-        name="PNL Audio",
+        name="Audio Decoder",
     )
 
     ent_reg.async_get_or_create(

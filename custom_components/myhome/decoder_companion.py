@@ -79,7 +79,7 @@ def async_find_streaming_companion(hass: HomeAssistant, entity_id: str) -> str |
                     if cand.domain == "media_player" and cand.platform in STREAMING_COMPANION_PLATFORMS:
                         return cand.entity_id
 
-    # 4. Check devices with matching names (e.g. user-named "PNL Audio")
+    # 4. Check devices with matching names (e.g. user-named "Audio Decoder")
     if device is not None:
         dev_name = (device.name_by_user or device.name or "").lower().strip()
         if dev_name:
