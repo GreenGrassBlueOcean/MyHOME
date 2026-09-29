@@ -275,13 +275,12 @@ async def test_a_failed_play_leaves_no_room_showing_on_while_its_amplifier_is_of
     events: list[str] = []
     _queue_only_send(mock_gateway, events)
 
-    with (
-        patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock, side_effect=RuntimeError("refused")),
-        patch("asyncio.sleep", return_value=None),
-        pytest.raises(HomeAssistantError),
-    ):
-        hass.states.async_set(DECODER, "on")
-        await zones[LEADER].async_play_media("music", "http://example.invalid/stream.mp3")
+    async def failing_play_media(call):
+        raise RuntimeError("refused")
+
+    with pytest.raises(HomeAssistantError):
+        await _resume_by_play(hass, zones, events, failing_play_media)
+    assert _pool.owned_decoder(_entity_id(LEADER)) is None  # released, not stuck busy
     await hass.async_block_till_done()
 
     for zone in zones.values():

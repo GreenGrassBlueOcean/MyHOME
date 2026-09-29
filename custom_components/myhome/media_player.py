@@ -1112,7 +1112,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
         # Error recovery: if the play_media call fails, release the decoder so
         # it does not remain permanently "stuck" as busy.
         try:
-            await self.hass.services.async_call("media_player", "play_media", service_data)
+            # Blocking: a service error only reaches this except when the call is
+            # awaited to completion, and the release below depends on it.
+            await self.hass.services.async_call("media_player", "play_media", service_data, blocking=True)
         except Exception as err:
             LOGGER.error(
                 "%s: failed to forward play_media to %s: %s — releasing decoder",
