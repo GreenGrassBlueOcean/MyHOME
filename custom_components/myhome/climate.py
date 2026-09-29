@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -64,6 +65,8 @@ PARALLEL_UPDATES = 0
 # here until the OWNd pin exports them.  On MyHomeServer1 + Home+Control
 # plants this is the only frame carrying the zone's mode and setpoint (#429).
 MESSAGE_TYPE_ZONE_STATE = "zone_state"
+# A dimension 12 frame and the frame that turns the zone OFF follow within ~0.1 s (#454, #383)
+_PROTECTION_FRAME_WINDOW = 2.0
 _ZONE_CONTEXT_MODES = {"heating": HVACMode.HEAT, "cooling": HVACMode.COOL, "automatic": HVACMode.AUTO}
 _ZONE_STATES_ON = ("setpoint", "comfort", "eco")
 _ZONE_STATES_OFF = ("protection", "off")
@@ -324,6 +327,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._local_offset: float = 0
         self._knob_pos: str = "UNKNOWN"
         self._local_target_temperature: float | None = None
+        self._nominal_before_dim12: tuple[float | None, float] | None = None
 
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_hvac_action: HVACAction | None = None
@@ -557,6 +561,33 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
             )
 
+    def _dimension_3_is_protection(self, message: OWNHeatingEvent) -> bool:
+        """Whether a dimension 12/14 frame may be a protection setpoint rather than the nominal one.
+
+        The trailing ``3`` cannot tell them apart (a manual write on a MyHomeServer1 plant
+        ends in it too, #454), so the zone's mode decides: OFF, or not known yet, means
+        protection is possible; a zone known to be running heats or cools to what it reports.
+        """
+        if self._attr_hvac_mode == HVACMode.OFF:
+            return True
+        value = getattr(message, "_dimension_value", None)
+        return bool(value) and len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None
+
+    def _remember_nominal(self) -> None:
+        """Keep the nominal setpoint a dimension 12 frame is about to replace."""
+        self._nominal_before_dim12 = (self._target_temperature, time.monotonic())
+
+    def _restore_nominal_before_protection(self) -> None:
+        """A protection setpoint arrives just before the frame that turns the zone OFF.
+
+        The dimension 12 frame of a running zone was taken as the new nominal setpoint;
+        if the OFF frame follows at once, it was the protection setpoint, so put the
+        previous nominal back (#383).
+        """
+        remembered, self._nominal_before_dim12 = self._nominal_before_dim12, None
+        if remembered is not None and time.monotonic() - remembered[1] <= _PROTECTION_FRAME_WINDOW:
+            self._target_temperature = remembered[0]
+
     def _apply_zone_state(self, message: OWNHeatingEvent) -> None:
         """Dimension 7: the zone's operating state, and its setpoint in state 'setpoint'.
 
@@ -565,6 +596,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         """
         state = getattr(message, "zone_state", None)
         if state in _ZONE_STATES_OFF:
+            self._restore_nominal_before_protection()
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
             self._actuator_states.clear()
@@ -609,14 +641,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._target_temperature = message.set_temperature
-            is_protection_or_off = (
-                self._attr_hvac_mode == HVACMode.OFF
-                or (
-                    hasattr(message, "_dimension_value")
-                    and len(message._dimension_value) > 1
-                    and message._dimension_value[1] == "3"
-                )
-            )
+            is_protection_or_off = self._dimension_3_is_protection(message)
             if not is_protection_or_off:
                 self._local_target_temperature = (
                     self._target_temperature + self._local_offset
@@ -653,15 +678,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._local_target_temperature = message.local_set_temperature
-            is_protection_or_off = (
-                self._attr_hvac_mode == HVACMode.OFF
-                or (
-                    hasattr(message, "_dimension_value")
-                    and len(message._dimension_value) > 1
-                    and message._dimension_value[1] == "3"
-                )
-            )
+            is_protection_or_off = self._dimension_3_is_protection(message)
             if not is_protection_or_off:
+                self._remember_nominal()
                 self._target_temperature = (
                     self._local_target_temperature - self._local_offset
                     if self._local_target_temperature is not None
@@ -702,6 +721,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._gateway_handler.log_id,
                     message.human_readable_log,
                 )
+                self._restore_nominal_before_protection()
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
                 self._actuator_states.clear()
@@ -751,6 +771,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._gateway_handler.log_id,
                     message.human_readable_log,
                 )
+                self._restore_nominal_before_protection()
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
                 self._actuator_states.clear()
