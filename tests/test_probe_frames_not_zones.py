@@ -19,6 +19,7 @@ from OWNd.message import OWNEvent
 from custom_components.myhome.climate import (
     MyHOMEClimate,
     _calling_zones,
+    _is_probe,
     _zone_address,
     _zone_route_keys,
     async_setup_entry,
@@ -75,7 +76,27 @@ def test_probe_frame_names_no_zone(frame, zone):
     assert message.zone == int(zone)  # the premise: OWNd reports the probe's zone
     assert _calling_zones(message)[0] == []
     assert _zone_address(message) is None
-    assert zone not in _zone_route_keys(message, None)
+    assert _zone_route_keys(message, None) == []  # neither the zone nor the probe's own WHERE targets a climate entity
+
+
+@pytest.mark.parametrize(
+    "frame",
+    ["*4*1*105##", "*4*0*169##", "*#4*105*14*0210*3##", "*#4*169*12*0210*3##"],
+)
+def test_probe_command_and_setpoint_frames_name_no_zone(frame):
+    """Not only temperature reports: any frame addressed to a probe WHERE is the probe's."""
+    message = OWNEvent.parse(frame)
+    assert _zone_address(message) is None
+    assert _zone_route_keys(message, None) == []
+
+
+@pytest.mark.parametrize(
+    ("where", "probe"),
+    [("105", True), ("0105", True), ("#105", True), ("4-105", True), ("99", False), ("5", False), ("#0", False), ("12#1", False), ("99#3", False)],
+)
+def test_one_definition_of_a_probe_where(where, probe):
+    """``12#1`` is actuator 1 of zone 12, not probe 1 of zone 21 - only a bare number is ``PZZ``."""
+    assert _is_probe(where) is probe
 
 
 @pytest.mark.parametrize(

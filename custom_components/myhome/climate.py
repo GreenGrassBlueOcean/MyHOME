@@ -145,8 +145,13 @@ def _zone_number(where: str) -> str:
 
 
 def _is_probe(where: str) -> bool:
-    zone = _zone_number(where)
-    return zone.isdigit() and int(zone) >= 100
+    """A WHERE of ``PZZ``: probe ``P`` of zone ``ZZ`` (``105``, ``0105``, ``#105``, ``4-105``).
+
+    Only a bare number counts. ``12#1`` is actuator 1 of zone 12, and read
+    digit by digit (``121``) it would look like a probe.
+    """
+    bare = where.split("-")[-1].lstrip("#")
+    return bare.isdigit() and int(bare) >= 100
 
 
 def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict[str, Any]:
@@ -171,15 +176,17 @@ def _where_param(message: Any) -> list[str]:
 
 
 def _bus_zone(message: Any) -> int | None:
-    """OWNd's zone of a frame, or ``None`` where OWNd <= 2.0.0b8 misreads it.
+    """OWNd's zone of a frame, or ``None`` where the frame names no heating zone.
 
-    A bare WHERE >= 100 is ``PZZ``, probe ``P`` (1-8) of zone ``ZZ``: OWNd decodes
-    it correctly (probe 105 -> sensor 1, zone 5), but it is the probe's frame, not
-    the zone's. Read as the zone's it was delivered to that zone and, where the
-    zone is not a heating zone (an external probe 105 beside zones 1-4), it
-    discovered a phantom one (#549). Probes belong to the sensor platform.
+    Two different cases end in ``None``.
 
-    On an unhashed WHERE ``0#<p>`` OWNd reports ``p`` as the zone, but ``p`` is
+    Not a zone's frame, though OWNd decodes it correctly: a bare WHERE >= 100 is
+    ``PZZ``, probe ``P`` (1-8) of zone ``ZZ`` (probe 105 -> sensor 1, zone 5).
+    Read as the zone's it was delivered to that zone and, where the zone is not a
+    heating zone (an external probe 105 beside zones 1-4), it discovered a
+    phantom one (#549). Probes belong to the sensor platform.
+
+    Misread by OWNd <= 2.0.0b8: on an unhashed WHERE ``0#<p>`` OWNd reports ``p`` as the zone, but ``p`` is
     never one: ``0#<n>`` is actuator ``n`` of zone 0, the pump the zones call
     with ``*4*4001#<zone>*0#<n>##`` (zones 1, 2, 3, 5 and 6 of one plant all
     call ``0#3``: #303, #333, #404), and ``0#4#<if>`` is WHERE=0 behind an
@@ -188,8 +195,7 @@ def _bus_zone(message: Any) -> int | None:
     """
     if str(getattr(message, "where", None)) == "0" and _where_param(message):
         return None
-    where = str(getattr(message, "where", None))
-    if where.isdigit() and int(where) >= 100:
+    if _is_probe(str(getattr(message, "where", None))):
         return None  # probe P of zone ZZ (105 = probe 1 of zone 5), not the zone's own frame
     zone: int | None = getattr(message, "zone", None)
     return zone
@@ -237,7 +243,7 @@ def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     zones, interface = _calling_zones(message)
     zone = _bus_zone(message)
     keys = [] if zone is None else [f"#{zone}" if zone == 0 else str(zone)]
-    if getattr(message, "where", None):
+    if getattr(message, "where", None) and not _is_probe(str(message.where)):
         keys.append(str(message.where))
     for z in zones:
         keys.append(z)

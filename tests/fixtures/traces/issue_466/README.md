@@ -406,3 +406,5 @@ Verbatim bus trace contributed by **@gdluck** on [#466 (comment 5895736715)](htt
 | File | Type | Description |
 |---|---|---|
 | `myhome_trace_MyHomeServer1_all_2026-09-29T17-57-37.json` | Bus Card Export (200 frames, buffer truncated) | Startup light-state sweep (`*1*0*WHERE##` on 10-15), grouped on/off of points 24, 27, 28, 33, 36, dimmer level reads on point 66 (`*#1*66*#1*WHERE*0##` answered by `*#1*66*1*WHERE*2##`), WHO 1 command `*1*1000#0*0415##` and thermoregulation actuator/valve traffic (`*4*4002#NN*0#Z##`, `*#4*60/61*...`) with the gateway's `*#13` clock frames.
+
+The file is in the tree because its 200 frames include the probe reading `*#4*169*0*...##` (probe 1 of zone 69) beside zones 35-70; the replay in `tests/test_probe_frames_not_zones.py` checks that no such frame names a heating zone (#549).
