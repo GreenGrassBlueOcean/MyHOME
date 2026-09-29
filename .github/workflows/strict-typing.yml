@@ -30,6 +30,9 @@ jobs:
           python -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
 
       - name: mypy --strict ratchet
+        # `shell: bash` (not the default) so the step runs with `pipefail`: without it
+        # `| tee` returns 0 and a ratchet failure never turns the job red.
+        shell: bash
         run: python scripts/typing_ratchet.py | tee mypy-ratchet.txt
 
       - name: Summary

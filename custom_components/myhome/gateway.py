@@ -500,6 +500,8 @@ class MyHOMEGatewayHandler:
                 and gw.primary_gateway_mac == self.mac
             ):
                 return gw
+        return None
+
     def _get_secondary_for_who(self, who: int) -> "MyHOMEGatewayHandler" | None:
         """Find the connected secondary gateway handling a delegated WHO subsystem."""
         if not getattr(self, "hass", None):

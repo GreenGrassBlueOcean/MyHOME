@@ -1195,7 +1195,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             ]
             schema_dict[vol.Optional(
                 CONF_BUS_TOPOLOGY,
-                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},
+                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},  # type: ignore[attr-defined]
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
@@ -1203,9 +1203,9 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     translation_key=CONF_BUS_TOPOLOGY,
                 )
             )
-            suggested_role = self.options.get(CONF_GATEWAY_ROLE)
-            suggested_whos = [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]
-            selected_pri = self.options.get(CONF_PRIMARY_GATEWAY)
+            suggested_role = self.options.get(CONF_GATEWAY_ROLE)  # type: ignore[attr-defined]
+            suggested_whos = [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]  # type: ignore[attr-defined]
+            selected_pri = self.options.get(CONF_PRIMARY_GATEWAY)  # type: ignore[attr-defined]
             if not selected_pri and gw_options:
                 selected_pri = gw_options[0]["value"]
             if selected_pri and (suggested_role is None or not suggested_whos):
@@ -1242,7 +1242,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             )
             schema_dict[vol.Optional(
                 CONF_PRIMARY_GATEWAY,
-                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY)},
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY)},  # type: ignore[attr-defined]
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=gw_options,
