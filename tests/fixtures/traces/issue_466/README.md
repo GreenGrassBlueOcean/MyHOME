@@ -397,6 +397,12 @@ Verbatim bus traces contributed by **@TheDarkWizard** on [#466 (comment 58556904
 - **WHO 25 (CEN+ / Pushbutton Scenarios)**: KW8011 3-position device short-press events on addresses 21, 22, and 23 (`*25*21#1*21##`, `*25*21#1*22##`, `*25*21#1*23##`), plus extended press lifecycle: short press (`*25*21#1*21##`), long press start (`*25*22#1*21##`), and long release (`*25*24#1*21##`) across multiple hold durations without intermediate hold repeats.
 - **WHO 1001 (Physical Layer Diagnostics)**: Diagnostic announcements (`*1001*9#...`), identity object model 119, firmware 1.3.8, slot objects, and indexed configuration registers (Dimension 35).
 
+---
 
+# #466 MyHomeServer1 Mixed Bus Capture (Lighting, Dimmer Level Reads, Thermoregulation)
 
+Verbatim bus trace contributed by **@gdluck** on [#466 (comment 5895736715)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5895736715), exported from the bus card (HA 2026.9.4, integration 2.0.0b13, OWNd 2.0.0b8, gateway firmware 3.87.13).
 
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MyHomeServer1_all_2026-09-29T17-57-37.json` | Bus Card Export (200 frames, buffer truncated) | Startup light-state sweep (`*1*0*WHERE##` on 10-15), grouped on/off of points 24, 27, 28, 33, 36, dimmer level reads on point 66 (`*#1*66*#1*WHERE*0##` answered by `*#1*66*1*WHERE*2##`), WHO 1 command `*1*1000#0*0415##` and thermoregulation actuator/valve traffic (`*4*4002#NN*0#Z##`, `*#4*60/61*...`) with the gateway's `*#13` clock frames.

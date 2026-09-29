@@ -537,3 +537,16 @@ async def test_myhomeserver1_cen_long_press_trace_replay(hass: HomeAssistant) ->
     for unsub in (unsub1, unsub2, unsub3, unsub4):
         unsub()
 
+
+
+def test_mixed_bus_capture_2026_09_29_parses():
+    """The @gdluck mixed capture (comment 5895736715) parses frame by frame without errors."""
+    trace = json.loads(
+        (TRACES_DIR / "myhome_trace_MyHomeServer1_all_2026-09-29T17-57-37.json").read_text(encoding="utf-8")
+    )
+    frames = [f["raw"] for f in trace["frames"]]
+    assert len(frames) == 200
+    messages = [OWNMessage.parse(raw) for raw in frames]
+    assert all(message is not None for message in messages)
+    assert sum(isinstance(m, OWNLightingEvent) for m in messages) >= 30
+    assert sum(isinstance(m, OWNHeatingEvent) for m in messages) >= 100
