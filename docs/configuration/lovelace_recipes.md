@@ -48,20 +48,36 @@ For installations equipped with BTicino WHO 16 sound systems (F441, F500 audio m
 ```yaml
 type: custom:auto-entities
 card:
-  type: entities
-  title: 🔊 Active Speakers & Audio Zones
-  show_header_toggle: false
-  state_color: true
+  type: vertical-stack
+  title: 🔊 Active Speakers
+card_param: cards
+show_empty: false
 filter:
   include:
     - integration: myhome
       domain: media_player
-      state: playing
-    - integration: myhome
-      domain: media_player
-      state: 'on'
-show_empty: false
+      state: '/^(playing|on)$/'
+      options:
+        type: tile
+        icon: mdi:speaker
+        state_content:
+          - state
+          - media_title
+          - volume_level
+        features_position: bottom
+        features:
+          - type: media-player-playback
+            controls:
+              - media_previous_track
+              - media_play_pause
+              - media_next_track
+          - type: media-player-volume-slider
 ```
+
+Each active zone is one compact tile named after the zone (the entity's friendly name), with transport buttons and a volume slider. Zones that are off drop out of the card. Tile cards and their features are built into Home Assistant, so only `custom:auto-entities` is needed.
+
+> [!TIP]
+> Avoid `custom:mushroom-media-player-card` with `use_media_info: true` here: it replaces the zone name with the track title, so two zones playing the same source look identical. To use your own room names, replace the single `include` entry with one entry per zone (`entity_id: media_player.<zone>`) and add `name:` to its `options`.
 
 ### Dedicated In-Room Media Controller
 Pair the active list above with dedicated zone controllers for high-traffic rooms (e.g. Kitchen, Living room):
