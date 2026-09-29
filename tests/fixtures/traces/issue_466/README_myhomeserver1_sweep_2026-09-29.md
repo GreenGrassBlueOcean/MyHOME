@@ -23,5 +23,17 @@ of one startup poll (18:29:10 - 18:31:17). The config-entry id (`entry_id`, the 
 synthetic (`01PLANT000000000000000466`, `UTC`); host, MAC and password were already redacted by the download. The `home_assistant` block keeps only the installation type, version and time zone, and only the `myhome` custom component is listed. `scripts/anonymize_plant_fixture.py --check` passes.
 
 - The integration polls `*#4*Z##` once per climate zone, one after the other. A zone that answers costs ~1.3 s of the queue.
-- Eleven restored zones (0-4, 6, 32, 33, 71, 75, 76) never answer: no frame of theirs is on the bus, and consecutive polls are ~6.4 s apart, ~70 s in total. The buffer records no `NACK` frame (a refused status request is not recorded), so what the capture proves is the wait, not how the gateway ended it; the 10 s `COMMAND_TIMEOUT` of OWNd is from its source, not from this trace.
+- Eleven restored zones (0-4, 6, 32, 33, 71, 75, 76) never answer: no frame of theirs is on the bus, and consecutive polls are ~6.4 s apart, ~70 s in total. The bus card records no `NACK` frame (a refused status request is not recorded); the debug log below shows how the gateway ends the wait.
 - Zones 36, 40, 42, 55, 60 and 68 answer dimensions 0, 12, 13 and 14 but no dimension 7 (#454).
+
+## Debug log of the dead-zone poll
+
+`MyHomeServer1_dead_zone_nacks_2026-09-29T22-45.txt`: 44 lines of the reporter's debug log
+([#553 comment 5897634705](https://github.com/OpenWebNet-HA/MyHOME/issues/553#issuecomment-5897634705), startup of 22:45, before the dead-zone skip),
+only the climate entity count, the dead-zone status requests as they were queued, and their retries and refusals. The rest of the log (other
+integrations, the light and heating traffic) is left out. Gateway address and MAC were made synthetic (`192.0.2.9`, `00:03:50:00:04:66`). The reporter's
+`myhome.yaml` configures 33 zones (35-70, `standalone`); the 44 climate entities are those plus the 11 restored ones.
+
+- The gateway **does** answer a silent zone: with a NACK. The worker sends `*#4*Z##`, OWNd retries once 3.2 s later, and the gateway's NACK arrives another 3.2 s after that (`Gateway rejected status request ... (NACK, 0 response(s))`): ~6.4 s per zone, 69 s from the first request to the last.
+- The general request `*#4*0##` (zone 0) is refused at once, without the retry delay.
+- So the wait is not a timeout: a refused status request is the "never answers" signal `poll_health` counts (the request's delivery future is cancelled).

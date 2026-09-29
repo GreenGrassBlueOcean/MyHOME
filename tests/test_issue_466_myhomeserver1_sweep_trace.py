@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from OWNd.message import OWNHeatingEvent, OWNLightingEvent, OWNMessage
@@ -110,7 +111,7 @@ def test_diagnostics_dead_zones_are_polled_and_never_answer():
         if f["direction"] == "rx" and (m := re.match(r"\*#4\*(\d+)#?\d*\*", f["raw"]))
     }
     assert not DEAD_ZONES & answered
-    assert not any(f["is_nack"] for f in frames)  # the gateway's refusal is not on the record, only the wait
+    assert not any(f["is_nack"] for f in frames)  # the bus card does not record the refusal (the debug log does, below)
     ordered = sorted((polled[z]["timestamp"] for z in DEAD_ZONES - {0}))
     gaps = [b - a for a, b in zip(ordered, ordered[1:])]
     assert all(6.3 <= gap <= 6.6 for gap in gaps[1:]), gaps
@@ -126,3 +127,46 @@ def test_diagnostics_live_zones_and_the_ones_without_dimension_7():
     assert len(live) == 34
     assert {z for z, d in live.items() if 7 not in d} == {36, 40, 42, 55, 60, 68}
     assert all({0, 12, 13, 14} <= d for d in live.values())
+
+
+NACK_LOG = TRACE.with_name("MyHomeServer1_dead_zone_nacks_2026-09-29T22-45.txt")
+LOG_LINE = re.compile(r"^(\S+ \S+) DEBUG \(MainThread\) \[custom_components\.myhome\] (?:\[[^\]]*\] )?(.*)$")
+
+
+def _debug_log() -> list[tuple[datetime, str]]:
+    lines = (LOG_LINE.match(line) for line in NACK_LOG.read_text(encoding="utf-8").splitlines())
+    return [(datetime.fromisoformat(m.group(1)), m.group(2)) for m in lines if m]
+
+
+def _dead_zone_polls() -> dict[str, dict[str, datetime]]:
+    """Per status request: when the worker took it, when it was retried, when the gateway refused it."""
+    polls: dict[str, dict[str, datetime]] = {}
+    for when, text in _debug_log():
+        if m := re.match(r"Message `(\*#4\*\d+##)` was successfully unqueued", text):
+            polls[m.group(1)] = {"taken": when}
+        elif (m := re.match(r"Could not send message `(\*#4\*\d+##)`\. Retrying", text)) and m.group(1) in polls:
+            polls[m.group(1)]["retried"] = when
+        elif m := re.match(r"Gateway rejected status request (\*#4\*\d+##) \(NACK", text):
+            polls[m.group(1)]["nack"] = when
+    return polls
+
+
+def test_debug_log_dead_zones_are_refused_with_a_nack_after_one_retry():
+    """The gateway does answer a silent zone: a NACK, 3.2 s after a retry that is 3.2 s after the request (#553)."""
+    polls = _dead_zone_polls()
+    assert {int(k[4:-2]) for k in polls} == DEAD_ZONES
+    for request, poll in polls.items():
+        assert "nack" in poll, request
+        if request == "*#4*0##":  # the general request is refused at once
+            assert (poll["nack"] - poll["taken"]).total_seconds() < 0.1
+            continue
+        assert 3.1 <= (poll["retried"] - poll["taken"]).total_seconds() <= 3.3, request
+        assert 3.1 <= (poll["nack"] - poll["retried"]).total_seconds() <= 3.3, request
+    started = min(p["taken"] for p in polls.values())
+    assert 65 <= (max(p["nack"] for p in polls.values()) - started).total_seconds() <= 70  # the ~70 s startup wait
+
+
+def test_debug_log_counts_the_dead_zones_among_the_44_climate_entities():
+    """The reporter's myhome.yaml configures 33 zones (35-70); the other 11 entities are restored from the registry."""
+    restored = [text for _, text in _debug_log() if "climate restored/configured" in text]
+    assert len(restored) == 1 and "44 entities" in restored[0]
