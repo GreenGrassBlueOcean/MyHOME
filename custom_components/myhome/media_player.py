@@ -2417,10 +2417,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity):
 
         if message.volume is not None:
             self._attr_volume_level = message.volume / 31.0
-            # Sync mute state if physical intervention drives volume to 0 / above 0
-            if message.volume == 0 and not self._attr_is_volume_muted:
-                self._attr_is_volume_muted = True
-            elif message.volume > 0 and self._attr_is_volume_muted:
+            # Volume 0 is not a mute: only async_mute_volume() mutes. Music
+            # Assistant locks the slider of a muted player and leaves it out of
+            # the grouped volume, so a room turned down to 0 would be stuck
+            # there. A volume raised above 0 (a wall panel, say) does end a mute.
+            if message.volume > 0 and self._attr_is_volume_muted:
                 self._attr_is_volume_muted = False
 
         self._publish_state()

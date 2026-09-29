@@ -619,10 +619,17 @@ async def test_handle_event_bus_messages(hass, player, mock_gateway):
     assert player.state == MediaPlayerState.OFF
     assert player._active_decoder is None
 
-    # Volume update with mute / unmute detection
+    # Volume 0 on the bus is a volume, not a mute: Music Assistant locks the
+    # slider of a muted player, so a room turned down to 0 could not come back.
     msg_vol_0 = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=False, is_off=False, volume=0)
     player.handle_event(msg_vol_0)
     assert player._attr_volume_level == 0.0
+    assert player.is_volume_muted is False
+
+    # An explicit mute survives its own volume-0 echo and ends when the bus
+    # reports the volume raised again (a wall panel, say).
+    player._attr_is_volume_muted = True
+    player.handle_event(msg_vol_0)
     assert player.is_volume_muted is True
 
     msg_vol_15 = MagicMock(spec=OWNSoundEvent, is_source_event=False, where="1", is_on=False, is_off=False, volume=15)
