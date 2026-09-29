@@ -97,6 +97,7 @@ def _set_pool(player, pool):
 def test_build_pool(hass, mock_config_entry):
     """Test building decoder pool from config entry options."""
     pool = _build_pool(hass, mock_config_entry)
+    assert pool._store.key == "myhome.decoder_pool.test_entry_id"  # its books outlive a restart
     assert pool.is_configured is True
     assert len(pool.decoder_entity_ids) == 2
     assert pool._decoder_map["media_player.squeezelite_1"] == 1
@@ -218,20 +219,16 @@ async def test_media_player_features_with_and_without_pool(hass, player, mock_ga
 
 
 @pytest.mark.asyncio
-async def test_async_added_to_hass_and_pool_rebuild(hass, player, mock_gateway):
-    """Test lifecycle registration and pool rebuild listener."""
+async def test_async_added_to_hass_watches_the_pool_decoders(hass, player, mock_gateway):
+    """Adding the zone starts watching the pool's decoders."""
     mock_pool = MagicMock(spec=DecoderPool)
     mock_pool.is_configured = True
     mock_pool.decoder_entity_ids = ["media_player.squeezelite_1"]
     _set_pool(player, mock_pool)
 
-    player.async_write_ha_state = MagicMock()
-
     await player.async_added_to_hass()
 
-    # Trigger pool rebuild dispatcher
-    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
-    player.async_write_ha_state.assert_called_once()
+    assert player._unsub_decoders is not None
 
 
 @pytest.mark.asyncio
@@ -2607,41 +2604,32 @@ async def test_failed_start_republishes_the_disbanded_group(hass, mock_gateway):
 
 
 @pytest.mark.asyncio
-async def test_decoder_watch_follows_the_rebuilt_pool(hass, player, mock_gateway):
-    """Saving options rebuilds the pool without a reload; the zone watches the new decoders.
+async def test_decoder_watch_reaches_the_zone_and_stops_on_remove(hass, player, mock_gateway):
+    """The zone follows its decoder's state, and removing the entity ends the watch.
 
-    A zone added before any decoder was configured watched nothing. After the
-    rebuild it must follow the new decoder, stop following a removed one, and
-    forget a claim the new pool does not hold.
+    Saving options reloads the entry, so a zone never has to swap its watch for
+    a rebuilt pool: it is created against the pool it will use.
     """
     _set_pool(player, DecoderPool(hass, {}))
+    await player.async_added_to_hass()
+    assert player._unsub_decoders is None  # no decoder configured: nothing to watch
+    player._untrack_decoders()
+
+    _set_pool(player, DecoderPool(hass, {"media_player.new": 1}))
     player.async_write_ha_state = MagicMock()
     player.async_schedule_update_ha_state = MagicMock()
     await player.async_added_to_hass()
-    player._active_decoder = "media_player.old"
+    assert player._unsub_decoders is not None
 
-    _set_pool(player, DecoderPool(hass, {"media_player.new": 1}))
-    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
-    assert player._active_decoder is None
-
-    # The zone streams from the new decoder; its state changes reach the zone.
     player._active_decoder = "media_player.new"
     hass.states.async_set("media_player.new", MediaPlayerState.PLAYING, {"media_title": "Song"})
     await hass.async_block_till_done()
     player.async_schedule_update_ha_state.assert_called()
 
-    # Decoder removed again: nothing is watched any more.
-    _set_pool(player, DecoderPool(hass, {}))
-    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
-    assert player._unsub_decoders is None
-
-    # The remove callback registered at add time drops whichever watch is current.
-    _set_pool(player, DecoderPool(hass, {"media_player.new": 1}))
-    async_dispatcher_send(hass, f"myhome_pool_updated_{mock_gateway.mac}")
-    assert player._unsub_decoders is not None
     for remove in player._on_remove or []:
         remove()
     assert player._unsub_decoders is None
+
 
 @pytest.mark.asyncio
 async def test_decoders_refusing_companion_coverage(hass, mock_gateway):
@@ -3569,3 +3557,166 @@ async def test_unavailable_or_unknown_decoder_arms_nothing(hass, mock_gateway):
         zone._async_decoder_state_changed(_dec_event("unavailable"))
         zone._async_decoder_state_changed(_dec_event("unknown"))
     assert timers == []
+
+
+@pytest.mark.asyncio
+async def test_setup_restores_the_books_and_drops_zones_the_bus_never_reports(
+    hass, hass_storage, mock_config_entry, mock_gateway
+):
+    """Groups come back after a restart; a zone that never reports is dropped after the window."""
+    key = "myhome.decoder_pool.test_entry_id"
+    hass_storage[key] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": key,
+        "data": {
+            "assignments": {"media_player.squeezelite_1": "media_player.ghost"},
+            "groups": {"media_player.ghost": ["media_player.ghost_member"]},
+            "environments": {"media_player.ghost": "2"},
+        },
+    }
+    hass.data = {DOMAIN: {mock_config_entry.data[CONF_MAC]: {CONF_ENTITY: mock_gateway}}}
+
+    timers, patcher = _capture_timers()
+    with patch("homeassistant.helpers.entity_registry.async_get"), patch(
+        "homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]
+    ), patcher:
+        attach_runtime(hass, mock_config_entry)
+        await async_setup_entry(hass, mock_config_entry, MagicMock())
+
+    pool = mock_config_entry.runtime_data.decoder_pool
+    assert pool.get_assignment("media_player.ghost") == "media_player.squeezelite_1"
+    assert pool.get_members("media_player.ghost") == ["media_player.ghost_member"]
+    assert [delay for delay, _ in timers] == [120.0]
+
+    timers[0][1](None)
+    await hass.async_block_till_done()
+    assert pool.get_assignment("media_player.ghost") is None
+    assert pool.get_members("media_player.ghost") == []
+
+
+@pytest.mark.asyncio
+async def test_setup_drops_restored_zones_that_are_no_longer_registered(
+    hass, hass_storage, mock_config_entry, mock_gateway
+):
+    """A zone renamed while Home Assistant was down does not hold its decoder for the confirm window."""
+    key = "myhome.decoder_pool.test_entry_id"
+    hass_storage[key] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": key,
+        "data": {
+            "assignments": {"media_player.squeezelite_1": "media_player.old_name"},
+            "environments": {"media_player.old_name": "2"},
+        },
+    }
+    hass.data = {DOMAIN: {mock_config_entry.data[CONF_MAC]: {CONF_ENTITY: mock_gateway}}}
+
+    timers, patcher = _capture_timers()
+    with patch("homeassistant.helpers.entity_registry.async_get") as get_registry, patch(
+        "homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]
+    ), patcher:
+        get_registry.return_value.async_get.return_value = None
+        attach_runtime(hass, mock_config_entry)
+        await async_setup_entry(hass, mock_config_entry, MagicMock())
+
+    pool = mock_config_entry.runtime_data.decoder_pool
+    assert pool.get_assignment("media_player.old_name") is None
+    assert not pool.has_unconfirmed
+    assert timers == []  # nothing left to wait for
+
+
+@pytest.mark.asyncio
+async def test_restored_owner_takes_its_claim_back_when_its_amplifier_reports(hass, mock_gateway):
+    """The room was playing before the restart; the decoder still plays: nothing to switch off."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_state = MediaPlayerState.OFF
+    pool = zone._get_pool()
+    pool.restore({"assignments": {"media_player.dec1": "media_player.zone23"}})
+    hass.states.async_set("media_player.dec1", "playing")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+
+    assert zone._active_decoder == "media_player.dec1"
+    assert not pool.has_unconfirmed  # the bus vouched for it
+    assert timers == []
+
+
+@pytest.mark.asyncio
+async def test_restored_group_is_visible_to_music_assistant_on_leader_and_member(hass, mock_gateway):
+    """group_members is pool-backed: the state written after each ON report carries the restored group."""
+    leader = _stray_setup(hass, mock_gateway)
+    leader._attr_state = MediaPlayerState.OFF
+    pool = leader._get_pool()
+    runtime = leader._runtime_data
+    member = _create_test_zone(hass, mock_gateway, runtime, "24", "media_player.zone24")
+    member._attr_state = MediaPlayerState.OFF
+    pool.restore(
+        {
+            "assignments": {"media_player.dec1": "media_player.zone23"},
+            "groups": {"media_player.zone23": ["media_player.zone24"]},
+        }
+    )
+    hass.states.async_set("media_player.dec1", "playing")
+    expected = ["media_player.zone23", "media_player.zone24"]
+
+    for zone in (leader, member):
+        zone._publish_state = MagicMock()
+        _on_report(zone)
+        zone._publish_state.assert_called_once()
+        assert zone.group_members == expected
+
+    assert leader._active_decoder == "media_player.dec1"
+    assert not pool.has_unconfirmed
+
+
+@pytest.mark.asyncio
+async def test_restored_owner_follows_an_idle_decoder_off(hass, mock_gateway):
+    """The music stopped while Home Assistant was down: the room owning it goes off, not just strays."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_state = MediaPlayerState.OFF
+    zone._get_pool().restore({"assignments": {"media_player.dec1": "media_player.zone23"}})
+    hass.states.async_set("media_player.dec1", "idle")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_restored_zone_found_off_gives_up_its_books(hass, mock_gateway):
+    """A stale claim for an amplifier that is off is released by the zone's own turn-off."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone.async_schedule_update_ha_state = MagicMock()
+    pool = zone._get_pool()
+    pool.restore({"assignments": {"media_player.dec1": "media_player.zone23"}})
+    hass.states.async_set("media_player.dec1", "playing")
+    hass.services.async_register("media_player", "media_stop", AsyncMock())
+
+    zone.handle_event(
+        MagicMock(spec=OWNSoundEvent, is_source_event=False, where="23", is_on=False, is_off=True, volume=None)
+    )
+    await hass.async_block_till_done()
+
+    assert not pool.has_unconfirmed
+    assert pool.get_assignment("media_player.zone23") is None
+
+
+@pytest.mark.asyncio
+async def test_group_leave_off_is_the_full_turn_off(hass, mock_gateway):
+    """After the grace period the room is switched off and cleaned up, not just sent an OFF frame."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._async_handle_turn_off = AsyncMock()
+    zone.async_write_ha_state = MagicMock()
+
+    with patch("custom_components.myhome.media_player.asyncio.sleep", new=AsyncMock()):
+        await zone._async_delayed_off()
+
+    zone._async_handle_turn_off.assert_awaited_once_with(from_bus=False)
+    assert zone._pending_off_task is None

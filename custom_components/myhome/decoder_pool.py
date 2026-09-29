@@ -16,10 +16,15 @@ Architecture
   the last available decoder.
 - State-aware: inspects the live HA entity state of each decoder to determine
   whether it is truly idle before claiming.
+- Persistent: the books (who holds which decoder, who is grouped with whom) are
+  saved to ``.storage`` after every change and restored at startup, because the
+  amplifiers keep playing through a Home Assistant restart.  A restored zone
+  stays *unconfirmed* until the bus reports its amplifier; see
+  :meth:`DecoderPool.confirm_zone` and :meth:`DecoderPool.drop_unconfirmed`.
 
 Gain staging (anti-hiss)
 ------------------------
-Each decoder carries an optional ``pre_gain`` offset (0–50 %).  When the user
+Each decoder carries an optional ``pre_gain`` offset (0–100 %).  When the user
 adjusts the BTicino zone volume the proxy also sets the decoder volume to
 ``zone_volume + pre_gain``, capped at 1.0.  This keeps the analog signal level
 high and the BTicino amplifier gain low, which reduces the inherent noise floor
@@ -32,13 +37,37 @@ Typical values
 """
 import asyncio
 import time
-from collections.abc import Collection, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 from homeassistant.components.media_player.const import MediaPlayerState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
-from .const import LOGGER
+from .const import DOMAIN, LOGGER
+
+STORAGE_VERSION = 1
+"""Version of the saved books; bump when their shape changes."""
+
+_SAVE_DELAY = 1.0
+"""Seconds to wait after a change before writing, so a burst becomes one write."""
+
+PAUSE_TAKEOVER_AFTER = 300.0
+"""Seconds a decoder nobody here owns must stay paused before it can be claimed.
+
+A decoder paused by a native session (Spotify Connect straight to the device)
+is somebody's music, not an idle input; a stale pause must not lock the input
+forever, though, so it becomes claimable after this long.
+"""
+
+
+def decoder_pool_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """Return the store that keeps one config entry's pool books."""
+    return Store(hass, STORAGE_VERSION, f"{DOMAIN}.decoder_pool.{entry_id}")
 
 
 @dataclass
@@ -108,6 +137,7 @@ class DecoderPool:
         pre_gain_map: dict[str, int] | None = None,
         stream_incompatible: Collection[str] = (),
         companion_map: Mapping[str, str] | None = None,
+        store: Store[dict[str, Any]] | None = None,
     ) -> None:
         """Initialise the decoder pool.
 
@@ -127,7 +157,7 @@ class DecoderPool:
                 explicit routing commands are ever needed.
 
             pre_gain_map: Optional mapping of ``{entity_id: pre_gain_pct}``
-                where ``pre_gain_pct`` is an integer between 0 and 50.
+                where ``pre_gain_pct`` is an integer between 0 and 100.
                 Defaults to 0 for any decoder not listed.
 
             stream_incompatible: Decoders whose integration does not accept
@@ -138,6 +168,9 @@ class DecoderPool:
             companion_map: Optional mapping of ``{decoder_id: streaming_companion_id}``
                 where a hardware decoder (e.g. ``cambridge_audio``) is dynamically
                 bridged to its companion DLNA DMR entity for URL streaming.
+
+            store: Where to keep the books across restarts.  ``None`` keeps
+                them in memory only.
 
         Example::
 
@@ -159,6 +192,162 @@ class DecoderPool:
         self._companion_map: dict[str, str] = dict(companion_map or {})
         self._former_leaders: dict[str, tuple[str, float]] = {}  # member -> (former_leader, monotonic_time)
         self._lock = asyncio.Lock()
+        self._store = store
+        self._saved: dict[str, Any] | None = None                # last books handed to the store
+        self._released_at: dict[str, datetime] = {}               # decoder → when a zone of ours last let go of it
+        self._unconfirmed: set[str] = set()                      # restored zones the bus has not reported yet
+
+    # ── Persistence ───────────────────────────────────────────────────────────
+
+    @asynccontextmanager
+    async def _books(self) -> AsyncIterator[None]:
+        """Hold the lock, then save the books if the change altered them."""
+        async with self._lock:
+            try:
+                yield
+            finally:
+                self._persist()
+
+    def _snapshot(self) -> dict[str, Any]:
+        """Return the books in the form that is saved."""
+        return {
+            "assignments": {dec: zone for dec, zone in self._assignments.items() if zone},
+            "sources": {dec: self._decoder_map[dec] for dec, zone in self._assignments.items() if zone},
+            "groups": {leader: sorted(members) for leader, members in self._groups.items() if members},
+            "environments": dict(self._environments),
+        }
+
+    def _persist(self) -> None:
+        """Schedule a save of the books when they differ from the last saved ones."""
+        if self._store is None:
+            return
+        snapshot = self._snapshot()
+        if snapshot != self._saved:
+            self._saved = snapshot
+            self._store.async_delay_save(self._snapshot, _SAVE_DELAY)
+
+    async def async_load(self) -> None:
+        """Restore the books saved before the last restart, if there are any."""
+        if self._store is None:
+            return
+        self.restore(await self._store.async_load())
+
+    async def async_save(self) -> None:
+        """Write the books now, e.g. before the config entry unloads."""
+        if self._store is not None:
+            self._saved = self._snapshot()
+            await self._store.async_save(self._saved)
+
+    def restore(self, data: object) -> None:
+        """Take over saved books, ignoring whatever no longer fits the configuration.
+
+        The amplifiers keep playing while Home Assistant restarts, so the
+        books that describe who listens to which decoder must survive it: an
+        environment's claim is what stops a second stream from re-routing a
+        room that is already playing.  Every zone restored this way is
+        *unconfirmed* until its amplifier reports on the bus (see
+        :meth:`confirm_zone`); the saved books can be stale, and the bus is
+        the authority on which amplifiers are actually on.
+        """
+        if not isinstance(data, dict):
+            return
+        assignments = data.get("assignments")
+        sources = data.get("sources")
+        rewired: set[str] = set()
+        for dec_id, zone in (assignments.items() if isinstance(assignments, dict) else ()):
+            if dec_id in self._decoder_map and isinstance(zone, str) and zone:
+                self._assignments[dec_id] = zone
+                saved_source = sources.get(dec_id) if isinstance(sources, dict) else None
+                if saved_source is not None and saved_source != self._decoder_map[dec_id]:
+                    rewired.add(zone)
+        groups = data.get("groups")
+        taken: set[str] = set()
+        for leader, members in (groups.items() if isinstance(groups, dict) else ()):
+            if not isinstance(leader, str) or not isinstance(members, list):
+                continue
+            kept = {m for m in members if isinstance(m, str) and m != leader and m not in taken}
+            if kept:
+                self._groups[leader] = kept
+                taken |= kept
+        environments = data.get("environments")
+        for zone, environment in (environments.items() if isinstance(environments, dict) else ()):
+            if isinstance(zone, str) and isinstance(environment, str):
+                self._environments[zone] = environment
+        # A decoder moved to another matrix input while Home Assistant was down
+        # no longer feeds the rooms the books put on it: its claim is stale.
+        for zone in rewired:
+            LOGGER.info("DecoderPool: decoder for %s was rewired while Home Assistant was down, dropping its claim", zone)
+            self._forget_zone_locked(zone)
+        self._unconfirmed = {
+            *(zone for zone in self._assignments.values() if zone),
+            *self._groups,
+            *(member for members in self._groups.values() for member in members),
+        }
+        self._saved = self._snapshot()
+        if self._unconfirmed:
+            LOGGER.info(
+                "DecoderPool: restored books for %d zone(s), waiting for the bus to confirm them",
+                len(self._unconfirmed),
+            )
+
+    @property
+    def has_unconfirmed(self) -> bool:
+        """Return ``True`` while restored zones have not been reported on the bus."""
+        return bool(self._unconfirmed)
+
+    def confirm_zone(self, zone_entity_id: str) -> None:
+        """Note that the bus has reported ``zone_entity_id``'s amplifier.
+
+        An amplifier that reports *off* is cleaned up by the zone's own
+        turn-off, which releases its books; one that reports *on* keeps them.
+        """
+        self._unconfirmed.discard(zone_entity_id)
+
+    async def drop_unregistered(self, is_registered: Callable[[str], bool]) -> list[str]:
+        """Forget the restored zones whose entity no longer exists.
+
+        A zone that was renamed or deleted while Home Assistant was down will
+        never report under its old entity id; waiting out the confirm window
+        would keep its decoder and environment busy for nothing.  Returns the
+        zones that were dropped.
+        """
+        async with self._books():
+            gone = sorted(zone for zone in self._unconfirmed if not is_registered(zone))
+            self._unconfirmed.difference_update(gone)
+            for zone in gone:
+                self._forget_zone_locked(zone)
+        if gone:
+            LOGGER.info("DecoderPool: dropped restored zones that are no longer registered: %s", gone)
+        return gone
+
+    async def drop_unconfirmed(self) -> list[str]:
+        """Forget the restored zones that never showed up on the bus.
+
+        Without this a zone that no longer exists would hold its decoder for
+        good.  Returns the zones that were dropped.
+        """
+        async with self._books():
+            gone = sorted(self._unconfirmed)
+            self._unconfirmed.clear()
+            for zone in gone:
+                self._forget_zone_locked(zone)
+        if gone:
+            LOGGER.info("DecoderPool: dropped restored zones the bus never reported: %s", gone)
+        return gone
+
+    def _unassign_locked(self, dec_id: str) -> None:
+        """Leave a decoder without an owner, noting when: a pause that began before then was ours."""
+        self._assignments[dec_id] = None
+        self._released_at[dec_id] = dt_util.utcnow()
+
+    def _forget_zone_locked(self, zone_entity_id: str) -> None:
+        """Remove every trace of a zone from the books while holding the lock."""
+        self._remove_member_locked(zone_entity_id)
+        self._disband_group_locked(zone_entity_id)
+        for dec_id, owner in self._assignments.items():
+            if owner == zone_entity_id:
+                self._unassign_locked(dec_id)
+        self._environments.pop(zone_entity_id, None)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -189,6 +378,30 @@ class DecoderPool:
         target_state = self._hass.states.get(target_dec_id) if target_dec_id != dec_id else None
         target_state_val = target_state.state if target_state else None
         return state_val in self._IDLE_STATES and (target_dec_id == dec_id or target_state_val in self._IDLE_STATES)
+
+    def _paused_while_ours(self, dec_id: str, paused_at: datetime) -> bool:
+        """Return True if the pause began while one of our zones held the decoder.
+
+        The room's own stream that was paused (and whose room then switched
+        itself off) is not "another player": pressing play again must be able
+        to take the decoder back.
+        """
+        released = self._released_at.get(dec_id)
+        return released is not None and paused_at <= released
+
+    def _recently_paused(self, dec_id: str) -> bool:
+        """Return True if the decoder or its companion has been paused for less than :data:`PAUSE_TAKEOVER_AFTER`."""
+        now = dt_util.utcnow()
+        for entity_id in {dec_id, self.get_streaming_decoder(dec_id)}:
+            state = self._hass.states.get(entity_id)
+            if (
+                state is not None
+                and state.state in (MediaPlayerState.PAUSED, "paused")
+                and (now - state.last_changed).total_seconds() < PAUSE_TAKEOVER_AFTER
+                and not self._paused_while_ours(dec_id, state.last_changed)
+            ):
+                return True
+        return False
 
     async def claim(
         self,
@@ -235,7 +448,7 @@ class DecoderPool:
         """
         displaced_owner: str | None = None
         claimed: tuple[str, int] | None = None
-        async with self._lock:
+        async with self._books():
             # A member playing on its own leaves its group, but only once it
             # has a decoder: a refused or failed claim keeps it in the group.
 
@@ -278,6 +491,13 @@ class DecoderPool:
                 if dec_id in exclude:
                     continue
                 owner = self._assignments[dec_id]
+                if owner is None and self._recently_paused(dec_id):
+                    LOGGER.info(
+                        "DecoderPool: %s was paused by another player less than %d s ago — not taking it over",
+                        dec_id,
+                        PAUSE_TAKEOVER_AFTER,
+                    )
+                    continue
                 is_hw_idle = self._is_decoder_hw_idle(dec_id)
                 former_leader, former_time = self._former_leaders.get(
                     zone_entity_id, (None, 0.0)
@@ -309,7 +529,7 @@ class DecoderPool:
                             displaced_owner = owner
                         self._disband_group_locked(owner)
                         self._environments.pop(owner, None)
-                        self._assignments[dec_id] = None
+                        self._unassign_locked(dec_id)
                         owner = None
                     else:
                         continue  # already in use by an active zone
@@ -371,7 +591,7 @@ class DecoderPool:
             EnvironmentBusyError: If a member's environment is streaming from
                 a decoder other than the leader's.
         """
-        async with self._lock:
+        async with self._books():
             return self._set_group_locked(leader_entity_id, dict(members))
 
     def _set_group_locked(
@@ -408,7 +628,7 @@ class DecoderPool:
             change.orphaned.extend(self._disband_group_locked(zone))
             owned = self._owned_decoder(zone)
             if owned is not None:
-                self._assignments[owned] = None
+                self._unassign_locked(owned)
                 change.released.append(owned)
             self._remove_member_locked(zone)
         change.orphaned = sorted(set(change.orphaned) - set(members))
@@ -457,7 +677,7 @@ class DecoderPool:
             EnvironmentBusyError: If the member's environment is streaming from
                 a different decoder.
         """
-        async with self._lock:
+        async with self._books():
             members: dict[str, str | None] = {
                 zone: self._environments.get(zone)
                 for zone in self._groups.get(leader_entity_id, set())
@@ -482,7 +702,7 @@ class DecoderPool:
         Returns:
             The decoder entity ID the member was listening to, or None if not found.
         """
-        async with self._lock:
+        async with self._books():
             return self._remove_member_locked(member_entity_id)
 
     remove_group_member = remove_member
@@ -524,7 +744,7 @@ class DecoderPool:
 
     async def disband_group(self, leader_entity_id: str) -> list[str]:
         """Disband a group owned by leader_entity_id."""
-        async with self._lock:
+        async with self._books():
             return self._disband_group_locked(leader_entity_id)
 
     async def transfer_leadership(
@@ -539,7 +759,7 @@ class DecoderPool:
         Returns:
             ``(decoder_entity_id, source_num)`` if a decoder was transferred, or ``None``.
         """
-        async with self._lock:
+        async with self._books():
             return self._transfer_leadership_locked(old_leader, new_leader)
 
     def _transfer_leadership_locked(
@@ -594,7 +814,7 @@ class DecoderPool:
 
             freed = await pool.release("media_player.audio_zone_3")
         """
-        async with self._lock:
+        async with self._books():
             # A member only leaves; the leader keeps the decoder.
             leader_decoder = self._remove_member_locked(zone_entity_id)
             if leader_decoder is not None:
@@ -606,7 +826,7 @@ class DecoderPool:
             # Check if this zone owns a decoder
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
-                    self._assignments[dec_id] = None
+                    self._unassign_locked(dec_id)
                     self._environments.pop(zone_entity_id, None)
                     LOGGER.info(
                         "DecoderPool: %s released by leader %s (group disbanded)",
@@ -615,24 +835,6 @@ class DecoderPool:
                     )
                     return dec_id
         return None
-
-    async def release_all(self) -> None:
-        """Release every decoder assignment and disband all groups.
-
-        Called when the user updates options via the UI so that the pool can be
-        rebuilt cleanly.  Any zone currently streaming will lose its decoder;
-        the user must re-trigger playback.
-
-        Example::
-
-            await pool.release_all()
-        """
-        async with self._lock:
-            for dec_id in self._assignments:
-                self._assignments[dec_id] = None
-            self._groups.clear()
-            self._environments.clear()
-            LOGGER.info("DecoderPool: all assignments released (options reload)")
 
     def get_assignment(self, zone_entity_id: str) -> str | None:
         """Return the decoder entity_id assigned to *zone_entity_id*, or ``None``.
@@ -729,6 +931,10 @@ class DecoderPool:
                 return dec_id
         return None
 
+    def owned_decoder(self, zone_entity_id: str) -> str | None:
+        """Return the decoder ``zone_entity_id`` holds itself, not one it shares as a member."""
+        return self._owned_decoder(zone_entity_id)
+
     def get_pre_gain(self, decoder_entity_id: str) -> int:
         """Return the configured pre-gain offset for *decoder_entity_id*.
 
@@ -736,7 +942,7 @@ class DecoderPool:
             decoder_entity_id: The ``entity_id`` of the decoder.
 
         Returns:
-            The pre-gain percent (0–50).  Defaults to ``0`` if not configured.
+            The pre-gain percent (0–100).  Defaults to ``0`` if not configured.
 
         Example::
 
