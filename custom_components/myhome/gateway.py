@@ -674,6 +674,14 @@ class MyHOMEGatewayHandler:
         """Run the event session, recreating it whenever it dies or stalls."""
         await self._event_runner.listening_loop()
 
+    def profile_supports_who(self, who: int) -> bool:
+        """Return whether the startup sweep asks this gateway's profile about a WHO.
+
+        Entities of a WHO the profile leaves out of :meth:`initial_discovery`
+        (WHO=16 on the MH200 profile) have to ask for their own status.
+        """
+        return self._profile_supports_who(who)
+
     def _profile_supports_who(self, who: int) -> bool:
         """Return whether the gateway profile advertises a WHO subsystem (True when unknown)."""
         profile = getattr(self.gateway, "profile", None)

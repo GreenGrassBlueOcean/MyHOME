@@ -2695,25 +2695,29 @@ async def test_auto_power_off_anti_hiss_on_decoder_states(hass, player, mock_gat
     assert player._auto_off_unsub is None
     player.async_turn_off.assert_not_called()
 
-    # 2. Decoder transitions to OFF: turns off zone immediately
-    off_event = MagicMock(
-        data={
-            "entity_id": "media_player.squeezelite_1",
-            "new_state": State("media_player.squeezelite_1", "off"),
-        }
-    )
-    player._async_decoder_state_changed(off_event)
-    await hass.async_block_till_done()
-    player.async_turn_off.assert_called_once()
-    player.async_turn_off.reset_mock()
-
-    # 3. Decoder transitions to IDLE: schedules 3s timer
     callbacks = []
 
     def mock_call_later(_hass, delay, action):
         callbacks.append((delay, action))
         return MagicMock()
 
+    # 2. Decoder transitions to OFF: the same short timer as idle, so a
+    #    decoder that reports "off" while reconnecting can come back first.
+    with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
+        off_event = MagicMock(
+            data={
+                "entity_id": "media_player.squeezelite_1",
+                "new_state": State("media_player.squeezelite_1", "off"),
+            }
+        )
+        player._async_decoder_state_changed(off_event)
+        assert [delay for delay, _ in callbacks] == [3.0]
+        callbacks.pop()[1](None)
+        await hass.async_block_till_done()
+        player.async_turn_off.assert_called_once()
+        player.async_turn_off.reset_mock()
+
+    # 3. Decoder transitions to IDLE: schedules 3s timer
     with patch("custom_components.myhome.media_player.async_call_later", side_effect=mock_call_later):
         idle_event = MagicMock(
             data={
@@ -2831,12 +2835,13 @@ async def test_auto_off_unsub_cancelled_on_play_media(hass, player, mock_gateway
 
 @pytest.mark.asyncio
 async def test_auto_power_off_cancels_pending_timer_on_off_transition(hass, player, mock_gateway):
-    """A decoder going straight to OFF cancels any pending idle/paused auto-off timer."""
+    """A decoder going to OFF replaces a pending pause timer with the short one."""
     player._active_decoder = "media_player.squeezelite_1"
     player._attr_state = MediaPlayerState.ON
     player.async_turn_off = AsyncMock()
     mock_unsub = MagicMock()
     player._auto_off_unsub = mock_unsub
+    player._auto_off_key = (60.0, "media_player.squeezelite_1")
 
     off_event = MagicMock(
         data={
@@ -2844,11 +2849,13 @@ async def test_auto_power_off_cancels_pending_timer_on_off_transition(hass, play
             "new_state": State("media_player.squeezelite_1", "off"),
         }
     )
-    player._async_decoder_state_changed(off_event)
+    timers, patcher = _capture_timers()
+    with patcher:
+        player._async_decoder_state_changed(off_event)
+        mock_unsub.assert_called_once()
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
     await hass.async_block_till_done()
-
-    mock_unsub.assert_called_once()
-    assert player._auto_off_unsub is None
     player.async_turn_off.assert_called_once()
 
 
@@ -3016,3 +3023,549 @@ async def test_rejoining_during_the_grace_period_cancels_the_off(hass, mock_gate
 
     assert zone._pending_off_task is None
     assert pool.get_leader("media_player.zone22") == "media_player.zone44"
+
+
+# ── Stray rooms: on, listening to a decoder, but holding no claim on it ─────
+#
+# Live trace (single decoder on source 2, every environment defaulting to it):
+# Home Assistant restarted while an environment-2 amplifier was on. The group
+# books came back empty, so Music Assistant showed badkamer alone in its group,
+# yet the environment-2 room played badkamer's stream because an amplifier that
+# is on simply plays what its environment is routed to. When the music stopped
+# only badkamer went off (it owned the decoder), and the other room kept
+# running: nothing owned it.
+
+
+def _stray_setup(hass, mock_gateway, *, options=None):
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.dec1": 2})
+    runtime.decoder_pool = pool
+    zone = _create_test_zone(hass, mock_gateway, runtime, "23", "media_player.zone23")
+    if options:
+        zone.platform.config_entry.options.update(options)
+    zone._attr_state = MediaPlayerState.ON
+    zone.async_turn_off = AsyncMock()
+    return zone
+
+
+def _dec_event(state):
+    return MagicMock(
+        data={
+            "entity_id": "media_player.dec1",
+            "new_state": State("media_player.dec1", state),
+        }
+    )
+
+
+def _capture_timers():
+    timers = []
+
+    def call_later(_hass, delay, action):
+        timers.append((delay, action))
+        return MagicMock()
+
+    return timers, patch(
+        "custom_components.myhome.media_player.async_call_later", side_effect=call_later
+    )
+
+
+@pytest.mark.asyncio
+async def test_stray_room_is_switched_off_when_its_decoder_goes_idle(hass, mock_gateway):
+    """A room that is on, unclaimed, and routed to the decoder follows it off."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"  # source 2, reported on the bus
+    assert zone._active_decoder is None
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+    zone.async_turn_off.reset_mock()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("off"))
+        assert [delay for delay, _ in timers] == [3.0, 3.0]
+        timers[1][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stray_room_falls_back_to_the_environment_default_source(hass, mock_gateway):
+    """After a restart no routing was reported yet: the configured default stands in."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_source = None
+    assert zone._stray_decoder() == "media_player.dec1"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("off"))
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stray_room_is_left_alone_when_it_hears_no_decoder(hass, mock_gateway):
+    """A room on the tuner input, an unknown input, or already off is never touched."""
+    zone = _stray_setup(hass, mock_gateway)
+
+    zone._attr_source = "Radio"  # source 1: nothing streams there
+    assert zone._stray_decoder() is None
+    zone._attr_source = None  # unknown, and no default configured
+    assert zone._stray_decoder() is None
+
+    zone._attr_source = "Cambridge"
+    zone._attr_state = MediaPlayerState.OFF
+    assert zone._stray_decoder() is None
+
+    zone._async_decoder_state_changed(_dec_event("off"))
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stray_room_keeps_playing_while_the_decoder_plays(hass, mock_gateway):
+    """A playing decoder cancels a pending auto-off, stray or not."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    unsub = MagicMock()
+    zone._auto_off_unsub = unsub
+
+    zone._async_decoder_state_changed(_dec_event("playing"))
+
+    unsub.assert_called_once()
+    assert zone._auto_off_unsub is None
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_room_waiting_out_a_group_leave_grace_is_not_a_stray(hass, mock_gateway):
+    """A dropped member has its own pending OFF, and may be reclaimed within it."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    zone._pending_off_task = MagicMock()
+
+    assert zone._stray_decoder() is None
+    zone._async_decoder_state_changed(_dec_event("off"))
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+    zone._pending_off_task = None
+
+
+def _on_report(zone):
+    zone.handle_event(
+        MagicMock(
+            spec=OWNSoundEvent,
+            is_source_event=False,
+            where=zone._where,
+            is_on=True,
+            is_off=False,
+            volume=None,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_room_found_on_at_startup_is_switched_off_when_the_decoder_is_idle(hass, mock_gateway):
+    """Status hydration finds an amplifier on with nothing playing: no stop event will come."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    hass.states.async_set("media_player.dec1", "idle")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
+        # Only the first report is a startup finding.
+        zone._auto_off_unsub = None
+        _on_report(zone)
+        assert len(timers) == 1
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_room_found_on_at_startup_stays_on_while_the_decoder_plays(hass, mock_gateway):
+    """A decoder that is playing (or not reporting yet) is no reason to switch a room off."""
+    for decoder_state in ("playing", "buffering", "unavailable", "unknown"):
+        zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+        zone._attr_state = MediaPlayerState.OFF
+        hass.states.async_set("media_player.dec1", decoder_state)
+
+        timers, patcher = _capture_timers()
+        with patcher:
+            _on_report(zone)
+        await hass.async_block_till_done()
+        assert timers == [], decoder_state
+        zone.async_turn_off.assert_not_called()
+
+    # No state at all for the decoder yet.
+    hass.states.async_remove("media_player.dec1")
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    _on_report(zone)
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_room_found_on_before_its_decoder_reports_goes_off_once_the_decoder_is_idle(hass, mock_gateway):
+    """Decoder not reporting at startup: its first real state (idle) still takes the room off."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    hass.states.async_set("media_player.dec1", "unknown")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+        assert timers == []
+        zone._async_decoder_state_changed(
+            MagicMock(
+                data={
+                    "entity_id": "media_player.dec1",
+                    "old_state": State("media_player.dec1", "unknown"),
+                    "new_state": State("media_player.dec1", "idle"),
+                }
+            )
+        )
+        assert [delay for delay, _ in timers] == [3.0]
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_the_auto_off_forgets_its_key_so_the_same_timer_can_be_rearmed(hass, mock_gateway):
+    """A cancelled timer must not make an identical re-arm look like a running one."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._cancel_auto_off()
+        assert zone._auto_off_key is None
+        zone._async_decoder_state_changed(_dec_event("idle"))
+    assert len(timers) == 2
+    assert zone._auto_off_unsub is not None
+
+
+@pytest.mark.asyncio
+async def test_joining_players_cancels_a_stray_room_timer_on_the_new_leader(hass, mock_gateway):
+    """A room armed as stray that then leads a group must not be switched off by the old timer."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        assert zone._auto_off_unsub is not None
+        # Refused early (no matrix routing address) — after the leader was put to work.
+        zone._where = "0"
+        with pytest.raises(HomeAssistantError):
+            await zone.async_join_players(["media_player.other"])
+    assert zone._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_turning_a_room_on_from_home_assistant_is_not_a_startup_finding(hass, mock_gateway):
+    """The ON echo of our own wake sequence must not arm the auto-off."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    hass.states.async_set("media_player.dec1", "idle")
+    _echo_to_zones(mock_gateway, zone._runtime_data)
+
+    timers, patcher = _capture_timers()
+    with patcher, patch("asyncio.sleep", return_value=None):
+        await zone.async_turn_on()
+
+    assert zone._attr_state == MediaPlayerState.ON
+    assert timers == []
+
+
+@pytest.mark.asyncio
+async def test_stray_room_ignores_attribute_only_updates_of_an_idle_decoder(hass, mock_gateway):
+    """Spotify Connect straight to the decoder: an idle decoder's volume change is not a stop."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+    same_state = MagicMock(
+        data={
+            "entity_id": "media_player.dec1",
+            "old_state": State("media_player.dec1", "idle", {"volume_level": 0.2}),
+            "new_state": State("media_player.dec1", "idle", {"volume_level": 0.3}),
+        }
+    )
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(same_state)
+        assert timers == []
+
+        # The same decoder really stopping is still followed, by a room ...
+        stop = MagicMock(
+            data={
+                "entity_id": "media_player.dec1",
+                "old_state": State("media_player.dec1", "playing"),
+                "new_state": State("media_player.dec1", "idle"),
+            }
+        )
+        zone._async_decoder_state_changed(stop)
+        assert [delay for delay, _ in timers] == [3.0]
+        zone._auto_off_unsub = None
+
+        # ... and a pause is followed after a minute, not at once.
+        pause = MagicMock(
+            data={
+                "entity_id": "media_player.dec1",
+                "old_state": State("media_player.dec1", "playing"),
+                "new_state": State("media_player.dec1", "paused"),
+            }
+        )
+        zone._async_decoder_state_changed(pause)
+        assert [delay for delay, _ in timers] == [3.0, 60.0]
+    zone.async_turn_off.assert_not_called()
+
+
+# ── Stray rooms: audit follow-ups ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_zone_asks_the_bus_for_its_own_status_when_added(hass, mock_gateway):
+    """Profiles without the collective WHO=16 query (MH200) would leave every room 'off'."""
+    zone = _stray_setup(hass, mock_gateway)
+    mock_gateway.profile_supports_who = MagicMock(return_value=False)
+    mock_gateway.send_status_request.reset_mock()
+
+    await zone.async_added_to_hass()
+
+    mock_gateway.profile_supports_who.assert_called_once_with(16)
+    mock_gateway.send_status_request.assert_called_once()
+    assert str(mock_gateway.send_status_request.call_args.args[0]) == "*#16*23*5##"
+
+
+@pytest.mark.asyncio
+async def test_zone_leaves_its_status_to_the_collective_sweep_when_there_is_one(hass, mock_gateway):
+    """Gateways that send *#16*0*5## at startup get one frame, not one per zone."""
+    zone = _stray_setup(hass, mock_gateway)
+    mock_gateway.profile_supports_who = MagicMock(return_value=True)
+    mock_gateway.send_status_request.reset_mock()
+
+    await zone.async_added_to_hass()
+
+    mock_gateway.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_decoder_reporting_late_is_followed_by_its_state_change(hass, mock_gateway):
+    """The status reply can beat the decoder's first state: unavailable -> idle still arms it."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    _on_report(zone)  # no decoder state yet: nothing to decide
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(
+            MagicMock(
+                data={
+                    "entity_id": "media_player.dec1",
+                    "old_state": State("media_player.dec1", "unavailable"),
+                    "new_state": State("media_player.dec1", "idle"),
+                }
+            )
+        )
+    assert [delay for delay, _ in timers] == [3.0]
+
+
+@pytest.mark.asyncio
+async def test_pending_auto_off_is_dropped_when_the_room_moves_to_another_input(hass, mock_gateway):
+    """A pause starts a 60 s timer; switching the room to the tuner meanwhile cancels its effect."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("paused"))
+        assert [delay for delay, _ in timers] == [60.0]
+        zone._attr_source = "Radio"  # a wall panel routed the room to source 1
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pending_auto_off_is_cancelled_when_the_room_joins_a_group(hass, mock_gateway):
+    """Waking a room (join, play_media, turn_on) drops an auto-off timer from before."""
+    zone = _stray_setup(hass, mock_gateway)
+    unsub = MagicMock()
+    zone._auto_off_unsub = unsub
+
+    with patch("asyncio.sleep", return_value=None):
+        await zone._async_wake_zone()
+
+    unsub.assert_called_once()
+    assert zone._auto_off_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_startup_check_treats_a_playing_companion_as_playing(hass, mock_gateway):
+    """Cambridge playing Spotify Connect natively: hardware entity playing, DLNA companion idle."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    zone._attr_state = MediaPlayerState.OFF
+    zone._companion_cache = {"media_player.dec1": "media_player.dec1_dlna"}
+    hass.states.async_set("media_player.dec1", "playing")
+    hass.states.async_set("media_player.dec1_dlna", "idle")
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        _on_report(zone)
+    assert timers == []
+
+    # Both quiet: paused outranks idle, so the longer timer wins.
+    zone._status_seen = False
+    hass.states.async_set("media_player.dec1", "idle")
+    hass.states.async_set("media_player.dec1_dlna", "paused")
+    with patcher:
+        _on_report(zone)
+    assert [delay for delay, _ in timers] == [60.0]
+
+
+@pytest.mark.asyncio
+async def test_group_member_is_left_to_its_leader(hass, mock_gateway):
+    """A member goes off with its leader; it does not run a timer of its own."""
+    zone = _stray_setup(hass, mock_gateway, options={CONF_SOURCE_DEFAULTS: {"2": 2}})
+    pool = zone._get_pool()
+    leader = _create_test_zone(hass, mock_gateway, zone._runtime_data, "36", "media_player.zone36")
+    await pool.claim(leader.entity_id)
+    await pool.add_member(leader.entity_id, zone.entity_id)
+    assert zone._stray_decoder() is None
+
+    zone._async_decoder_state_changed(_dec_event("off"))
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_off_is_not_armed_twice_or_for_a_room_already_off(hass, mock_gateway):
+    """One timer per room; nothing is armed for a room that is off or turning off."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._async_decoder_state_changed(_dec_event("idle"))  # already pending
+        assert len(timers) == 1
+
+        zone._auto_off_unsub = None
+        zone._turning_off = True
+        zone._arm_auto_off(3.0, "media_player.dec1")
+        zone._turning_off = False
+        zone._attr_state = MediaPlayerState.OFF
+        zone._arm_auto_off(3.0, "media_player.dec1")
+        assert len(timers) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_off_timer_does_nothing_if_the_room_went_off_meanwhile(hass, mock_gateway):
+    """A room switched off (or switching off) while the timer runs is not switched off again."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._attr_state = MediaPlayerState.OFF
+        timers[0][1](None)
+
+        zone._attr_state = MediaPlayerState.ON
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._turning_off = True
+        timers[1][1](None)
+        zone._turning_off = False
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+
+@pytest.mark.asyncio
+async def test_stray_timer_does_not_switch_off_a_room_that_got_its_own_decoder(hass, mock_gateway):
+    """Armed as a stray of dec1; the room claims dec2 meanwhile: the old timer is void."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._get_pool()._decoder_map["media_player.dec2"] = 1
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        zone._active_decoder = "media_player.dec2"  # claimed without a wake
+        timers[0][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_off_timer_is_replaced_when_the_decoder_or_delay_changes(hass, mock_gateway):
+    """Idle A, then moved to idle B, re-arms for B; paused/idle swaps re-arm; the same pair is kept."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._get_pool()._decoder_map["media_player.dec2"] = 1
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._arm_auto_off(3.0, "media_player.dec1")
+        first = zone._auto_off_unsub
+        zone._arm_auto_off(3.0, "media_player.dec1")  # same pair: kept
+        assert zone._auto_off_unsub is first
+        assert len(timers) == 1
+
+        zone._attr_source = "Radio"  # a wall panel moved the room to dec2's input
+        zone._arm_auto_off(3.0, "media_player.dec2")
+        first.assert_called_once()  # the dec1 timer is cancelled
+        assert len(timers) == 2
+
+        zone._arm_auto_off(60.0, "media_player.dec2")  # idle -> paused
+        zone._arm_auto_off(3.0, "media_player.dec2")  # paused -> idle
+        assert [delay for delay, _ in timers] == [3.0, 3.0, 60.0, 3.0]
+
+        timers[-1][1](None)
+    await hass.async_block_till_done()
+    zone.async_turn_off.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_buffering_counts_as_playing(hass, mock_gateway):
+    """A track change or Spotify Connect handshake passes through buffering: keep the room on."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        pending = zone._auto_off_unsub
+        zone._async_decoder_state_changed(_dec_event("buffering"))
+    pending.assert_called_once()
+    assert zone._auto_off_unsub is None
+
+    # The owner path follows the same rule.
+    zone._active_decoder = "media_player.dec1"
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("idle"))
+        pending = zone._auto_off_unsub
+        zone._async_decoder_state_changed(_dec_event("buffering"))
+    pending.assert_called_once()
+    zone.async_turn_off.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_or_unknown_decoder_arms_nothing(hass, mock_gateway):
+    """A decoder integration reloading says nothing about playback."""
+    zone = _stray_setup(hass, mock_gateway)
+    zone._attr_source = "Cambridge"
+
+    timers, patcher = _capture_timers()
+    with patcher:
+        zone._async_decoder_state_changed(_dec_event("unavailable"))
+        zone._async_decoder_state_changed(_dec_event("unknown"))
+    assert timers == []
