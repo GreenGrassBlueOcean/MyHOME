@@ -140,10 +140,13 @@ async def capture_trace(args: argparse.Namespace) -> None:
 
         sweep_queries = [
             "*#13**0##",   # Gateway real-time clock
-            "*#13**15##",  # Gateway model & firmware status
+            "*#13**15##",  # Gateway model & device type
+            "*#13**16##",  # Gateway firmware version
             "*#1*0##",     # All lighting & switch actuators
             "*#2*0##",     # All cover actuators
             "*#4*0##",     # Thermoregulation master status
+            "*#5*0##",     # Burglar alarm master / central unit status
+            "*#16*0*5##",  # Sound system status (lists all amplifiers & sources)
         ]
 
         for query in sweep_queries:

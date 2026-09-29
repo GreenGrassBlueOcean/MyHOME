@@ -19,7 +19,7 @@ The integration communicates with the SCS bus using an OpenWebNet IP or serial g
   - **F454**: Standard IP gateway / web server (recommended)
   - **MH202 / MH200 / MH201**: Scenario programmers and IP gateways
   - **MyHomeServer1**: Modern IP gateway
-  - **F455**: IP gateway with video door entry support
+  - **F455**: Basic IP gateway
   - **F452 / F453**: Older web server gateways
 - **USB / Serial Gateways**:
   - **Legrand 3578 USB**: USB-to-SCS gateway

@@ -33,13 +33,15 @@ from typing import Any, cast
 
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import Entity
 
-from .const import BUS_ROUTING, CONF_BUS_INTERFACE, CONF_WHERE, CONF_WHO, CONF_ZONE, LOGGER
+from .const import BUS_ROUTING, CONF_BUS_INTERFACE, CONF_WHERE, CONF_WHO, CONF_ZONE, DOMAIN, LOGGER
 from .data import MyHOMEConfigEntry, MyHOMERuntimeData
 from .myhome_device import MyHOMEEntity
+from .topology import peer_unique_id
 
 
 @dataclass(frozen=True)
@@ -158,6 +160,50 @@ class KnownDevices:
 
     def __len__(self) -> int:
         return len(self._keys)
+
+
+#: Buttons button.py hangs off an actuator, as suffixes of the actuator's unique id.
+COMPANION_SUFFIXES = ("-disable", "-enable", "-calibrate")
+#: Platforms whose entities get those buttons.
+ACTUATOR_DOMAINS = ("light", "switch", "cover")
+
+
+@callback
+def prune_entity(hass: HomeAssistant, registry: er.EntityRegistry, entry: er.RegistryEntry, config_entry_id: str) -> None:
+    """Remove an entity with its lock / unlock / calibrate buttons, and its device once empty (#524).
+
+    Removing only the entity would leave its buttons behind as orphans ("no
+    longer provided") on a device without its actuator.
+    """
+    registry.async_remove(entry.entity_id)
+    for suffix in COMPANION_SUFFIXES:
+        button = registry.async_get_entity_id("button", DOMAIN, f"{entry.unique_id}{suffix}")
+        if button is not None:
+            registry.async_remove(button)
+    if entry.device_id and not er.async_entries_for_device(registry, entry.device_id, include_disabled_entities=True):
+        dr.async_get(hass).async_update_device(entry.device_id, remove_config_entry_id=config_entry_id)
+
+
+@callback
+def prune_orphaned_companions(hass: HomeAssistant, config_entry_id: str, own_mac: str, primary_mac: str) -> None:
+    """Remove a follower's buttons whose actuator was pruned in favour of the primary (#524).
+
+    Earlier versions removed only the actuator, leaving its buttons and device
+    behind. A button counts as orphaned when this gateway no longer has its
+    actuator and the primary does; buttons of an actuator the user deleted are
+    left alone.
+    """
+    registry = er.async_get(hass)
+    for entry in er.async_entries_for_config_entry(registry, config_entry_id):
+        if entry.domain != "button" or not entry.unique_id.endswith(COMPANION_SUFFIXES):
+            continue
+        actuator = entry.unique_id.rsplit("-", 1)[0]
+        peer = peer_unique_id(actuator, own_mac, primary_mac)
+        if peer is None or any(registry.async_get_entity_id(d, DOMAIN, actuator) for d in ACTUATOR_DOMAINS):
+            continue
+        if any(registry.async_get_entity_id(d, DOMAIN, peer) for d in ACTUATOR_DOMAINS):
+            LOGGER.info("Pruned orphaned button %s: its actuator lives on primary gateway %s", entry.entity_id, primary_mac)
+            prune_entity(hass, registry, entry, config_entry_id)
 
 
 @callback
@@ -367,6 +413,18 @@ class PlatformDiscovery:
                     except Exception as err:  # the entry may already be gone
                         LOGGER.debug("%s: could not remove %s: %s", self.platform, entry.entity_id, err)
                 continue
+
+            # Shared bus: a device the primary already has stays on the primary (#453)
+            if registry is not None and self._owned_by_primary(registry, entry.unique_id):
+                LOGGER.info(
+                    "%s: Pruned duplicate secondary entity %s in favor of primary gateway %s",
+                    self.platform,
+                    entry.entity_id,
+                    getattr(self.runtime, "primary_gateway_mac", None),
+                )
+                prune_entity(self.hass, registry, entry, self.config_entry.entry_id)
+                continue
+
             if self.accept and not self.accept(ctx):
                 continue
             if ctx.key in self.known:
@@ -405,15 +463,54 @@ class PlatformDiscovery:
                 announce_new_device(self.hass, self.mac, ctx.who, address, self._name_of(created[0], address))
         return entities
 
+    # ── shared bus (#453) ───────────────────────────────────────────────
+
+    @property
+    def _is_follower(self) -> bool:
+        return getattr(self.runtime, "is_follower", False) is True
+
+    def _runtime_whos(self, name: str) -> set[int]:
+        whos = getattr(self.runtime, name, None)
+        return set(whos) if isinstance(whos, (set, frozenset, list, tuple)) else set()
+
+    def _owned_by_primary(self, registry: er.EntityRegistry, unique_id: str | None) -> bool:
+        """Whether this follower's entity already exists on its primary gateway."""
+        primary_mac = getattr(self.runtime, "primary_gateway_mac", None)
+        if not unique_id or not isinstance(primary_mac, str) or not primary_mac or not self._is_follower:
+            return False
+        peer = peer_unique_id(unique_id, self.mac, primary_mac)
+        return peer is not None and registry.async_get_entity_id(self.platform, DOMAIN, peer) is not None
+
+    def _discovers(self) -> bool:
+        """Whether this gateway creates new entities of this platform's WHO from bus traffic.
+
+        On a shared bus each WHO has one discovering gateway: the follower for the
+        WHOs delegated to it, the primary for the rest.
+        """
+        who = int(self.who) if str(self.who).isdigit() else None
+        if who is None:
+            return True
+        if self._is_follower:
+            return who in self._runtime_whos("delegated_whos")
+        return who not in self._runtime_whos("delegated_away_whos")
+
     def _create(self, ctx: DeviceContext) -> list[MyHOMEEntity]:
         """Build the entities of a context and remember every key they answer to."""
         built = self.build(ctx)
         if built is None:
             return []
         created: list[MyHOMEEntity] = list(built) if isinstance(built, (list, tuple)) else [cast(MyHOMEEntity, built)]
+        keys = list(self.known_keys(ctx))
+        if ctx.source == "bus" and self._is_follower:
+            # A delegated WHO: a device the primary found before the delegation stays there.
+            registry, _entries = self.registry_entries()
+            if registry is not None:
+                created = [e for e in created if not self._owned_by_primary(registry, e.unique_id)]
+            if not created:
+                self.known.add(*keys)  # asked once, not on every frame of that device
+                return []
         if not created:
             return []
-        keys = list(self.known_keys(ctx))
         self.known.add(*keys)
         for entity in created:
             entity.async_on_remove(self.router.subscribe(self.who, keys, entity.handle_event))
@@ -444,7 +541,7 @@ class PlatformDiscovery:
                 return
             if self.pre_message and self.pre_message(message, address, self.known):
                 return
-            if address.key not in self.known:
+            if address.key not in self.known and self._discovers():
                 ctx = DeviceContext(
                     address=address, who=str(getattr(message, "who", self.who)), source="bus", message=message,
                     cfg=config_for(self.configured, address),

@@ -74,6 +74,7 @@ from tests.mock_gateway_harness import MockGatewayHarness
 # OWNd and against the OWNd#53 checkout, and strict=True retires the marker once a
 # release ships the fix.
 _OWND_MH200_IS_MH200N = isinstance(get_gateway_profile("MH200"), MH200NProfile)
+_OWND_MH200N_HAS_SOUND = MH200NProfile().supports_who(WHO_SOUND)
 
 # ── 1. GatewayProfile Tests ──────────────────────────────────────────────────
 
@@ -120,12 +121,12 @@ class TestGatewayProfiles:
         assert profile.supports_extended_frames is False
         assert profile.max_queue_size == 100
         assert profile.command_queue_delay == 0.15
-        assert profile.supports_audio is False
+        assert profile.supports_audio is _OWND_MH200N_HAS_SOUND
         assert profile.supports_energy_instant_power is False
-        # OWNd's MH200N profile advertises neither audio nor energy (audio unverified, OWNd#53)
+        # OWNd releases up to 2.0.0b8 omit WHO 16 from MH200N; OWNd#63 enables it
         assert profile.supports_who(WHO_LIGHTING) is True
         assert profile.supports_who(WHO_AUTOMATION) is True
-        assert profile.supports_who(WHO_SOUND) is False
+        assert profile.supports_who(WHO_SOUND) is _OWND_MH200N_HAS_SOUND
         assert profile.supports_who(WHO_ENERGY) is False
         assert profile.can_support_workers(1) is True
         assert profile.can_support_workers(2) is False
@@ -727,7 +728,7 @@ class TestConfigFlowHardening:
             "custom_components.myhome.config_flow.OWNSession.test_connection",
             return_value={"Success": True, "Message": None},
         ), patch("custom_components.myhome.config_flow.OWNGateway.find_from_address") as mock_find, \
-           patch("custom_components.myhome.async_setup_entry", return_value=True):
+           patch.object(hass.config_entries, "async_reload", return_value=True) as mock_reload:
             mock_gw = MagicMock()
             mock_gw.password = "new_password"
             mock_gw.address = "192.0.2.1"
@@ -738,8 +739,10 @@ class TestConfigFlowHardening:
             mock_find.return_value = mock_gw
 
             res2 = await flow.async_step_password(user_input={CONF_PASSWORD: "new_password"})
+            await hass.async_block_till_done()
             assert res2["type"] == "abort"
             assert res2["reason"] == "reauth_successful"
+            assert mock_reload.called
 
             # Verify entry has updated password while retaining existing metadata
             updated = hass.config_entries.async_get_entry(entry.entry_id)

@@ -187,18 +187,24 @@ async def test_services(hass: HomeAssistant):
         gateway = hass.data[DOMAIN]["00:03:50:00:12:34"]["entity"]
         gateway.send = AsyncMock()
 
-        # Test sync_time service
+        # Test sync_time service (sends combined datetime *#13**#22... and time *#13**#0...)
         await hass.services.async_call(
             DOMAIN, "sync_time", {ATTR_GATEWAY: "00:03:50:00:12:34"}, blocking=True
         )
-        gateway.send.assert_called_once()
+        assert gateway.send.call_count == 2
+        calls = [str(c.args[0]) for c in gateway.send.call_args_list]
+        assert calls[0].startswith("*#13**#22*")
+        assert calls[1].startswith("*#13**#0*")
         gateway.send.reset_mock()
 
         # Test sync_time without gateway specified
         await hass.services.async_call(
             DOMAIN, "sync_time", {}, blocking=True
         )
-        gateway.send.assert_called_once()
+        assert gateway.send.call_count == 2
+        calls = [str(c.args[0]) for c in gateway.send.call_args_list]
+        assert calls[0].startswith("*#13**#22*")
+        assert calls[1].startswith("*#13**#0*")
         gateway.send.reset_mock()
 
         # Test send_message service (valid)
@@ -288,9 +294,13 @@ async def test_services(hass: HomeAssistant):
 async def test_options_update_rebuilds_decoder_pool(hass: HomeAssistant):
     """Test options update listener rebuilds decoder pool."""
     from custom_components.myhome.const import (
+        CONF_ADDRESS,
         CONF_DECODER_ENTITY,
         CONF_DECODER_PRE_GAIN,
         CONF_DECODER_SOURCE,
+        CONF_GENERATE_EVENTS,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
     )
 
     with patch(
@@ -316,13 +326,22 @@ async def test_options_update_rebuilds_decoder_pool(hass: HomeAssistant):
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-        # Update options with a decoder mapping (lines 196-197)
-        new_options = {
-            CONF_DECODER_ENTITY.format(1): "media_player.zone1",
-            CONF_DECODER_SOURCE.format(1): 1,
-            CONF_DECODER_PRE_GAIN.format(1): 2,
-        }
-        hass.config_entries.async_update_entry(config_entry, options=new_options)
+        # Update options with a decoder mapping via options flow
+        form = await hass.config_entries.options.async_init(config_entry.entry_id)
+        assert form["type"] == "form"
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            user_input={
+                CONF_ADDRESS: "192.168.0.35",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+                CONF_DECODER_ENTITY.format(1): "media_player.zone1",
+                CONF_DECODER_SOURCE.format(1): "1",
+                CONF_DECODER_PRE_GAIN.format(1): 2,
+            },
+        )
+        assert result["type"] == "create_entry"
         await hass.async_block_till_done()
 
         pool = config_entry.runtime_data.decoder_pool
@@ -1276,3 +1295,115 @@ async def test_remove_config_entry_device_refuses_gateway_allows_others(hass: Ho
     entry.runtime_data = None
     assert await async_remove_config_entry_device(hass, entry, light_device) is True
     assert await async_remove_config_entry_device(hass, entry, gateway_device) is False
+
+
+async def test_options_update_flags_a_stream_incompatible_decoder(hass: HomeAssistant):
+    """Saving options raises the cambridge_audio repair at once, not after a restart."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.myhome.const import (
+        CONF_ADDRESS,
+        CONF_DECODER_ENTITY,
+        CONF_DECODER_PRE_GAIN,
+        CONF_DECODER_SOURCE,
+        CONF_GENERATE_EVENTS,
+        CONF_TRANSITION_MODE,
+        CONF_WORKER_COUNT,
+    )
+
+    er.async_get(hass).async_get_or_create(
+        "media_player", "cambridge_audio", "unique_cxn", suggested_object_id="cxn"
+    )
+    with patch(
+        "custom_components.myhome.gateway.OWNSession.test_connection",
+        return_value={"Success": True, "Message": None}
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
+    ):
+        config_entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                "host": "192.168.0.35",
+                "port": 20000,
+                "password": "pass",
+                "mac": "00:03:50:00:12:34",
+            },
+            options={},
+            unique_id="00:03:50:00:12:34",
+        )
+        config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        issue_id = f"incompatible_decoder_platform_{config_entry.entry_id}_media_player_cxn"
+
+        form = await hass.config_entries.options.async_init(config_entry.entry_id)
+        assert form["type"] == "form"
+        res = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            user_input={
+                CONF_ADDRESS: "192.168.0.35",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+                CONF_DECODER_ENTITY.format(1): "media_player.cxn",
+                CONF_DECODER_SOURCE.format(1): "1",
+                CONF_DECODER_PRE_GAIN.format(1): 0,
+            },
+        )
+        assert res["type"] == "create_entry"
+        await hass.async_block_till_done()
+
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+        pool = config_entry.runtime_data.decoder_pool
+        assert pool.stream_incompatible == frozenset({"media_player.cxn"})
+
+        form2 = await hass.config_entries.options.async_init(config_entry.entry_id)
+        assert form2["type"] == "form"
+        res2 = await hass.config_entries.options.async_configure(
+            form2["flow_id"],
+            user_input={
+                CONF_ADDRESS: "192.168.0.35",
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software_stepped",
+                CONF_DECODER_SOURCE.format(1): "1",
+                CONF_DECODER_PRE_GAIN.format(1): 0,
+            },
+        )
+        assert res2["type"] == "create_entry"
+        await hass.async_block_till_done()
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_no_update_listener_registered_on_entry(hass: HomeAssistant):
+    """Test no update listener is registered on entry, adhering to HA Core 2026.12+ rules."""
+    with patch(
+        "custom_components.myhome.gateway.OWNSession.test_connection",
+        return_value={"Success": True, "Message": None},
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.listening_loop"
+    ), patch(
+        "custom_components.myhome.gateway.MyHOMEGatewayHandler.sending_loop"
+    ):
+        config_entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                "host": "192.168.0.35",
+                "port": 20000,
+                "password": "pass",
+                "mac": "00:03:50:00:12:34",
+            },
+            options={},
+            unique_id="00:03:50:00:12:34",
+        )
+        config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # HA Core 2026.12+ prohibits update listeners when using OptionsFlowWithReload
+        assert len(config_entry.update_listeners) == 0
+

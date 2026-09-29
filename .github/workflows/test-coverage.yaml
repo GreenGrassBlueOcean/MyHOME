@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   test-coverage:
@@ -38,13 +39,15 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/ --cov=custom_components.myhome --cov-report=xml --cov-report=html --cov-report=term --junitxml=junit.xml
           python scripts/update_readme_coverage.py
-          if [ "${{ github.event_name }}" = "push" ] && ([ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]); then
+          if [ "${{ github.event_name }}" = "push" ] && ([ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ] || echo "${{ github.ref }}" | grep -q "refs/heads/v2-"); then
+            python scripts/sync_documentation.py --update || true
+            python scripts/update_trace_matrix.py || true
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add coverage.svg || true
-            git add README.md || true
+            git add README.md docs/trace-availability.md || true
             if ! git diff --staged --quiet; then
-              git commit -m "chore: auto-generate coverage badge & README table [skip ci]"
+              git commit -m "chore: auto-generate coverage badge & documentation tables [skip ci]"
               git push || echo "No files pushed"
             fi
           fi

@@ -106,6 +106,31 @@ The card renders in the browser's local time zone; a difference to the logbook m
 
 It needs the **I understand the risk** checkbox and an administrator user; a raw frame can arm or disarm the alarm. Kiosk and long-lived tokens created by non-admins are refused by design.
 
+### Multi-Gateway & Shared-Bus Behaviour
+
+#### Unconfigured Shared Bus Detected (`shared_bus_detected`)
+- **Symptoms**: Repair issue `shared_bus_detected` appears in **Settings → System → Repairs**, duplicate entities are created, or startup sweeps trigger bus collisions.
+- **Log lines**:
+  `Recorded shared bus TX echo #1/3 between <mac_a> and <mac_b> (delta <N>ms)`
+- **What to check**:
+  1. Open the Repair issue and review the automated recommendation.
+  2. Click **Submit** to apply the inferred topology automatically (1-click repair).
+  3. If configuring manually in **Configure**, set `bus_topology: shared` on both gateways, designate one as `primary`, and point the follower at the primary.
+
+#### How to inspect automated topology inference decisions
+- **Log lines**:
+  `Evaluating shared bus topology between <Model A> and <Model B>...`
+  `Inferred shared bus topology: Primary=<Model> (<MAC>), Follower=<Model> (<MAC>, role=<role>, delegated=<whos>)...`
+- **What it tells you**:
+  The log details the exact hardware tiers, supported WHOs, capability delta formula ($\Delta = S_{\text{sec}} \setminus S_{\text{pri}}$), and tie-breaking rule used to assign the primary and follower roles.
+
+#### Gateway Failover Active (`gateway_failover_active`)
+- **Symptoms**: The primary gateway is offline, but entities remain controllable and dashboard states still update.
+- **Log lines**:
+  `Primary gateway event session offline (> 60s); engaging warm standby failover via <standby_mac>`
+- **What it tells you**:
+  The primary gateway has been offline past the 60-second grace period. The standby gateway has seamlessly assumed outbound command routing and inbound frame bridging. Inspect the primary gateway's network connectivity or power supply.
+
 ## Getting help
 
 1. Reproduce with debug logging on.

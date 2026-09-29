@@ -260,3 +260,110 @@ async def test_redaction_is_scoped_to_the_config_entry(hass: HomeAssistant):
     frame = diag["bus_monitor"]["recent_frames"][0]
     assert (frame["raw"], frame["who"], frame["where"], frame["what"]) == ("*1*1*12##", "1", "12", "1")
     assert "**REDACTED**" not in str(diag["bus_monitor"]) + str(diag["gateway"])
+
+
+@pytest.mark.asyncio
+async def test_topology_inference_diagnostics_standalone(hass: HomeAssistant):
+    """Test topology_inference diagnostics section for a single standalone gateway."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="F454 Gateway",
+        data={CONF_MAC: "00:03:50:11:22:33", "name": "F454"},
+        options={},
+    )
+    entry.add_to_hass(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert "topology_inference" in diag
+    top = diag["topology_inference"]
+    assert top["target_gateway"]["model"] == "F454"
+    assert top["target_gateway"]["hardware_tier"] == 1
+    assert top["target_gateway"]["mac"] == "**REDACTED**"
+    assert top["target_gateway"]["configured_topology"] == "standalone"
+    assert top["target_gateway"]["configured_role"] == "primary"
+    assert top["target_gateway"]["configured_primary"] is None
+    assert top["peer_count"] == 0
+    assert top["evaluations"] == []
+
+
+@pytest.mark.asyncio
+async def test_topology_inference_diagnostics_paired_and_redacted(hass: HomeAssistant):
+    """Test topology_inference diagnostics evaluates peers, audio coupling, and alignment while redacting all MACs."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import (
+        CONF_BUS_TOPOLOGY,
+        CONF_DELEGATED_WHOS,
+        CONF_GATEWAY_ROLE,
+        CONF_PRIMARY_GATEWAY,
+        ROLE_PRIMARY,
+        ROLE_SECONDARY,
+        TOPOLOGY_SHARED,
+    )
+
+    pri_mac = "00:03:50:aa:bb:01"
+    sec_mac = "00:03:50:aa:bb:02"
+
+    entry_pri = MockConfigEntry(
+        domain=DOMAIN,
+        title="MyHomeServer1 Gateway",
+        data={CONF_MAC: pri_mac, "name": "MyHomeServer1"},
+        options={CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY},
+    )
+    entry_sec = MockConfigEntry(
+        domain=DOMAIN,
+        title="H4890 Gateway",
+        data={CONF_MAC: sec_mac, "name": "H4890"},
+        options={
+            CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+            CONF_GATEWAY_ROLE: ROLE_SECONDARY,
+            CONF_PRIMARY_GATEWAY: pri_mac,
+            CONF_DELEGATED_WHOS: [5, 16, 22],
+        },
+    )
+    entry_pri.add_to_hass(hass)
+    entry_sec.add_to_hass(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry_sec)
+    top = diag["topology_inference"]
+
+    # Target gateway verification
+    assert top["target_gateway"]["model"] == "H4890"
+    assert top["target_gateway"]["hardware_tier"] == 2
+    assert top["target_gateway"]["mac"] == "**REDACTED**"
+    assert top["target_gateway"]["configured_topology"] == TOPOLOGY_SHARED
+    assert top["target_gateway"]["configured_role"] == ROLE_SECONDARY
+    assert top["target_gateway"]["configured_primary"] == "**REDACTED**"
+    assert top["target_gateway"]["configured_delegated_whos"] == [5, 16, 22]
+
+    # Peer evaluation
+    assert top["peer_count"] == 1
+    eval_peer = top["evaluations"][0]
+    assert eval_peer["peer_model"] == "MyHomeServer1"
+    assert eval_peer["peer_tier"] == 1
+    assert eval_peer["peer_mac"] == "**REDACTED**"
+    assert eval_peer["primary_mac"] == "**REDACTED**"
+    assert eval_peer["secondary_mac"] == "**REDACTED**"
+    assert eval_peer["recommended_primary_model"] == "MyHomeServer1"
+    assert eval_peer["recommended_secondary_model"] == "H4890"
+    assert eval_peer["recommended_role"] == ROLE_SECONDARY
+    assert eval_peer["delegated_whos"] == [16, 22]
+    assert eval_peer["audio_coupled"] is False
+    assert "unique subsystems" in eval_peer["rationale"]
+
+    # Alignment verification
+    align = eval_peer["alignment"]
+    assert align["configured_shared_bus"] is True
+    assert align["is_recommended_primary"] is False
+    assert align["role_aligned"] is True
+    assert align["delegated_whos_aligned"] is False  # configured [5, 16, 22] != recommended [5, 9, 16, 22]
+    assert align["primary_aligned"] is True
+
+    # Strict redaction check: raw MACs must not exist anywhere in topology_inference
+    top_str = str(top)
+    assert pri_mac not in top_str
+    assert sec_mac not in top_str
+    assert pri_mac.replace(":", "") not in top_str
+    assert sec_mac.replace(":", "") not in top_str

@@ -1059,6 +1059,339 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.dim.reply.level.100.99",
+    "frame": "*#1*99*1*200*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "200",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 200 = 100% at speed 2, from F414 classic dimmer 99 on MH200 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.74.99",
+    "frame": "*#1*99*1*174*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "174",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 174 = 74% at speed 2, from F414 dimmer 99 after discrete Level 9 (*1*9*99##) command (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level8.ptp.99",
+    "frame": "*1*8*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 8,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: discrete Level 8 (80%) event from F414 dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.63.99",
+    "frame": "*#1*99*1*163*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "163",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 reply, LEVEL100 163 = 63% at speed 2, from F414 dimmer 99 after discrete Level 8 (*1*8*99##) command (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.write.level.50.99",
+    "frame": "*#1*99*#1*150*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "150",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 write, 50% with speed 0, to F414 classic dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "set_brightness",
+      "args": [
+        "99",
+        50
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.50.speed5.99",
+    "frame": "*#1*99*1*150*5##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "dimension_values": [
+      "150",
+      "5"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 report after 50% write to F414 dimmer 99: reports 50% with active transition speed 5 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level7.ptp.99",
+    "frame": "*1*7*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 7,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: coarse WHAT level 7 status event reported by F414 dimmer 99 when set to 50% brightness (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.evt.dim.level10.ptp.99",
+    "frame": "*1*10*99##",
+    "direction": "event",
+    "who": 1,
+    "what": 10,
+    "where": "99",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: discrete Level 10 (100%) event from F414 dimmer 99 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.level.99",
+    "frame": "*#1*99*1##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "99",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 request to F414 dimmer 99 on MH200 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "get_brightness",
+      "args": [
+        "99"
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.status100.99",
+    "frame": "*#1*99*4##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "99",
+    "dimension": 4,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 request to F414 dimmer 99; answered NACK after 2s timeout, proving classic dimmers also reject Dimension 4 (MyHOME#466 comment 5849245960)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.status.off.dim4.32",
+    "frame": "*#1*32*4*100*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "100",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting OFF (level 100 = 0% at transition speed 2) from modern BTicino F418U2 dimmer 32 on F454 gateway, replied when querying either DIM 1 or DIM 4 while OFF (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed2.dim4.32",
+    "frame": "*#1*32*4*130*2##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "130",
+      "2"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting 30% brightness (level 130 at transition speed 2) from modern BTicino F418U2 dimmer 32 on F454 gateway (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.cmd.write.dim4.130.32",
+    "frame": "*#1*32*#4*130*0##",
+    "direction": "dimension_write",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "130",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 write command with speed 0; ignored by physical F418U2 dimmer on F454, proving DIM 4 is read-only (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed5.dim1.32",
+    "frame": "*#1*32*1*130*5##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 1,
+    "dimension_values": [
+      "130",
+      "5"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 report after 30% write/ON command to modern F418U2 dimmer 32: reports 30% with active transition speed 5 (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.req.status.dim4.32",
+    "frame": "*#1*32*4##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status request to modern BTicino F418U2 dimmer 32 on F454 gateway (MyHOME#466 comment 5854469497, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.off.speed0.dim1.mh202.32",
+    "frame": "*#1*32*1*100*0##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 1,
+    "dimension_values": [
+      "100",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 1 status response reporting OFF (level 100 = 0% at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.off.speed0.dim4.mh202.32",
+    "frame": "*#1*32*4*100*0##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "100",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting OFF (level 100 = 0% at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.level.30.speed0.dim4.mh202.32",
+    "frame": "*#1*32*4*130*0##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 4,
+    "dimension_values": [
+      "130",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 4 status response reporting 30% brightness (level 130 at transition speed 0) on MH202 gateway (MyHOME#466 comment 5854805415, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.evt.translation.level5.32",
+    "frame": "*1*1000#5*32##",
+    "direction": "event",
+    "who": 1,
+    "what": "1000#5",
+    "where": "32",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Command Translation event setting level 5 on MH202 gateway (MyHOME#466 comment 5854805415, #501)",
+    "roundtrip": true,
+    "is_translation": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.dim13.feedback.32",
+    "frame": "*#1*32*13*2*130*5*0##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "32",
+    "dimension": 13,
+    "dimension_values": [
+      "2",
+      "130",
+      "5",
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: DIMENSION 13 multi-parameter actuator state feedback reporting type 2, level 130, speed 5 on MH202 gateway (MyHOME#466 comment 5854805415, #501)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
@@ -1480,6 +1813,146 @@
     "_file": "who02_automation.yaml"
   },
   {
+    "id": "cover.cmd.general.up.advanced.100",
+    "frame": "*2*11#100#001#1*0##",
+    "direction": "command",
+    "who": 2,
+    "what": "11#100#001#1",
+    "where": "0",
+    "scope": "general",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Advanced UP (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.general.down.advanced.100",
+    "frame": "*2*12#100#001#1*0##",
+    "direction": "command",
+    "who": 2,
+    "what": "12#100#001#1",
+    "where": "0",
+    "scope": "general",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Advanced DOWN (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.cmd.general.stop.advanced",
+    "frame": "*2*10#001#1*0##",
+    "direction": "command",
+    "who": 2,
+    "what": "10#001#1",
+    "where": "0",
+    "scope": "general",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Advanced STOP (step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466). A follow-up 2026-09-28 capture (#445 comment 5868017035) confirms the STOP/PRESET button sends this byte-identical frame when pressed while every shutter is already stationary; no separate preset-recall or Dimension 11 write was observed, closing that open question from comment 5854237269.",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.status.dimension10.level26.0010",
+    "frame": "*#2*0010*10*10*26*001*0##",
+    "direction": "dimension_response",
+    "who": 2,
+    "what": null,
+    "where": "0010",
+    "dimension": 10,
+    "dimension_values": [
+      "10",
+      "26",
+      "001",
+      "0"
+    ],
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Dimension 10 position 26% report for 4-digit address '0010' from MyHomeServer1 plant after centralized stop (#445, #466)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.status.dimension10.level86.02",
+    "frame": "*#2*02*10*10*86*001*0##",
+    "direction": "dimension_response",
+    "who": 2,
+    "what": null,
+    "where": "02",
+    "dimension": 10,
+    "dimension_values": [
+      "10",
+      "86",
+      "001",
+      "0"
+    ],
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Dimension 10 position 86% report for address '02' from MyHomeServer1 plant after centralized stop (#445, #466)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.status.dimension10.rest100.04",
+    "frame": "*#2*04*10*10*100*001*0##",
+    "direction": "dimension_response",
+    "who": 2,
+    "what": null,
+    "where": "04",
+    "dimension": 10,
+    "dimension_values": [
+      "10",
+      "100",
+      "001",
+      "0"
+    ],
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Dimension 10 status-code 10 (stopped) at position 100% for an actuator that was never in motion during this capture, from the same stationary STOP-press trace as cover.cmd.general.stop.advanced.stationary; openwebnet-mcp's grammar-only reading ('10% open') is wrong here as elsewhere in this corpus, see README Provenance",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.evt.down.ptp.lnkeypad.02",
+    "frame": "*2*2*02##",
+    "direction": "event",
+    "who": 2,
+    "what": 2,
+    "where": "02",
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: the LN-4660M2's own LOCAL room button (not the centralized/general one) emits the plain *2*WHAT*WHERE## syntax at the individual point address, not the multi-parameter Advanced form used on General address 0; confirms local keypads and the centralized button differ in frame shape even on the same hardware family (#445 comment 5868017035)",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
+    "id": "cover.status.dimension10.transitional.closing.02",
+    "frame": "*#2*02*10*12*100*001*0##",
+    "direction": "dimension_response",
+    "who": 2,
+    "what": null,
+    "where": "02",
+    "dimension": 10,
+    "dimension_values": [
+      "12",
+      "100",
+      "001",
+      "0"
+    ],
+    "scope": "point",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Automation: Dimension 10 report with status-code 12 (closing, from initial position 100%) captured mid-movement immediately after the local DOWN event (cover.evt.down.ptp.lnkeypad.02); first real-world confirmation of OWNd's state==12 'closing from initial position' branch (message.py OWNAutomationEvent), previously reachable only via spec inference; openwebnet-mcp reads dimension_values[0] as a raw percentage ('12% open'), which is the grammar-only misreading the README Provenance section warns about",
+    "roundtrip": true,
+    "_file": "who02_automation.yaml"
+  },
+  {
     "id": "thermo.req.temp.zone1",
     "frame": "*#4*1*0##",
     "direction": "dimension_request",
@@ -1869,6 +2342,40 @@
     "_file": "who04_thermo.yaml"
   },
   {
+    "id": "thermo.resp.offset.zone4.plus1",
+    "frame": "*#4*4*13*01##",
+    "direction": "dimension_response",
+    "who": 4,
+    "what": null,
+    "where": "4",
+    "dimension": 13,
+    "dimension_values": [
+      "01"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Thermoregulation: Zone 4 local knob offset +1.0\u00b0C (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who04_thermo.yaml"
+  },
+  {
+    "id": "thermo.resp.offset.zone4.minus1",
+    "frame": "*#4*4*13*11##",
+    "direction": "dimension_response",
+    "who": 4,
+    "what": null,
+    "where": "4",
+    "dimension": 13,
+    "dimension_values": [
+      "11"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Thermoregulation: Zone 4 local knob offset -1.0\u00b0C (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who04_thermo.yaml"
+  },
+  {
     "id": "thermo.capture.dim7.cooling_setpoint.z2",
     "frame": "*#4*2*7*2*1*0260##",
     "direction": "dimension_response",
@@ -2026,6 +2533,26 @@
     "mcp_notes": "Zone 2 answers the dimension 5 write, 46 ms later (xtimmy86x trace 00:17:51, MyHOME#429)",
     "roundtrip": true,
     "_file": "who04_thermo.yaml"
+  },
+  {
+    "id": "alarm.req.status.cu",
+    "frame": "*#5*0##",
+    "direction": "status_request",
+    "who": 5,
+    "what": null,
+    "where": "0",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: Burglar Alarm status request for central unit (WHERE 0, captured on live MH200)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNAlarmCommand",
+      "method": "status",
+      "args": [
+        "0"
+      ]
+    },
+    "_file": "who05_alarm.yaml"
   },
   {
     "id": "alarm.req.status.zone2",
@@ -2242,6 +2769,25 @@
     "_file": "who13_gateway.yaml"
   },
   {
+    "id": "gateway.resp.firmware.version.mh200n",
+    "frame": "*#13**16*1*1*8##",
+    "direction": "dimension_response",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 16,
+    "dimension_values": [
+      "1",
+      "1",
+      "8"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: MH200N reports firmware version 1.1.8 (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
     "id": "gateway.resp.internal.datetime",
     "frame": "*#13**22*09*37*30*102*03*01*05*2019##",
     "direction": "dimension_response",
@@ -2304,6 +2850,20 @@
     "_file": "who13_gateway.yaml"
   },
   {
+    "id": "gateway.req.firmware_version",
+    "frame": "*#13**16##",
+    "direction": "dimension_request",
+    "who": 13,
+    "what": null,
+    "where": "",
+    "dimension": 16,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Gateway Management: Request gateway firmware version (physical MH200 check)",
+    "roundtrip": true,
+    "_file": "who13_gateway.yaml"
+  },
+  {
     "id": "gateway.resp.model.device_type.mh200",
     "frame": "*#13**15*4##",
     "direction": "dimension_response",
@@ -2355,6 +2915,196 @@
     "mcp_notes": "Gateway Management: Gateway reports device type code 200 (F454 / MyHomeServer1, issue #370)",
     "roundtrip": true,
     "_file": "who13_gateway.yaml"
+  },
+  {
+    "id": "issue_466.who15.0",
+    "frame": "*15*02*55##",
+    "direction": "event",
+    "who": 15,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.1",
+    "frame": "*17*1*30##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.2",
+    "frame": "*17*2*30##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.3",
+    "frame": "*17*1*41##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.4",
+    "frame": "*17*1*42##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.5",
+    "frame": "*17*1*43##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.6",
+    "frame": "*17*2*41##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.7",
+    "frame": "*17*2*43##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.8",
+    "frame": "*17*2*42##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.9",
+    "frame": "*17*1*34##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who15.10",
+    "frame": "*15*04*83##",
+    "direction": "event",
+    "who": 15,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.11",
+    "frame": "*17*1*56##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.12",
+    "frame": "*17*2*56##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.13",
+    "frame": "*17*2*34##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who17.14",
+    "frame": "*17*1*31##",
+    "direction": "event",
+    "who": 17,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who14.15",
+    "frame": "*14*0*11##",
+    "direction": "event",
+    "who": 14,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who14.16",
+    "frame": "*14*1*11##",
+    "direction": "event",
+    "who": 14,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who0.17",
+    "frame": "*0*41*01##",
+    "direction": "event",
+    "who": 0,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
+  },
+  {
+    "id": "issue_466.who0.18",
+    "frame": "*0*44*01##",
+    "direction": "event",
+    "who": 0,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "roundtrip": true,
+    "_file": "who14_etc_issue466.yaml"
   },
   {
     "id": "cen.event.press.btn2.11",
@@ -2420,6 +3170,34 @@
     "mcp_notes": "CEN: Button 1 extended pressure on module 0001",
     "roundtrip": true,
     "_file": "who15_cen.yaml"
+  },
+  {
+    "id": "sound.dim.state.request.0",
+    "frame": "*#16*0*5##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "0",
+    "dimension": 5,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: WHO 16 dimension 5 general status request on MH200. Gateway answers with status of all audio zones and active sources (spec \u00a71.5.2).",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.state.request.101",
+    "frame": "*#16*101*5##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "101",
+    "dimension": 5,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request state for stereo source device 101 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
   },
   {
     "id": "sound.cmd.source.on.1",
@@ -2618,6 +3396,32 @@
     "_file": "who16_sound.yaml"
   },
   {
+    "id": "sound.event.zone.off.21",
+    "frame": "*16*13*21##",
+    "direction": "event",
+    "who": 16,
+    "what": 13,
+    "where": "21",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 1 in environment 2 OFF (returned by MH200 during dimension 5 general sweep).",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.event.zone.on.22",
+    "frame": "*16*3*22##",
+    "direction": "event",
+    "who": 16,
+    "what": 3,
+    "where": "22",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 2 in environment 2 ON.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
     "id": "sound.dim.volume.response.11",
     "frame": "*#16*11*1*17##",
     "direction": "dimension_response",
@@ -2671,6 +3475,66 @@
         15
       ]
     },
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.request.21",
+    "frame": "*#16*21*1##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "21",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request volume level for amplifier 21 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.21",
+    "frame": "*#16*21*1*15##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "21",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 21 reports volume 15 of 31 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.request.22",
+    "frame": "*#16*22*1##",
+    "direction": "dimension_request",
+    "who": 16,
+    "what": null,
+    "where": "22",
+    "dimension": 1,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: request volume level for amplifier 22 on MH200.",
+    "roundtrip": true,
+    "_file": "who16_sound.yaml"
+  },
+  {
+    "id": "sound.dim.volume.response.22",
+    "frame": "*#16*22*1*15##",
+    "direction": "dimension_response",
+    "who": 16,
+    "where": "22",
+    "dimension": 1,
+    "dimension_values": [
+      "15"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Plant A: amplifier 22 reports volume 15 of 31 on MH200.",
+    "roundtrip": true,
     "_file": "who16_sound.yaml"
   },
   {
@@ -2803,6 +3667,79 @@
     "source": "community-plant-capture",
     "mcp_valid": true,
     "mcp_notes": "Energy Management: Actuator channel 77#0 reports 415 Watts active power (issue #247 reporter plant)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.resp.cumulative_totalizer.meter51",
+    "frame": "*#18*51*51*23791364##",
+    "direction": "dimension_response",
+    "who": 18,
+    "what": null,
+    "where": "51",
+    "dimension": 51,
+    "dimension_values": [
+      "23791364"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Meter 51 reports 23791364 Wh cumulative energy (issue #466 capture)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.req.active_power.f520.meter51",
+    "frame": "*#18*51*1200##",
+    "direction": "dimension_request",
+    "who": 18,
+    "what": null,
+    "where": "51",
+    "dimension": 1200,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Request instantaneous active power stream from F520 energy meter 51 (MH200 live test verification, issue #494)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.req.cumulative_totalizer.meter51",
+    "frame": "*#18*51*51##",
+    "direction": "dimension_request",
+    "who": 18,
+    "what": null,
+    "where": "51",
+    "dimension": 51,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Request cumulative energy totalizer from meter 51 (MH200 live test verification, issue #494)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.req.active_power.actuator.channel71",
+    "frame": "*#18*71#0*1200##",
+    "direction": "dimension_request",
+    "who": 18,
+    "what": null,
+    "where": "71",
+    "dimension": 1200,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Request active power stream from actuator channel 71#0 (MH200 live test verification, issue #494)",
+    "roundtrip": true,
+    "_file": "who18_energy.yaml"
+  },
+  {
+    "id": "energy.req.cumulative_totalizer.actuator.channel71",
+    "frame": "*#18*71#0*51##",
+    "direction": "dimension_request",
+    "who": 18,
+    "what": null,
+    "where": "71",
+    "dimension": 51,
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Energy Management: Request cumulative energy totalizer from actuator channel 71#0 (MH200 live test verification, issue #494)",
     "roundtrip": true,
     "_file": "who18_energy.yaml"
   },
@@ -2974,13 +3911,55 @@
     "where": "21",
     "source": "community-plant-capture",
     "mcp_valid": true,
-    "mcp_notes": "CEN+: Short pressure on pushbutton 1 of Object 1; the whole short press, no release frame follows (MH201 capture, MyHOME#418)",
+    "mcp_notes": "CEN+: Short pressure on pushbutton 1 of Object 1; the whole short press, no release frame follows (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466)",
     "roundtrip": true,
     "builder": {
       "class": "OWNCenPlusCommand",
       "method": "press",
       "args": [
         "21",
+        1
+      ]
+    },
+    "_file": "who25_cen_plus.yaml"
+  },
+  {
+    "id": "cen_plus.event.short_press.btn1.22",
+    "frame": "*25*21#1*22##",
+    "direction": "event",
+    "who": 25,
+    "what": "21#1",
+    "where": "22",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "CEN+: Short pressure on pushbutton 1 of Object 2; verified on physical MyHomeServer1 with Living Now KW8011 (MyHOME#466, comment 5855690408)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNCenPlusCommand",
+      "method": "press",
+      "args": [
+        "22",
+        1
+      ]
+    },
+    "_file": "who25_cen_plus.yaml"
+  },
+  {
+    "id": "cen_plus.event.short_press.btn1.23",
+    "frame": "*25*21#1*23##",
+    "direction": "event",
+    "who": 25,
+    "what": "21#1",
+    "where": "23",
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "CEN+: Short pressure on pushbutton 1 of Object 3; verified on physical MyHomeServer1 with Living Now KW8011 (MyHOME#466, comment 5855690408)",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNCenPlusCommand",
+      "method": "press",
+      "args": [
+        "23",
         1
       ]
     },
@@ -2995,7 +3974,7 @@
     "where": "21",
     "source": "community-plant-capture",
     "mcp_valid": true,
-    "mcp_notes": "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418)",
+    "mcp_notes": "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)",
     "roundtrip": true,
     "builder": {
       "class": "OWNCenPlusCommand",
@@ -3037,7 +4016,7 @@
     "where": "21",
     "source": "community-plant-capture",
     "mcp_valid": true,
-    "mcp_notes": "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418)",
+    "mcp_notes": "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)",
     "roundtrip": true,
     "builder": {
       "class": "OWNCenPlusCommand",

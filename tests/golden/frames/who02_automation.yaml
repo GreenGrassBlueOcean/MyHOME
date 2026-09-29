@@ -334,3 +334,116 @@
   mcp_valid: true
   mcp_notes: "Automation: MH200 echo of a point UP behind interface 02, 500 ms after *2*0*11#4#02##; the actuator reported its own stop 60.9 s later (its run-time cutoff)"
   roundtrip: true
+
+# BTicino MyHomeServer1 + LN-4660M2 centralized shutter controller capture,
+# 2026-09-26, contributed by @f18m (#445, #466).
+# Proves that centralized control buttons emit multi-parameter Advanced Automation
+# commands on General address 0, followed by Dimension 10 telemetry bursts across actuators.
+- id: cover.cmd.general.up.advanced.100
+  frame: "*2*11#100#001#1*0##"
+  direction: command
+  who: 2
+  what: "11#100#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced UP (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)"
+  roundtrip: true
+
+- id: cover.cmd.general.down.advanced.100
+  frame: "*2*12#100#001#1*0##"
+  direction: command
+  who: 2
+  what: "12#100#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced DOWN (target 100%, step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466)"
+  roundtrip: true
+
+- id: cover.cmd.general.stop.advanced
+  frame: "*2*10#001#1*0##"
+  direction: command
+  who: 2
+  what: "10#001#1"
+  where: "0"
+  scope: general
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Advanced STOP (step 001, priority 1) to General (WHERE 0) from LN-4660M2 centralized button on MyHomeServer1 (#445, #466). A follow-up 2026-09-28 capture (#445 comment 5868017035) confirms the STOP/PRESET button sends this byte-identical frame when pressed while every shutter is already stationary; no separate preset-recall or Dimension 11 write was observed, closing that open question from comment 5854237269."
+  roundtrip: true
+
+- id: cover.status.dimension10.level26.0010
+  frame: "*#2*0010*10*10*26*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "0010"
+  dimension: 10
+  dimension_values: ["10", "26", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 position 26% report for 4-digit address '0010' from MyHomeServer1 plant after centralized stop (#445, #466)"
+  roundtrip: true
+
+- id: cover.status.dimension10.level86.02
+  frame: "*#2*02*10*10*86*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "02"
+  dimension: 10
+  dimension_values: ["10", "86", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 position 86% report for address '02' from MyHomeServer1 plant after centralized stop (#445, #466)"
+  roundtrip: true
+
+# Follow-up MyHomeServer1 + LN-4660M2 captures, 2026-09-28, contributed by @f18m
+# (#445, comment 5868017035), answering the maintainer's outstanding questions
+# about a STOP press on already-stationary shutters and local (non-centralized)
+# keypad syntax.
+- id: cover.status.dimension10.rest100.04
+  frame: "*#2*04*10*10*100*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "04"
+  dimension: 10
+  dimension_values: ["10", "100", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 status-code 10 (stopped) at position 100% for an actuator that was never in motion during this capture, from the same stationary STOP-press trace as cover.cmd.general.stop.advanced.stationary; openwebnet-mcp's grammar-only reading ('10% open') is wrong here as elsewhere in this corpus, see README Provenance"
+  roundtrip: true
+
+- id: cover.evt.down.ptp.lnkeypad.02
+  frame: "*2*2*02##"
+  direction: event
+  who: 2
+  what: 2
+  where: "02"
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: the LN-4660M2's own LOCAL room button (not the centralized/general one) emits the plain *2*WHAT*WHERE## syntax at the individual point address, not the multi-parameter Advanced form used on General address 0; confirms local keypads and the centralized button differ in frame shape even on the same hardware family (#445 comment 5868017035)"
+  roundtrip: true
+
+- id: cover.status.dimension10.transitional.closing.02
+  frame: "*#2*02*10*12*100*001*0##"
+  direction: dimension_response
+  who: 2
+  what: null
+  where: "02"
+  dimension: 10
+  dimension_values: ["12", "100", "001", "0"]
+  scope: point
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Automation: Dimension 10 report with status-code 12 (closing, from initial position 100%) captured mid-movement immediately after the local DOWN event (cover.evt.down.ptp.lnkeypad.02); first real-world confirmation of OWNd's state==12 'closing from initial position' branch (message.py OWNAutomationEvent), previously reachable only via spec inference; openwebnet-mcp reads dimension_values[0] as a raw percentage ('12% open'), which is the grammar-only misreading the README Provenance section warns about"
+  roundtrip: true
+

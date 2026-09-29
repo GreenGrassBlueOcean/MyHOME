@@ -77,35 +77,59 @@ We now maintain a comprehensive, community-curated **[GitHub Wiki](https://githu
 
 ### Gateway Profiles
 
+<!-- GATEWAY_PROFILES_START -->
 | Gateway Model | Protocol Support | Max Command Workers | Inter-Frame Delay | UPnP Discovery | Notes |
 |---|---|---|---|---|---|
-| **F454** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Full high-speed multi-session support |
-| **F455** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ Port 49153 | Dual-bus capable gateway |
-| **F461** | OpenWebNet / HMAC | 4 workers | 20 ms | ❌ Manual | Compact DIN Ethernet Web Server |
-| **MH202** | OpenWebNet / HMAC | 3 workers | 30 ms | ✅ Port 49153 | Modern scenario programmer gateway |
-| **MH201** | OpenWebNet | 2 workers | 60 ms | ✅ Port 49153 | Second-generation scenario programmer |
+| **F454** | OpenWebNet / HMAC | 4 workers | 50 ms | ✅ Port 49153 | Full high-speed multi-session support |
+| **F455** | OpenWebNet / HMAC | 4 workers | 50 ms | ✅ Port 49153 | Basic gateway (single SCS bus) |
+| **F461** | OpenWebNet / HMAC | 4 workers | 50 ms | ❌ Manual | Compact DIN Ethernet Web Server |
+| **MH202** | OpenWebNet / HMAC | 2 workers | 100 ms | ✅ Port 49153 | Modern scenario programmer gateway |
+| **MH201** | OpenWebNet | 1 worker | 100 ms | ✅ Port 49153 | Second-generation scenario programmer |
 | **MyHomeServer1** | OpenWebNet / HMAC | 4 workers | 20 ms | ✅ SSDP | Cloud/local hybrid gateway |
-| **MH200N** | OpenWebNet | 2 workers | 80 ms | ❌ Manual | Second-generation scenario programmer |
-| **MH200** *(Legacy)* | OpenWebNet | 1 worker | 150 ms | ❌ Manual | Strict single-session pacing; watchdog hardened |
-| **AM4890** | OpenWebNet | 2 workers | 100 ms | ❌ Manual | Compact residential gateway |
-| **F452 / F453AV** | OpenWebNet | 2 workers | 50 ms | ✅ Port 49153 | Audio/video & web server gateway |
-| **HL4684** | OpenWebNet | 2 workers | 80 ms | ✅ SSDP | 10" Touch screen display IP gateway |
-| **Legrand 3578** | OpenWebNet (Serial) | 2 workers | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
+| **MH200N** | OpenWebNet | 1 worker | 150 ms | ✅ SSDP | Second-generation scenario programmer |
+| **MH200** *(Legacy)* | OpenWebNet | 1 worker | 150 ms | ✅ SSDP | Strict single-session pacing; watchdog hardened |
+| **H4890 / AM4890** | OpenWebNet | 1 worker | 50 ms | ✅ SSDP | 3.5" Touch screen display IP gateway (Axolute / Livinglight) |
+| **F452 / F453AV** | OpenWebNet | 1 worker | 50 ms | ✅ Port 49153 | Audio/video & web server gateway |
+| **HL4684** | OpenWebNet | 1 worker | 50 ms | ✅ SSDP | 10" Touch screen display IP gateway |
+| **Legrand 3578** | OpenWebNet (Serial) | 1 worker | 50 ms | ❌ Manual (Serial) | USB / Serial gateway & OpenZigBee interface |
+<!-- GATEWAY_PROFILES_END -->
+
+
+### 📊 Hardware Trace Availability Matrix
+
+<!-- TRACE_MATRIX_START -->
+| Gateway Model | WHO 0<br>Scenario | WHO 1<br>Lights | WHO 2<br>Autom. | WHO 4<br>Climate | WHO 5<br>Alarm | WHO 9<br>Power | WHO 13<br>Gateway | WHO 14<br>Lock | WHO 15<br>CEN | WHO 16<br>Audio | WHO 17<br>Scenario | WHO 18<br>Energy | WHO 22<br>Audio Diff. | WHO 25<br>Diag | WHO 1001<br>Diag | WHO 1013<br>Diag | WHO 1022<br>Diag |
+| :--- |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |  :---:  |
+| **F454** |  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  | ✅ |  | ✅ |  |
+| **F461** |  | ✅ | ✅ | ✅ | ✅ |  | ✅ |  |  | ✅ |  | ✅ |  |  |  | ✅ |  |
+| **H4890 / AM4890** |  | ✅ | ✅ | ✅ | ✅ | ✅ |  |  |  | ✅ |  | ✅ | ✅ | ✅ |  |  |  |
+| **MH200** |  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ |  |  |  | ✅ | ✅ |  |
+| **MH200N** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ | ✅ |
+| **MH201** | ✅ | ✅ | ✅ | ✅ |  |  | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ |  |  |  |
+| **MH202** |  | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ |  |  |  | ✅ |  | ✅ |  | ✅ |  |
+| **MyHomeServer1** |  | ✅ | ✅ | ✅ |  | ✅ | ✅ | ✅ | ✅ | ✅ |  | ✅ |  | ✅ | ✅ | ✅ |  |
+<!-- TRACE_MATRIX_END -->
+
+*Checkmarks (✅) indicate that at least one `diagnostic_summary.json` or `.txt` bus capture in our test corpus contains frames for that subsystem from the specified gateway model. This matrix is automatically updated from the fixtures repository.*
 
 ### Supported Entity Domains & Automations
 
+<!-- SUPPORTED_DOMAINS_START -->
 | Domain | WHO | Capabilities |
 |---|---|---|
-| **`light`** | WHO=1 | On/Off, Dimmers with brightness control & transitions, DALI Tunable White (Dimension 14, 2000K–6535K / mireds), Hardware-offloaded bus timers (`myhome.turn_on_timed` / `timer` parameter) |
-| **`switch`** | WHO=1 | Relays, auxiliary switches, socket actuators, Hardware-offloaded bus timers (`myhome.turn_on_timed` / `timer` parameter) |
-| **`cover`** | WHO=2 | Motorized shutters, blinds, roll-ups with state tracking & virtual travel-time positioning |
+| **`light`** | WHO=1 | On/Off, Dimmers with brightness control & transitions (stepped & native), DALI DT8 Tunable White (Dimension 14, 2000K–6535K), HS/RGB colour, Hardware-offloaded bus timers (`myhome.turn_on_timed` / `timer` parameter) |
+| **`switch`** | WHO=1 | Relays, auxiliary switches, socket actuators (switch/outlet device classes), Hardware-offloaded bus timers (`myhome.turn_on_timed` / `timer` parameter) |
+| **`cover`** | WHO=2 | Motorized shutters, blinds, roll-ups with state tracking, position-reporting actuators & virtual travel-time positioning |
 | **`climate`** | WHO=4 | Heating, cooling, 4-pipe systems, thermostats, setpoints, fancoil 3-speed modes, offset tracking, Central Unit 3550 (`#0`) & 4695 (`#0#1`) master coordination & seasonal propagation |
-| **`alarm_control_panel`** | WHO=5 | Central units (3485/3486), partitions, arm away/home, disarm, panic trigger, zone 0 sync |
-| **`binary_sensor`**| WHO=1 / 9 / 25 | Magnetic contacts, door/window sensors, PIR motion, AUX channels (1–9) |
-| **`sensor`** | WHO=1 / 4 / 18 | Power meters, energy counters, temperature probes (3475), illuminance / lux sensors |
-| **`button`** | WHO=13 / 14 | Hardware actuator lock/unlock for lights & shutters (WHO=14), gateway time sync ping (WHO=13) |
-| **`media_player`** | WHO=16 | F441/F441M audio zones, source tracking, volume normalization, software mute, streaming proxy |
+| **`alarm_control_panel`** | WHO=5 | Central units (3485/3486), partitions, arm away/home, disarm, panic trigger, zone 0 broadcast sync |
+| **`binary_sensor`** | WHO=1 / 9 / 25 | Magnetic contacts, door/window sensors, PIR motion, AUX channels (1–9), dry contacts (F482/3477), inverted contacts |
+| **`sensor`** | WHO=1 / 4 / 18 | Power meters, energy counters (total/daily/monthly), temperature probes (3475), illuminance / lux sensors |
+| **`button`** | WHO=14 / 2 | Hardware actuator lock/unlock for lights, switches & covers (WHO=14), cover travel time calibration buttons (per cover & gateway-wide, WHO=2) |
+| **`media_player`** | WHO=16 | F441/F441M audio zones, source tracking, volume normalization, software mute, streaming dynamic proxy (Music Assistant / Spotify Connect) |
 | **`device_trigger`** *(Automations)* | WHO=15 / 25 | Stateless CEN & CEN+ scenario pushbuttons with string-preserved addressing (`"0001"`), gateway MAC isolation, and 8 native UI trigger types (short press, long press start, held, release, rotary dials) |
+<!-- SUPPORTED_DOMAINS_END -->
+
+*This table is automatically updated from platform definitions and [`supported_functions.md`](docs/configuration/supported_functions.md).*
 
 ---
 
@@ -609,7 +633,7 @@ automated coverage and physical gateway verification steps.
 ### CI Workflows
 - **`hassfest`**: Official Home Assistant manifest, translation, and metadata validation.
 - **`validate`**: Official HACS compliance checks.
-- **`test-coverage`**: 1443 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
+- **`test-coverage`**: 2090 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
 - **`ha-container-smoke`**: Automated containerized smoke testing against official Home Assistant Docker images (`stable`, `beta`, `dev`) verifying `check_config`, clean platform module imports, and zero asyncio loop-blocking calls.
 - **`ownd-smoke`**: Automated smoke testing of the `OWNd` protocol engine across `pinned`, `latest`, and `upstream-dev` distributions on Python 3.14.
 - **`ha-upstream-compat`**: Continuous integration testing against upstream Home Assistant Stable, Beta, and Dev channels.
@@ -637,7 +661,7 @@ _Self-audit of [`quality_scale.yaml`](custom_components/myhome/quality_scale.yam
 
 ### 📊 Code Coverage & Quality Assurance
 
-The integration maintains 1443 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
+The integration maintains 2090 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
 
 <!-- START_COVERAGE_TABLE -->
 
@@ -659,11 +683,15 @@ The integration maintains 1443 automated unit tests (100% line coverage across a
 | [`decoder_pool.py`](custom_components/myhome/decoder_pool.py) | **100%** | Thread-safe streaming proxy audio pool |
 | [`device_trigger.py`](custom_components/myhome/device_trigger.py) | **100%** | Stateless CEN/CEN+ scenario device automation triggers |
 | [`diagnostics.py`](custom_components/myhome/diagnostics.py) | **100%** | Config entry diagnostics with sensitive data redaction |
+| [`discovery.py`](custom_components/myhome/discovery.py) | **100%** | Core integration component |
 | [`gateway.py`](custom_components/myhome/gateway.py) | **100%** | Hardware handler, lockout prevention, adaptive queue pacing |
+| [`identity.py`](custom_components/myhome/identity.py) | **100%** | Core integration component |
 | [`light.py`](custom_components/myhome/light.py) | **100%** | Relays, auto-dimmer detection, and brightness transitions |
+| [`light_group.py`](custom_components/myhome/light_group.py) | **100%** | Core integration component |
 | [`media_player.py`](custom_components/myhome/media_player.py) | **100%** | F441/F441M sound system zones, dynamic proxy, gain-staging |
 | [`myhome_device.py`](custom_components/myhome/myhome_device.py) | **100%** | Home Assistant device registry schema compliance |
 | [`repairs.py`](custom_components/myhome/repairs.py) | **100%** | Core integration component |
+| [`router.py`](custom_components/myhome/router.py) | **100%** | Core integration component |
 | [`sensor.py`](custom_components/myhome/sensor.py) | **100%** | Power meters, energy counters, and pulse sensors |
 | [`services.py`](custom_components/myhome/services.py) | **100%** | Core integration component |
 | [`switch.py`](custom_components/myhome/switch.py) | **100%** | Relay actuators, auxiliary switches, socket controllers |

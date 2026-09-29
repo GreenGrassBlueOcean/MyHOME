@@ -38,7 +38,7 @@ body:
       description: Select your BTicino / Legrand OpenWebNet gateway hardware model.
       options:
         - "F454 (Audio/Video Gateway)"
-        - "F455 (Advanced Gateway)"
+        - "F455 (Basic Gateway)"
         - "MH200 (Scenario Programmer)"
         - "MH200N (Scenario Programmer)"
         - "MH202 (Scenario Programmer)"

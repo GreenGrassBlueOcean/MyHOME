@@ -36,6 +36,7 @@ from OWNd.message import (
     MESSAGE_TYPE_ILLUMINANCE,
     MESSAGE_TYPE_MAIN_TEMPERATURE,
     MESSAGE_TYPE_SECONDARY_TEMPERATURE,
+    OWNCommand,
     OWNEnergyCommand,
     OWNEnergyEvent,
     OWNHeatingCommand,
@@ -64,6 +65,7 @@ from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, PlatformDiscovery
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .where_grammar import is_probe
 
 PARALLEL_UPDATES = 0
 
@@ -282,8 +284,8 @@ async def async_setup_entry(
         where = str(message.where)
         clean = where.split("-")[-1].split("#")[0]
         is_probe_reading = dimension == 15 or message_type == MESSAGE_TYPE_SECONDARY_TEMPERATURE
-        is_probe = (message_type == MESSAGE_TYPE_MAIN_TEMPERATURE or dimension == 0) and clean.isdigit() and int(clean) >= 100
-        if dimension in (11, 12, 13, 14, 19, 20) or not (is_probe_reading or is_probe):
+        is_probe_main = (message_type == MESSAGE_TYPE_MAIN_TEMPERATURE or dimension == 0) and is_probe(clean)
+        if dimension in (11, 12, 13, 14, 19, 20) or not (is_probe_reading or is_probe_main):
             return None
         return Address(normalize_where(where) or where)
 
@@ -299,7 +301,7 @@ async def async_setup_entry(
         clean = where.split("-")[-1].split("#")[0]
         primary = normalize_where(where) or normalize_where(clean) or where
         label = normalize_where(clean) or clean
-        name = f"Probe {label}" if clean.isdigit() and int(clean) >= 100 else f"Zone {label}"
+        name = f"Probe {label}" if is_probe(clean) else f"Zone {label}"
         # ``4-<where>``, the id validate.py gives a myhome.yaml probe: one unique id either way (#441)
         sensor = MyHOMETemperatureSensor(
             hass=hass, device_id=f"4-{primary}", who="4", where=primary, name=name,
@@ -460,6 +462,8 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
         )
         self._attr_native_unit_of_measurement = UnitOfPower.WATT
         self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_should_poll = True
+        self._streaming_until: float = 0.0
 
         self._attr_native_value = None
         self._attr_extra_state_attributes = {
@@ -475,12 +479,25 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
         """When entity is removed from hass."""
         self._unregister_entity_ref(str(self._attr_device_class))
 
+    def _is_streaming_active(self) -> bool:
+        """Return True if automatic instant power streaming is active."""
+        return time.monotonic() < self._streaming_until
+
     async def async_update(self) -> None:
         """Update the entity.
 
-        Only used by the generic entity update service.
+        Only used by the generic entity update service or periodic polling.
         """
-        # await self.start_sending_instant_power(255)
+        if self._is_streaming_active():
+            return
+        where = (
+            f"{self._where}#0"
+            if str(self._where).startswith("7") and not str(self._where).endswith("#0")
+            else str(self._where)
+        )
+        cmd = OWNCommand.parse(f"*#18*{where}*1200##")
+        if cmd is not None:
+            await self._gateway_handler.send_status_request(cmd)
 
     @callback
     def handle_event(self, message: OWNEnergyEvent) -> None:
@@ -499,6 +516,10 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
 
     async def start_sending_instant_power(self, duration: int) -> None:
         """Request automatic instant power."""
+        if duration > 0:
+            self._streaming_until = time.monotonic() + (duration * 60)
+        else:
+            self._streaming_until = 0.0
         await self._gateway_handler.send(
             OWNEnergyCommand.start_sending_instant_power(self._where, duration)
         )
@@ -679,8 +700,7 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
     @property
     def _is_probe(self) -> bool:
         """Return True for slave/external probe addresses (ZPP >= 100)."""
-        clean_where = str(self._where).split("-")[-1].split("#")[0]
-        return clean_where.isdigit() and int(clean_where) >= 100
+        return is_probe(str(self._where).split("#")[0])
 
     def _push_is_fresh(self) -> bool:
         """Return True when a reading arrived within the last poll interval."""

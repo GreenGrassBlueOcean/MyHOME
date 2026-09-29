@@ -6,12 +6,42 @@
   where: "21"
   source: community-plant-capture
   mcp_valid: true
-  mcp_notes: "CEN+: Short pressure on pushbutton 1 of Object 1; the whole short press, no release frame follows (MH201 capture, MyHOME#418)"
+  mcp_notes: "CEN+: Short pressure on pushbutton 1 of Object 1; the whole short press, no release frame follows (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466)"
   roundtrip: true
   builder:
     class: OWNCenPlusCommand
     method: press
     args: ["21", 1]
+
+- id: cen_plus.event.short_press.btn1.22
+  frame: "*25*21#1*22##"
+  direction: event
+  who: 25
+  what: "21#1"
+  where: "22"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "CEN+: Short pressure on pushbutton 1 of Object 2; verified on physical MyHomeServer1 with Living Now KW8011 (MyHOME#466, comment 5855690408)"
+  roundtrip: true
+  builder:
+    class: OWNCenPlusCommand
+    method: press
+    args: ["22", 1]
+
+- id: cen_plus.event.short_press.btn1.23
+  frame: "*25*21#1*23##"
+  direction: event
+  who: 25
+  what: "21#1"
+  where: "23"
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "CEN+: Short pressure on pushbutton 1 of Object 3; verified on physical MyHomeServer1 with Living Now KW8011 (MyHOME#466, comment 5855690408)"
+  roundtrip: true
+  builder:
+    class: OWNCenPlusCommand
+    method: press
+    args: ["23", 1]
 
 - id: cen_plus.event.start_long_press.btn1.21
   frame: "*25*22#1*21##"
@@ -21,7 +51,7 @@
   where: "21"
   source: community-plant-capture
   mcp_valid: true
-  mcp_notes: "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418)"
+  mcp_notes: "CEN+: Start of extended pressure on pushbutton 1 of Object 1; not preceded by 21 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)"
   roundtrip: true
   builder:
     class: OWNCenPlusCommand
@@ -51,7 +81,7 @@
   where: "21"
   source: community-plant-capture
   mcp_valid: true
-  mcp_notes: "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418)"
+  mcp_notes: "CEN+: Release after extended pressure on pushbutton 1 of Object 1 (MH201 capture, MyHOME#418; MyHomeServer1 KW8011 capture, MyHOME#466, comment 5859798807)"
   roundtrip: true
   builder:
     class: OWNCenPlusCommand

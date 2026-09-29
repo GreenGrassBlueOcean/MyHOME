@@ -21,7 +21,7 @@ If you are a **certified BTicino / Legrand installer**, **system integrator**, o
 ### 🔍 Remaining Specifications & Items Under Review:
 
 1. **Document Versions & Revision Dates**:
-   - Compare your PDF archive against the [Master WHO Family Inventory](#-master-who-family-inventory) table below.
+   - Compare your PDF archive against the [Master WHO Family Inventory](#master-who-family-inventory) table below.
    - Look at the cover page and revision history (e.g. *Last date modify*, *Version number*). If your copy is newer than what is listed, please share the version details!
 
 2. **Remaining Missing / Legacy Specifications**:
@@ -176,7 +176,7 @@ The table below outlines supported hardware gateways, transport layers, queue pa
 | **F452** | Web Server IP | TCP/IP | 20000 | Open password / None | 150 ms | Early generation IP gateway. |
 | **F453AV** | Audio/Video Web Server | TCP/IP | 20000 | Open password / None | 120 ms | Supports door entry and basic web control. |
 | **F454** | Web Server IP | TCP/IP | 20000 | Open numeric password | 80 ms | Dual bus interface, widely deployed standard DIN gateway. |
-| **F455** | Advanced IP Gateway | TCP/IP | 20000 | Open numeric password | 50 ms | High-throughput industrial gateway. |
+| **F455** | Basic IP Gateway | TCP/IP | 20000 | Open numeric password | 50 ms | Single SCS bus basic gateway (lights, automation, temperature, energy). |
 | **MyHomeServer1** | Modern IoT Gateway | TCP/IP | 20000 | **HMAC-SHA2 (SHA-256)** | 30 ms | Fast SoC, alphanumeric credentials, cloud integration bridge. |
 | **F461** | Next-Gen DIN Server | TCP/IP | 20000 | Alphanumeric / HMAC | 20 ms | Latest generation BTicino DIN-rail server/gateway. |
 | **Legrand 3578** | OpenZigBee USB Interface | Serial USB | `/dev/ttyUSB*` | None (Serial bypass) | 40 ms | 19200 baud, 8N1, ZigBee wireless SCS bridge (`#<unit_id>` addressing). |

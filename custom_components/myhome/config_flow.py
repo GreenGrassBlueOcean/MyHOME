@@ -3,13 +3,16 @@ import asyncio
 import ipaddress
 import re
 import typing
+from types import SimpleNamespace
 from typing import Dict, Optional
 
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_IGNORE,
     ConfigEntry,
     ConfigFlow,
-    OptionsFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import (
     CONF_FRIENDLY_NAME,
@@ -23,6 +26,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from OWNd.connection import OWNGateway, OWNSession
 from OWNd.discovery import find_gateways, get_gateway
@@ -38,20 +42,25 @@ from voluptuous import (
 from .const import (
     CONF_ADDRESS,
     CONF_BROADCAST_RESYNC,
+    CONF_BUS_TOPOLOGY,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
     CONF_DECODER_SOURCE,
+    CONF_DELEGATED_WHOS,
     CONF_DEVICE_TYPE,
     CONF_FIRMWARE,
+    CONF_GATEWAY_ROLE,
     CONF_GENERATE_EVENTS,
     CONF_MANUFACTURER,
     CONF_MANUFACTURER_URL,
     CONF_OWN_PASSWORD,
+    CONF_PRIMARY_GATEWAY,
     CONF_SOURCE_DEFAULT_FIELD,
     CONF_SOURCE_DEFAULTS,
     CONF_SOURCE_NAME,
     CONF_SOURCE_SLOTS,
+    CONF_SOURCE_TUNER,
     CONF_SSDP_LOCATION,
     CONF_SSDP_ST,
     CONF_TRANSITION_MODE,
@@ -61,9 +70,22 @@ from .const import (
     DOMAIN,
     IDENTIFICATION_MANUAL,
     LOGGER,
+    ROLE_PRIMARY,
+    ROLE_SECONDARY,
+    ROLE_STANDBY,
     SUPPORTED_GATEWAY_MODELS,
+    TOPOLOGY_SHARED,
+    TOPOLOGY_STANDALONE,
 )
+from .decoder_companion import async_get_excluded_decoders
 from .gateway import MyHOMEGatewayHandler, command_session_limit
+from .topology import (
+    entry_for_mac,
+    entry_is_follower,
+    entry_mac,
+    recommend_follower,
+    validate_shared_bus_topology,
+)
 
 
 class MACAddress:
@@ -106,6 +128,8 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         self.gateway_handler: Optional[OWNGateway] = None
         self.discovered_gateways: Optional[Dict[str, dict[str, typing.Any]]] = None
         self._existing_entry: ConfigEntry | None = None
+        # (title, data, options) of an entry held back by the bus topology step
+        self._pending_entry: tuple[str, dict[str, typing.Any], dict[str, typing.Any]] | None = None
 
     async def async_step_user(self, user_input=None):  # type: ignore
         """Handle a flow initialized by the user."""
@@ -412,12 +436,11 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
             if self._existing_entry:
                 new_data = dict(self._existing_entry.data)
                 new_data[CONF_PASSWORD] = gateway.password
-                self.hass.config_entries.async_update_entry(
+                return self.async_update_reload_and_abort(
                     self._existing_entry,
                     data=new_data,
+                    reason="reauth_successful",
                 )
-                await self.hass.config_entries.async_reload(self._existing_entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
 
             _new_entry_data = {
                 CONF_ID: dr.format_mac(gateway.serial),
@@ -439,6 +462,10 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_WORKER_COUNT: 1,
             }
 
+            if self._bus_primaries():
+                self._pending_entry = (f"{gateway.model_name} Gateway", _new_entry_data, _new_entry_options)
+                return await self.async_step_bus_topology()
+
             return self.async_create_entry(
                 title=f"{gateway.model_name} Gateway",
                 data=_new_entry_data,
@@ -452,6 +479,128 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_password(errors=errors)  # type: ignore
             else:
                 return self.async_abort(reason=test_result["Message"])
+
+    def _bus_primaries(self) -> list[ConfigEntry]:
+        """Configured gateways a new one could share an SCS bus with.
+
+        IP gateways that are not followers themselves; a USB / serial gateway
+        is not on an SCS bus.
+        """
+        return [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.source != SOURCE_IGNORE
+            and entry.data.get("transport_type") != "serial"
+            and not entry_is_follower(entry)
+        ]
+
+    async def async_step_bus_topology(self, user_input: dict[str, typing.Any] | None = None) -> ConfigFlowResult:
+        """Ask whether the new gateway shares its SCS bus with a configured one (#524).
+
+        Asked before the entry exists: a gateway set up as a standalone primary
+        sweeps and discovers the whole bus at once, duplicating every device
+        the other gateway already has. Joining as that gateway's secondary or
+        standby from the start avoids it.
+        """
+        assert self._pending_entry is not None
+        title, data, options = self._pending_entry
+        primaries = self._bus_primaries()
+        pending = SimpleNamespace(entry_id=None, data=data, options={}, unique_id=data[CONF_MAC], title=title)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if user_input.get(CONF_BUS_TOPOLOGY) != TOPOLOGY_SHARED:
+                return self.async_create_entry(
+                    title=title, data=data, options={**options, CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE}
+                )
+
+            primary_mac = dr.format_mac(str(user_input.get(CONF_PRIMARY_GATEWAY) or ""))
+            primary = entry_for_mac(self.hass, primary_mac) if primary_mac else None
+            role = user_input.get(CONF_GATEWAY_ROLE, ROLE_SECONDARY)
+            follower_options = {
+                **options,
+                CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED,
+                CONF_GATEWAY_ROLE: role,
+                CONF_PRIMARY_GATEWAY: primary_mac,
+            }
+            if role == ROLE_SECONDARY:
+                follower_options[CONF_DELEGATED_WHOS] = sorted(
+                    int(w) for w in user_input.get(CONF_DELEGATED_WHOS, []) if str(w).isdigit()
+                )
+            # A standalone gateway becomes the shared bus's primary.
+            primary_options = dict(primary.options) if primary is not None else {}
+            primary_options.update({CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_GATEWAY_ROLE: ROLE_PRIMARY})
+            primary_options.pop(CONF_PRIMARY_GATEWAY, None)
+            primary_options.pop(CONF_DELEGATED_WHOS, None)
+
+            errors = validate_shared_bus_topology(
+                self.hass, pending, follower_options, target_primary_options=primary_options
+            )
+            if not errors and primary is not None:
+                if primary_options != dict(primary.options):
+                    self.hass.config_entries.async_update_entry(primary, options=primary_options)
+                from .repairs import async_delete_shared_bus_issue
+
+                async_delete_shared_bus_issue(self.hass, data[CONF_MAC], primary_mac)
+                return self.async_create_entry(title=title, data=data, options=follower_options)
+
+        if not primaries:  # the other gateway was removed while the form was open
+            return self.async_create_entry(title=title, data=data, options=options)
+
+        gw_options = [
+            selector.SelectOptionDict(value=str(entry_mac(e)), label=f"{e.title} ({e.data.get(CONF_HOST)})")
+            for e in primaries
+        ]
+        suggested_primary = (user_input or {}).get(CONF_PRIMARY_GATEWAY) or gw_options[0]["value"]
+        role, delegated = ROLE_STANDBY, set[int]()
+        if (suggested_entry := entry_for_mac(self.hass, dr.format_mac(str(suggested_primary)))) is not None:
+            role, delegated = recommend_follower(suggested_entry, pending)
+
+        return self.async_show_form(
+            step_id="bus_topology",
+            data_schema=Schema(
+                {
+                    Required(
+                        CONF_BUS_TOPOLOGY, default=(user_input or {}).get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
+                            mode=selector.SelectSelectorMode.LIST,
+                            translation_key=CONF_BUS_TOPOLOGY,
+                        )
+                    ),
+                    Required(CONF_PRIMARY_GATEWAY, default=suggested_primary): selector.SelectSelector(
+                        selector.SelectSelectorConfig(options=gw_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                    ),
+                    Required(
+                        CONF_GATEWAY_ROLE, default=(user_input or {}).get(CONF_GATEWAY_ROLE, role)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[ROLE_SECONDARY, ROLE_STANDBY],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key=CONF_GATEWAY_ROLE,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_DELEGATED_WHOS,
+                        description={
+                            "suggested_value": (user_input or {}).get(
+                                CONF_DELEGATED_WHOS, [str(w) for w in sorted(delegated)]
+                            )
+                        },
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key=CONF_DELEGATED_WHOS,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={CONF_NAME: str(data.get(CONF_NAME) or "gateway")},
+            errors=errors,
+        )
 
     async def async_step_port(self, user_input=None, errors=None):  # type: ignore
         """Port information for the gateway is missing.
@@ -677,7 +826,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
 
 
-class MyhomeOptionsFlowHandler(OptionsFlow):
+class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
     """Handle MyHome options (general settings + decoder mapping)."""
 
     def __init__(self, config_entry: ConfigEntry = None):  # type: ignore
@@ -719,13 +868,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
         be ``10S``, which is the source device itself, so it cannot be routed.
         So is any zone that is not a two-digit amplifier address.
         """
-        from homeassistant.helpers import entity_registry as er
-
         environments: set[str] = set()
         try:
             registry = er.async_get(self.hass)
             entries = er.async_entries_for_config_entry(
-                registry, self.config_entry.entry_id  # type: ignore
+                registry, self.config_entry.entry_id
             )
         except Exception:  # pylint: disable=broad-except
             return []
@@ -738,6 +885,42 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 environments.add(zone[0])
         environments.discard("0")
         return sorted(environments)
+
+    def _apply_topology(self, user_input: dict[str, typing.Any], errors: dict[str, str]) -> None:
+        """Validate the shared-bus settings (#453) and store them in the options."""
+        top_errors = validate_shared_bus_topology(
+            self.hass,
+            self.config_entry,
+            user_input,
+            model_override=user_input.get(CONF_NAME),
+        )
+        if top_errors:
+            errors.update(top_errors)
+            return
+
+        in_topo = user_input.get(CONF_BUS_TOPOLOGY, self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE))  # type: ignore
+        in_role = user_input.get(CONF_GATEWAY_ROLE, self.options.get(CONF_GATEWAY_ROLE, ROLE_PRIMARY))  # type: ignore
+        in_pri = user_input.get(CONF_PRIMARY_GATEWAY, self.options.get(CONF_PRIMARY_GATEWAY))  # type: ignore
+        shared = in_topo == TOPOLOGY_SHARED
+        follower = shared and in_role in (ROLE_SECONDARY, ROLE_STANDBY)
+        my_mac = entry_mac(self.config_entry)
+        norm_pri = dr.format_mac(str(in_pri)) if in_pri else None
+
+        self.options[CONF_BUS_TOPOLOGY] = TOPOLOGY_SHARED if shared else TOPOLOGY_STANDALONE  # type: ignore
+        self.options[CONF_GATEWAY_ROLE] = in_role if shared else ROLE_PRIMARY  # type: ignore
+        if follower:
+            self.options[CONF_PRIMARY_GATEWAY] = norm_pri  # type: ignore
+        else:
+            self.options.pop(CONF_PRIMARY_GATEWAY, None)  # type: ignore
+        if follower and in_role == ROLE_SECONDARY:
+            delegated = [int(w) for w in user_input.get(CONF_DELEGATED_WHOS, []) if str(w).isdigit()]
+            self.options[CONF_DELEGATED_WHOS] = delegated  # type: ignore
+        else:
+            self.options.pop(CONF_DELEGATED_WHOS, None)  # type: ignore
+
+        if follower and my_mac and norm_pri:
+            from .repairs import async_delete_shared_bus_issue
+            async_delete_shared_bus_issue(self.hass, my_mac, str(norm_pri))
 
     async def async_step_user(self, user_input=None, errors=None):  # type: ignore
         """Manage general settings and decoder mapping."""
@@ -752,12 +935,13 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
 
         if user_input is not None:
             # ── Validate decoder entity IDs ───────────────────────────────
-            from homeassistant.helpers import entity_registry as er
             registry = er.async_get(self.hass)
 
+            seen_sources: dict[int, str] = {}
             for i in range(1, CONF_DECODER_SLOTS + 1):
                 entity_key = CONF_DECODER_ENTITY.format(i)
-                entity_val = user_input.get(entity_key, "").strip()
+                source_key = CONF_DECODER_SOURCE.format(i)
+                entity_val = str(user_input.get(entity_key) or "").strip()
                 if entity_val:
                     if not entity_val.startswith("media_player."):
                         errors[entity_key] = "not_a_media_player"
@@ -766,6 +950,14 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if entry and entry.platform == "mass":
                             # Prevent infinite loops by rejecting MA clones
                             errors[entity_key] = "mass_entity_not_allowed"
+                        elif entry and entry.platform == "myhome":
+                            errors[entity_key] = "myhome_entity_not_allowed"
+
+                    src_val = int(user_input.get(source_key, i) or i)
+                    if src_val in seen_sources:
+                        errors[source_key] = "duplicate_decoder_source"
+                    else:
+                        seen_sources[src_val] = source_key
 
             limit_model = user_input.get(CONF_NAME, self.data.get(CONF_NAME))  # type: ignore
             session_limit = command_session_limit(limit_model)
@@ -790,17 +982,20 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 for i in range(1, CONF_SOURCE_SLOTS + 1):
                     name_key = CONF_SOURCE_NAME.format(i)
                     self.options[name_key] = str(user_input.get(name_key, "") or "").strip()  # type: ignore
+                    tuner_key = CONF_SOURCE_TUNER.format(i)
+                    self.options[tuner_key] = bool(user_input.get(tuner_key, False))  # type: ignore
 
-                # Persist decoder slots
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
-                    self.options[entity_key] = user_input.get(entity_key, "")  # type: ignore
+                    self.options[entity_key] = str(user_input.get(entity_key) or "").strip()  # type: ignore
                     # Selectors hand back strings/floats; the decoder pool and the
                     # source labels both index on plain ints.
                     self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
                     self.options[gain_key] = int(float(user_input.get(gain_key, 0) or 0))  # type: ignore
+
+                self._apply_topology(user_input, errors)
 
                 _model_update = False
                 if CONF_NAME in user_input and user_input[CONF_NAME] != self.data.get(CONF_NAME):  # type: ignore
@@ -828,7 +1023,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                         if _model_update and self.config_entry.title.endswith("Gateway"):
                             update_kwargs["title"] = f"{user_input[CONF_NAME]} Gateway"  # type: ignore
                         self.hass.config_entries.async_update_entry(self.config_entry, **update_kwargs)  # type: ignore
-                        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                        # OptionsFlowWithReload only schedules a reload when entry.options
+                        # change. When only connection data changed (host, password, model)
+                        # and options remain identical, schedule reload explicitly so the
+                        # integration restarts with the new connection parameters.
+                        if self.config_entry.options == self.options:
+                            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
                     return self.async_create_entry(title="", data=self.options)  # type: ignore
 
@@ -856,7 +1056,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             vol.Optional(
                 CONF_OWN_PASSWORD,
                 description={"suggested_value": self.data.get(CONF_PASSWORD) or ""},  # type: ignore
-            ): str,
+            ): vol.Maybe(str),
             Required(
                 CONF_WORKER_COUNT,
                 description={"suggested_value": suggested_workers},
@@ -898,6 +1098,14 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 name_key,
                 description={"suggested_value": _name},
             )] = selector.TextSelector()
+            # A tuner accepts frequency, station and RDS messages that a line
+            # interface does not, and nothing on the bus tells them apart until
+            # the device speaks, so the user declares it.
+            tuner_key = CONF_SOURCE_TUNER.format(i)
+            schema_dict[vol.Required(
+                tuner_key,
+                default=bool(self.options.get(tuner_key, False)),  # type: ignore
+            )] = selector.BooleanSelector()
 
         # Default source per environment — only for environments that have zones.
         _stored_defaults = self.options.get(CONF_SOURCE_DEFAULTS) or {}  # type: ignore
@@ -934,6 +1142,12 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             for i in range(1, CONF_SOURCE_SLOTS + 1)
         ]
 
+        # Exclude internal MyHOME zones and Music Assistant clones from decoder choices
+        _decoder_selector_cfg = selector.EntitySelectorConfig(
+            domain=["media_player"],
+            exclude_entities=async_get_excluded_decoders(self.hass),
+        )
+
         # Decoder slots 1–4
         for i in range(1, CONF_DECODER_SLOTS + 1):
             entity_key = CONF_DECODER_ENTITY.format(i)
@@ -945,13 +1159,9 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 schema_dict[vol.Optional(
                     entity_key,
                     description={"suggested_value": _entity_val},
-                )] = selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["media_player"])
-                )
+                )] = selector.EntitySelector(_decoder_selector_cfg)
             else:
-                schema_dict[vol.Optional(entity_key)] = selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["media_player"])
-                )
+                schema_dict[vol.Optional(entity_key)] = selector.EntitySelector(_decoder_selector_cfg)
 
             _source_val = int(self.options.get(source_key, i) or i)  # type: ignore
             schema_dict[vol.Required(
@@ -968,9 +1178,86 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                 default=int(self.options.get(gain_key, 0) or 0),  # type: ignore
             )] = selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0, max=50, step=1,
+                    min=0, max=100, step=1,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        other_gateways = [
+            e for e in self.hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != getattr(self.config_entry, "entry_id", None)
+        ]
+        if other_gateways:
+            gw_options = [
+                selector.SelectOptionDict(value=str(e.data.get(CONF_MAC) or e.unique_id), label=f"{e.title} ({e.data.get(CONF_HOST)})")
+                for e in other_gateways
+            ]
+            schema_dict[vol.Optional(
+                CONF_BUS_TOPOLOGY,
+                description={"suggested_value": self.options.get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[TOPOLOGY_STANDALONE, TOPOLOGY_SHARED],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_BUS_TOPOLOGY,
+                )
+            )
+            suggested_role = self.options.get(CONF_GATEWAY_ROLE)
+            suggested_whos = [str(w) for w in self.options.get(CONF_DELEGATED_WHOS, [])]
+            selected_pri = self.options.get(CONF_PRIMARY_GATEWAY)
+            if not selected_pri and gw_options:
+                selected_pri = gw_options[0]["value"]
+            if selected_pri and (suggested_role is None or not suggested_whos):
+                from .topology import entry_for_mac, entry_mac, infer_shared_bus_topology
+
+                pri_entry = entry_for_mac(self.hass, selected_pri)
+                if pri_entry and self.config_entry:
+                    rec = infer_shared_bus_topology(pri_entry, self.config_entry)
+                    my_mac = entry_mac(self.config_entry)
+                    if suggested_role is None:
+                        suggested_role = rec.role if rec.secondary_mac == my_mac else ROLE_PRIMARY
+                    if not suggested_whos and rec.secondary_mac == my_mac and rec.role == ROLE_SECONDARY:
+                        suggested_whos = [str(w) for w in sorted(rec.delegated_whos)]
+                    LOGGER.debug(
+                        "Inferred shared-bus smart defaults for %s: role=%s, delegated_whos=%s (selected primary %s)",
+                        my_mac,
+                        suggested_role,
+                        suggested_whos,
+                        selected_pri,
+                    )
+
+            if suggested_role is None:
+                suggested_role = ROLE_PRIMARY
+
+            schema_dict[vol.Optional(
+                CONF_GATEWAY_ROLE,
+                description={"suggested_value": suggested_role},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_GATEWAY_ROLE,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_PRIMARY_GATEWAY,
+                description={"suggested_value": self.options.get(CONF_PRIMARY_GATEWAY)},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=gw_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            schema_dict[vol.Optional(
+                CONF_DELEGATED_WHOS,
+                description={"suggested_value": suggested_whos},
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["1", "2", "4", "5", "9", "15", "16", "18", "22", "25"],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_DELEGATED_WHOS,
                 )
             )
 

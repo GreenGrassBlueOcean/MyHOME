@@ -24,7 +24,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
-from .const import DOMAIN
+from .const import DOMAIN, eight_bits_to_percent
 from .myhome_device import MyHOMEEntity
 
 LOGGER = logging.getLogger(__name__)
@@ -116,6 +116,9 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         self._full_where = f"#{group}"
         # Last known brightness (0-100%), used as HSV "value" when only hue/saturation
         # are being set so a colour change never silently zeroes the group's level.
+        # For groups with declared members the displayed brightness is derived from
+        # member states (_update_from_members); this field only tracks the last
+        # *commanded* value and may diverge if a member does not acknowledge.
         self._last_brightness_pct = 100
 
     async def async_added_to_hass(self) -> None:
@@ -252,43 +255,62 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the group on."""
         if "transition" in kwargs:
-            raise HomeAssistantError(
-                "Group does not support software transition",
-                translation_domain=DOMAIN,
-                translation_key="group_no_transition",
-                translation_placeholders={"name": self._display_name},
+            LOGGER.debug(
+                "%s: Transition parameter %ss ignored (group commands do not support software transitions)",
+                self._display_name,
+                kwargs["transition"],
             )
 
-        cmd = None
-        if ATTR_BRIGHTNESS in kwargs:
-            level = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
-            cmd = OWNLightingCommand.set_brightness(self._full_where, level)
+        # Dispatch color temperature if specified (takes precedence over HS color
+        # if both are provided in a single service call, matching core behavior).
+        if ATTR_COLOR_TEMP_KELVIN in kwargs:
+            mired = int(1000000 / kwargs[ATTR_COLOR_TEMP_KELVIN])
+            await self._gateway_handler.send(
+                OWNLightingCommand.set_color_temperature(self._full_where, mired)
+            )
+            if not self._member_entity_ids:
+                self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
+                self._attr_is_on = True
+
+        # Dispatch HS color if specified
+        elif ATTR_HS_COLOR in kwargs:
+            h, s = kwargs[ATTR_HS_COLOR]
+            if ATTR_BRIGHTNESS in kwargs:
+                v_level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
+            else:
+                v_level = self._last_brightness_pct
+            await self._gateway_handler.send(
+                OWNLightingCommand.set_hsv_color(
+                    self._full_where, int(h), int(s), v_level
+                )
+            )
+            if not self._member_entity_ids:
+                self._attr_hs_color = (h, s)
+                if ATTR_BRIGHTNESS in kwargs:
+                    self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
+                self._attr_is_on = True
+            if v_level > 0:
+                self._last_brightness_pct = v_level
+
+        # Dispatch brightness if specified (and not already included in HSV frame)
+        if ATTR_BRIGHTNESS in kwargs and ATTR_HS_COLOR not in kwargs:
+            level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
+            await self._gateway_handler.send(
+                OWNLightingCommand.set_brightness(self._full_where, level)
+            )
             if not self._member_entity_ids:
                 self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
                 self._attr_is_on = True
             if level > 0:
                 self._last_brightness_pct = level
-        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
-            mired = int(1000000 / kwargs[ATTR_COLOR_TEMP_KELVIN])
-            cmd = OWNLightingCommand.set_color_temperature(self._full_where, mired)
-            if not self._member_entity_ids:
-                self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
-                self._attr_is_on = True
-        elif ATTR_HS_COLOR in kwargs:
-            h, s = kwargs[ATTR_HS_COLOR]
-            cmd = OWNLightingCommand.set_hsv_color(self._full_where, int(h), int(s), self._last_brightness_pct)
-            if not self._member_entity_ids:
-                self._attr_hs_color = (h, s)
-                self._attr_is_on = True
-        else:
-            cmd = OWNLightingCommand.switch_on(self._full_where)
+        elif ATTR_COLOR_TEMP_KELVIN not in kwargs and ATTR_HS_COLOR not in kwargs:
+            # Plain switch on only if no color or brightness command was sent
+            await self._gateway_handler.send(OWNLightingCommand.switch_on(self._full_where))
             if not self._member_entity_ids:
                 self._attr_is_on = True
 
-        if cmd:
-            await self._gateway_handler.send(cmd)
-            if self._on_icon and self._off_icon:
-                self._attr_icon = self._on_icon if self._attr_is_on else self._off_icon
+        if self._on_icon and self._off_icon:
+            self._attr_icon = self._on_icon if self._attr_is_on else self._off_icon
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:

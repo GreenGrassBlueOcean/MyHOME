@@ -43,31 +43,291 @@ card:
 
 ## 🔊 Recipe 2: Dynamic Multiroom Audio Zone Player
 
-For installations equipped with BTicino WHO 16 sound systems (F441, F500 audio matrices, 3484 amplifier nodes). This card dynamically displays only the audio zones that are currently **playing or active**:
+For installations equipped with BTicino WHO 16 sound systems (F441, F441M audio matrices, F500 tuners, 3484 amplifier nodes). This showcase provides three dashboard patterns:
+
+1. **Auto-Collapsing Active Speakers Card**: A dynamic overview panel that automatically stays hidden when music is off and expands into interactive player cards whenever any room starts playing.
+2. **Dedicated Multi-Room Audio View (Sections Layout)**: A comprehensive whole-home audio control page organized by floor/zone with 1-tap matrix source selector chips (`Radio`, `Streamer`) and master power toggles.
+3. **Stock Lovelace Alternative**: Built-in Home Assistant cards requiring zero custom components.
+
+---
+
+### Pattern A: Dynamic Auto-Collapsing Active Speakers Card
+
+Add this card to your main overview dashboard. It uses `custom:auto-entities` to monitor all MyHOME audio zones and automatically renders a compact tile card per zone, named after the zone, with transport buttons and a live volume slider whenever a zone is `playing` or `on`:
 
 ```yaml
 type: custom:auto-entities
 card:
-  type: entities
-  title: 🔊 Active Speakers & Audio Zones
-  show_header_toggle: false
-  state_color: true
+  type: vertical-stack
+  title: 🔊 Active Speakers
+card_param: cards
+show_empty: false
 filter:
   include:
     - integration: myhome
       domain: media_player
-      state: playing
-    - integration: myhome
-      domain: media_player
-      state: 'on'
-show_empty: false
+      state: '/^(playing|on)$/'
+      options:
+        type: tile
+        icon: mdi:speaker
+        state_content:
+          - state
+          - media_title
+          - volume_level
+        features_position: bottom
+        features:
+          - type: media-player-playback
+            controls:
+              - media_previous_track
+              - media_play_pause
+              - media_next_track
+          - type: media-player-volume-slider
 ```
 
-### Dedicated In-Room Media Controller
-Pair the active list above with dedicated zone controllers for high-traffic rooms (e.g. Kitchen, Living room):
+> [!TIP]
+> **Why tile cards?** Each card is named after its zone (the entity's friendly name), so several playing zones are easy to tell apart. `use_media_info` on the Mushroom media player card replaces the zone name with the track title, so two zones playing the same source look identical. Tile cards and their features are built into Home Assistant, so only `custom:auto-entities` is required. To use your own room names, replace the single `include` entry with one entry per zone (`entity_id: media_player.<zone>`) and add `name:` to its `options`.
+
+> [!TIP]
+> **Why `show_empty: false` matters:**  
+> When no music is playing throughout your home, this entire card collapses and takes up zero vertical screen space.
+
+---
+
+### Pattern B: Dedicated Multi-Room Audio Control View (Sections Layout)
+
+For a dedicated whole-home music dashboard (e.g. `/lovelace/audio`), Home Assistant's modern **Sections** layout allows organizing zones by floor or area.
+
+Each section includes:
+* **Interactive Source Selector Chips**: Tap to route the BTicino matrix to physical sources (e.g. `Radio`, `Streamer`). The chip illuminates amber when that source is active.
+* **All-Off Master Chip**: A one-tap red power button to turn off all amplifiers on that floor.
+* **Full-Width Room Players**: Independent volume adjustments and transport controls for every amplifier.
+
+```yaml
+type: sections
+title: Audio
+path: audio
+icon: mdi:speaker-multiple
+max_columns: 3
+sections:
+  # ==========================================
+  # Ground Floor Section
+  # ==========================================
+  - type: grid
+    cards:
+      - type: heading
+        heading: Ground Floor
+        icon: mdi:home-floor-0
+
+      # Quick Source Selector & All-Off Action Bar
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        chips:
+          # Matrix Source 1: Tuner / Radio
+          - type: template
+            entity: media_player.kitchen_sound
+            icon: mdi:radio
+            content: Radio
+            icon_color: >-
+              {{ 'amber' if state_attr(entity, 'source') == 'Radio' else 'disabled' }}
+            tap_action:
+              action: perform-action
+              perform_action: media_player.select_source
+              target:
+                entity_id: media_player.kitchen_sound
+              data:
+                source: Radio
+
+          # Matrix Source 2: Hi-Fi Streamer
+          - type: template
+            entity: media_player.kitchen_sound
+            icon: mdi:cast-audio
+            content: Streamer
+            icon_color: >-
+              {{ 'amber' if state_attr(entity, 'source') == 'Streamer' else 'disabled' }}
+            tap_action:
+              action: perform-action
+              perform_action: media_player.select_source
+              target:
+                entity_id: media_player.kitchen_sound
+              data:
+                source: Streamer
+
+          # Master Power Off for this floor
+          - type: template
+            icon: mdi:power
+            icon_color: red
+            tap_action:
+              action: perform-action
+              perform_action: media_player.turn_off
+              target:
+                entity_id:
+                  - media_player.kitchen_sound
+                  - media_player.dining_room_sound
+                  - media_player.living_room_sound
+
+      # Ground Floor Room Players
+      - type: custom:mushroom-media-player-card
+        entity: media_player.kitchen_sound
+        name: Kitchen
+        icon: mdi:speaker
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+        grid_options:
+          columns: full
+
+      - type: custom:mushroom-media-player-card
+        entity: media_player.dining_room_sound
+        name: Dining Room
+        icon: mdi:speaker
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+        grid_options:
+          columns: full
+
+      - type: custom:mushroom-media-player-card
+        entity: media_player.living_room_sound
+        name: Living Room
+        icon: mdi:speaker
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+        grid_options:
+          columns: full
+
+  # ==========================================
+  # First Floor Section
+  # ==========================================
+  - type: grid
+    cards:
+      - type: heading
+        heading: First Floor
+        icon: mdi:home-floor-1
+
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        chips:
+          - type: template
+            entity: media_player.master_bedroom_sound
+            icon: mdi:radio
+            content: Radio
+            icon_color: >-
+              {{ 'amber' if state_attr(entity, 'source') == 'Radio' else 'disabled' }}
+            tap_action:
+              action: perform-action
+              perform_action: media_player.select_source
+              target:
+                entity_id: media_player.master_bedroom_sound
+              data:
+                source: Radio
+
+          - type: template
+            entity: media_player.master_bedroom_sound
+            icon: mdi:cast-audio
+            content: Streamer
+            icon_color: >-
+              {{ 'amber' if state_attr(entity, 'source') == 'Streamer' else 'disabled' }}
+            tap_action:
+              action: perform-action
+              perform_action: media_player.select_source
+              target:
+                entity_id: media_player.master_bedroom_sound
+              data:
+                source: Streamer
+
+          - type: template
+            icon: mdi:power
+            icon_color: red
+            tap_action:
+              action: perform-action
+              perform_action: media_player.turn_off
+              target:
+                entity_id:
+                  - media_player.master_bedroom_sound
+                  - media_player.master_bathroom_sound
+
+      - type: custom:mushroom-media-player-card
+        entity: media_player.master_bedroom_sound
+        name: Master Bedroom
+        icon: mdi:speaker
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+        grid_options:
+          columns: full
+
+      - type: custom:mushroom-media-player-card
+        entity: media_player.master_bathroom_sound
+        name: Master Bathroom
+        icon: mdi:speaker
+        use_media_info: true
+        show_volume_level: true
+        media_controls:
+          - on_off
+          - previous
+          - play_pause_stop
+          - next
+        volume_controls:
+          - volume_mute
+          - volume_set
+          - volume_buttons
+        grid_options:
+          columns: full
+```
+
+---
+
+### Pattern C: Stock Lovelace Alternative (Zero Custom Cards)
+
+If you prefer not to install custom frontend cards via HACS, you can use Home Assistant's built-in cards:
+
+#### Option 1: Native Tile Card with Controls
+```yaml
+type: tile
+entity: media_player.kitchen_sound
+name: Kitchen Audio
+features:
+  - type: media-player-volume-slider
+  - type: media-player-playback
+```
+
+#### Option 2: Native Media Control Card
 ```yaml
 type: media-control
-entity: media_player.audio_zone_22
+entity: media_player.kitchen_sound
 ```
 
 ---

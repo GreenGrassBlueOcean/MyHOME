@@ -10,8 +10,8 @@ from OWNd.message import OWNEvent
 
 from custom_components.myhome.const import CONF_COVER_TRAVEL_TIMES, EVENT_COVER_CALIBRATION
 from custom_components.myhome.cover import (
-    _LAST_CALIBRATION_TRACE,
     CalibrationInterrupted,
+    CoverCalibrationHub,
     MyHOMECover,
     _stored_calibration,
     async_stop_cover_calibration,
@@ -22,10 +22,10 @@ from tests.conftest import attach_runtime, bind_entity
 
 @pytest.fixture(autouse=True)
 def _fresh_calibration_trace():
-    """The trace buffer is module-level; one test's runs must not leak into another's export."""
-    _LAST_CALIBRATION_TRACE.clear()
+    """Hub traces must not leak across test runs."""
+    CoverCalibrationHub.reset_for_tests()
     yield
-    _LAST_CALIBRATION_TRACE.clear()
+    CoverCalibrationHub.reset_for_tests()
 
 
 class Clock:
@@ -624,10 +624,15 @@ async def test_reset_cover_travel_time(hass, gateway):
 
 def test_calibration_lock_outside_running_loop(gateway):
     """Acquiring calibration lock when no loop is running gracefully handles RuntimeError."""
-    from custom_components.myhome.cover import _CALIBRATION_LOCKS, _calibration_lock
+    from custom_components.myhome.cover import (
+        _calibration_lock,
+        get_calibration_hub,
+    )
 
-    key = gateway.mac
-    _CALIBRATION_LOCKS.pop(key, None)
+    hub = get_calibration_hub(gateway)
+    _ = hub.lock
+    assert hub._lock is not None
+    hub._lock = None
     with patch("asyncio.get_running_loop", side_effect=RuntimeError("no running loop")):
         lock = _calibration_lock(gateway)
         assert lock is not None
@@ -635,19 +640,20 @@ def test_calibration_lock_outside_running_loop(gateway):
 
 async def test_stop_cover_calibration_filtering_and_error(hass, gateway):
     """Stopping calibration ignores mismatched gateways and catches errors during stop."""
-    from custom_components.myhome.cover import _CALIBRATION_ACTIVE, async_stop_cover_calibration
+    from custom_components.myhome.cover import async_stop_cover_calibration, get_calibration_hub
 
     cover = _make_cover(hass, gateway)
     cover._calibrating = True
     cover.async_stop_cover = AsyncMock(side_effect=RuntimeError("stop boom"))
-    _CALIBRATION_ACTIVE[gateway.mac] = cover
+    hub = get_calibration_hub(gateway)
+    hub.active_cover = cover
 
     # 1. Stop for a different gateway should continue past this cover
     assert await async_stop_cover_calibration(hass, gateway_mac="other_gw_mac") is False
 
     # 2. Stop for this gateway catches the stop exception and logs a warning
     assert await async_stop_cover_calibration(hass, gateway_mac=gateway.mac) is True
-    _CALIBRATION_ACTIVE.pop(gateway.mac, None)
+    assert hub.active_cover is None
 
 
 async def test_cover_async_stop_calibration_method(hass, gateway):
@@ -993,9 +999,10 @@ def test_every_raised_translation_key_is_defined():
 
 def test_calibration_lock_outside_an_event_loop(gateway):
     """The per-gateway lock can be created from sync code (no running loop)."""
-    from custom_components.myhome.cover import _CALIBRATION_LOCKS, _calibration_lock
+    from custom_components.myhome.cover_calibration import _calibration_lock, get_calibration_hub
 
-    _CALIBRATION_LOCKS.pop(gateway.mac, None)
+    hub = get_calibration_hub(gateway)
+    hub._lock = None
     lock = _calibration_lock(gateway)
     assert lock is _calibration_lock(gateway)
 
@@ -1132,3 +1139,326 @@ async def test_copied_travel_time_reports_its_source(hass, gateway):
     assert cover.extra_state_attributes["copied_from"] is None
     await cover.async_reset_travel_time()
     assert cover.extra_state_attributes["copied_from"] is None
+
+
+async def test_cover_calibration_hub_lifecycle_and_methods(hass, gateway):
+    """Cover calibration hub state transitions, stops, cleanup, and unloading."""
+    import types
+
+    import custom_components.myhome.cover as cover_mod
+    from custom_components.myhome.cover import (
+        CoverCalibrationHub,
+        CoverFamily,
+        CoverScope,
+        MyHOMEScopeCover,
+        async_unload_entry,
+        get_calibration_hub,
+    )
+    from custom_components.myhome.data import MyHOMERuntimeData
+
+    # Exercise module __dir__ and __getattr__
+    mod_dir = dir(cover_mod)
+    assert "CoverCalibrationHub" in mod_dir
+    assert "MyHOMEScopeCover" in mod_dir
+    assert cover_mod.CoverFamily is CoverFamily
+    assert cover_mod.CoverScope is CoverScope
+    assert cover_mod.MyHOMEScopeCover is MyHOMEScopeCover
+    with pytest.raises(AttributeError, match="has no attribute 'NonExistent'"):
+        getattr(cover_mod, "NonExistent")
+
+    # get_calibration_hub with MyHOMERuntimeData
+    runtime = MyHOMERuntimeData(gateway=gateway)
+    assert runtime.calibration_hub is None
+    entry = MagicMock()
+    entry.runtime_data = runtime
+    gateway.config_entry = entry
+
+    hub1 = get_calibration_hub(gateway)
+    assert isinstance(hub1, CoverCalibrationHub)
+    assert runtime.calibration_hub is hub1
+
+    # Returns already created hub from runtime_data
+    hub1_again = get_calibration_hub(gateway)
+    assert hub1_again is hub1
+
+    # Returns hub from generic runtime_data container
+    generic_runtime = types.SimpleNamespace(calibration_hub=hub1)
+    entry.runtime_data = generic_runtime
+    assert get_calibration_hub(gateway) is hub1
+
+    # Properties and methods
+    assert hub1.active_cover is None
+    hub1.record_frame("tx", "*2*1*21##", entity_id="cover.shutter")
+    trace = hub1.get_trace()
+    assert len(trace) == 1
+    assert trace[0]["raw"] == "*2*1*21##"
+
+    # Hub async_stop with queued and active cover
+    cover_active = _make_cover(hass, gateway)
+    cover_active._calibrating = True
+    cover_queued = _make_cover(hass, gateway)
+    cover_queued.entity_id = "cover.queued"
+
+    hub1.active_cover = cover_active
+    hub1.queued_covers.add(cover_queued)
+
+    # When async_stop_cover fails on the bus, hub logs and continues cleanly
+    with patch.object(cover_active, "async_stop_cover", AsyncMock(side_effect=RuntimeError("bus down"))):
+        stopped = await hub1.async_stop()
+        assert stopped is True
+        assert hub1.active_cover is None
+        assert cover_queued not in hub1.queued_covers
+
+    # async_stop when nothing active or queued returns False
+    assert await hub1.async_stop() is False
+
+    # async_unload_entry cleans up the hub
+    entry.runtime_data = runtime
+    runtime.calibration_hub = hub1
+    assert await async_unload_entry(hass, entry) is True
+    assert runtime.calibration_hub is None
+    assert len(hub1.trace) == 0
+    assert hub1.key not in CoverCalibrationHub._registry
+
+
+async def test_calibration_lock_dynamic_loop_rebinding(gateway):
+    """Event loop rebinding in _calibration_lock creates a fresh lock for a new running loop."""
+    from custom_components.myhome.cover_calibration import _calibration_lock, get_calibration_hub
+
+    hub = get_calibration_hub(gateway)
+    # First acquire in current loop
+    lock1 = _calibration_lock(gateway)
+    assert lock1 is hub.lock
+    async with lock1:
+        pass
+
+    # Simulate loop change by binding mock old loop
+    old_loop = MagicMock()
+    old_loop.is_closed.return_value = False
+    setattr(lock1, "_bound_loop", old_loop)
+
+    # Calling _calibration_lock in current running loop must detect mismatch and rebind
+    lock2 = _calibration_lock(gateway)
+    assert lock2 is not lock1
+    assert lock2 is hub.lock
+    async with lock2:
+        pass
+
+    # Test closed loop detection
+    setattr(lock2, "_bound_loop", old_loop)
+    old_loop.is_closed.return_value = True
+    lock3 = _calibration_lock(gateway)
+    assert lock3 is not lock2
+    assert lock3 is hub.lock
+
+
+async def test_multi_gateway_calibration_isolation(hass):
+    """Active calibration on Gateway A does not cause Gateway B frames to be recorded or leak."""
+    from custom_components.myhome.cover_calibration import (
+        CoverCalibrationHub,
+        async_stop_cover_calibration,
+    )
+    from custom_components.myhome.data import MyHOMERuntimeData
+
+    # Setup Gateway A
+    gw_a = MagicMock()
+    gw_a.mac = "00:03:50:AA:AA:01"
+    gw_a.log_id = "[GW A]"
+    gw_a.availability_signal = "myhome_avail_a"
+    gw_a.available = True
+    gw_a.send = AsyncMock()
+    entry_a = MagicMock()
+    entry_a.runtime_data = MyHOMERuntimeData(gateway=gw_a)
+    entry_a.runtime_data.calibration_hub = CoverCalibrationHub(gw_a)
+    gw_a.config_entry = entry_a
+
+    # Setup Gateway B
+    gw_b = MagicMock()
+    gw_b.mac = "00:03:50:BB:BB:02"
+    gw_b.log_id = "[GW B]"
+    gw_b.availability_signal = "myhome_avail_b"
+    gw_b.available = True
+    gw_b.send = AsyncMock()
+    entry_b = MagicMock()
+    entry_b.runtime_data = MyHOMERuntimeData(gateway=gw_b)
+    entry_b.runtime_data.calibration_hub = CoverCalibrationHub(gw_b)
+    gw_b.config_entry = entry_b
+
+    hass.config_entries.async_entries = MagicMock(return_value=[entry_a, entry_b])
+
+    cover_a = _make_cover(hass, gw_a, name="Cover A", device_id="11", where="11")
+    cover_b = _make_cover(hass, gw_b, name="Cover B", device_id="22", where="22")
+
+    # Start calibration on Gateway A only
+    hub_a = entry_a.runtime_data.calibration_hub
+    hub_b = entry_b.runtime_data.calibration_hub
+    hub_a.active_cover = cover_a
+    cover_a._calibrating = True
+
+    assert hub_a.is_calibrating is True
+    assert hub_b.is_calibrating is False
+    assert cover_a.calibration_hub.is_calibrating is True
+    assert cover_b.calibration_hub.is_calibrating is False
+
+    # Gateway B cover receives an event frame
+    cover_b.handle_event(OWNEvent.parse("*2*1*22##"))
+    assert len(hub_b.get_trace()) == 0
+    assert len(hub_a.get_trace()) == 0
+
+    # Gateway A cover receives an event frame
+    cover_a.handle_event(OWNEvent.parse("*2*1*11##"))
+    assert len(hub_a.get_trace()) == 1
+    assert len(hub_b.get_trace()) == 0
+    assert hub_a.get_trace()[0]["where"] == "11"
+
+    # Gateway B cover executes stop command
+    fut = asyncio.get_running_loop().create_future()
+    fut.set_result(0.0)
+    gw_b.send.return_value = fut
+    await cover_b.async_stop_cover()
+    assert len(hub_b.get_trace()) == 0
+
+    # Stop calibration targeted to Gateway A leaves Gateway B unaffected
+    stopped = await async_stop_cover_calibration(hass, gateway_mac=gw_a.mac)
+    assert stopped is True
+    assert hub_a.active_cover is None
+    assert hub_a.is_calibrating is False
+
+    # Cleanup
+    hub_a.cleanup()
+    hub_b.cleanup()
+
+
+def test_compute_freeze_position_motion_helpers():
+    """Verify compute_freeze_position math and edge cases."""
+    from custom_components.myhome.cover_motion import (
+        compute_freeze_position,
+        compute_interpolated_position,
+        is_in_echo_window,
+        travel_for,
+    )
+
+    # travel_for
+    assert travel_for(20.0, 25.0, opening=True) == 20.0
+    assert travel_for(20.0, 25.0, opening=False) == 25.0
+
+    # is_in_echo_window
+    assert is_in_echo_window(None, 10.0) is False
+    assert is_in_echo_window(15.0, 10.0) is True
+    assert is_in_echo_window(10.0, 10.0) is False
+    assert is_in_echo_window(9.0, 10.0) is False
+
+    # compute_freeze_position stationary: preserves current_position or start_position
+    assert compute_freeze_position(50, None, 10.0, 20.0, False, False, current_position=75) == 75
+    assert compute_freeze_position(50, None, 10.0, 20.0, False, False, current_position=None) == 50
+    assert compute_freeze_position(50, 5.0, 10.0, 20.0, False, False, current_position=80) == 80
+    assert compute_freeze_position(50, 5.0, 10.0, 0.0, True, False, current_position=60) == 60
+
+    # compute_freeze_position moving open
+    assert compute_freeze_position(50, 0.0, 10.0, 20.0, True, False) == 100
+    assert compute_freeze_position(0, 0.0, 5.0, 20.0, True, False) == 25
+
+    # compute_freeze_position moving close
+    assert compute_freeze_position(50, 0.0, 10.0, 20.0, False, True) == 0
+    assert compute_freeze_position(100, 0.0, 5.0, 20.0, False, True) == 75
+
+    # compute_interpolated_position
+    assert compute_interpolated_position(None, 50, None, 10.0, 20.0, False, False) is None
+    assert compute_interpolated_position(50, 50, 0.0, 5.0, 20.0, True, False) == 75
+    assert compute_interpolated_position(50, 50, 0.0, 5.0, 20.0, False, True) == 25
+
+
+async def test_concurrent_two_gateway_async_calibrate(hass):
+    """Concurrently calibrating two covers on separate gateways runs independently without lock contention or trace leakage."""
+    from custom_components.myhome.cover_calibration import (
+        CoverCalibrationHub,
+        async_stop_cover_calibration,
+        get_last_calibration_trace,
+    )
+    from custom_components.myhome.data import MyHOMERuntimeData
+
+    # Setup Gateway A
+    gw_a = MagicMock()
+    gw_a.mac = "00:03:50:AA:AA:01"
+    gw_a.log_id = "[GW A]"
+    gw_a.availability_signal = "myhome_avail_a"
+    gw_a.available = True
+    gw_a.send = AsyncMock()
+    entry_a = MagicMock()
+    entry_a.options = {}
+    entry_a.runtime_data = MyHOMERuntimeData(gateway=gw_a)
+    hub_a = CoverCalibrationHub(gw_a)
+    entry_a.runtime_data.calibration_hub = hub_a
+    gw_a.config_entry = entry_a
+
+    # Setup Gateway B
+    gw_b = MagicMock()
+    gw_b.mac = "00:03:50:BB:BB:02"
+    gw_b.log_id = "[GW B]"
+    gw_b.availability_signal = "myhome_avail_b"
+    gw_b.available = True
+    gw_b.send = AsyncMock()
+    entry_b = MagicMock()
+    entry_b.options = {}
+    entry_b.runtime_data = MyHOMERuntimeData(gateway=gw_b)
+    hub_b = CoverCalibrationHub(gw_b)
+    entry_b.runtime_data.calibration_hub = hub_b
+    gw_b.config_entry = entry_b
+
+    hass.config_entries.async_entries = MagicMock(return_value=[entry_a, entry_b])
+
+    cover_a = _make_cover(hass, gw_a, name="Cover A", device_id="11", where="11")
+    cover_b = _make_cover(hass, gw_b, name="Cover B", device_id="22", where="22")
+    cover_a._persist_calibration = MagicMock()
+    cover_b._persist_calibration = MagicMock()
+
+    # Mock _calibration_run to simulate hardware runs and record trace frames
+    async def mock_run_a(direction):
+        hub_a.record_frame("tx", f"*2*1*11## ({direction})", where="11")
+        await asyncio.sleep(0.01)
+        return 12.0
+
+    async def mock_run_b(direction):
+        hub_b.record_frame("tx", f"*2*1*22## ({direction})", where="22")
+        await asyncio.sleep(0.01)
+        return 16.0
+
+    cover_a._calibration_run = mock_run_a
+    cover_b._calibration_run = mock_run_b
+
+    # Run calibration on both gateways concurrently
+    res_a, res_b = await asyncio.gather(
+        cover_a.async_calibrate(),
+        cover_b.async_calibrate(),
+    )
+
+    assert res_a["down"] == 12.0
+    assert res_a["up"] == 12.0
+    assert res_b["down"] == 16.0
+    assert res_b["up"] == 16.0
+
+    # Locks were independent
+    assert hub_a.lock is not hub_b.lock
+    assert not hub_a.lock.locked()
+    assert not hub_b.lock.locked()
+
+    # Trace isolation: Gateway A trace has only Gateway A frames (start event + 3 motion runs + done event)
+    trace_a = get_last_calibration_trace(gw_a.mac)
+    trace_b = get_last_calibration_trace(gw_b.mac)
+    assert len(trace_a) == 5
+    assert len(trace_b) == 5
+    assert all(f["gateway_mac"] == hub_a.mac for f in trace_a)
+    assert all(f["gateway_mac"] == hub_b.mac for f in trace_b)
+    assert all(f.get("where") == "11" for f in trace_a)
+    assert all(f.get("where") == "22" for f in trace_b)
+
+    # Unfiltered trace returns combined chronologically sorted trace
+    trace_all = get_last_calibration_trace()
+    assert len(trace_all) == 10
+    for i in range(len(trace_all) - 1):
+        assert trace_all[i]["timestamp"] <= trace_all[i + 1]["timestamp"]
+
+    # Stopping one gateway leaves the other unaffected
+    assert await async_stop_cover_calibration(hass, gateway_mac=gw_a.mac) is False
+
+

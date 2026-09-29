@@ -10,6 +10,8 @@ on:
       - 'docs-v0.9/**'
       - 'mkdocs*.yml'
       - 'requirements-docs.txt'
+      - 'scripts/**'
+      - 'custom_components/**'
       - '.github/workflows/docs.yml'
   release:
     types: [published]
@@ -48,28 +50,37 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Validate documentation synchronization against codebase
+        run: |
+          python scripts/sync_documentation.py --check
+
       - name: Deploy versioned docs via mike
         run: |
           # 1. Deploy the v0.9.4 legacy documentation (production master)
           echo "Deploying v0.9.4 legacy documentation..."
           mike deploy --push --update-aliases -F mkdocs-v0.9.yml 0.9.4 legacy v0.9 latest -t "v0.9.4 (legacy)"
 
-          # 2. Deploy v2 (beta) documentation
+          # 2. Deploy v2 documentation
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.ref_name }}"
+            CLEAN_VER="${VERSION#v}"
             # Check if this is a final stable 2.0 release (without beta/alpha/rc tag)
-            if echo "${VERSION}" | grep -Eq '^v?2\.[0-9]+\.[0-9]+$'; then
-              echo "Deploying official stable release: ${VERSION}"
-              mike deploy --push --update-aliases -F mkdocs.yml "${VERSION}" stable latest -t "${VERSION} (stable)"
+            if echo "${CLEAN_VER}" | grep -Eq '^2\.[0-9]+\.[0-9]+$'; then
+              echo "Deploying official stable release: ${CLEAN_VER}"
+              mike deploy --push --update-aliases -F mkdocs.yml "${CLEAN_VER}" stable latest -t "v${CLEAN_VER} (stable)"
               mike set-default --push stable
+            elif echo "${CLEAN_VER}" | grep -Eq '^2\.[0-9]+\.[0-9]+b[0-9]+$'; then
+              echo "Deploying versioned beta release: ${CLEAN_VER}"
+              mike deploy --push --update-aliases -F mkdocs.yml "${CLEAN_VER}" beta dev 2.0 -t "v${CLEAN_VER} (beta)"
+              mike set-default --push latest
             else
-              echo "Deploying beta/preview release: ${VERSION}"
-              mike deploy --push --update-aliases -F mkdocs.yml 2.0 beta dev -t "v2 (beta)"
+              echo "Deploying preview release: ${CLEAN_VER}"
+              mike deploy --push --update-aliases -F mkdocs.yml "${CLEAN_VER}" dev -t "v${CLEAN_VER} (preview)"
               mike set-default --push latest
             fi
           else
-            echo "Deploying branch ${{ github.ref_name }} as v2 (beta) (aliases: beta, dev)"
-            mike deploy --push --update-aliases -F mkdocs.yml 2.0 beta dev -t "v2 (beta)"
+            echo "Deploying branch ${{ github.ref_name }} as development preview (alias: dev)"
+            mike deploy --push --update-aliases -F mkdocs.yml dev -t "dev (preview)"
             # Default root redirect points to latest (production v0.9.4 until 2.0.0 is released)
             mike set-default --push latest
           fi

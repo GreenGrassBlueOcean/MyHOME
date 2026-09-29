@@ -122,7 +122,18 @@ data:
 
 ---
 
+## ☀️ Adaptive & Circadian Lighting
+
+MyHOME seamlessly supports circadian and adaptive lighting automations using the [Adaptive Lighting](https://github.com/basnijholt/adaptive-lighting) custom integration.
+
+Because OpenWebNet operates over a 9,600-baud SCS physical bus, running automated circadian dimmers requires tuning transition steps and adaptation intervals to avoid bus saturation.
+
+For detailed configuration recommendations, DALI-2 tunable white setup, and group handling, see the [Adaptive Lighting Recipe](../recipes/adaptive_lighting.md).
+
+---
+
 ## 🔄 Legacy YAML Note
 
 > [!NOTE]
 > If you are upgrading from legacy v0.9 installations and still have manual `light:` blocks in `/config/myhome.yaml`, please refer to the [v0.9.4 Legacy Light Documentation](../../0.9.4/configuration/lights/) or the [Legacy YAML Migration Guide](../migration/legacy-yaml.md). In v2, all lights are managed dynamically via Home Assistant's native registry.
+

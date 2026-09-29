@@ -11,6 +11,7 @@ import pytest
 
 try:
     from OWNd.message import (
+        OWNAlarmCommand,
         OWNAutomationCommand,
         OWNCenCommand,
         OWNCenPlusCommand,
@@ -28,6 +29,7 @@ except ImportError:
         OWNMessage,
         OWNSignaling,
     )
+    OWNAlarmCommand = None  # type: ignore[assignment]
     OWNCenCommand = None  # type: ignore[assignment]
     OWNCenPlusCommand = None  # type: ignore[assignment]
     OWNSoundCommand = None  # type: ignore[assignment]
@@ -178,6 +180,7 @@ def test_golden_frame_builder_parity(fixture: Dict[str, Any]):
     """Verify that high-level OWNd command builder methods emit the exact golden frame string."""
     builder = fixture["builder"]
     class_map = {
+        "OWNAlarmCommand": OWNAlarmCommand,
         "OWNLightingCommand": OWNLightingCommand,
         "OWNAutomationCommand": OWNAutomationCommand,
         "OWNCenCommand": OWNCenCommand,

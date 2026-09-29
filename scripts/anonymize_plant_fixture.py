@@ -187,8 +187,13 @@ class Anonymizer:
         entry_id = f"01PLANT{slugify(self.plant).upper().replace('_', '')}".ljust(26, "0")[:26]
         original_id = None
         entry = diag.get("data", {}).get("config_entry") if isinstance(diag, dict) else None
-        if isinstance(entry, dict) and isinstance(entry.get("entry_id"), str):
+        if isinstance(entry, dict) and isinstance(entry.get("entry_id"), str) and entry["entry_id"] != "**REDACTED**":
             original_id = entry["entry_id"]  # also keys setup_times
+        elif isinstance(diag, dict):
+            for k in (diag.get("setup_times") or {}):
+                if re.fullmatch(r"01[A-Z0-9]{24}", k):
+                    original_id = k
+                    break
 
         def walk(value: Any, key: str | None = None) -> Any:
             if isinstance(value, dict):
@@ -209,7 +214,11 @@ class Anonymizer:
                 return "UTC"
             if key == "file_path" and isinstance(value, str):
                 return "/config/myhome.yaml"
+            if key == "copied_from" and isinstance(value, str):
+                return self.entity_ids.get(value, "cover.cover_11i02")
             if isinstance(value, str):
+                if value in self.entity_ids:
+                    value = self.entity_ids[value]
                 if original_id and original_id in value:
                     value = value.replace(original_id, entry_id)
                 return self.scrub_text(value)

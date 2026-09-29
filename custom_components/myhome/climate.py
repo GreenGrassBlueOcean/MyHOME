@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -15,6 +17,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
@@ -56,6 +59,9 @@ from .data import get_runtime_data
 from .discovery import Address, DeviceContext, PlatformDiscovery, config_for, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .poll_health import PollHealth
+from .repairs import async_create_unresponsive_zone_issue, async_delete_unresponsive_zone_issue
+from .where_grammar import is_probe, is_pump, where_param, zone_number
 
 PLATFORM = Platform.CLIMATE
 PARALLEL_UPDATES = 0
@@ -64,6 +70,8 @@ PARALLEL_UPDATES = 0
 # here until the OWNd pin exports them.  On MyHomeServer1 + Home+Control
 # plants this is the only frame carrying the zone's mode and setpoint (#429).
 MESSAGE_TYPE_ZONE_STATE = "zone_state"
+# A dimension 12 frame and the frame that turns the zone OFF follow within ~0.1 s (#454, #383)
+_PROTECTION_FRAME_WINDOW = 2.0
 _ZONE_CONTEXT_MODES = {"heating": HVACMode.HEAT, "cooling": HVACMode.COOL, "automatic": HVACMode.AUTO}
 _ZONE_STATES_ON = ("setpoint", "comfort", "eco")
 _ZONE_STATES_OFF = ("protection", "off")
@@ -89,7 +97,7 @@ async def async_setup_entry(
 
     def build(ctx: DeviceContext) -> MyHOMEClimate:
         where, interface = ctx.address.where, ctx.address.interface
-        zone = _zone_number(where)
+        zone = zone_number(where)
         cfg = _zone_config(configured, ctx.address, ctx.key) or ctx.cfg
         suffix = f"{zone}I{interface}" if interface else zone
         is_central = zone in ("0", "01") or where in ("#0", "#0#1")
@@ -119,7 +127,7 @@ async def async_setup_entry(
         )
 
     def accept(ctx: DeviceContext) -> bool:
-        if _is_probe(ctx.address.where):
+        if is_probe(ctx.address.where):
             LOGGER.debug("Skipping non-zone address %s for climate platform", ctx.address.where)
             return False
         return True
@@ -127,7 +135,7 @@ async def async_setup_entry(
     def known_keys(ctx: DeviceContext) -> list[str]:
         keys = [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where, ctx.config_id or ""]
         if not ctx.address.interface:
-            keys.append(_zone_number(ctx.address.where))
+            keys.append(zone_number(ctx.address.where))
         return [k for k in keys if k]
 
     PlatformDiscovery(
@@ -139,23 +147,13 @@ async def async_setup_entry(
     return True
 
 
-def _zone_number(where: str) -> str:
-    """The zone without a legacy ``4-`` prefix or ``#``: ``"#0"`` -> ``"0"``, ``"4-12"`` -> ``"12"``."""
-    return where.split("-")[-1].replace("#", "")
-
-
-def _is_probe(where: str) -> bool:
-    zone = _zone_number(where)
-    return zone.isdigit() and int(zone) >= 100
-
-
 def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict[str, Any]:
     """The ``myhome.yaml`` entry of a zone under every spelling older versions accepted.
 
     A routed zone only matches interface-qualified spellings: zone 1 exists
     on every bus, so the bare ones name the local bus's zone (#408).
     """
-    where, zone = address.where, _zone_number(address.where)
+    where, zone = address.where, zone_number(address.where)
     if address.interface:
         routing = f"{BUS_ROUTING}{address.interface}"
         return config_for(configured, address, key, f"4-{zone}{routing}", f"4-{key}", f"#{zone}{routing}")
@@ -166,22 +164,28 @@ def _zone_config(configured: dict[str, Any], address: Address, key: str) -> dict
     )
 
 
-def _where_param(message: Any) -> list[str]:
-    return getattr(message, "where_param", None) or getattr(message, "_where_param", None) or []
-
-
 def _bus_zone(message: Any) -> int | None:
-    """OWNd's zone of a frame, or ``None`` where OWNd <= 2.0.0b8 misreads it.
+    """OWNd's zone of a frame, or ``None`` where the frame names no heating zone.
 
-    On an unhashed WHERE ``0#<p>`` OWNd reports ``p`` as the zone, but ``p`` is
+    Two different cases end in ``None``.
+
+    Not a zone's frame, though OWNd decodes it correctly: a bare WHERE >= 100 is
+    ``PZZ``, probe ``P`` (1-8) of zone ``ZZ`` (probe 105 -> sensor 1, zone 5).
+    Read as the zone's it was delivered to that zone and, where the zone is not a
+    heating zone (an external probe 105 beside zones 1-4), it discovered a
+    phantom one (#549). Probes belong to the sensor platform.
+
+    Misread by OWNd <= 2.0.0b8: on an unhashed WHERE ``0#<p>`` OWNd reports ``p`` as the zone, but ``p`` is
     never one: ``0#<n>`` is actuator ``n`` of zone 0, the pump the zones call
     with ``*4*4001#<zone>*0#<n>##`` (zones 1, 2, 3, 5 and 6 of one plant all
     call ``0#3``: #303, #333, #404), and ``0#4#<if>`` is WHERE=0 behind an
     F422 interface. Taken as zones, pump 2 switched zone 2 (#431) and the F422
     form became zone 4. ``#0#<n>`` (4-zone central unit) keeps OWNd's zone.
     """
-    if str(getattr(message, "where", None)) == "0" and _where_param(message):
+    if is_pump(message):
         return None
+    if is_probe(str(getattr(message, "where", None))):
+        return None  # probe P of zone ZZ (105 = probe 1 of zone 5), not the zone's own frame
     zone: int | None = getattr(message, "zone", None)
     return zone
 
@@ -194,9 +198,9 @@ def _calling_zones(message: Any) -> tuple[list[str], str | None]:
     # OWNHeatingEvent keeps WHAT only as ``_what``; it has no ``what`` property.
     what = getattr(message, "what", None) or getattr(message, "_what", None)
     what_param = getattr(message, "what_param", None) or getattr(message, "_what_param", None) or []
-    where_param = _where_param(message)
-    if not interface and len(where_param) > 1 and where_param[0] == "4":
-        interface = str(where_param[1])
+    tail = where_param(message)
+    if not interface and len(tail) > 1 and tail[0] == "4":
+        interface = str(tail[1])
 
     zones: list[str] = []
     # WHERE ``<zone>#<n>`` names actuator <n> of the zone (``*#4*2#1*20*1##``
@@ -210,7 +214,7 @@ def _calling_zones(message: Any) -> tuple[list[str], str | None]:
             zones.append(str(int(what_param[0])))
         except (ValueError, TypeError):
             pass
-    if not zones and raw_where and raw_where not in ("0", "") and not _is_probe(str(raw_where)):
+    if not zones and raw_where and raw_where not in ("0", "") and not is_probe(str(raw_where)):
         zones.append(str(raw_where))
     return zones, interface
 
@@ -228,7 +232,10 @@ def _zone_route_keys(message: Any, address: Address | None) -> list[str]:
     zones, interface = _calling_zones(message)
     zone = _bus_zone(message)
     keys = [] if zone is None else [f"#{zone}" if zone == 0 else str(zone)]
-    if getattr(message, "where", None):
+    # WHERE "0" with a parameter is pump ``0#N``, not the general "0" (#431).
+    if getattr(message, "where", None) and not is_probe(str(message.where)) and not (
+        is_pump(message)
+    ):
         keys.append(str(message.where))
     for z in zones:
         keys.append(z)
@@ -324,6 +331,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._local_offset: float = 0
         self._knob_pos: str = "UNKNOWN"
         self._local_target_temperature: float | None = None
+        self._nominal_before_dim12: tuple[float | None, float] | None = None
+        self._poll_health = PollHealth()
 
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_hvac_action: HVACAction | None = None
@@ -351,10 +360,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 attrs["running_fan_speed"] = self._running_fan_speed
         if self._interface is not None:
             attrs["Int"] = self._interface
+        attrs.update(self._poll_health.attributes())
         return attrs
 
     async def async_restore_last_state(self, last_state: State | None) -> None:
         """Restore climate state from HA storage."""
+        if last_state is not None:
+            self._poll_health.restore(last_state.attributes)
         if last_state is not None and last_state.state is not None:
             try:
                 restored_mode = HVACMode(last_state.state)
@@ -379,15 +391,54 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._attr_fan_mode = restored_fan_mode
 
     async def async_update(self) -> None:
-        """Request status update from gateway."""
+        """Request status update from gateway, unless the zone has stopped answering."""
+        if self._poll_health.should_skip(time.time()):
+            LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
+            self._raise_unresponsive_issue()
+            return
         if self._central:
-            await self._gateway_handler.send_status_request(OWNHeatingCommand.central_status(self._where))
+            request = OWNHeatingCommand.central_status(self._where)
         else:
-            await self._gateway_handler.send_status_request(OWNHeatingCommand.status(self._full_where))
-            if self._fan:
-                await self._gateway_handler.send_status_request(
-                    OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
-                )
+            request = OWNHeatingCommand.status(self._full_where)
+        frames_before = self._poll_health.frames
+        written = await self._gateway_handler.send_status_request(request)
+        if isinstance(written, asyncio.Future):
+            written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
+        if self._fan and not self._central:
+            await self._gateway_handler.send_status_request(
+                OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Drop the "zone no longer answers" repair when the owner removes the entity (not on a reload)."""
+        await super().async_will_remove_from_hass()
+        hass = self.hass or self._hass
+        if hass is not None and self.entity_id and er.async_get(hass).async_get(self.entity_id) is None:
+            self._clear_unresponsive_issue()
+
+    @callback
+    def _poll_answered(self, written: asyncio.Future[float], frames_before: int) -> None:
+        """Count a status request the gateway refused or never answered (see ``poll_health``)."""
+        if written.cancelled():
+            if not getattr(self._gateway_handler, "is_connected", False) or self._poll_health.frames != frames_before:
+                return  # the gateway was away, or the zone did answer
+            if self._poll_health.failed(time.time()):
+                LOGGER.info("%s %s did not answer its status request twice in a row", self._gateway_handler.log_id, self._display_name)
+                self._raise_unresponsive_issue()
+            self._publish_state()
+        elif self._poll_health.answered():
+            self._clear_unresponsive_issue()
+            self._publish_state()
+
+    def _raise_unresponsive_issue(self) -> None:
+        hass = self.hass or self._hass
+        if hass is not None and self.unique_id:
+            async_create_unresponsive_zone_issue(hass, self.unique_id, self._display_name, self._gateway_handler.name)
+
+    def _clear_unresponsive_issue(self) -> None:
+        hass = self.hass or self._hass
+        if hass is not None and self.unique_id:
+            async_delete_unresponsive_zone_issue(hass, self.unique_id)
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
@@ -557,6 +608,33 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
             )
 
+    def _dimension_3_is_protection(self, message: OWNHeatingEvent) -> bool:
+        """Whether a dimension 12/14 frame may be a protection setpoint rather than the nominal one.
+
+        The trailing ``3`` cannot tell them apart (a manual write on a MyHomeServer1 plant
+        ends in it too, #454), so the zone's mode decides: OFF, or not known yet, means
+        protection is possible; a zone known to be running heats or cools to what it reports.
+        """
+        if self._attr_hvac_mode == HVACMode.OFF:
+            return True
+        value = getattr(message, "_dimension_value", None)
+        return bool(value) and len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None
+
+    def _remember_nominal(self) -> None:
+        """Keep the nominal setpoint a dimension 12 frame is about to replace."""
+        self._nominal_before_dim12 = (self._target_temperature, time.monotonic())
+
+    def _restore_nominal_before_protection(self) -> None:
+        """A protection setpoint arrives just before the frame that turns the zone OFF.
+
+        The dimension 12 frame of a running zone was taken as the new nominal setpoint;
+        if the OFF frame follows at once, it was the protection setpoint, so put the
+        previous nominal back (#383).
+        """
+        remembered, self._nominal_before_dim12 = self._nominal_before_dim12, None
+        if remembered is not None and time.monotonic() - remembered[1] <= _PROTECTION_FRAME_WINDOW:
+            self._target_temperature = remembered[0]
+
     def _apply_zone_state(self, message: OWNHeatingEvent) -> None:
         """Dimension 7: the zone's operating state, and its setpoint in state 'setpoint'.
 
@@ -565,6 +643,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         """
         state = getattr(message, "zone_state", None)
         if state in _ZONE_STATES_OFF:
+            self._restore_nominal_before_protection()
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
             self._actuator_states.clear()
@@ -588,6 +667,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     @callback
     def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
+        if self._poll_health.frame_seen():
+            self._clear_unresponsive_issue()
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
             LOGGER.debug(
                 "%s %s",
@@ -609,14 +690,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._target_temperature = message.set_temperature
-            is_protection_or_off = (
-                self._attr_hvac_mode == HVACMode.OFF
-                or (
-                    hasattr(message, "_dimension_value")
-                    and len(message._dimension_value) > 1
-                    and message._dimension_value[1] == "3"
-                )
-            )
+            is_protection_or_off = self._dimension_3_is_protection(message)
             if not is_protection_or_off:
                 self._local_target_temperature = (
                     self._target_temperature + self._local_offset
@@ -653,15 +727,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 message.human_readable_log,
             )
             self._local_target_temperature = message.local_set_temperature
-            is_protection_or_off = (
-                self._attr_hvac_mode == HVACMode.OFF
-                or (
-                    hasattr(message, "_dimension_value")
-                    and len(message._dimension_value) > 1
-                    and message._dimension_value[1] == "3"
-                )
-            )
+            is_protection_or_off = self._dimension_3_is_protection(message)
             if not is_protection_or_off:
+                self._remember_nominal()
                 self._target_temperature = (
                     self._local_target_temperature - self._local_offset
                     if self._local_target_temperature is not None
@@ -702,6 +770,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._gateway_handler.log_id,
                     message.human_readable_log,
                 )
+                self._restore_nominal_before_protection()
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
                 self._actuator_states.clear()
@@ -751,6 +820,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._gateway_handler.log_id,
                     message.human_readable_log,
                 )
+                self._restore_nominal_before_protection()
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
                 self._actuator_states.clear()

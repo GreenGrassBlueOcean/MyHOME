@@ -60,6 +60,20 @@
           "port": "Port / Baudrate",
           "password": "Password"
         }
+      },
+      "bus_topology": {
+        "title": "Is this {name} on the same bus as another gateway?",
+        "description": "Another MyHOME gateway is already configured. If this {name} is connected to the same SCS bus, add it as that gateway's secondary or warm standby now: set up on its own, it would discover every device the other gateway already has a second time. You can change this later in the gateway's options.",
+        "data": {
+          "bus_topology": "Bus topology",
+          "primary_gateway": "Primary gateway (same bus only)",
+          "gateway_role": "Role of this gateway (same bus only)",
+          "delegated_whos": "Delegated subsystems (secondary only)"
+        },
+        "data_description": {
+          "gateway_role": "Suggested from the capabilities of both gateways: secondary when this gateway supports subsystems the primary lacks, otherwise warm standby.",
+          "delegated_whos": "Subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary."
+        }
       }
     },
     "error": {
@@ -68,7 +82,12 @@
       "invalid_mac": "Invalid MAC address",
       "invalid_password": "Invalid password",
       "password_retry": "Gateway refusing password negotiation, wait 60s before retrying.",
-      "password_error": "Invalid password"
+      "password_error": "Invalid password",
+      "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
+      "primary_gateway_not_found": "The selected primary gateway could not be found.",
+      "overlapping_delegated_whos": "One or more of the selected WHOs are already delegated to another secondary gateway on this bus.",
+      "who_not_supported_by_gateway": "One or more of the selected WHOs are not supported by this gateway model's profile.",
+      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary."
     },
     "abort": {
       "discover_timeout": "Unable to discover MyHome gateways",
@@ -89,9 +108,13 @@
         "description": "Advanced system settings and streaming decoder mapping",
         "data": {
           "source_1_name": "Source 1 — name of what is wired to matrix input S1 (leave blank if nothing is connected)",
+          "source_1_tuner": "Source 1 is a tuner (F500): adds a radio entity with stations, frequency and RDS",
           "source_2_name": "Source 2 — name of what is wired to matrix input S2 (leave blank if nothing is connected)",
+          "source_2_tuner": "Source 2 is a tuner (F500): adds a radio entity with stations, frequency and RDS",
           "source_3_name": "Source 3 — name of what is wired to matrix input S3 (leave blank if nothing is connected)",
+          "source_3_tuner": "Source 3 is a tuner (F500): adds a radio entity with stations, frequency and RDS",
           "source_4_name": "Source 4 — name of what is wired to matrix input S4 (leave blank if nothing is connected)",
+          "source_4_tuner": "Source 4 is a tuner (F500): adds a radio entity with stations, frequency and RDS",
           "address": "IP address",
           "password": "Password",
           "config_file_path": "Configuration file path",
@@ -101,7 +124,7 @@
           "transition_mode": "Brightness transition method",
           "decoder_1_entity": "Decoder 1 — Media player entity (e.g. media_player.cambridge_audio_cxn)",
           "decoder_1_source": "Decoder 1 — BTicino source input number (1–4)",
-          "decoder_1_pre_gain": "Decoder 1 — Pre-gain offset % (0 = Cambridge with Pre-Amp OFF, 20 = squeezelite)",
+          "decoder_1_pre_gain": "Decoder 1 — Pre-gain offset % (0 = Pre-Amp OFF, 20 = squeezelite, 100 = lock source volume at 100%)",
           "decoder_2_entity": "Decoder 2 — Media player entity",
           "decoder_2_source": "Decoder 2 — BTicino source input number (1–4)",
           "decoder_2_pre_gain": "Decoder 2 — Pre-gain offset %",
@@ -119,7 +142,15 @@
           "default_source_env_6": "Default source for environment 6 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_7": "Default source for environment 7 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_8": "Default source for environment 8 — used when a zone in that room is turned on from Home Assistant",
-          "default_source_env_9": "Default source for environment 9 — used when a zone in that room is turned on from Home Assistant"
+          "default_source_env_9": "Default source for environment 9 — used when a zone in that room is turned on from Home Assistant",
+          "bus_topology": "Bus topology",
+          "gateway_role": "Gateway role",
+          "primary_gateway": "Primary gateway",
+          "delegated_whos": "Delegated subsystems"
+        },
+        "data_description": {
+          "decoder_1_pre_gain": "Calibrate against the hardware, not a guess: if this decoder's line-out feeds a BTicino Ingresso RCA (L/N/NT4560) or Controllo Stereo (L4561) module, raise Pre-Gain while playing until that module's signal LED blinks orange — not steady green (signal too low) or steady red/orange (clipping). Always wire the decoder's fixed line-out ('OUT'), never a variable headphone/AUX output — a second uncontrolled gain stage there causes the same distortion BTicino's own troubleshooting guide warns about.",
+          "delegated_whos": "Secondary role only: subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary."
         }
       }
     },
@@ -131,7 +162,20 @@
       "invalid_password": "Invalid password",
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
-      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead."
+      "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
+      "myhome_entity_not_allowed": "Do not select MyHOME sound zones as decoders! Select the underlying physical streaming player instead.",
+      "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
+      "invalid_primary_gateway": "Cannot select this gateway itself as the primary gateway.",
+      "primary_gateway_not_found": "The selected primary gateway could not be found.",
+      "circular_gateway_reference": "Circular reference: the selected primary gateway already points to this gateway.",
+      "primary_gateway_not_shared_primary": "The selected gateway must first be configured with bus topology Shared and role Primary.",
+      "gateway_has_dependents": "Other gateways use this gateway as their primary. Point them at another primary (or make them standalone) first.",
+      "overlapping_delegated_whos": "One or more of the selected WHOs are already delegated to another secondary gateway on this bus.",
+      "who_not_supported_by_gateway": "One or more of the selected WHOs are not supported by this gateway model's profile.",
+      "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary.",
+      "secondary_requires_shared_topology": "Secondary and warm standby roles require the bus topology to be set to Shared.",
+      "multiple_shared_primaries": "Another gateway is already configured as the primary gateway for this shared bus. Select Secondary or Warm standby.",
+      "duplicate_decoder_source": "Each decoder must be connected to a different matrix source input."
     }
   },
   "services": {
@@ -252,9 +296,21 @@
     "reset_cover_travel_time": {
       "name": "Reset cover travel time",
       "description": "Forgets the measured or manually set travel times and returns to the myhome.yaml travel_time or the 25 s default."
+    },
+    "tuner_seek_up": {
+      "name": "Tuner seek up",
+      "description": "Seek forward to the next receivable FM radio frequency on an F500 tuner source."
+    },
+    "tuner_seek_down": {
+      "name": "Tuner seek down",
+      "description": "Seek backward to the previous receivable FM radio frequency on an F500 tuner source."
     }
   },
   "issues": {
+    "unresponsive_zone": {
+      "title": "Heating zone {zone} no longer answers ({gateway})",
+      "description": "The heating zone {zone} on {gateway} did not answer its status request on two restarts in a row, so MyHOME stopped asking for it at startup (each unanswered request costs the gateway's command queue several seconds). If the zone no longer exists, remove its device or entity in Home Assistant. If it does exist, this clears as soon as it sends any frame, and it is asked again after a week."
+    },
     "gateway_authentication_failed": {
       "title": "Authentication failed for MyHOME gateway {gateway}",
       "description": "The MyHOME gateway refused the configured OpenWebNet password or HMAC negotiation. Please check your credentials using the reconfigure flow."
@@ -278,6 +334,46 @@
     "gateway_identity_corrected": {
       "title": "Gateway model corrected to {corrected}",
       "description": "The gateway was configured as {previous} but reports model code {code}, which the OpenWebNet device-type table (WHO=13) or the gateway diagnostic catalogue (WHO=1013, codes prefixed 1013-1-) identifies as {corrected}. The model, gateway profile and device registry were updated to {corrected}. If that is wrong, open the integration's options (Configure) and set the model explicitly."
+    },
+    "shared_bus_detected": {
+      "title": "Shared OpenWebNet bus detected ({gateway_a} & {gateway_b})",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Configure Shared Bus Topology",
+            "description": "Home Assistant has analyzed the hardware capabilities of your gateways and calculated the recommended shared bus topology:\n\n- **Primary Gateway**: {primary}\n- **Follower Gateway**: {secondary}\n- **Assigned Role**: {role}\n- **Delegated Subsystems**: {subsystems}\n\n**Rationale**: {rationale}\n\nClick Submit to apply this recommended configuration automatically and reload both gateways."
+          }
+        },
+        "abort": {
+          "gateway_missing": "One of the gateways is no longer configured."
+        }
+      }
+    },
+    "gateway_failover_active": {
+      "title": "High Availability failover active: {primary} offline",
+      "description": "Primary MyHOME gateway {primary} is currently offline or unreachable. High Availability warm-standby failover has automatically routed bus traffic and status monitoring through standby gateway {standby}.\n\nWhen {primary} recovers, Home Assistant will automatically fail back to the primary gateway and resolve this issue."
+    },
+    "primary_gateway_missing": {
+      "title": "Primary gateway of {gateway} is missing",
+      "description": "{gateway} is configured as a secondary or warm standby gateway for {primary}, but that gateway is no longer configured as a Shared Primary gateway (it was removed or reconfigured). {gateway} keeps suppressing discovery until it is reconfigured.\n\nOpen Configure on {gateway} and either select another Primary gateway or set its Bus Topology to Standalone."
+    },
+    "incompatible_decoder_platform": {
+      "title": "Decoder {decoder} uses unsupported integration ({platform})",
+      "fix_flow": {
+        "step": {
+          "confirm_companion": {
+            "title": "Use DLNA streaming companion",
+            "description": "The configured decoder `{decoder}` ({platform}) does not support direct HTTP stream URLs. However, a compatible DLNA Digital Media Renderer was detected for this device: `{companion}`.\n\nClick **Submit** to automatically update your MyHOME decoder configuration to use `{companion}`."
+          },
+          "missing_companion": {
+            "title": "DLNA renderer not found",
+            "description": "The configured decoder `{decoder}` ({platform}) requires the DLNA Digital Media Renderer integration to accept stream URLs from Music Assistant.\n\nHome Assistant has not yet configured DLNA for this device. Please go to **Settings → Devices & Services**, add the **DLNA Digital Media Renderer** integration for your device, and click **Submit** to finish."
+          }
+        },
+        "abort": {
+          "companion_still_missing": "A DLNA Digital Media Renderer entity was not found for this device. Please configure DLNA and try again."
+        }
+      }
     }
   },
   "exceptions": {
@@ -337,6 +433,30 @@
     },
     "routing_unsupported": {
       "message": "{entity_id}: amplifier {where} has no matrix routing address (environment 0, or not a two-digit amplifier); switch its source at a wall panel"
+    },
+    "decoder_incompatible_platform": {
+      "message": "{entity_id}: decoder {decoder} ({platform}) does not support streaming URLs; configure it via DLNA DMR instead"
+    },
+    "foreign_entity_not_supported": {
+      "message": "{entity_id}: cannot join foreign entity {member}; only MyHOME sound zones can be grouped"
+    },
+    "grouping_unavailable": {
+      "message": "{entity_id}: audio grouping is not available yet; the decoder pool has not been initialised"
+    },
+    "decoder_wake_timeout": {
+      "message": "{entity_id}: decoder {decoder} did not wake up within 5 seconds"
+    },
+    "unknown_station": {
+      "message": "{entity_id}: unknown station \"{station}\""
+    },
+    "frequency_out_of_range": {
+      "message": "{entity_id}: {frequency} MHz is outside the FM band"
+    },
+    "invalid_tuner_media": {
+      "message": "{entity_id}: \"{media_id}\" is neither a station nor a frequency"
+    },
+    "seek_not_supported": {
+      "message": "{entity_id}: seek is only supported on tuner source entities"
     }
   },
   "entity": {
@@ -361,6 +481,51 @@
       "energy_month": {
         "name": "Energy (current month)"
       }
+    }
+  },
+  "selector": {
+    "bus_topology": {
+      "options": {
+        "standalone": "Standalone (own SCS bus)",
+        "shared": "Shared SCS bus (same bus as another gateway)"
+      }
+    },
+    "gateway_role": {
+      "options": {
+        "primary": "Primary (discovers and polls the bus)",
+        "secondary": "Secondary (discovers only its delegated subsystems)",
+        "standby": "Warm standby (takes over while the primary is offline)"
+      }
+    },
+    "delegated_whos": {
+      "options": {
+        "1": "1 - Lighting",
+        "2": "2 - Covers / shutters",
+        "4": "4 - Thermoregulation",
+        "5": "5 - Burglar alarm",
+        "9": "9 - Auxiliary",
+        "15": "15 - CEN scenarios",
+        "16": "16 - Sound diffusion",
+        "18": "18 - Energy management",
+        "22": "22 - Sound diffusion (audio matrix)",
+        "25": "25 - CEN+ scenarios"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "pushbutton_short_press": "\"{subtype}\" pressed",
+      "pushbutton_short_release": "\"{subtype}\" released after short press",
+      "pushbutton_long_press": "\"{subtype}\" held down",
+      "pushbutton_long_press_repeat": "\"{subtype}\" held down (repeating)",
+      "pushbutton_long_release": "\"{subtype}\" released after long press",
+      "rotary_cw_slow": "\"{subtype}\" turned clockwise slowly",
+      "rotary_cw_fast": "\"{subtype}\" turned clockwise quickly",
+      "rotary_ccw_slow": "\"{subtype}\" turned counter-clockwise slowly",
+      "rotary_ccw_fast": "\"{subtype}\" turned counter-clockwise quickly",
+      "centralized_shutter_open": "Centralized shutter OPEN command received",
+      "centralized_shutter_close": "Centralized shutter CLOSE command received",
+      "centralized_shutter_stop": "Centralized shutter STOP command received"
     }
   }
 }

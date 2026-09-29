@@ -4,6 +4,8 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from homeassistant.const import Platform
+
 LOGGER = logging.getLogger(__package__)
 DOMAIN = "myhome"
 
@@ -35,6 +37,17 @@ CONF_ENTITY_NAME = "entity_name"
 CONF_ICON = "icon"
 CONF_ICON_ON = "icon_on"
 CONF_PLATFORMS = "platforms"
+PLATFORMS: tuple[Platform, ...] = (
+    Platform.LIGHT,
+    Platform.SWITCH,
+    Platform.COVER,
+    Platform.CLIMATE,
+    Platform.BINARY_SENSOR,
+    Platform.SENSOR,
+    Platform.MEDIA_PLAYER,
+    Platform.BUTTON,
+    Platform.ALARM_CONTROL_PANEL,
+)
 CONF_ADDRESS = "address"
 CONF_OWN_PASSWORD = "password"
 CONF_FIRMWARE = "firmware"
@@ -81,6 +94,9 @@ CONF_ROTARY_CW_SLOW = "rotary_cw_slow"
 CONF_ROTARY_CW_FAST = "rotary_cw_fast"
 CONF_ROTARY_CCW_SLOW = "rotary_ccw_slow"
 CONF_ROTARY_CCW_FAST = "rotary_ccw_fast"
+CONF_CENTRALIZED_SHUTTER_OPEN = "centralized_shutter_open"
+CONF_CENTRALIZED_SHUTTER_CLOSE = "centralized_shutter_close"
+CONF_CENTRALIZED_SHUTTER_STOP = "centralized_shutter_stop"
 CONF_TRAVEL_TIME = "travel_time"
 DEFAULT_TRAVEL_TIME = 25
 
@@ -108,7 +124,7 @@ PLATFORM_ALARM = "alarm_control_panel"
 # Keys follow the pattern: decoder_{n}_{field}, n = 1..4
 CONF_DECODER_ENTITY = "decoder_{}_entity"     # HA media_player entity_id
 CONF_DECODER_SOURCE = "decoder_{}_source"     # BTicino source number (int 1-4)
-CONF_DECODER_PRE_GAIN = "decoder_{}_pre_gain" # Volume offset % added to decoder (0-50)
+CONF_DECODER_PRE_GAIN = "decoder_{}_pre_gain" # Volume offset % added to decoder (0-100)
 CONF_DECODER_SLOTS = 4                        # Maximum number of decoder slots
 
 # ── Matrix sources (F441M inputs S1-S4) ────────────────────────────────────
@@ -118,6 +134,15 @@ CONF_DECODER_SLOTS = 4                        # Maximum number of decoder slots
 CONF_SOURCE_NAME = "source_{}_name"           # Friendly name, e.g. "Cambridge"
 CONF_SOURCE_SLOTS = 4                         # Matrix inputs S1-S4
 SOURCE_UNCONFIGURED_SUFFIX = " (not configured)"
+# A source that is a tuner (F500 / F500N) accepts frequency, station and RDS
+# messages that an RCA interface does not. The user declares it, because a
+# source device that has not spoken yet is indistinguishable on the bus.
+CONF_SOURCE_TUNER = "source_{}_tuner"
+#: Stored stations a WHO=16 tuner exposes (5 for F500, up to 15 for F500N).
+TUNER_STATION_COUNT = 5
+TUNER_MAX_STATION_COUNT = 15
+SERVICE_TUNER_SEEK_UP = "tuner_seek_up"
+SERVICE_TUNER_SEEK_DOWN = "tuner_seek_down"
 
 # Default source per environment. The F441M routes per output and an output
 # serves one environment, so a default belongs to an environment, not to a
@@ -143,6 +168,40 @@ SOFTWARE_TRANSITION_MAX_STEPS = 25
 # Debounce window for reactive group / area / general broadcast re-sync (issue #368)
 RESYNC_DEBOUNCE_S = 0.5
 RESYNC_LEADING_WINDOW_S = 1.5
+
+# ── Multi-Gateway & Shared Bus Support (Issue #453) ─────────────────────────
+CONF_BUS_TOPOLOGY = "bus_topology"
+TOPOLOGY_STANDALONE = "standalone"
+TOPOLOGY_SHARED = "shared"
+TOPOLOGY_OPTIONS = [TOPOLOGY_STANDALONE, TOPOLOGY_SHARED]
+
+CONF_GATEWAY_ROLE = "gateway_role"
+ROLE_PRIMARY = "primary"
+ROLE_SECONDARY = "secondary"
+ROLE_STANDBY = "standby"
+ROLE_OPTIONS = [ROLE_PRIMARY, ROLE_SECONDARY, ROLE_STANDBY]
+
+CONF_PRIMARY_GATEWAY = "primary_gateway"
+CONF_DELEGATED_WHOS = "delegated_whos"
+ISSUE_SHARED_BUS_DETECTED = "shared_bus_detected"
+ISSUE_GATEWAY_FAILOVER = "gateway_failover_active"
+ISSUE_PRIMARY_GATEWAY_MISSING = "primary_gateway_missing"
+
+# Shared-bus detection. The #453 traces (F454 + MH202 on one bus) put the same
+# physical frame on both event sessions 4-47 ms apart.
+SHARED_BUS_TX_ECHO_S = 1.5
+SHARED_BUS_EVIDENCE_COUNT = 3
+SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
+
+
+def eight_bits_to_percent(value: int) -> int:
+    """Convert an 8-bit brightness (0-255) to percentage (0-100)."""
+    return int(round((value * 100) / 255, 0))
+
+
+def percent_to_eight_bits(value: int) -> int:
+    """Convert a percentage (0-100) to 8-bit brightness (0-255)."""
+    return int(round((value * 255) / 100, 0))
 
 
 def is_apl_address(base: str) -> bool:
@@ -243,6 +302,8 @@ SUPPORTED_GATEWAY_MODELS = [
     "F452",
     "F461",
     "AM4890",
+    "H4890",
+    "LN4890",
     "Generic",
 ]
 
@@ -266,14 +327,15 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 # tuple of every name the code has been seen answering to; the first entry is
 # the name a gateway gets labelled with.
 #   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
-#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21)
-#        and MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
-#        #292/#297); reported for F461 in issue #370, no diagnostics yet. Shared
-#        across modern Linux-based gateway families, so it identifies none of them
-#        (see WHO13_SHARED_DEVICE_TYPES). It contradicts legacy gateways (e.g.
-#        MH200/F452), but only as field evidence.
+#        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21),
+#        MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
+#        #292/#297), H4890 (issue #466 sweep, firmware 4.0.15), and F461 (issue
+#        #466 comment 5870342995 sweep, firmware 2.0.11; reported without
+#        diagnostics in issue #370). Shared across modern Linux-based
+#        gateway families, so it identifies none of them (see WHO13_SHARED_DEVICE_TYPES).
+#        It contradicts legacy gateways (e.g. MH200/F452), but only as field evidence.
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MyHomeServer1", "MH202", "F461"),
+    "200": ("F454", "MyHomeServer1", "MH202", "F461", "H4890"),
 }
 # Codes from an independent implementation: the `device` table of Nmap's
 # openwebnet-discovery.nse, whose `device_dimension["Device Type"] = "15"` is this
@@ -328,16 +390,18 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # only brand value ever traced is 5, "Legrand BTicino", which does not
 # discriminate - so the BTicino name is always the one displayed.
 #
-# Three codes are confirmed on physical hardware (PR #420, fixtures under
-# tests/fixtures/plants/pr_420_*): 51 F454, 5 MH202, 67 MyHomeServer1. The rest of
-# the table is from the database, untraced.
+# Four codes are confirmed on physical hardware: 51 F454, 5 MH202, and 67
+# MyHomeServer1 (PR #420, fixtures under tests/fixtures/plants/pr_420_*), and 134
+# F461 (issue #466 comment 5870342995, fixtures under
+# tests/fixtures/plants/issue_466_f461/). The rest of the table is from the
+# database, untraced.
 #
 # A dimension-1 reply is four values, not one (@anotherjulien in #420, from the
 # OpenWebNet Encyclopedia's work on MHCatalogue.db):
 #
 #     *#1013**1*OBJECT_MODEL*N_CONF*BRAND*LINE##
 #
-# All three traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
+# All four traced gateways answered `*15*5*0`: N_CONF 15, BRAND 5 (Legrand
 # BTicino), LINE 0 (undefined). N_CONF 15 sits outside the ordinary 0..12 physical
 # configurator range and looks like the 0xF sentinel, so its gateway-specific
 # meaning stays unresolved. None of the three identifies the model, so only

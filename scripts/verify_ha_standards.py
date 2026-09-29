@@ -15,6 +15,7 @@ architectural standards across custom_components/myhome/:
 import ast
 import json
 import os
+import py_compile
 import re
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ RUNTIME_DATA_READERS = [
     "light.py", "switch.py", "cover.py", "climate.py", "binary_sensor.py", "sensor.py",
     "media_player.py", "button.py", "alarm_control_panel.py",
     "services.py", "websocket.py", "diagnostics.py", "myhome_device.py", "decoder_pool.py",
+    "cover_calibration.py",
 ]
 TRANSLATIONS_DIR = CUSTOM_COMPONENTS_DIR / "translations"
 
@@ -219,6 +221,110 @@ def check_deprecated_constants(checker: StandardsChecker):
                             )
 
     checker.log_ok("No unhandled top-level imports of deprecated homeassistant.const symbols.")
+
+
+def check_future_annotations_and_syntax(checker: StandardsChecker, target_dir: Path | None = None):
+    """Rule: Verify all Python files compile cleanly and 'from __future__ import annotations' is the first statement."""
+    base_dir = target_dir or CUSTOM_COMPONENTS_DIR
+    checked_files = 0
+
+    for root, _, files in os.walk(base_dir):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            py_path = Path(root) / file
+            checked_files += 1
+
+            # 1. Bytecode compilation check
+            try:
+                py_compile.compile(str(py_path), doraise=True)
+            except py_compile.PyCompileError as err:
+                checker.log_error(
+                    "RULE_PYTHON_SYNTAX",
+                    py_path,
+                    getattr(err, "lineno", 1) or 1,
+                    f"SyntaxError in Python source: {err}",
+                )
+                continue
+
+            # 2. AST parsing & __future__ position check
+            with open(py_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                tree = ast.parse(content, filename=str(py_path))
+            except SyntaxError as err:
+                checker.log_error(
+                    "RULE_PYTHON_SYNTAX",
+                    py_path,
+                    err.lineno or 1,
+                    f"SyntaxError parsing AST: {err}",
+                )
+                continue
+
+            seen_non_future_stmt = False
+            for stmt in tree.body:
+                # Allow module docstring
+                if (
+                    isinstance(stmt, ast.Expr)
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                    and stmt == tree.body[0]
+                ):
+                    continue
+
+                if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+                    if seen_non_future_stmt:
+                        checker.log_error(
+                            "RULE_FUTURE_ANNOTATIONS",
+                            py_path,
+                            stmt.lineno,
+                            "from __future__ imports must occur at the beginning of the file (before other statements/imports).",
+                        )
+                else:
+                    seen_non_future_stmt = True
+
+    checker.log_ok(f"All {checked_files} Python source files verified for valid syntax and correct __future__ positioning.")
+
+
+def check_no_update_listener_reload_conflict(checker: StandardsChecker, target_dir: Path | None = None):
+    """Rule 5: A config entry update listener must not coexist with flow reload helpers (#510).
+
+    Home Assistant 2026.12 turns the combination of ``add_update_listener`` and
+    reload helpers in config flows into an error (duplicate reloads / races).
+    The integration therefore uses no update listener at all, and config flows
+    must not call ``async_reload`` directly: use ``async_update_reload_and_abort``,
+    ``OptionsFlowWithReload`` or ``async_schedule_reload`` instead.
+    """
+    base = target_dir or CUSTOM_COMPONENTS_DIR
+    for py_path in sorted(base.rglob("*.py")):
+        try:
+            tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+        except SyntaxError:
+            continue
+        is_flow = py_path.name == "config_flow.py"
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr == "add_update_listener":
+                checker.log_error(
+                    "RULE_NO_UPDATE_LISTENER",
+                    py_path,
+                    node.lineno,
+                    "add_update_listener() conflicts with config-flow reload helpers and breaks in "
+                    "Home Assistant 2026.12. Use OptionsFlowWithReload / async_update_reload_and_abort "
+                    "and apply changes on the coordinated reload instead (see issue #510).",
+                )
+            elif is_flow and node.func.attr == "async_reload":
+                checker.log_error(
+                    "RULE_NO_FLOW_ASYNC_RELOAD",
+                    py_path,
+                    node.lineno,
+                    "Direct async_reload() in a config flow can double-reload. Use "
+                    "async_update_reload_and_abort(), OptionsFlowWithReload or async_schedule_reload().",
+                )
+
+    checker.log_ok("No update listener / direct flow reload conflicts (HA 2026.12).")
 
 
 def check_no_blocking_calls(checker: StandardsChecker):
@@ -468,15 +574,29 @@ def check_quality_scale_rules(checker: StandardsChecker):
                 strings_data = json.load(f)
             with open(en_file, "r", encoding="utf-8") as f:
                 en_data = json.load(f)
-            if set(strings_data.keys()) != set(en_data.keys()):
+            if strings_data != en_data:
                 checker.log_error(
                     "RULE_IQS_GOLD",
                     strings_file,
                     1,
-                    "Quality Scale Gold rule 'entity-translations': top-level keys in strings.json and translations/en.json do not match",
+                    "Quality Scale Gold rule 'entity-translations': strings.json and translations/en.json do not match. Run 'python scripts/manage_translations.py sync-en' to synchronize.",
                 )
             else:
                 checker.log_ok("[GOLD] entity-translations: strings.json and translations/en.json synchronized.")
+
+            # Validate Home Assistant issues schema (hassfest fixable exclusion group)
+            issues = strings_data.get("issues", {})
+            for issue_key, issue_val in issues.items():
+                if isinstance(issue_val, dict):
+                    has_desc = "description" in issue_val
+                    has_flow = "fix_flow" in issue_val
+                    if has_desc and has_flow:
+                        checker.log_error(
+                            "RULE_IQS_GOLD",
+                            strings_file,
+                            1,
+                            f"Issue '{issue_key}' violates hassfest exclusion group 'fixable': cannot have both 'description' and 'fix_flow'",
+                        )
         except Exception as e:
             checker.log_error("RULE_IQS_GOLD", strings_file, 1, f"Failed parsing strings/translations JSON: {e}")
 
@@ -591,6 +711,82 @@ def check_ownd_library_standards(checker: StandardsChecker):
         checker.log_ok(f"[OWND] Client library verification skipped (OWNd not in path: {err}).")
 
 
+def check_supported_domains_rule(checker: StandardsChecker):
+    """Rule: Verify README.md Supported Entity Domains table is calibrated and in sync."""
+    try:
+        try:
+            from scripts.update_supported_domains import check_readme_in_sync
+        except ImportError:
+            from update_supported_domains import check_readme_in_sync
+
+        in_sync, msg = check_readme_in_sync()
+        if not in_sync:
+            checker.log_error(
+                "RULE_DOCS_SUPPORTED_DOMAINS",
+                ROOT_DIR / "README.md",
+                1,
+                f"Supported Entity Domains table in README.md is out of sync: {msg}. "
+                f"Run 'python scripts/update_supported_domains.py' to update.",
+            )
+        else:
+            checker.log_ok("README.md Supported Entity Domains & Automations table is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_SUPPORTED_DOMAINS",
+            ROOT_DIR / "README.md",
+            1,
+            f"Failed verifying supported domains: {err}",
+        )
+
+
+def check_documentation_anti_drift_rule(checker: StandardsChecker):
+    """Rule: Verify all documentation (README.md and docs/ MkDocs site) is in sync with codebase."""
+    try:
+        try:
+            from scripts.sync_documentation import check_all_documentation
+        except ImportError:
+            from sync_documentation import check_all_documentation
+
+        in_sync, messages = check_all_documentation(update=False)
+        if not in_sync:
+            drift_details = "\n".join(
+                f"  - {m}"
+                for m in messages
+                if not any(
+                    ok_kw in m
+                    for ok_kw in (
+                        "in sync",
+                        "verified",
+                        "validated cleanly",
+                        "already up to date",
+                        "All documentation pages are referenced",
+                        "platforms are documented",
+                        "services have documented",
+                        "All service parameter fields are documented",
+                        "repair issues are documented",
+                    )
+                )
+            )
+            if not drift_details.strip():
+                drift_details = "\n".join(f"  - {m}" for m in messages)
+            checker.log_error(
+                "RULE_DOCS_ANTI_DRIFT",
+                ROOT_DIR / "docs",
+                1,
+                f"Documentation drift detected across support website / README:\n{drift_details}\n"
+                f"Run 'python scripts/sync_documentation.py --update' to synchronize.",
+            )
+        else:
+            checker.log_ok("Complete documentation suite (README.md & docs/ site) is calibrated and in sync.")
+    except Exception as err:
+        checker.log_error(
+            "RULE_DOCS_ANTI_DRIFT",
+            ROOT_DIR / "docs",
+            1,
+            f"Failed verifying documentation synchronization: {err}",
+        )
+
+
 def main():
     print("=" * 70)
     print("Running Home Assistant Architectural Standards Validator")
@@ -601,10 +797,14 @@ def main():
     check_translation_coverage(checker)
     check_deprecated_constants(checker)
     check_no_blocking_calls(checker)
+    check_no_update_listener_reload_conflict(checker)
     check_ruff_standards(checker)
     check_manifest_requirements_rule(checker)
+    check_future_annotations_and_syntax(checker)
     check_quality_scale_rules(checker)
     check_ownd_library_standards(checker)
+    check_supported_domains_rule(checker)
+    check_documentation_anti_drift_rule(checker)
 
     print("=" * 70)
     if checker.errors:
