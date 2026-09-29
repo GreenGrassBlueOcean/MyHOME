@@ -1434,10 +1434,12 @@ async def test_secondary_gateway_event_delegation_filtering(hass: HomeAssistant)
 
     # Delegated WHO=1 event should be processed
     await gw_sec._process_message(OWNLightingEvent.parse("*1*1*0##"))
+    await hass.async_block_till_done()  # bus listeners run on the next loop turn
     assert len(events) == 1
 
     # Non-delegated WHO=2 event should be ignored
     await gw_sec._process_message(OWNAutomationEvent.parse("*2*1*0##"))
+    await hass.async_block_till_done()
     assert len(events) == 1
 
     unsub_light()
