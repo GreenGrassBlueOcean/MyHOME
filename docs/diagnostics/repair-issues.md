@@ -99,6 +99,18 @@ The gateway rejected the OpenWebNet password or HMAC SHA-negotiation credentials
 
 ---
 
+## Heating Zone No Longer Answers
+
+**Repair Key**: `unresponsive_zone`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes
+
+### What it means
+A heating zone (or its central unit) did not answer its startup status request on two restarts in a row, so MyHOME stopped asking for it at startup. A request for a zone that is not on the bus keeps the command queue waiting (about 6 s per request in a MyHomeServer1 capture), and the queue is serial, so a few such zones delay every light command sent during startup.
+
+### How to resolve
+If the zone no longer exists (for example a leftover entity), remove its device or entity in Home Assistant; the issue disappears with it. If it exists, no action is needed: the issue clears as soon as the zone sends any frame, and the zone is asked again after a week.
+
 ## High SCS Bus Collision Rate
 
 **Repair Key**: `bus_collision_storm`  

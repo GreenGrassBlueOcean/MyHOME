@@ -45,6 +45,7 @@ ISSUE_UNCONFIGURED_TIMEZONE = "unconfigured_timezone"
 
 ISSUE_GATEWAY_IDENTITY_CORRECTED = "gateway_identity_corrected"
 ISSUE_INCOMPATIBLE_DECODER = "incompatible_decoder_platform"
+ISSUE_UNRESPONSIVE_ZONE = "unresponsive_zone"
 
 
 def async_create_unknown_model_issue(hass: HomeAssistant, entry_id: str, code: str) -> None:
@@ -124,6 +125,24 @@ def async_create_identity_corrected_issue(
         translation_key=ISSUE_GATEWAY_IDENTITY_CORRECTED,
         translation_placeholders={"previous": previous, "corrected": corrected, "code": code},
     )
+
+
+def async_create_unresponsive_zone_issue(hass: HomeAssistant, unique_id: str, zone: str, gateway_name: str) -> None:
+    """Tell the owner a heating zone no longer answers, so its entity can be removed."""
+    async_create_issue(
+        hass,
+        DOMAIN,
+        f"{ISSUE_UNRESPONSIVE_ZONE}_{unique_id}",
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_UNRESPONSIVE_ZONE,
+        translation_placeholders={"zone": zone, "gateway": gateway_name},
+    )
+
+
+def async_delete_unresponsive_zone_issue(hass: HomeAssistant, unique_id: str) -> None:
+    """Clear the issue once the zone answers again or its entity is removed."""
+    async_delete_issue(hass, DOMAIN, f"{ISSUE_UNRESPONSIVE_ZONE}_{unique_id}")
 
 
 def async_create_auth_issue(hass: HomeAssistant, entry_id: str, gateway_name: str) -> None:
