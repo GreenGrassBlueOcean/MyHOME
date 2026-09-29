@@ -24,3 +24,6 @@ Authentic on-wire bus frames and diagnostic configuration captured on a live phy
    - Unjoining a group leader without tearing down playback on remaining member zones.
 4. **Gain Staging (Option B)**:
    - Locking streamer source output to 100% (0 dBFS line level) to maximize signal-to-noise ratio into the F441 analog matrix, eliminating high-gain bus hissing.
+
+### Live group lifecycle, 2026-09-29 (`live_2026-09-29_group_park_and_resume.json`)
+Three rooms (badkamer leads Bureau and Eetkamer) on the Audio Decoder decoder: pause, the anti-hiss switch-off after 60 s that keeps the group, and the resume. The fixture holds the bus frames, the decoder states that were seen, and what Music Assistant did; `tests/test_audio_group_live_replay.py` replays it. Its `findings` list is why each assertion exists.
