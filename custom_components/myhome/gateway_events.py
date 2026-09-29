@@ -315,7 +315,7 @@ class GatewayEventDispatcher:
                 event = None
             raw_obj = str(message.object)
 
-            target_mac = self.handler.mac
+            target_mac: str | None = self.handler.mac
             config_entry = getattr(self.handler, "config_entry", None)
             target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
 

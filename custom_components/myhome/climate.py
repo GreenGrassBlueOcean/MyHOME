@@ -618,7 +618,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         if self._attr_hvac_mode == HVACMode.OFF:
             return True
         value = getattr(message, "_dimension_value", None)
-        return bool(value) and len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None
+        if not value:
+            return False
+        return bool(len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None)
 
     def _remember_nominal(self) -> None:
         """Keep the nominal setpoint a dimension 12 frame is about to replace."""
