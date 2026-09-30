@@ -19,6 +19,7 @@ from OWNd.message import (
 from custom_components.myhome.alarm_control_panel import (
     PLATFORM,
     STATE_ARMED_AWAY,
+    STATE_ARMED_HOME,
     STATE_DISARMED,
     STATE_TRIGGERED,
     MyHOMEAlarmControlPanel,
@@ -377,11 +378,12 @@ class TestMyHOMEAlarmEntity:
         assert alarm_central.extra_state_attributes["raw_state"] == "activation"
         assert alarm_central.extra_state_attributes["state_code"] == 1
 
-        # A system-level "active zone" (*5*11*0##) is not evidence of "home":
-        # no capture shows it, so the armed state is left as it was.
+        # A system-level "active zone" (*5*11*0##): OWNd <= 2.0.0b9 maps it to
+        # armed_home; newer OWNd (#66) does not, since no capture shows it, and
+        # the panel keeps its last armed state. Both are accepted.
         msg_home = OWNEvent.parse("*5*11*0##")
         alarm_central.handle_event(msg_home)
-        assert alarm_central.alarm_state == STATE_ARMED_AWAY
+        assert alarm_central.alarm_state in (STATE_ARMED_HOME, STATE_ARMED_AWAY)
         assert alarm_central.extra_state_attributes["raw_state"] == "active zone"
         assert alarm_central.extra_state_attributes["state_code"] == 11
 
