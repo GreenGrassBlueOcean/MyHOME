@@ -328,8 +328,8 @@ async def test_button_setup_prunes_orphans_on_followers_only(hass: HomeAssistant
         await platform.async_reset()
 
 
-async def test_calibrate_all_button_is_unavailable_with_no_covers_of_its_own(hass: HomeAssistant) -> None:
-    """A follower whose covers all live on its primary: the global button is present but unavailable (#525)."""
+async def test_calibrate_all_button_ignores_cover_count(hass: HomeAssistant) -> None:
+    """The global button remains available even with no covers, preventing startup race conditions (#565)."""
     from custom_components.myhome.button import CalibrateAllCoversButtonEntity
 
     entry_p, entry_x = _follower(hass)
@@ -338,10 +338,10 @@ async def test_calibrate_all_button_is_unavailable_with_no_covers_of_its_own(has
 
     btn = CalibrateAllCoversButtonEntity(hass=hass, config_entry=entry_x, gateway=entry_x.runtime_data.gateway)
     entry_x.runtime_data.gateway._available = True
-    assert btn.available is True  # its own (soon-to-be-pruned) duplicate still counts
+    assert btn.available is True
 
     er.async_get(hass).async_remove(cover.entity_id)
-    assert btn.available is False
+    assert btn.available is True  # still available without covers
 
     entry_x.runtime_data.gateway._available = False
     assert btn.available is False
