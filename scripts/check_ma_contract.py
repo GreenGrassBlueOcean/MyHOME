@@ -41,7 +41,16 @@ ANCHORS: tuple[tuple[str, str], ...] = (
 def load(source: str) -> str:
     """Return the text of ``source``: a URL or a local path."""
     if source.startswith(("http://", "https://")):
-        with urllib.request.urlopen(source, timeout=30) as response:  # noqa: S310 - fixed https upstream
+        ctx = None
+        try:
+            import ssl
+
+            import certifi
+
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+        with urllib.request.urlopen(source, timeout=30, context=ctx) as response:  # noqa: S310 - fixed https upstream
             return str(response.read().decode("utf-8"))
     return Path(source).read_text(encoding="utf-8")
 

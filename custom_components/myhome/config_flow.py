@@ -942,7 +942,10 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             for i in range(1, CONF_DECODER_SLOTS + 1):
                 entity_key = CONF_DECODER_ENTITY.format(i)
                 source_key = CONF_DECODER_SOURCE.format(i)
+                companion_key = CONF_DECODER_COMPANION.format(i)
                 entity_val = str(user_input.get(entity_key) or "").strip()
+                companion_val = str(user_input.get(companion_key) or "").strip()
+
                 if entity_val:
                     if not entity_val.startswith("media_player."):
                         errors[entity_key] = "not_a_media_player"
@@ -954,9 +957,18 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                         elif entry and entry.platform == "myhome":
                             errors[entity_key] = "myhome_entity_not_allowed"
 
-                    companion_key = CONF_DECODER_COMPANION.format(i)
-                    companion_val = str(user_input.get(companion_key) or "").strip()
-                    if companion_val:
+                    src_val = int(user_input.get(source_key, i) or i)
+                    if src_val in seen_sources:
+                        errors[source_key] = "duplicate_decoder_source"
+                    else:
+                        seen_sources[src_val] = source_key
+
+                if companion_val:
+                    if not entity_val:
+                        errors[companion_key] = "companion_without_decoder"
+                    elif not companion_val.startswith("media_player."):
+                        errors[companion_key] = "not_a_media_player"
+                    else:
                         comp_entry = registry.async_get(companion_val)
                         if companion_val == entity_val:
                             errors[companion_key] = "companion_same_as_decoder"
@@ -964,12 +976,6 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                             errors[companion_key] = "mass_entity_not_allowed"
                         elif comp_entry and comp_entry.platform == "myhome":
                             errors[companion_key] = "myhome_entity_not_allowed"
-
-                    src_val = int(user_input.get(source_key, i) or i)
-                    if src_val in seen_sources:
-                        errors[source_key] = "duplicate_decoder_source"
-                    else:
-                        seen_sources[src_val] = source_key
 
             limit_model = user_input.get(CONF_NAME, self.data.get(CONF_NAME))  # type: ignore
             session_limit = command_session_limit(limit_model)
@@ -1001,9 +1007,10 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     entity_key = CONF_DECODER_ENTITY.format(i)
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
-                    self.options[entity_key] = str(user_input.get(entity_key) or "").strip()  # type: ignore
+                    entity_val = str(user_input.get(entity_key) or "").strip()
+                    self.options[entity_key] = entity_val  # type: ignore
                     companion_key = CONF_DECODER_COMPANION.format(i)
-                    companion = str(user_input.get(companion_key) or "").strip()
+                    companion = str(user_input.get(companion_key) or "").strip() if entity_val else ""
                     if companion or companion_key in self.options:  # type: ignore[operator]
                         self.options[companion_key] = companion  # type: ignore
                     # Selectors hand back strings/floats; the decoder pool and the

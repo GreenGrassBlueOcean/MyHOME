@@ -36,8 +36,10 @@ from custom_components.myhome.decoder_pool import DecoderPool
 from custom_components.myhome.media_player_pool import build_pool, sync_multiple_audio_gateways
 from custom_components.myhome.repairs import (
     ISSUE_AMBIGUOUS_COMPANION,
+    ISSUE_INCOMPATIBLE_DECODER,
     ISSUE_INVALID_DECODER,
     ISSUE_MULTIPLE_AUDIO_GATEWAYS,
+    async_create_incompatible_decoder_issue,
 )
 from tests.test_component_media_player import _create_test_zone
 
@@ -284,10 +286,15 @@ async def test_build_pool_flags_an_ambiguous_companion_and_keeps_the_decoder_off
         other = dev_reg.async_get_or_create(config_entry_id=cfg.entry_id, identifiers={("d", idx)}, name="CXN")
         ent_reg.async_get_or_create("media_player", "dlna_dmr", idx, device_id=other.id, suggested_object_id=f"d{idx}")
 
+    # Preexisting incompatible-decoder issue should be cleared when ambiguous companion is raised
+    async_create_incompatible_decoder_issue(hass, "gw", "media_player.cxn", "cambridge_audio")
+    assert (DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_gw_media_player_cxn") in ir.async_get(hass).issues
+
     options = {CONF_DECODER_ENTITY.format(1): "media_player.cxn"}
     pool = build_pool(hass, _entry(options))
     assert "media_player.cxn" in pool.stream_incompatible
     assert (DOMAIN, f"{ISSUE_AMBIGUOUS_COMPANION}_gw_media_player_cxn") in ir.async_get(hass).issues
+    assert (DOMAIN, f"{ISSUE_INCOMPATIBLE_DECODER}_gw_media_player_cxn") not in ir.async_get(hass).issues
 
     # Choosing one resolves it.
     options[CONF_DECODER_COMPANION.format(1)] = "media_player.d2"
@@ -469,7 +476,35 @@ async def test_options_flow_validates_and_keeps_the_companion(hass):
     assert (await submit("media_player.box"))["errors"][key] == "companion_same_as_decoder"
     assert (await submit("media_player.mass_clone"))["errors"][key] == "mass_entity_not_allowed"
     assert (await submit("media_player.zone"))["errors"][key] == "myhome_entity_not_allowed"
+    assert (await submit("switch.box"))["errors"][key] == "not_a_media_player"
+
+    # Companion without decoder entity is rejected
+    res_no_decoder = await flow.async_step_user(
+        {
+            CONF_WORKER_COUNT: 1,
+            CONF_GENERATE_EVENTS: False,
+            CONF_TRANSITION_MODE: "software",
+            CONF_DECODER_ENTITY.format(1): "",
+            CONF_DECODER_SOURCE.format(1): 1,
+            CONF_DECODER_COMPANION.format(1): "media_player.box_dmr",
+        }
+    )
+    assert res_no_decoder["errors"][key] == "companion_without_decoder"
 
     with patch.object(flow, "_apply_topology"), patch.object(hass.config_entries, "async_update_entry"):
         await submit("media_player.box_dmr")
     assert flow.options[key] == "media_player.box_dmr"
+
+    # Clearing decoder entity also clears companion in options
+    with patch.object(flow, "_apply_topology"), patch.object(hass.config_entries, "async_update_entry"):
+        await flow.async_step_user(
+            {
+                CONF_WORKER_COUNT: 1,
+                CONF_GENERATE_EVENTS: False,
+                CONF_TRANSITION_MODE: "software",
+                CONF_DECODER_ENTITY.format(1): "",
+                CONF_DECODER_SOURCE.format(1): 1,
+                CONF_DECODER_COMPANION.format(1): "",
+            }
+        )
+    assert flow.options[key] == ""

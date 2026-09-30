@@ -130,6 +130,7 @@ def build_pool(hass: HomeAssistant, config_entry: MyHOMEConfigEntry) -> DecoderP
                 )
                 ambiguous.add(entity_id)
                 stream_incompatible.add(entity_id)
+                async_delete_incompatible_decoder_issue(hass, config_entry.entry_id, entity_id)
                 async_create_decoder_config_issue(
                     hass,
                     config_entry.entry_id,

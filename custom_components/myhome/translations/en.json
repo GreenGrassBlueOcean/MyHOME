@@ -167,6 +167,7 @@
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
       "companion_same_as_decoder": "The streaming companion must be a different entity than the decoder itself.",
+      "companion_without_decoder": "A streaming companion can only be configured for a slot that has a decoder entity.",
       "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
       "myhome_entity_not_allowed": "Do not select MyHOME sound zones as decoders! Select the underlying physical streaming player instead.",
       "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
