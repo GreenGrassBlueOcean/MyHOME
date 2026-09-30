@@ -377,7 +377,7 @@ class TestAlarmEdgeCases:
     def test_alarm_active_zone(self):
         msg = OWNEvent.parse("*5*11*#1##")
         assert isinstance(msg, OWNAlarmEvent)
-        assert msg.is_active is True
+        assert getattr(msg, "is_zone_active", msg.is_active) is True
 
     def test_alarm_reset_technical(self):
         msg = OWNEvent.parse("*5*13**##")
