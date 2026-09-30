@@ -275,6 +275,10 @@ async def async_setup_entry(
             hass=hass, device_id=primary, who="1", where=primary, name=f"Illuminance {normalize_where(clean) or clean}",
             device_class=SensorDeviceClass.ILLUMINANCE, manufacturer="BTicino", model="Light Sensor", gateway=gateway,
         )
+        if ctx.registry_entry is not None:
+            # yaml-era ids are `{mac}-1-{where}-illuminance`; a rebuilt id would orphan
+            # the registry entry and create a duplicate.
+            sensor._attr_unique_id = ctx.registry_entry.unique_id
         sensor.entity_id = entity_id_of(ctx)  # type: ignore[assignment]
         return sensor
 

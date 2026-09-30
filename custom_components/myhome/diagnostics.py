@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import HomeAssistant
@@ -95,7 +95,7 @@ async def async_get_config_entry_diagnostics(
                 gw_info["is_follower"] = bool(getattr(gateway_handler, "is_follower", False))
                 gw_info["is_standby"] = bool(getattr(gateway_handler, "is_standby", False))
                 gw_info["failover_active"] = bool(getattr(gateway_handler, "failover_active", False))
-                gw_info["primary_gateway"] = getattr(gateway_handler, "primary_gateway_mac", None)
+                gw_info["primary_gateway"] = REDACTED if getattr(gateway_handler, "primary_gateway_mac", None) else None
                 gw_info["delegated_whos"] = list(getattr(gateway_handler, "delegated_whos", set()))
             identification = getattr(gateway_handler, "identification", None)
             if callable(identification):

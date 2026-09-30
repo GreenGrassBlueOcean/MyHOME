@@ -96,6 +96,7 @@ def test_event_session_runner_close_disarms_watchdog(mock_handler: MagicMock) ->
     """Closing runner sets flags and disarms active watchdog timeout."""
     runner = EventSessionRunner(mock_handler)
     mock_watchdog = MagicMock()
+    mock_watchdog.expired.return_value = False
     runner._event_watchdog = mock_watchdog
 
     runner.close()

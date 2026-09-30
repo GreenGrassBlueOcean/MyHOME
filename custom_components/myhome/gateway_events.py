@@ -187,7 +187,12 @@ class GatewayEventDispatcher:
                         not getattr(message, "is_group", False)
                         and not getattr(message, "is_area", False)
                         and not getattr(message, "is_general", False)
+                        and message.is_on is not None
+                        and message.dimension is None
                     ):
+                        # Only an actuator's own on/off status is a member echo: motion
+                        # frames and illuminance / PIR dimension pushes must not cancel
+                        # or count towards a resync sweep.
                         self.handler._resync_manager.handle_ptp_echo(message)
 
                     if message.is_on is not None:
