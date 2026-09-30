@@ -386,7 +386,8 @@ class MyHOMEGatewayHandler:
     @property
     def firmware(self) -> str | None:
         """Return gateway firmware version."""
-        return self.gateway.firmware
+        firmware: str | None = self.gateway.firmware
+        return firmware
 
     @property
     def profile(self) -> Any:
