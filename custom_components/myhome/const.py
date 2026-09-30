@@ -194,6 +194,19 @@ SHARED_BUS_EVIDENCE_COUNT = 3
 SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
 
 
+def signed_who4_temperature(message: Any, value: float | None) -> float | None:
+    """Apply the sign digit of a WHO 4 temperature frame to the value OWNd decoded.
+
+    The bus sends ``SXXX`` (``S`` = 1 for a negative reading, tenths of a degree),
+    but OWNd reads digits 1-3 only, so ``1055`` reaches us as ``+5.5``.
+    """
+    raw = getattr(message, "_dimension_value", None)
+    first = raw[0] if isinstance(raw, (list, tuple)) and raw else None
+    if value is not None and isinstance(first, str) and len(first) == 4 and first.startswith("1"):
+        return -abs(value)
+    return value
+
+
 def eight_bits_to_percent(value: int) -> int:
     """Convert an 8-bit brightness (0-255) to percentage (0-100)."""
     return int(round((value * 100) / 255, 0))

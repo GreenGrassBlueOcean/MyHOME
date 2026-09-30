@@ -60,6 +60,7 @@ from .const import (
     DOMAIN,
     LOGGER,
     normalize_where,
+    signed_who4_temperature,
 )
 from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, PlatformDiscovery
@@ -739,11 +740,11 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
         """Handle an event message."""
         val = None
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
-            val = message.main_temperature
+            val = signed_who4_temperature(message, message.main_temperature)
         elif message.message_type == MESSAGE_TYPE_SECONDARY_TEMPERATURE:
             sec = getattr(message, "secondary_temperature", None)
             if isinstance(sec, (list, tuple)) and len(sec) > 1:
-                val = sec[1]
+                val = signed_who4_temperature(message, sec[1])
             elif isinstance(sec, (int, float)):
                 val = sec
             elif hasattr(message, "probe_temperature") and type(message.probe_temperature).__name__ != "MagicMock":

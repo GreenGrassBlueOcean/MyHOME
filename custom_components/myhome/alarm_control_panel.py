@@ -138,6 +138,9 @@ class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
             | AlarmControlPanelEntityFeature.ARM_HOME
             | AlarmControlPanelEntityFeature.TRIGGER
         )
+        # The central unit takes no code over the bus: without this, the core arm
+        # handlers (services, alarm card) refuse to arm when no code is given.
+        self._attr_code_arm_required = False
         self._attr_alarm_state = STATE_DISARMED
         self._attr_extra_state_attributes = {
             "where": self._where,
