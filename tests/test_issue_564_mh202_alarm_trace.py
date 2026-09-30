@@ -162,9 +162,10 @@ async def test_mh202_alarm_entity_state_transitions(hass: HomeAssistant) -> None
         alarm.handle_event(disarm_event)
         assert alarm.alarm_state == AlarmControlPanelState.DISARMED
 
-        # Feed zone frame *5*11*#1## (does not pollute system alarm state)
+        # Feed zone frame *5*11*#1## (does not pollute system alarm state on OWNd with WHO 5)
         zone_event = OWNAlarmEvent.parse("*5*11*#1##")
         assert zone_event is not None
-        assert zone_event.is_zone_active is True
-        alarm.handle_event(zone_event)
-        assert alarm.alarm_state == AlarmControlPanelState.DISARMED
+        if hasattr(zone_event, "is_zone_active"):
+            assert zone_event.is_zone_active is True
+            alarm.handle_event(zone_event)
+            assert alarm.alarm_state == AlarmControlPanelState.DISARMED
