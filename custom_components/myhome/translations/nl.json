@@ -87,13 +87,12 @@
       "primary_gateway_not_found": "De gekozen primaire gateway is niet gevonden."
     },
     "abort": {
-      "discover_timeout": "Geen MyHome gateway gevonden",
       "discovery_timeout": "Geen MyHome gateway gevonden",
       "no_gateways": "Geen MyHome gateway gevonden",
       "all_configured": "Alle MyHome gateway’s zijn reeds geconfigureerd",
       "unknown": "Er is een onbekende fout opgetreden",
       "cannot_connect": "Kan niet verbinden met de gateway",
-      "connection_closed": "De gateway heeft de verbinding tijdens de configuratie verbroken. Deze is mogelijk bezet, heeft geen beschikbare sessies meer, of moet opnieuw worden opgestart.",
+      "connection_closed": "De gateway heeft de verbinding tijdens de configuratie verbroken. Deze is mogelijk bezet, heeft geen beschikbare sessies meer, moet opnieuw worden opgestart, of heeft IP-adresbeperkingen ingeschakeld.",
       "connection_refused": "De gateway heeft het verbindingsverzoek geweigerd.",
       "connection_error": "Communicatiefout tijdens het verbinden met de gateway.",
       "negotiation_timeout": "De gateway reageerde niet op tijd tijdens de sessieonderhandeling.",

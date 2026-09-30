@@ -100,6 +100,7 @@ TEST_CONNECTION_ABORT_REASONS = frozenset(
         "negotiation_timeout",
     }
 )
+TEST_CONNECTION_RETRY_DELAY: float = 1.5
 
 
 class MACAddress:
@@ -453,31 +454,41 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 if isinstance(res, dict):
                     return res
                 return {"Success": False, "Message": "cannot_connect"}
-            except Exception as exc:  # pylint: disable=broad-except
+            except (OSError, TimeoutError, ConnectionError) as exc:
                 LOGGER.warning(
-                    "Gateway %s (%s:%s) test connection encountered an unexpected error: %s",
+                    "Gateway %s (%s:%s) test connection encountered a communication error: %s",
                     gateway.model_name,
                     gateway.address,
                     gateway.port,
                     exc,
                 )
                 return {"Success": False, "Message": "connection_error"}
+            except Exception as exc:  # pylint: disable=broad-except
+                LOGGER.exception(
+                    "Gateway %s (%s:%s) test connection encountered an unexpected error: %s",
+                    gateway.model_name,
+                    gateway.address,
+                    gateway.port,
+                    exc,
+                )
+                return {"Success": False, "Message": "cannot_connect"}
 
         test_result = await _run_test_connection()
 
-        # Retry once after a brief pause if the connection was dropped or encountered a transient socket error
-        if not test_result.get("Success") and test_result.get("Message") in {
-            "connection_closed",
-            "connection_error",
-        }:
+        # Retry once after a brief pause if the connection was dropped mid-negotiation
+        # (e.g. gateway busy, out of session slots, or stale socket recycling).
+        # We only retry connection_closed because TCP already succeeded and OWNd does
+        # not retry negotiation drops internally. We do NOT retry connection_error or
+        # cannot_connect to avoid stacking delays on dead/unreachable hosts.
+        if not test_result.get("Success") and test_result.get("Message") == "connection_closed":
             LOGGER.warning(
-                "Gateway %s (%s:%s) test connection returned %s; retrying once after brief pause",
+                "Gateway %s (%s:%s) test connection closed by gateway; retrying once after %ss pause",
                 gateway.model_name,
                 gateway.address,
                 gateway.port,
-                test_result.get("Message"),
+                TEST_CONNECTION_RETRY_DELAY,
             )
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(TEST_CONNECTION_RETRY_DELAY)
             test_result = await _run_test_connection()
 
         if test_result.get("Success"):

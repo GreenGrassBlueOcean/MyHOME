@@ -90,13 +90,12 @@
       "multiple_standbys": "This primary gateway already has a standby configured. Only one standby is allowed per primary."
     },
     "abort": {
-      "discover_timeout": "Unable to discover MyHome gateways",
       "discovery_timeout": "Unable to discover MyHome gateways",
       "no_gateways": "No MyHome gateways discovered",
       "all_configured": "All MyHome gateways are already configured",
       "unknown": "An unknown error occured",
       "cannot_connect": "Cannot connect to the gateway",
-      "connection_closed": "The gateway closed the connection during setup. It may be busy, out of session slots, or require a reboot.",
+      "connection_closed": "The gateway closed the connection during setup. It may be busy, out of session slots, require a reboot, or have IP address restrictions enabled.",
       "connection_refused": "The gateway refused the connection request.",
       "connection_error": "Communication error while connecting to the gateway.",
       "negotiation_timeout": "The gateway did not answer the session negotiation in time.",
