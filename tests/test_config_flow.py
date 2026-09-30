@@ -1980,3 +1980,253 @@ async def test_options_flow_update_delegated_whos_self_skip(hass: HomeAssistant)
         )
         assert result["type"] == FlowResultType.CREATE_ENTRY
 
+
+async def test_form_connection_closed_aborts(hass: HomeAssistant) -> None:
+    """Test connection_closed causes an abort with the proper reason."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": False, "Message": "connection_closed"},
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == "connection_closed"
+        assert mock_sleep.await_count == 1
+
+
+async def test_form_transient_retry_success(hass: HomeAssistant) -> None:
+    """Test transient connection_closed recovers if retry succeeds."""
+    mock_discovered = {
+        "address": "192.0.2.10",
+        "port": 20000,
+        "serialNumber": "00:03:50:00:12:34",
+        "modelName": "F454",
+    }
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=mock_discovered),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            side_effect=[
+                {"Success": False, "Message": "connection_closed"},
+                {"Success": True},
+            ],
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        patch("custom_components.myhome.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        await hass.async_block_till_done()
+        assert result3["type"] == FlowResultType.CREATE_ENTRY
+        mock_sleep.assert_any_await(1.5)
+
+
+async def test_form_unknown_negotiation_error_fallback(hass: HomeAssistant) -> None:
+    """Test unknown negotiation error safely falls back to cannot_connect."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": False, "Message": "mysterious_hardware_failure"},
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == "cannot_connect"
+
+
+def test_all_test_connection_abort_reasons_in_strings() -> None:
+    """Verify all abort reasons referenced by config_flow exist in strings.json."""
+    import json
+    from pathlib import Path
+
+    from custom_components.myhome.config_flow import TEST_CONNECTION_ABORT_REASONS
+
+    strings_path = Path(__file__).parent.parent / "custom_components" / "myhome" / "strings.json"
+    with open(strings_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    abort_keys = set(data.get("config", {}).get("abort", {}).keys())
+    missing = TEST_CONNECTION_ABORT_REASONS - abort_keys
+    assert not missing, f"Missing abort reasons in strings.json: {missing}"
+
+
+@pytest.mark.parametrize(
+    "catalog_file",
+    [
+        "strings.json",
+        "translations/en.json",
+        "translations/fr.json",
+        "translations/it.json",
+        "translations/nl.json",
+    ],
+)
+def test_all_test_connection_abort_reasons_in_catalogs(catalog_file: str) -> None:
+    """Verify all abort reasons referenced by config_flow exist in strings and translation catalogs."""
+    import json
+    from pathlib import Path
+
+    from custom_components.myhome.config_flow import TEST_CONNECTION_ABORT_REASONS
+
+    catalog_path = Path(__file__).parent.parent / "custom_components" / "myhome" / catalog_file
+    with open(catalog_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    abort_keys = set(data.get("config", {}).get("abort", {}).keys())
+    missing = TEST_CONNECTION_ABORT_REASONS - abort_keys
+    assert not missing, f"Missing abort reasons in {catalog_file}: {missing}"
+
+
+async def test_form_connection_error_aborts(hass: HomeAssistant) -> None:
+    """Test connection_error causes an abort after retry."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": False, "Message": "connection_error"},
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == "connection_error"
+        assert mock_sleep.await_count == 1
+
+
+async def test_form_connection_error_retry_success(hass: HomeAssistant) -> None:
+    """Test transient connection_error recovers if retry succeeds."""
+    mock_discovered = {
+        "address": "192.0.2.10",
+        "port": 20000,
+        "serialNumber": "00:03:50:00:12:34",
+        "modelName": "F454",
+    }
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=mock_discovered),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            side_effect=[
+                {"Success": False, "Message": "connection_error"},
+                {"Success": True},
+            ],
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        patch("custom_components.myhome.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        await hass.async_block_till_done()
+        assert result3["type"] == FlowResultType.CREATE_ENTRY
+        mock_sleep.assert_any_await(1.5)
+
+
+@pytest.mark.parametrize(
+    "abort_reason",
+    [
+        "connection_refused",
+        "negotiation_timeout",
+        "negotiation_failed",
+        "negotiation_refused",
+        "negotiation_error",
+    ],
+)
+async def test_form_non_transient_negotiation_errors_abort_without_retry(
+    hass: HomeAssistant, abort_reason: str
+) -> None:
+    """Test non-transient negotiation errors abort immediately without sleep retry."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value={"Success": False, "Message": abort_reason},
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == abort_reason
+        mock_sleep.assert_not_called()
+

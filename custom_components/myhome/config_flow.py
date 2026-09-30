@@ -88,6 +88,19 @@ from .topology import (
     validate_shared_bus_topology,
 )
 
+TEST_CONNECTION_ABORT_REASONS = frozenset(
+    {
+        "cannot_connect",
+        "connection_closed",
+        "connection_error",
+        "connection_refused",
+        "negotiation_error",
+        "negotiation_failed",
+        "negotiation_refused",
+        "negotiation_timeout",
+    }
+)
+
 
 class MACAddress:
     def __init__(self, mac: str):
@@ -408,12 +421,15 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_password(errors={CONF_OWN_PASSWORD: "password_error"})  # type: ignore
 
-    async def async_step_test_connection(self, user_input: typing.Any = None, errors: typing.Any = {}) -> typing.Any:  # pylint: disable=unused-argument,dangerous-default-value  # type: ignore
+    async def async_step_test_connection(self, user_input: typing.Any = None, errors: typing.Any = None) -> typing.Any:  # pylint: disable=unused-argument  # type: ignore
         """Testing connection to the OWN Gateway.
 
         Given a configured gateway, will attempt to connect and negociate a
         dummy event session to validate all parameters.
         """
+        if errors is None:
+            errors = {}
+
         gateway = self.gateway_handler
         assert gateway is not None
 
@@ -432,6 +448,22 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         test_session = OWNSession(gateway=gateway, logger=LOGGER)
         test_result = await test_session.test_connection()
+
+        # Retry once after a brief pause if the connection was dropped or encountered a transient socket error
+        if not test_result.get("Success") and test_result.get("Message") in {
+            "connection_closed",
+            "connection_error",
+        }:
+            LOGGER.debug(
+                "Gateway %s (%s:%s) test connection returned %s; retrying once after brief pause",
+                gateway.model_name,
+                gateway.address,
+                gateway.port,
+                test_result.get("Message"),
+            )
+            await asyncio.sleep(1.5)
+            test_session = OWNSession(gateway=gateway, logger=LOGGER)
+            test_result = await test_session.test_connection()
 
         if test_result["Success"]:
             if self._existing_entry:
@@ -473,13 +505,22 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 options=_new_entry_options,
             )
         else:
-            if test_result["Message"] == "password_required":
+            msg = test_result.get("Message")
+            LOGGER.warning(
+                "Gateway %s (%s:%s) test connection failed: %s",
+                gateway.model_name,
+                gateway.address,
+                gateway.port,
+                msg,
+            )
+            if msg == "password_required":
                 return await self.async_step_password()  # type: ignore
-            elif test_result["Message"] == "password_error" or test_result["Message"] == "password_retry":
-                errors["password"] = test_result["Message"]
+            elif msg in ("password_error", "password_retry"):
+                errors["password"] = msg
                 return await self.async_step_password(errors=errors)  # type: ignore
             else:
-                return self.async_abort(reason=test_result["Message"])
+                abort_reason = msg if msg in TEST_CONNECTION_ABORT_REASONS else "cannot_connect"
+                return self.async_abort(reason=abort_reason)
 
     def _bus_primaries(self) -> list[ConfigEntry]:
         """Configured gateways a new one could share an SCS bus with.
