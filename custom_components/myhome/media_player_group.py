@@ -141,17 +141,7 @@ class ZoneGroupLayer(ZoneDecoderLayer):
                 },
             )
         except EnvironmentBusyError as err:
-            raise HomeAssistantError(
-                f"{self.entity_id}: {err.owner} is already streaming in environment "
-                f"{err.environment}, and zones in one environment share a matrix input",
-                translation_domain=DOMAIN,
-                translation_key="environment_busy",
-                translation_placeholders={
-                    "entity_id": str(self.entity_id),
-                    "owner": err.owner,
-                    "environment": err.environment,
-                },
-            ) from err
+            raise self._environment_busy_error(err.owner, err.environment) from err
         self._write_zone_state(old_leader)
 
         # Decoders the joining zones held are no longer anyone's: stop them.

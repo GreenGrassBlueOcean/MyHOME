@@ -125,6 +125,7 @@ PLATFORM_ALARM = "alarm_control_panel"
 CONF_DECODER_ENTITY = "decoder_{}_entity"     # HA media_player entity_id
 CONF_DECODER_SOURCE = "decoder_{}_source"     # BTicino source number (int 1-4)
 CONF_DECODER_PRE_GAIN = "decoder_{}_pre_gain" # Volume offset % added to decoder (0-100)
+CONF_DECODER_COMPANION = "decoder_{}_companion"  # Optional media_player that receives stream URLs for this decoder
 CONF_DECODER_SLOTS = 4                        # Maximum number of decoder slots
 
 # ── Matrix sources (F441M inputs S1-S4) ────────────────────────────────────

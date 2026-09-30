@@ -230,3 +230,57 @@ A gateway configured as **Secondary** or **Warm Standby** points at a primary ga
 ### How to resolve
 1. Navigate to **Settings → Devices & Services → MyHOME** and click **Configure** on the gateway named in the issue.
 2. Either select another gateway (configured as **Shared** / **Primary**) under **Primary Gateway**, or set **Bus Topology** to `standalone` if it is now the only gateway on its bus.
+
+---
+
+## Decoder Is A MyHOME Or Music Assistant Entity
+
+**Repair Key**: `invalid_decoder`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes  
+**Fixable via UI**: No
+
+### What it means
+A decoder slot points at a `myhome` zone or a Music Assistant (`mass`) player. Routing a zone back into itself would loop the audio, so MyHOME leaves that slot out of the decoder pool. The options flow already refuses these entities; this issue catches a slot saved before that check, imported, or whose entity later changed platform.
+
+### How to resolve
+Open **Settings → Devices & Services → MyHOME → Configure** and pick the physical streamer that is plugged into the matrix (Squeezelite, WiiM, Cambridge Audio, Cast, ...).
+
+### How it clears
+Automatically, on the next reload after the slot points at a hardware entity or is emptied.
+
+---
+
+## Several Streaming Companions Found
+
+**Repair Key**: `ambiguous_companion`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes  
+**Fixable via UI**: No
+
+### What it means
+A decoder whose integration refuses stream URLs (Cambridge Audio) needs a DLNA / UPnP / Cast renderer of the same box, and more than one device matched at the same detection step. MyHOME does not guess, because gluing the wrong streamer to the wrong box plays the wrong room. Until you choose, the decoder does not take streams.
+
+### How to resolve
+Open **Settings → Devices & Services → MyHOME → Configure** and set **Streaming companion** for that decoder slot to the right entity.
+
+### How it clears
+Automatically, once the slot has an explicit companion or detection finds a single candidate.
+
+---
+
+## More Than One Gateway Serves Sound Zones
+
+**Repair Key**: `multiple_audio_gateways`  
+**Severity**: `WARNING`  
+**Auto-Resolving**: Yes  
+**Fixable via UI**: No
+
+### What it means
+Sound zones exist on several gateways. Sound addressing does not yet carry the bus interface (issue [#426](https://github.com/OpenWebNet-HA/MyHOME/issues/426)), so zones of two audio matrices can collide on the same room number, entity and environment.
+
+### How to resolve
+Keep the audio matrix on one gateway until #426 is fixed, and remove the sound zones of the other gateway.
+
+### How it clears
+Automatically, when only one gateway has sound zones.

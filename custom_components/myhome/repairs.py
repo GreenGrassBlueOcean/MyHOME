@@ -46,6 +46,9 @@ ISSUE_UNCONFIGURED_TIMEZONE = "unconfigured_timezone"
 ISSUE_GATEWAY_IDENTITY_CORRECTED = "gateway_identity_corrected"
 ISSUE_INCOMPATIBLE_DECODER = "incompatible_decoder_platform"
 ISSUE_UNRESPONSIVE_ZONE = "unresponsive_zone"
+ISSUE_INVALID_DECODER = "invalid_decoder"
+ISSUE_AMBIGUOUS_COMPANION = "ambiguous_companion"
+ISSUE_MULTIPLE_AUDIO_GATEWAYS = "multiple_audio_gateways"
 
 
 def async_create_unknown_model_issue(hass: HomeAssistant, entry_id: str, code: str) -> None:
@@ -300,6 +303,58 @@ def async_create_incompatible_decoder_issue(
         translation_placeholders={"decoder": decoder_id, "platform": platform},
         learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant",
         data={"entry_id": entry_id, "decoder_id": decoder_id, "platform": platform},
+    )
+
+
+def async_create_decoder_config_issue(
+    hass: HomeAssistant,
+    entry_id: str,
+    decoder_id: str,
+    issue_key: str,
+    placeholders: dict[str, str],
+) -> None:
+    """Flag a decoder slot the user has to fix in the options (not fixable from the repair)."""
+    async_create_issue(
+        hass,
+        DOMAIN,
+        f"{issue_key}_{entry_id}_{decoder_id.replace('.', '_')}",
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=issue_key,
+        translation_placeholders={"decoder": decoder_id, **placeholders},
+        learn_more_url="https://openwebnet-ha.github.io/MyHOME/beta/configuration/use_cases/#music-assistant",
+    )
+
+
+def async_sync_decoder_config_issues(
+    hass: HomeAssistant, entry_id: str, issue_key: str, flagged: Iterable[str]
+) -> None:
+    """Drop the ``issue_key`` issues of decoders that are no longer flagged."""
+    prefix = f"{issue_key}_{entry_id}_"
+    keep = {f"{prefix}{decoder_id.replace('.', '_')}" for decoder_id in flagged}
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain == DOMAIN and issue_id.startswith(prefix) and issue_id not in keep:
+            async_delete_issue(hass, DOMAIN, issue_id)
+
+
+def async_sync_multiple_audio_gateways_issue(hass: HomeAssistant, gateway_titles: list[str]) -> None:
+    """Warn while more than one gateway serves sound zones (see issue #426).
+
+    Sound addressing drops the bus interface, so the zones of two audio matrices
+    on different gateways can collide on one entity id and one environment.
+    """
+    if len(gateway_titles) < 2:
+        async_delete_issue(hass, DOMAIN, ISSUE_MULTIPLE_AUDIO_GATEWAYS)
+        return
+    async_create_issue(
+        hass,
+        DOMAIN,
+        ISSUE_MULTIPLE_AUDIO_GATEWAYS,
+        is_fixable=False,
+        severity=IssueSeverity.WARNING,
+        translation_key=ISSUE_MULTIPLE_AUDIO_GATEWAYS,
+        translation_placeholders={"gateways": ", ".join(sorted(gateway_titles))},
+        learn_more_url="https://github.com/OpenWebNet-HA/MyHOME/issues/426",
     )
 
 

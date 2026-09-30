@@ -125,15 +125,19 @@
           "decoder_1_entity": "Decoder 1 — Media player entity (e.g. media_player.cambridge_audio_cxn)",
           "decoder_1_source": "Decoder 1 — BTicino source input number (1–4)",
           "decoder_1_pre_gain": "Decoder 1 — Pre-gain offset % (0 = Pre-Amp OFF, 20 = squeezelite, 100 = lock source volume at 100%)",
+          "decoder_1_companion": "Decoder 1 — Streaming companion (optional; leave empty to auto-detect)",
           "decoder_2_entity": "Decoder 2 — Media player entity",
           "decoder_2_source": "Decoder 2 — BTicino source input number (1–4)",
           "decoder_2_pre_gain": "Decoder 2 — Pre-gain offset %",
+          "decoder_2_companion": "Decoder 2 — Streaming companion (optional; leave empty to auto-detect)",
           "decoder_3_entity": "Decoder 3 — Media player entity",
           "decoder_3_source": "Decoder 3 — BTicino source input number (1–4)",
           "decoder_3_pre_gain": "Decoder 3 — Pre-gain offset %",
+          "decoder_3_companion": "Decoder 3 — Streaming companion (optional; leave empty to auto-detect)",
           "decoder_4_entity": "Decoder 4 — Media player entity",
           "decoder_4_source": "Decoder 4 — BTicino source input number (1–4)",
           "decoder_4_pre_gain": "Decoder 4 — Pre-gain offset %",
+          "decoder_4_companion": "Decoder 4 — Streaming companion (optional; leave empty to auto-detect)",
           "default_source_env_1": "Default source for environment 1 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_2": "Default source for environment 2 — used when a zone in that room is turned on from Home Assistant",
           "default_source_env_3": "Default source for environment 3 — used when a zone in that room is turned on from Home Assistant",
@@ -162,6 +166,8 @@
       "invalid_password": "Invalid password",
       "password_error": "Invalid password",
       "not_a_media_player": "Must be a media_player entity (e.g. media_player.cambridge_audio_cxn)",
+      "companion_same_as_decoder": "The streaming companion must be a different entity than the decoder itself.",
+      "companion_without_decoder": "A streaming companion can only be configured for a slot that has a decoder entity.",
       "mass_entity_not_allowed": "Infinite Loop Protection: Do not select Music Assistant clones! Select the original hardware entity instead.",
       "myhome_entity_not_allowed": "Do not select MyHOME sound zones as decoders! Select the underlying physical streaming player instead.",
       "primary_gateway_required": "A primary gateway must be selected for secondary or standby roles on a shared bus.",
@@ -307,6 +313,18 @@
     }
   },
   "issues": {
+    "invalid_decoder": {
+      "title": "Decoder {decoder} is a {platform} entity and is ignored",
+      "description": "The decoder slot points at `{decoder}`, which belongs to the `{platform}` integration. A decoder must be the physical streamer plugged into the matrix; a MyHOME zone or a Music Assistant player would route audio back into itself, so MyHOME leaves this slot out.\n\nOpen Configure on the gateway and pick the real hardware entity (Squeezelite, WiiM, Cambridge Audio, Cast, ...)."
+    },
+    "ambiguous_companion": {
+      "title": "Several streaming companions found for {decoder}",
+      "description": "`{decoder}` needs a DLNA / UPnP / Cast renderer of the same box to accept stream URLs, but more than one device matched: {candidates}.\n\nMyHOME does not guess. Open Configure on the gateway and set the *streaming companion* of this decoder slot to the right entity."
+    },
+    "multiple_audio_gateways": {
+      "title": "More than one gateway serves sound zones",
+      "description": "Sound zones are configured on several gateways ({gateways}). Sound addressing does not carry the bus interface yet, so zones of two audio matrices can collide on the same room number, entity and environment (issue #426).\n\nKeep the audio matrix on one gateway until this is resolved."
+    },
     "unresponsive_zone": {
       "title": "Heating zone {zone} no longer answers ({gateway})",
       "description": "The heating zone {zone} on {gateway} did not answer its status request on two restarts in a row, so MyHOME stopped asking for it at startup (each unanswered request costs the gateway's command queue several seconds). If the zone no longer exists, remove its device or entity in Home Assistant. If it does exist, this clears as soon as it sends any frame, and it is asked again after a week."
@@ -429,7 +447,7 @@
       "message": "{entity_id}: unknown source \"{source}\""
     },
     "environment_busy": {
-      "message": "{entity_id}: {owner} is already streaming in environment {environment}; zones in one environment share a matrix input"
+      "message": "{entity_id}: {owner_name} is already streaming in environment {environment}; zones in one environment share a matrix input (also on it: {rooms})"
     },
     "routing_unsupported": {
       "message": "{entity_id}: amplifier {where} has no matrix routing address (environment 0, or not a two-digit amplifier); switch its source at a wall panel"

@@ -320,6 +320,9 @@ To stream seamlessly to Cambridge Audio network players:
 2. In Home Assistant, install the **DLNA Digital Media Renderer** integration. It will automatically discover your Cambridge Audio streamer (e.g. `media_player.cxn_v2_dlna`).
 3. In **Settings** -> **Devices & Services** -> **MyHOME** -> **Configure**, map the DLNA DMR entity as your decoder instead of the native `cambridge_audio` entity.
 
+> [!TIP]
+> **Streaming companion**: each decoder slot has an optional **Streaming companion** field. Leave it empty and MyHOME looks for the DLNA / UPnP / Cast renderer of the same device, then of the same MAC, then of the same host, then of a device with exactly the same name. If a step finds several different devices (two identical streamers in the rack) MyHOME does not guess: it raises the *Several streaming companions found* repair and keeps that decoder off streams until you pick the entity here. Control and volume always stay on the decoder entity; only stream URLs go to the companion.
+
 > [!NOTE]
 > **Automatic Diagnostic & Repair**:
 > If you select a `cambridge_audio` entity in MyHOME Options, the integration issues a **Home Assistant Repair Issue** as soon as the options are saved, explaining that DLNA DMR is required and linking to the documentation.
@@ -453,3 +456,14 @@ all amplifiers. The integration addresses individual amplifiers.
 
 > OWNd 2.0.0b8 and earlier send volume down as `*16*1000*<WHERE>##`, which the
 > specification does not define; OWNd 2.0.0b9 sends `*16*1101*<WHERE>##`.
+
+### Checks worth running on a new plant
+
+Grouping, parking and volume are where Music Assistant and the analog matrix meet, so a plant counts as verified once these hold (attach the diagnostics file to the issue, see above):
+
+1. Play to the Music Assistant Sync Group, add a third room, then drop the leader. The matrix and the Music Assistant queue stay in step, and no room falls silent for longer than the leader-handover gap.
+2. Set one member of the group to volume 0, then raise it again. The slider does not lock.
+3. Let the anti-hiss auto-off silence the house, then press play. The parked members come back as a group.
+4. With a Cambridge decoder, the diagnostics show a `companion` that is the DLNA/UPnP renderer, never a `mass` clone.
+
+Use the **Audio field report** issue template so the result can be turned into a replay test.

@@ -977,7 +977,9 @@ async def test_select_source_is_refused_while_the_environment_streams(hass, play
     assert err.value.translation_placeholders == {
         "entity_id": player.entity_id,
         "owner": "media_player.audio_zone_22",
+        "owner_name": "media_player.audio_zone_22",
         "environment": "2",
+        "rooms": "no other room",
     }
     mock_gateway.send.assert_not_called()
 
