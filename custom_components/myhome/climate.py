@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -40,6 +40,7 @@ from OWNd.message import (
     MESSAGE_TYPE_MODE,
     MESSAGE_TYPE_MODE_TARGET,
     MESSAGE_TYPE_TARGET_TEMPERATURE,
+    OWNCommand,
     OWNHeatingCommand,
     OWNHeatingEvent,
 )
@@ -407,7 +408,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
         if self._fan and not self._central:
             await self._gateway_handler.send_status_request(
-                OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##")
+                cast(OWNCommand, OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##"))
             )
 
     async def async_will_remove_from_hass(self) -> None:
