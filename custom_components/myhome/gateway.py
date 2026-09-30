@@ -5,7 +5,7 @@ import asyncio
 import collections
 import logging
 import time
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -386,7 +386,7 @@ class MyHOMEGatewayHandler:
     @property
     def firmware(self) -> str | None:
         """Return gateway firmware version."""
-        return cast(str | None, self.gateway.firmware)
+        return self.gateway.firmware
 
     @property
     def profile(self) -> Any:
