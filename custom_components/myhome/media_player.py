@@ -813,9 +813,11 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
             mute: ``True`` to mute, ``False`` to unmute.
         """
         if mute:
-            self._pre_mute_volume = (
-                self._attr_volume_level if self._attr_volume_level is not None else 0.5
-            )
+            # A repeated mute must not remember the 0.0 the first one produced.
+            if not self._attr_is_volume_muted and (self._attr_volume_level or 0.0) > 0.0:
+                self._pre_mute_volume = self._attr_volume_level
+            elif self._pre_mute_volume is None:
+                self._pre_mute_volume = 0.5
             await self.async_set_volume_level(0.0)
         else:
             restore_volume = self._pre_mute_volume if self._pre_mute_volume is not None else 0.3

@@ -143,10 +143,10 @@ async def test_unload_entry_keeps_state_when_platform_unload_fails(hass: HomeAss
 
 
 async def test_setup_yaml(hass: HomeAssistant):
-    """Test setup from yaml configurations returns false."""
+    """A `myhome:` key is ignored; it must not keep the config entries from loading (#566)."""
     from custom_components.myhome import async_setup
     result = await async_setup(hass, {DOMAIN: {}})
-    assert not result
+    assert result
 
 async def test_services(hass: HomeAssistant):
     """Test sync_time and send_message services."""

@@ -687,15 +687,16 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="unknown")
         await self.async_set_unique_id(dr.format_mac(gateway.unique_id))
         LOGGER.info("Found gateway: %s", gateway.address)
+        # What the gateway reports about itself follows a rediscovery. The port is not
+        # among it (20000 is only assumed above, never discovered) and neither is the
+        # model name (the user may have chosen it): writing those back would undo a
+        # reconfigure on every restart.
         updatable = {
             CONF_HOST: gateway.address,
-            CONF_NAME: gateway.model_name,
             CONF_FRIENDLY_NAME: gateway.friendly_name,
             CONF_UDN: gateway.udn,
             CONF_FIRMWARE: gateway.firmware,
         }
-        if gateway.port is not None:
-            updatable[CONF_PORT] = gateway.port
 
         self._abort_if_unique_id_configured(updates=updatable)
 

@@ -392,7 +392,7 @@ async def test_diagnostics_multi_gateway(hass: HomeAssistant) -> None:
     assert gw_data["bus_topology"] == TOPOLOGY_SHARED
     assert gw_data["gateway_role"] == ROLE_SECONDARY
     assert gw_data["is_follower"] is True
-    assert gw_data["primary_gateway"] == "00:03:50:aa:bb:01"
+    assert gw_data["primary_gateway"] == "**REDACTED**"  # present, but a MAC is not for a shared report
     assert gw_data["delegated_whos"] == [5]
 
 
