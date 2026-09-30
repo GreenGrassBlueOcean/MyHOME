@@ -415,6 +415,7 @@ async def test_diagnostics_audio_block_names_no_room(hass: HomeAssistant):
         "pre_gain_pct": 20,
         "stream_incompatible": False,
         "companion": "decoder_1_companion",
+        "companion_chosen_by_user": False,
         "state": "playing",
         "held_by": "zone_21",
     }

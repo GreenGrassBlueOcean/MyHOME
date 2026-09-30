@@ -9,6 +9,7 @@ from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_DECODER_COMPANION,
     CONF_DECODER_ENTITY,
     CONF_DECODER_SLOTS,
     CONF_PRIMARY_GATEWAY,
@@ -204,6 +205,7 @@ def _build_audio_diagnostics(
             "pre_gain_pct": pool.get_pre_gain(decoder),
             "stream_incompatible": decoder in pool.stream_incompatible,
             "companion": name(pool.companion_map.get(decoder)),
+            "companion_chosen_by_user": bool(str(entry.options.get(CONF_DECODER_COMPANION.format(slot)) or "").strip()),
             "state": state.state if state is not None else None,
             "held_by": name(next((zone for dec, zone in books["assignments"].items() if dec == decoder), None)),
         }

@@ -196,6 +196,43 @@ class ZoneSourceLayer(ZoneBase):
             return None
         return pool.environment_owner(environment, exclude=self.entity_id)
 
+    def _environment_busy_error(self, owner: str, environment: str) -> HomeAssistantError:
+        """Build the refusal for a zone whose environment already streams elsewhere.
+
+        Music Assistant only shows this text, so it names the rooms instead of
+        talking about entity ids and matrix inputs: the zones of one environment
+        hang off one matrix output and cannot hear two different streams.
+        """
+
+        def label(entity_id: str) -> str:
+            state = self.hass.states.get(entity_id)
+            return str(state.attributes.get("friendly_name") or entity_id) if state else entity_id
+
+        runtime = self._runtime_data
+        sharing = sorted(
+            {
+                label(entity_id)
+                for entity_id, zone in (runtime.media_players.items() if runtime else ())
+                if entity_id not in (self.entity_id, owner)
+                and zone_environment(getattr(zone, "_where", "")) == environment
+            }
+        )
+        rooms = ", ".join(sharing) if sharing else "no other room"
+        return HomeAssistantError(
+            f"{self.entity_id}: {label(owner)} is already streaming in environment "
+            f"{environment}, and zones in one environment share a matrix input "
+            f"(also on it: {rooms})",
+            translation_domain=DOMAIN,
+            translation_key="environment_busy",
+            translation_placeholders={
+                "entity_id": str(self.entity_id),
+                "owner": owner,
+                "owner_name": label(owner),
+                "environment": environment,
+                "rooms": rooms,
+            },
+        )
+
     async def _apply_default_source(self) -> None:
         """Route this zone's environment to its default source, if one is set.
 
@@ -274,17 +311,7 @@ class ZoneSourceLayer(ZoneBase):
         streamer = self._environment_streamer()
         if streamer is not None:
             environment = str(zone_environment(self._where))
-            raise HomeAssistantError(
-                f"{self.entity_id}: {streamer} is already streaming in environment "
-                f"{environment}, and zones in one environment share a matrix input",
-                translation_domain=DOMAIN,
-                translation_key="environment_busy",
-                translation_placeholders={
-                    "entity_id": str(self.entity_id),
-                    "owner": streamer,
-                    "environment": environment,
-                },
-            )
+            raise self._environment_busy_error(streamer, environment)
 
         await self._route_to(source_num)
         self.async_schedule_update_ha_state()

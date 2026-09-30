@@ -115,7 +115,11 @@ from .data import MyHOMEConfigEntry
 from .decoder_pool import EnvironmentBusyError
 from .discovery import Address, DeviceContext, PlatformDiscovery
 from .media_player_group import ZoneGroupLayer
-from .media_player_pool import STREAM_INCOMPATIBLE_PLATFORMS, build_pool
+from .media_player_pool import (
+    STREAM_INCOMPATIBLE_PLATFORMS,
+    build_pool,
+    sync_multiple_audio_gateways,
+)
 from .media_player_routing import parse_routing_address, route_pseudo_zones, zone_environment
 from .sound_source import MyHOMESoundSource, source_address
 
@@ -324,6 +328,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
         runtime = self._runtime_data
         if runtime is not None:
             runtime.media_players[self.entity_id] = self
+        sync_multiple_audio_gateways(self.hass)
 
         # ── Decoder state listener ────────────────────────────────────────
         self._track_decoders()
@@ -429,17 +434,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
                 exclude=exclude,
             )
         except EnvironmentBusyError as err:
-            raise HomeAssistantError(
-                f"{self.entity_id}: {err.owner} is already streaming in environment "
-                f"{err.environment}, and zones in one environment share a matrix input",
-                translation_domain=DOMAIN,
-                translation_key="environment_busy",
-                translation_placeholders={
-                    "entity_id": str(self.entity_id),
-                    "owner": err.owner,
-                    "environment": err.environment,
-                },
-            ) from err
+            raise self._environment_busy_error(err.owner, err.environment) from err
         self._write_zone_state(old_leader)
         if result is None:
             if exclude and set(pool.decoder_entity_ids) <= exclude:

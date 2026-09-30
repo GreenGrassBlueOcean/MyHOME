@@ -43,6 +43,7 @@ from .const import (
     CONF_ADDRESS,
     CONF_BROADCAST_RESYNC,
     CONF_BUS_TOPOLOGY,
+    CONF_DECODER_COMPANION,
     CONF_DECODER_ENTITY,
     CONF_DECODER_PRE_GAIN,
     CONF_DECODER_SLOTS,
@@ -953,6 +954,17 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                         elif entry and entry.platform == "myhome":
                             errors[entity_key] = "myhome_entity_not_allowed"
 
+                    companion_key = CONF_DECODER_COMPANION.format(i)
+                    companion_val = str(user_input.get(companion_key) or "").strip()
+                    if companion_val:
+                        comp_entry = registry.async_get(companion_val)
+                        if companion_val == entity_val:
+                            errors[companion_key] = "companion_same_as_decoder"
+                        elif comp_entry and comp_entry.platform == "mass":
+                            errors[companion_key] = "mass_entity_not_allowed"
+                        elif comp_entry and comp_entry.platform == "myhome":
+                            errors[companion_key] = "myhome_entity_not_allowed"
+
                     src_val = int(user_input.get(source_key, i) or i)
                     if src_val in seen_sources:
                         errors[source_key] = "duplicate_decoder_source"
@@ -990,6 +1002,10 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
                     self.options[entity_key] = str(user_input.get(entity_key) or "").strip()  # type: ignore
+                    companion_key = CONF_DECODER_COMPANION.format(i)
+                    companion = str(user_input.get(companion_key) or "").strip()
+                    if companion or companion_key in self.options:  # type: ignore[operator]
+                        self.options[companion_key] = companion  # type: ignore
                     # Selectors hand back strings/floats; the decoder pool and the
                     # source labels both index on plain ints.
                     self.options[source_key] = int(user_input.get(source_key, i) or i)  # type: ignore
@@ -1162,6 +1178,13 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                 )] = selector.EntitySelector(_decoder_selector_cfg)
             else:
                 schema_dict[vol.Optional(entity_key)] = selector.EntitySelector(_decoder_selector_cfg)
+
+            companion_key = CONF_DECODER_COMPANION.format(i)
+            _companion_val = self.options.get(companion_key, "")  # type: ignore
+            schema_dict[vol.Optional(
+                companion_key,
+                description={"suggested_value": _companion_val} if _companion_val else None,
+            )] = selector.EntitySelector(_decoder_selector_cfg)
 
             _source_val = int(self.options.get(source_key, i) or i)  # type: ignore
             schema_dict[vol.Required(
