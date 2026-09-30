@@ -339,3 +339,20 @@ Please share your feedback, real-world bus captures, and advice in our GitHub di
 👉 **[Join the Community Discussion on RFC #248](https://github.com/orgs/OpenWebNet-HA/discussions/248)**  
 👉 **[Report Beta Issues or Submit Bus Traces](https://github.com/OpenWebNet-HA/MyHOME/issues)**
 
+---
+
+## 🏆 Community Contributor Hall of Fame & Credits
+
+This project thrives because of active collaboration between homeowners, certified installers, and open-source developers:
+
+- **[@anotherjulien](https://github.com/anotherjulien)**: Creator of the original OpenWebNet integration and foundational maintainer. Invaluable real-world plant verification across Legrand 67557 advanced covers, 3477 dry contacts, 048834 multi-sensors, and WHO 14 actuator lock concepts.
+- **[@GreenGrassBlueOcean](https://github.com/GreenGrassBlueOcean)**: Architectural redesign, asynchronous core refactoring, gateway profiles, streaming proxy, and the deterministic CI replay engine.
+- **[@xtimmy86x](https://github.com/xtimmy86x)**: Certified BTicino installer and developer crafting the custom Lovelace side panel, cover travel-time calibration UX/frontend, hardware diagnostics, and deep plant insights.
+- **[@TheDarkWizard](https://github.com/TheDarkWizard)**: Crucial Living Now KW8011 CEN+ wire address captures, WHO 1001 diagnostic frames, and tireless real-world hardware testing across MyHomeServer1 setups.
+- **[@GianlucaCh](https://github.com/GianlucaCh)**: For preserving and contributing the comprehensive 15-manual BTicino/Legrand specification archive (`OWN DOC.zip`), the official `WHO_24.pdf` Lighting Management specification, and native bus timer concepts ([Myhome-Timer](https://github.com/GianlucaCh/Myhome-Timer)).
+- **[@nicolacavallo84](https://github.com/nicolacavallo84)**: For contributing the iconic 70+ device production plant trace and H4890 touchscreen multi-gateway captures that form our foundational CI replay fixtures.
+- **[@Interstellar0verdrive](https://github.com/Interstellar0verdrive)**: Hardware actuator analysis, cover timing/concurrency mechanics, and platform extensions.
+- **[@fedem95](https://github.com/fedem95)**, **[@mantovanellimatteo](https://github.com/mantovanellimatteo)**, **[@lyubomirtraykov](https://github.com/lyubomirtraykov)**, and **Cedric Rohou**: Key bugfixes, DALI F461 traces, and community testing.
+- Community trace providers whose real-world bus captures keep our test suite grounded in real hardware: **[@manfredgittmaier-afk](https://github.com/manfredgittmaier-afk)**, **[@gdluck](https://github.com/gdluck)**, **[@caiosweet](https://github.com/caiosweet)**, **[@wave68runner](https://github.com/wave68runner)**, **[@f18m](https://github.com/f18m)**, **[@simo72mast-lab](https://github.com/simo72mast-lab)**, **[@marcob79](https://github.com/marcob79)**, **[@xduss](https://github.com/xduss)**, and **[@pakob81](https://github.com/pakob81)**.
+
+
