@@ -31,6 +31,7 @@ from custom_components.myhome.const import (
     ROLE_PRIMARY,
     ROLE_SECONDARY,
     ROLE_STANDBY,
+    SERVICE_CALIBRATE_COVER,
     TOPOLOGY_SHARED,
     TOPOLOGY_STANDALONE,
 )
@@ -328,20 +329,37 @@ async def test_button_setup_prunes_orphans_on_followers_only(hass: HomeAssistant
         await platform.async_reset()
 
 
-async def test_calibrate_all_button_is_unavailable_with_no_covers_of_its_own(hass: HomeAssistant) -> None:
-    """A follower whose covers all live on its primary: the global button is present but unavailable (#525)."""
+async def test_calibrate_all_button_startup_race_and_no_covers_warning(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The global button remains available even with no covers, preventing startup race conditions (#565).
+    Pressing it with no covers is a no-op and logs a warning. Follower gateways without covers will show the button but pressing it warns (#525 tradeoff)."""
     from custom_components.myhome.button import CalibrateAllCoversButtonEntity
 
     entry_p, entry_x = _follower(hass)
-    _actuator(hass, entry_p, PRI, "21")  # the primary owns it
-    _, cover, _ = _actuator(hass, entry_x, NEW, "21")  # this gateway's duplicate, about to be pruned
 
+    # 1. Created with empty registry (the race condition)
     btn = CalibrateAllCoversButtonEntity(hass=hass, config_entry=entry_x, gateway=entry_x.runtime_data.gateway)
     entry_x.runtime_data.gateway._available = True
-    assert btn.available is True  # its own (soon-to-be-pruned) duplicate still counts
+    assert btn.available is True
 
-    er.async_get(hass).async_remove(cover.entity_id)
-    assert btn.available is False
+    # 2. Pressing with no covers -> warning
+    await btn.async_press()
+    assert "No cover entities to calibrate" in caplog.text
+    caplog.clear()
 
+    # 3. Covers populate after creation
+    _, cover, _ = _actuator(hass, entry_x, NEW, "21")
+    assert btn.available is True
+    assert btn._cover_entity_ids() == [cover.entity_id]
+
+    calls = []
+    hass.services.async_register(DOMAIN, SERVICE_CALIBRATE_COVER, lambda call: calls.append(call))
+    await btn.async_press()
+    assert len(calls) == 1
+    assert calls[0].data == {"entity_id": [cover.entity_id]}
+
+    # 4. Gateway drops -> unavailable
     entry_x.runtime_data.gateway._available = False
     assert btn.available is False
+
