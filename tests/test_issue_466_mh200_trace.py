@@ -185,10 +185,12 @@ def test_mh200_diagnostics_and_gateway_frames() -> None:
 
 def test_mh200_burglar_alarm_subsystem_frames() -> None:
     """Verify burglar alarm (WHO 5) empty-WHERE frames and zone status."""
-    # Empty-WHERE frames emit None from OWNd parser
+    # Empty-WHERE frames emit None from older OWNd parser or parse as OWNAlarmEvent
     for raw in ("*5*0*##", "*5*9*##", "*5*5*##", "*5*7*##"):
         msg = OWNMessage.parse(raw)
-        assert msg is None
+        if msg is not None:
+            assert isinstance(msg, OWNAlarmEvent)
+            assert msg.who == 5
 
     # Active zone status frames parse cleanly
     for zone in range(1, 9):
