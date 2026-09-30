@@ -446,15 +446,31 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
             }
         )
 
-        test_session = OWNSession(gateway=gateway, logger=LOGGER)
-        test_result = await test_session.test_connection()
+        async def _run_test_connection() -> dict[str, typing.Any]:
+            try:
+                session = OWNSession(gateway=gateway, logger=LOGGER)
+                res = await session.test_connection()
+                if isinstance(res, dict):
+                    return res
+                return {"Success": False, "Message": "cannot_connect"}
+            except Exception as exc:  # pylint: disable=broad-except
+                LOGGER.warning(
+                    "Gateway %s (%s:%s) test connection encountered an unexpected error: %s",
+                    gateway.model_name,
+                    gateway.address,
+                    gateway.port,
+                    exc,
+                )
+                return {"Success": False, "Message": "connection_error"}
+
+        test_result = await _run_test_connection()
 
         # Retry once after a brief pause if the connection was dropped or encountered a transient socket error
         if not test_result.get("Success") and test_result.get("Message") in {
             "connection_closed",
             "connection_error",
         }:
-            LOGGER.debug(
+            LOGGER.warning(
                 "Gateway %s (%s:%s) test connection returned %s; retrying once after brief pause",
                 gateway.model_name,
                 gateway.address,
@@ -462,10 +478,9 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 test_result.get("Message"),
             )
             await asyncio.sleep(1.5)
-            test_session = OWNSession(gateway=gateway, logger=LOGGER)
-            test_result = await test_session.test_connection()
+            test_result = await _run_test_connection()
 
-        if test_result["Success"]:
+        if test_result.get("Success"):
             if self._existing_entry:
                 new_data = dict(self._existing_entry.data)
                 new_data[CONF_PASSWORD] = gateway.password

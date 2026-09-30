@@ -91,6 +91,7 @@
     },
     "abort": {
       "discover_timeout": "Unable to discover MyHome gateways",
+      "discovery_timeout": "Unable to discover MyHome gateways",
       "no_gateways": "No MyHome gateways discovered",
       "all_configured": "All MyHome gateways are already configured",
       "unknown": "An unknown error occured",

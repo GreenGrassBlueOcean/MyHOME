@@ -88,6 +88,7 @@
     },
     "abort": {
       "discover_timeout": "Geen MyHome gateway gevonden",
+      "discovery_timeout": "Geen MyHome gateway gevonden",
       "no_gateways": "Geen MyHome gateway gevonden",
       "all_configured": "Alle MyHome gateway’s zijn reeds geconfigureerd",
       "unknown": "Er is een onbekende fout opgetreden",

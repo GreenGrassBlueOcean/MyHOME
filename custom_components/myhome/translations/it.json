@@ -88,6 +88,7 @@
     },
     "abort": {
       "discover_timeout": "Impossibile trovare il gateway MyHome",
+      "discovery_timeout": "Impossibile trovare il gateway MyHome",
       "no_gateways": "Nessun gateway MyHome trovato",
       "all_configured": "Tutti i gateway MyHome sono già configurati",
       "unknown": "Si è verificato un errore sconosciuto",

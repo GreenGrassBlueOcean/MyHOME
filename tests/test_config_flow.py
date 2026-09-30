@@ -1,5 +1,6 @@
 """Test the MyHOME config flow."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -2229,4 +2230,111 @@ async def test_form_non_transient_negotiation_errors_abort_without_retry(
         assert result4["type"] == FlowResultType.ABORT
         assert result4["reason"] == abort_reason
         mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "malformed_result",
+    [
+        None,
+        {},
+        {"Message": "hardware_glitch"},
+    ],
+)
+async def test_form_none_or_malformed_test_result_fallback(
+    hass: HomeAssistant, malformed_result: Any
+) -> None:
+    """Test None, empty dict, or missing Success key safely falls back to cannot_connect."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            return_value=malformed_result,
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == "cannot_connect"
+
+
+async def test_form_unexpected_exception_retry_and_aborts(hass: HomeAssistant) -> None:
+    """Test unexpected exception in test_connection is caught, logged, retried, and safely aborts."""
+    with (
+        patch("custom_components.myhome.config_flow.find_gateways", return_value=[]),
+        patch("custom_components.myhome.config_flow.get_gateway", return_value=None),
+        patch(
+            "custom_components.myhome.config_flow.OWNSession.test_connection",
+            side_effect=OSError("Low-level socket reset"),
+        ),
+        patch("custom_components.myhome.config_flow.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"serial": "00:00:00:00:00:00"},
+        )
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"address": "192.0.2.10", "port": 20000},
+        )
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"serialNumber": "00:03:50:00:12:34", "modelName": "F454"},
+        )
+        assert result4["type"] == FlowResultType.ABORT
+        assert result4["reason"] == "connection_error"
+        assert mock_sleep.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "catalog_file",
+    [
+        "strings.json",
+        "translations/en.json",
+        "translations/fr.json",
+        "translations/it.json",
+        "translations/nl.json",
+    ],
+)
+def test_all_config_flow_literal_abort_reasons_in_catalogs(catalog_file: str) -> None:
+    """Verify all literal abort reasons in config_flow.py exist in all catalogs."""
+    import ast
+    import json
+    from pathlib import Path
+
+    config_flow_path = Path(__file__).parent.parent / "custom_components" / "myhome" / "config_flow.py"
+    tree = ast.parse(config_flow_path.read_text(encoding="utf-8"))
+
+    literal_reasons = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if "abort" in node.func.attr:
+                for kw in node.keywords:
+                    if kw.arg == "reason" and isinstance(kw.value, ast.Constant):
+                        literal_reasons.add(kw.value.value)
+
+    catalog_path = Path(__file__).parent.parent / "custom_components" / "myhome" / catalog_file
+    with open(catalog_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    abort_keys = set(data.get("config", {}).get("abort", {}).keys())
+    missing = literal_reasons - abort_keys
+    assert not missing, f"Missing literal abort reasons in {catalog_file}: {missing}"
+
 
