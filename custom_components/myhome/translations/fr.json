@@ -312,7 +312,7 @@
       "title": "Le décodeur {decoder} utilise une intégration non prise en charge ({platform})"
     },
     "gateway_authentication_failed": {
-      "title": "Échec de l'authentification de la passerelle",
+      "title": "Échec de l'authentification de la passerelle MyHOME {gateway}",
       "description": "La passerelle a rejeté les informations d'identification OpenWebNet. Veuillez reconfigurer le mot de passe."
     },
     "bus_collision_storm": {
@@ -321,7 +321,7 @@
     },
     "gateway_identity_mismatch": {
       "title": "Incohérence du modèle de passerelle pour {configured}",
-      "description": "La passerelle est configurée comme {configured} mais signale le type OpenWebNet {code}, identifiant {reported} selon {basis}."
+      "description": "La passerelle est configurée comme {configured} (source : {source}) mais signale le type OpenWebNet {code}, identifiant {reported} selon {basis}."
     },
     "gateway_identity_corrected": {
       "title": "Modèle de passerelle corrigé en {corrected}",
@@ -403,7 +403,7 @@
       "message": "{entity_id} : source inconnue « {source} »"
     },
     "environment_busy": {
-      "message": "{entity_id} : {owner} diffuse déjà dans l'environnement {environment} ; les zones d'un même environnement partagent une entrée de la matrice"
+      "message": "{entity_id} : {owner_name} diffuse déjà dans l'environnement {environment} ; les zones d'un même environnement partagent une entrée de la matrice (également utilisée par : {rooms})"
     },
     "routing_unsupported": {
       "message": "{entity_id} : l'amplificateur {where} n'a pas d'adresse de routage dans la matrice (environnement 0, ou amplificateur non à deux chiffres) ; changez sa source depuis un panneau mural"
