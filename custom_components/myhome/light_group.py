@@ -24,7 +24,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
-from .const import DOMAIN, eight_bits_to_percent
+from .const import DOMAIN, eight_bits_to_percent, percent_to_eight_bits
 from .myhome_device import MyHOMEEntity
 
 LOGGER = logging.getLogger(__name__)
@@ -179,16 +179,21 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         dim = getattr(msg, "dimension", None)
         vals = getattr(msg, "_dimension_value", [])
         if dim == 1 and vals:
-            pct = int(vals[0])
-            self._attr_brightness = int((pct / 100) * 255)
-            if pct > 0:
-                self._last_brightness_pct = pct
-        elif dim == 14 and vals:
+            # Dimension 1 carries ``level + 100`` on the bus (``150`` is 50 %); anything
+            # outside 100..200 is not a level.
+            raw = int(vals[0])
+            if 100 <= raw <= 200:
+                pct = raw - 100
+                self._attr_brightness = percent_to_eight_bits(pct)
+                if pct > 0:
+                    self._last_brightness_pct = pct
+        elif dim == 14 and vals and int(vals[0]) > 1:
             self._attr_color_temp_kelvin = int(1000000 / int(vals[0]))
         elif dim == 12 and len(vals) >= 3:
             h = int(vals[0])
             s = int(vals[1])
-            self._attr_hs_color = (h, s)
+            if h <= 360:  # ``*12*511*127*255`` is the "not supported" sentinel
+                self._attr_hs_color = (h, s)
 
         if self._on_icon and self._off_icon:
             self._attr_icon = self._on_icon if self._attr_is_on else self._off_icon

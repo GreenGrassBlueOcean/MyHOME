@@ -809,6 +809,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                     if ATTR_BRIGHTNESS_PCT in kwargs
                     else eight_bits_to_percent(int(kwargs[ATTR_BRIGHTNESS]))
                 )
+                if target_pct == 0 and int(kwargs.get(ATTR_BRIGHTNESS, 0)) > 0:
+                    target_pct = 1  # brightness 1..2 of 255 is "on at minimum", not off
 
                 if target_pct == 0:
                     await self.async_turn_off(**kwargs)
@@ -1071,6 +1073,10 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._attr_brightness = percent_to_eight_bits(message.brightness)
                 if message.brightness > 0:
                     self._last_brightness_pct = message.brightness
+        elif has_level and message.brightness is None and isinstance(message.brightness_preset, int) and not is_fading:
+            # WHAT 2..10 is "ON at 20 %..100 %": the preset is the level, not just
+            # a hint that the actuator can dim.
+            self._apply_brightness_state(max(0, min(100, message.brightness_preset * 10)))
 
         if self._off_icon is not None and self._on_icon is not None:
             self._attr_icon = self._on_icon if self._attr_is_on else self._off_icon
