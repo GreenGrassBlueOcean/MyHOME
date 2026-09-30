@@ -8,15 +8,17 @@ This document provides a comprehensive reference for all custom services registe
 
 | Service | Target | Description |
 | :--- | :--- | :--- |
-| [`myhome.send_message`](#myhomesend_message) | Gateway | Send an arbitrary, validated OpenWebNet frame to the SCS bus. |
-| [`myhome.turn_on_timed`](#myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
-| [`myhome.sync_time`](#myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
-| [`myhome.start_sending_instant_power`](#myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
-| [`myhome.sweep_bus`](#myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
-| [`myhome.calibrate_cover`](#myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
-| [`myhome.stop_cover_calibration`](#myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
-| [`myhome.set_cover_travel_time`](#myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
-| [`myhome.reset_cover_travel_time`](#myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
+| [`myhome.send_message`](#1-myhomesend_message) | Gateway | Send an arbitrary, validated OpenWebNet frame to the SCS bus. |
+| [`myhome.turn_on_timed`](#2-myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
+| [`myhome.sync_time`](#3-myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
+| [`myhome.start_sending_instant_power`](#4-myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
+| [`myhome.sweep_bus`](#5-myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
+| [`myhome.calibrate_cover`](#6-myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
+| [`myhome.stop_cover_calibration`](#7-myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
+| [`myhome.set_cover_travel_time`](#8-myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
+| [`myhome.reset_cover_travel_time`](#9-myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
+| [`myhome.tuner_seek_up`](#10-myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
+| [`myhome.tuner_seek_down`](#11-myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
 
 ---
 
@@ -130,13 +132,13 @@ action: myhome.sweep_bus
 
 Measures a timed cover's travel times **on the bus** and stores them, replacing the guessed `travel_time`. The cover is driven fully **up** (so its position is known), then fully **down** (timed), then fully **up** again (timed). Covers of one gateway are calibrated **one at a time** — a single-session gateway cannot drive two motors reliably and overlapping runs would confuse the timing. The shutter moves for about three full travels; do not run it while the shutter must stay put.
 
-The measured values are the actuator's run times (motor start → actuator stop status). They equal the physical travel when the installer calibrated the actuator's run-time parameter, which is the usual case. An actuator left at its factory **60 s run-time limit** stops itself, not at the end stop: such a run ends at about 61 s and is **refused** (`failed`, nothing stored) as soon as it ends, whoever called the service. For that shutter, stop a run by hand (wall switch or the cover's Stop) once it reaches the end stop, read `last_run_seconds` from the cover's attributes and store it with `myhome.set_cover_travel_time`.
+The measured values are the actuator's run times (motor start → actuator stop status). They equal the physical travel when the installer calibrated the actuator's run-time parameter to closely match the real travel (e.g. by setting the `M` configurator or virtual configuration in MyHOME_Suite). An actuator left at its factory default **60 s run-time limit** (`M=0`) stops itself, not at the end stop: such a run ends at about 60–61 s and is **refused** (`failed`, nothing stored) as soon as it ends, whoever called the service. For that shutter, you can either adjust the actuator's timed stop setting (to a couple of seconds above the real travel), or without touching the actuator, stop a run by hand (wall switch or the cover's Stop) once it reaches the end stop, read `last_run_seconds` from the cover's attributes and store it with `myhome.set_cover_travel_time`.
 
-The guard catches **only that factory cutoff** (a run ending in the 59–65 s window). An actuator whose run-time parameter the installer set longer than the physical travel — 30 s on a 14 s shutter, say — stops itself at 30 s just the same, and that 30 s is stored as the travel time: nothing on the bus tells it apart from a real end stop, only a stopwatch can. If the stored time is longer than the shutter visibly takes to move, time a run stopped by hand (`last_run_seconds`) or set `travel_time` manually with `myhome.set_cover_travel_time`.
+The guard catches **only that factory cutoff** (a run ending in the 59–65 s window). An actuator whose run-time parameter the installer set significantly longer than the physical travel stops itself when its timer expires, and that 30 s is stored as the travel time: nothing on the bus tells it apart from a real end stop, only a stopwatch can. If the stored time is longer than the shutter visibly takes to move, time a run stopped by hand (`last_run_seconds`) or set `travel_time` manually with `myhome.set_cover_travel_time`.
 
-Results are stored in the config entry options (`cover_travel_times`), survive restarts and reinstalls, apply to discovered covers without any YAML, and show up as entity attributes: `travel_time_down`, `travel_time_up`, `calibration_source` (`measured` / `manual` / `yaml` / `default`), `calibrated_at`. Every run of a timed cover is measured the same way, calibration or not: `motion_started_at` is the motor-start anchor of the current run and `last_run_seconds` / `last_run_direction` / `last_run_ended_at` describe the last completed run (motor start → stop frame written or actuator stop status), so a run stopped by hand at the end stop gives the physical travel without the calibration service. Advanced covers (which report their position) are refused. Progress is published on the event bus as `myhome_cover_calibration` (`phase`: `start`, `run`, `done`, `failed`).
+Results are stored in the config entry options (`cover_travel_times`), survive restarts and reinstalls, apply to discovered covers without any YAML, and show up as entity attributes: `travel_time_down`, `travel_time_up`, `calibration_source` (`measured` / `manual` / `copied` / `yaml` / `default`), `calibrated_at` (and `copied_from` when copied). Every run of a timed cover is measured the same way, calibration or not: `motion_started_at` is the motor-start anchor of the current run and `last_run_seconds` / `last_run_direction` / `last_run_ended_at` describe the last completed run (motor start → stop frame written or actuator stop status), so a run stopped by hand at the end stop gives the physical travel without the calibration service. Advanced covers (which report their position) are refused. Progress is published on the event bus as `myhome_cover_calibration` (`phase`: `queued`, `start`, `run`, `done`, `failed`).
 
-The same action sits behind the **Calibrate travel time** button on every timed cover's device page, and the **Calibrate all covers** button on the gateway device.
+The same action sits behind the **Calibrate travel time** button on every timed cover's device page (`button.<cover name>_calibrate_travel_time`), and the **Calibrate all covers** button on the gateway device (`button.<gateway name>_calibrate_all_covers`), which targets every enabled cover of that gateway at once and lets the lock serialise them.
 
 ### Fields
 | Parameter | Type | Required | Description | Example |
@@ -156,7 +158,7 @@ target:
 
 ## 7. `myhome.stop_cover_calibration`
 
-Stops the calibration that is running and cancels every cover still queued behind it. The moving cover receives a stop command, its calibration event reports `phase: failed` with *Calibration stopped by user*, and nothing is stored. Without a `gateway` every gateway's queue is cleared. Also available as the **Stop** button in the card's Covers panel and as an entity service on any cover (targets that cover's gateway).
+Stops the calibration that is running and cancels every cover still queued behind it. The moving cover receives a stop command, its calibration event reports `phase: failed` with *Calibration stopped by user*, and nothing is stored. Without a `gateway` every gateway's queue is cleared. Also available as an entity service on any cover (targets that cover's gateway).
 
 ### Fields
 | Parameter | Type | Required | Description | Example |
@@ -172,7 +174,7 @@ action: myhome.stop_cover_calibration
 
 ## 8. `myhome.set_cover_travel_time`
 
-Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch (the card's Covers panel has one built in) and pass them here. `travel_time` fills whichever direction has no explicit value. Values must lie between 1 s and 180 s; anything else is rejected before the entity is touched. The result is stored exactly like a measured calibration (`calibration_source: manual`).
+Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch and pass them here. `travel_time` fills whichever direction has no explicit value; note that `travel_time_down` on its own also sets the up time (the two are assumed equal unless `travel_time_up` is given), whereas `travel_time_up` on its own leaves the stored down time untouched — pass both when you only want to change one. Values must lie between 1 s and 180 s; anything else is rejected before the entity is touched. The result is stored exactly like a measured calibration (`calibration_source: manual`).
 
 ### Fields
 | Parameter | Type | Required | Description | Example |
@@ -212,3 +214,41 @@ action: myhome.reset_cover_travel_time
 target:
   entity_id: cover.bedroom_shutter
 ```
+
+---
+
+## 10. `myhome.tuner_seek_up`
+
+Commands an F500 / F500N sound source tuner entity (`WHERE` 101–109) to seek forward (`*16*5000*10S##`) to the next receivable FM radio frequency on the SCS bus.
+
+### Fields
+| Parameter | Type | Required | Description | Example |
+| :--- | :---: | :---: | :--- | :--- |
+| `entity_id` | target | Yes | Target MyHOME tuner source `media_player` entity. | `media_player.audio_source_1` |
+
+### Example YAML Call
+```yaml
+action: myhome.tuner_seek_up
+target:
+  entity_id: media_player.audio_source_1
+```
+
+---
+
+## 11. `myhome.tuner_seek_down`
+
+Commands an F500 / F500N sound source tuner entity (`WHERE` 101–109) to seek backward (`*16*5100*10S##`) to the previous receivable FM radio frequency on the SCS bus.
+
+### Fields
+| Parameter | Type | Required | Description | Example |
+| :--- | :---: | :---: | :--- | :--- |
+| `entity_id` | target | Yes | Target MyHOME tuner source `media_player` entity. | `media_player.audio_source_1` |
+
+### Example YAML Call
+```yaml
+action: myhome.tuner_seek_down
+target:
+  entity_id: media_player.audio_source_1
+```
+
+

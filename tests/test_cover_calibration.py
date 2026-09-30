@@ -1132,3 +1132,33 @@ async def test_copied_travel_time_reports_its_source(hass, gateway):
     assert cover.extra_state_attributes["copied_from"] is None
     await cover.async_reset_travel_time()
     assert cover.extra_state_attributes["copied_from"] is None
+
+async def test_calibrate_all_button_startup_race_and_no_covers_warning(
+    hass, caplog
+) -> None:
+    """The global button remains available even with no covers, preventing startup race conditions (#565).
+    Pressing it with no covers is a no-op and logs a warning."""
+    from custom_components.myhome.button import CalibrateAllCoversButtonEntity
+    from unittest.mock import MagicMock
+
+    gateway = MagicMock()
+    gateway.mac = "00:03:50:AA:AA:01"
+    gateway.available = True
+    entry = MagicMock()
+    entry.runtime_data = MagicMock(gateway=gateway)
+    gateway.config_entry = entry
+
+    # 1. Created with empty registry (the race condition)
+    btn = CalibrateAllCoversButtonEntity(hass=hass, config_entry=entry, gateway=gateway)
+    assert btn.available is True
+
+    # 2. Pressing with no covers -> warning
+    # We mock _cover_entity_ids to return empty list
+    btn._cover_entity_ids = MagicMock(return_value=[])
+    await btn.async_press()
+    assert "No cover entities to calibrate" in caplog.text
+    caplog.clear()
+
+    # 3. Verify availability toggles with gateway
+    gateway.available = False
+    assert btn.available is False
