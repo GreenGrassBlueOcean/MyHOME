@@ -28,6 +28,7 @@ from custom_components.myhome.climate import (
     _zone_address,
     _zone_route_keys,
     async_setup_entry,
+    async_unload_entry,
 )
 from custom_components.myhome.const import DOMAIN
 from tests.conftest import attach_runtime
@@ -35,74 +36,84 @@ from tests.conftest import attach_runtime
 MAC = "00:03:50:44:55:66"
 
 BTICINO_3550_FRAMES = [
-    "*4*101*#0##",  # Manual Heating command frame (sent to CU)
-    "*4*102*#0##",  # Manual Cooling command frame / Antifreeze
-    "*4*100*#0##",  # Conditioning / Heating OFF command frame
-    "*4*103*#0##",  # Auto Heating/Cooling command frame / OFF-heating
-    "*4*110*#0##",  # Manual Heating operating mode event (broadcast by CU)
-    "*4*210*#0##",  # Manual Cooling operating mode event (broadcast by CU)
-    "*4*303*#0##",  # Generic OFF operating mode event (broadcast by CU)
-    "*4*311*#0##",  # Programmed / Automatic operating mode event (broadcast by CU)
+    # Outbound mode commands (sent by HA / integration to central unit #0)
+    "*4*100*#0##",  # Conditioning OFF command
+    "*4*101*#0##",  # Manual Heating command
+    "*4*102*#0##",  # Manual Cooling command (integration mapping; WHAT 102 in WHO 4 status is Antifreeze)
+    "*4*103*#0##",  # Auto Heating/Cooling command (integration mapping; WHAT 103 in WHO 4 status is Heating OFF)
+    # Inbound operating mode status broadcasts (emitted by physical central unit #0)
+    "*4*110*#0##",  # Manual Heating operating mode status
+    "*4*210*#0##",  # Manual Cooling operating mode status
+    "*4*303*#0##",  # Generic OFF operating mode status
+    "*4*311*#0##",  # Programmed / automatic operation status (generic; mapped to HVACMode.AUTO)
     "*4*110#0200*#0##",  # Manual setpoint 20.0 °C on central unit
     "*4*210#0240*#0##",  # Cooling setpoint 24.0 °C on central unit
     "*4*21*#0##",  # Remote control enabled
     "*4*20*#0##",  # Remote control disabled
     "*4*31*#0##",  # Central unit battery fault
     "*4*40*#0##",  # Release local probe adjustment
-    "*4*1101*#0##",  # Weekly program 1
-    "*4*1102*#0##",  # Weekly program 2
-    "*4*1103*#0##",  # Weekly program 3
-    "*4*1201*#0##",  # Scenario 1
+    "*4*1101*#0##",  # Weekly program 1 (heating)
+    "*4*1102*#0##",  # Weekly program 2 (heating)
+    "*4*1103*#0##",  # Weekly program 3 (heating)
+    "*4*1201*#0##",  # Scenario 1 (heating)
     "*#4*#0*30*01*10*2026##",  # Holiday end date
     "*#4*#0*31*12*00##",  # Holiday end time
 ]
 
 BTICINO_4695_FRAMES = [
-    "*4*101*#0#1##",
-    "*4*102*#0#1##",
-    "*4*100*#0#1##",
-    "*4*110*#0#1##",
-    "*4*210*#0#1##",
-    "*4*303*#0#1##",
-    "*4*110#0210*#0#1##",
+    "*4*100*#0#1##",  # Conditioning OFF command for 4695 zone 1
+    "*4*101*#0#1##",  # Manual Heating command for 4695 zone 1
+    "*4*102*#0#1##",  # Manual Cooling command for 4695 zone 1
+    "*4*110*#0#1##",  # Manual Heating status for 4695 zone 1
+    "*4*210*#0#1##",  # Manual Cooling status for 4695 zone 1
+    "*4*303*#0#1##",  # Generic OFF status for 4695 zone 1
+    "*4*311*#0#1##",  # Programmed / automatic operation status (generic) for 4695 zone 1
+    "*4*110#0210*#0#1##",  # Manual setpoint 21.0 °C for 4695 zone 1
+    "*4*1101*#0#1##",  # Weekly program 1 for 4695 zone 1
+    "*4*1201*#0#1##",  # Scenario 1 for 4695 zone 1
 ]
 
 
 @pytest.mark.parametrize("raw_frame", BTICINO_3550_FRAMES)
 def test_3550_frames_never_resolve_to_zone_99(raw_frame: str) -> None:
-    """Assert that 3550 central unit frames never resolve to zone 99 in routing or discovery (#582)."""
+    """Assert that 3550 central unit frames route strictly to #0 and never resolve to zone 99 (#582)."""
     message = OWNEvent.parse(raw_frame)
     assert message is not None
 
     zones, _ = _calling_zones(message)
     assert "99" not in zones
+    assert zones == ["#0"]
 
     address = _zone_address(message)
-    if address is not None:
-        assert address.where != "99"
-        assert address.clean_where != "99"
+    assert address is not None
+    assert address.where == "#0"
+    assert address.clean_where == "#0"
 
     route_keys = _zone_route_keys(message, address)
     assert "99" not in route_keys
     assert "4-99" not in route_keys
+    assert "#0" in route_keys
 
 
 @pytest.mark.parametrize("raw_frame", BTICINO_4695_FRAMES)
 def test_4695_frames_never_resolve_to_zone_99(raw_frame: str) -> None:
-    """Assert that 4695 4-zone central unit frames never resolve to zone 99 (#582)."""
+    """Assert that 4695 4-zone central unit frames route to subordinate zone 1 and never resolve to zone 99 (#582)."""
     message = OWNEvent.parse(raw_frame)
     assert message is not None
 
     zones, _ = _calling_zones(message)
     assert "99" not in zones
+    assert zones == ["1"]
 
     address = _zone_address(message)
-    if address is not None:
-        assert address.where != "99"
-        assert address.clean_where != "99"
+    assert address is not None
+    assert address.where == "1"
+    assert address.clean_where == "1"
 
     route_keys = _zone_route_keys(message, address)
     assert "99" not in route_keys
+    assert "1" in route_keys
+    assert "#0" in route_keys
 
 
 async def test_3550_bus_traffic_never_discovers_phantom_climate_zone_99(hass: HomeAssistant) -> None:
@@ -112,6 +123,7 @@ async def test_3550_bus_traffic_never_discovers_phantom_climate_zone_99(hass: Ho
 
     gateway = MagicMock()
     gateway.mac = MAC
+    gateway.is_connected = True
     gateway.log_id = "[test 3550 discovery]"
     gateway.send = AsyncMock()
     gateway.send_status_request = AsyncMock()
@@ -130,12 +142,14 @@ async def test_3550_bus_traffic_never_discovers_phantom_climate_zone_99(hass: Ho
         event = OWNHeatingEvent(raw_frame)
         async_dispatcher_send(hass, f"myhome_message_{MAC}", event)
 
-    # 3. Central unit #0 is discovered, but phantom zone 99 is NEVER discovered
+    # 3. Central unit #0 is discovered with default bus name, but phantom zone 99 is NEVER discovered
     assert len(discovered_entities) == 1
     assert discovered_entities[0]._where == "#0"
     assert discovered_entities[0]._central is True
+    # Without yaml, bus discovery names a central unit 'Climate Zone {suffix}' (suffix='0')
+    assert discovered_entities[0]._device_name == "Climate Zone 0"
     assert not any(getattr(e, "_where", None) == "99" for e in discovered_entities)
-    assert not any("99" in (getattr(e, "name", "") or "") for e in discovered_entities)
+    assert not any("99" in (getattr(e, "_device_name", "") or "") for e in discovered_entities)
 
     # 4. Positive control: genuine subordinate zone traffic (e.g. Zone 5) MUST trigger dynamic discovery
     async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNHeatingEvent("*4*110*5##"))
@@ -152,6 +166,7 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
 
     gateway = MagicMock()
     gateway.mac = MAC
+    gateway.is_connected = True
     gateway.log_id = "[test ghost 99]"
     gateway.name = "MyHomeServer1 Gateway"
     gateway.send = AsyncMock()
@@ -180,7 +195,7 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
     assert ghost_z99._where == "99"
     ghost_z99.entity_id = ghost_reg_entry.entity_id
 
-    # Simulate 2 failed polls on ghost zone 99
+    # Simulate 2 failed polls on ghost zone 99 (is_connected=True satisfies PollHealth precondition)
     future_nack = asyncio.get_running_loop().create_future()
     gateway.send_status_request.return_value = future_nack
     await ghost_z99.async_update()
@@ -209,6 +224,11 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
     assert entity_reg.async_get(ghost_z99.entity_id) is None
     remaining_entries = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
     assert not any(e.unique_id == f"{MAC}-4-99" for e in remaining_entries)
+
+    # Simulate entry unload / unsubscription before reload
+    await async_unload_entry(hass, entry)
+    while entry._on_unload:
+        entry._on_unload.pop()()
 
     # Simulate entry reload / system restart after deletion
     reloaded_entities: list[MyHOMEClimate] = []
@@ -324,9 +344,105 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
     assert cu.hvac_mode == HVACMode.HEAT
     assert central_mode_events[-1] == HVACMode.HEAT
 
-    # 5. Weekly programs and scenarios: heating program confirms heating context
+    # 5. Weekly programs and scenarios: heating programs actively transition mode to HEAT
+    cu._attr_hvac_mode = HVACMode.OFF
     cu.handle_event(OWNHeatingEvent("*4*1101*#0##"))  # Weekly program 1 (heating)
     assert cu.hvac_mode == HVACMode.HEAT
 
+    cu._attr_hvac_mode = HVACMode.OFF
     cu.handle_event(OWNHeatingEvent("*4*1201*#0##"))  # Scenario 1 (heating)
     assert cu.hvac_mode == HVACMode.HEAT
+
+
+async def test_yaml_central_unit_and_bus_traffic_coalesce_without_duplicate_entities(
+    hass: HomeAssistant,
+) -> None:
+    """Assert a YAML-configured central unit (#0) coalesces cleanly with bus traffic, producing exactly 1 entity (#582).
+
+    Covers the setup reported in #582:
+      climate:
+        central_unit:
+          zone: "#0"
+          name: Centrale termoregolazione
+    Proves that physical bus traffic addressed to #0 updates the YAML entity directly
+    and NEVER spawns a duplicate bus-discovered entity ('Climate Zone 0' or 'Climate Zone 99').
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data={"mac": MAC}, unique_id=MAC)
+    entry.add_to_hass(hass)
+
+    gateway = MagicMock()
+    gateway.mac = MAC
+    gateway.is_connected = True
+    gateway.log_id = "[test yaml+bus coalescing]"
+    gateway.send = AsyncMock()
+    gateway.send_status_request = AsyncMock()
+
+    runtime = attach_runtime(hass, entry, MAC, gateway)
+    runtime.platforms["climate"] = {
+        "central_unit": {
+            "zone": "#0",
+            "name": "Centrale termoregolazione",
+            "central": True,
+        }
+    }
+
+    # 1. Platform setup creates exactly 1 entity with the configured YAML name
+    entities: list[MyHOMEClimate] = []
+    await async_setup_entry(hass, entry, entities.extend)
+
+    assert len(entities) == 1
+    cu = entities[0]
+    assert cu._device_name == "Centrale termoregolazione"
+    assert cu._where == "#0"
+    assert cu._central is True
+
+    # 2. Dispatch complete BTicino 3550 bus traffic
+    for raw_frame in BTICINO_3550_FRAMES:
+        event = OWNHeatingEvent(raw_frame)
+        async_dispatcher_send(hass, f"myhome_message_{MAC}", event)
+
+    # 3. Assert NO duplicate entity is created: entities list remains length 1
+    assert len(entities) == 1
+    assert not any(getattr(e, "_where", None) == "99" for e in entities)
+    assert not any(getattr(e, "_device_name", None) == "Climate Zone 0" for e in entities)
+
+    # 4. Bus frame for subordinate zone (Zone 5) creates Zone 5 alongside the central unit
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNHeatingEvent("*4*110*5##"))
+    assert len(entities) == 2
+    assert any(getattr(e, "_where", None) == "5" for e in entities)
+    assert any(getattr(e, "_where", None) == "#0" for e in entities)
+
+    # 5. Simulate clean unload and restart with entity in registry and YAML config active
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        domain="climate",
+        platform=DOMAIN,
+        unique_id=f"{MAC}-4-#0",
+        config_entry=entry,
+        original_name="Centrale termoregolazione",
+    )
+    await async_unload_entry(hass, entry)
+    while entry._on_unload:
+        entry._on_unload.pop()()
+
+    runtime.platforms["climate"] = {
+        "central_unit": {
+            "zone": "#0",
+            "name": "Centrale termoregolazione",
+            "central": True,
+        }
+    }
+    reloaded_entities: list[MyHOMEClimate] = []
+    await async_setup_entry(hass, entry, reloaded_entities.extend)
+
+    # Restored entity and YAML configuration coalesce: exactly 1 central unit
+    assert len(reloaded_entities) == 1
+    assert reloaded_entities[0]._where == "#0"
+    assert reloaded_entities[0]._central is True
+
+    # Replaying bus frames continues to route to the single entity without duplicating
+    for raw_frame in BTICINO_3550_FRAMES:
+        async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNHeatingEvent(raw_frame))
+
+    assert len(reloaded_entities) == 1
+
