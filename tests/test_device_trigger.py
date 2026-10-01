@@ -930,6 +930,19 @@ async def test_cen_scenario_trigger_in_automation_choose_condition(hass: HomeAss
     await hass.async_block_till_done()
     assert events_received == ["matched_btn1", "matched_btn2"]
 
+    # Button 3 has no trigger: nothing fires, so no default branch either
+    hass.bus.async_fire(
+        "myhome_cenplus_event",
+        {
+            "event": CONF_SHORT_PRESS,
+            "pushbutton": 3,
+            "object": 8,
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_btn1", "matched_btn2"]
+
     # Fire CEN short press on button 3, object 5 -> unhandled in choose, falls through to default
     hass.bus.async_fire(
         "myhome_cen_event",
@@ -1041,3 +1054,41 @@ async def test_cenplus_scenario_trigger_in_automation_choose_condition(hass: Hom
     )
     await hass.async_block_till_done()
     assert events_received == ["matched_btn1", "matched_btn2"]
+
+    # Button 3 has no trigger: nothing fires, so no default branch either
+    hass.bus.async_fire(
+        "myhome_cenplus_event",
+        {
+            "event": CONF_SHORT_PRESS,
+            "pushbutton": 3,
+            "object": 8,
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_btn1", "matched_btn2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger_info", [{"trigger_data": None}, {"name": "legacy"}, {"trigger_data": {"id": "x"}}])
+async def test_async_attach_trigger_tolerates_missing_trigger_data(hass: HomeAssistant, trigger_info):
+    """A None, absent or populated trigger_data never stops the action from running (#445)."""
+    action = AsyncMock()
+    unsub = await async_attach_trigger(
+        hass, {CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 8}, action, trigger_info
+    )
+    context = Context()
+    hass.bus.async_fire(
+        "myhome_cenplus_event",
+        {"event": CONF_SHORT_PRESS, "pushbutton": 1, "object": 8},
+        context=context,
+    )
+    await hass.async_block_till_done()
+
+    action.assert_called_once()
+    trigger = action.call_args[0][0]["trigger"]
+    assert trigger["platform"] == "device"
+    assert action.call_args[0][1] == context
+    if trigger_info.get("trigger_data"):
+        assert trigger["id"] == "x"
+    unsub()
