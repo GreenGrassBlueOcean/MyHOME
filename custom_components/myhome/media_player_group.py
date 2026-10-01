@@ -474,23 +474,24 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         members = pool.get_members(self.entity_id)
 
         # Any members sharing this environment also switch to source_num
-        same_env_members = [
-            m
-            for m in members
-            if runtime
-            and m in runtime.media_players
-            and zone_environment(runtime.media_players[m]._where) == environment
-        ]
-        for same_m in same_env_members:
-            await pool.remove_group_member(same_m)
-            same_ent = runtime.media_players.get(same_m)
-            if same_ent:
-                same_ent._attr_source = self._source_label(source_num)
-                same_ent._cancel_pending_off()
-                same_ent._cancel_auto_off()
-                same_ent._parked = False
-                same_ent._wake_pending = False
-                same_ent.async_write_ha_state()
+        same_env_members: list[str] = []
+        if runtime is not None:
+            same_env_members = [
+                m
+                for m in members
+                if m in runtime.media_players
+                and zone_environment(runtime.media_players[m]._where) == environment
+            ]
+            for same_m in same_env_members:
+                await pool.remove_group_member(same_m)
+                same_ent = runtime.media_players.get(same_m)
+                if same_ent:
+                    same_ent._attr_source = self._source_label(source_num)
+                    same_ent._cancel_pending_off()
+                    same_ent._cancel_auto_off()
+                    same_ent._parked = False
+                    same_ent._wake_pending = False
+                    same_ent.async_write_ha_state()
 
         remaining_members = [m for m in members if m not in same_env_members]
 
