@@ -279,11 +279,16 @@ async def async_attach_trigger(
         target_address = config.get(CONF_OBJECT)
 
     target_gateway_mac = None
+    # CEN (15) and CEN+ (25) objects are separate address spaces. A trigger on a
+    # device of a known family only listens to that family's events; a bare
+    # address (no device, or a gateway) keeps matching both.
+    family: str | None = None
     if CONF_DEVICE_ID in config:
         device_registry = dr.async_get(hass)
         device = device_registry.async_get(config[CONF_DEVICE_ID])
         if device is not None:
             target_gateway_mac = _get_gateway_mac_from_device(device)
+            family = _get_cen_family_from_device(device)
             if target_address is None:
                 target_address = _get_cen_address_from_device(device)
                 if target_address is None:
@@ -341,12 +346,14 @@ async def async_attach_trigger(
                 event.context,
             )
 
-    # Listen to both CEN and CEN+ event streams
-    unsub_cen = hass.bus.async_listen("myhome_cen_event", _handle_event)
-    unsub_cenplus = hass.bus.async_listen("myhome_cenplus_event", _handle_event)
+    event_types = {
+        "15": ("myhome_cen_event",),
+        "25": ("myhome_cenplus_event",),
+    }.get(family or "", ("myhome_cen_event", "myhome_cenplus_event"))
+    unsubs = [hass.bus.async_listen(event_type, _handle_event) for event_type in event_types]
 
     def _unsubscribe_all() -> None:
-        unsub_cen()
-        unsub_cenplus()
+        for unsub in unsubs:
+            unsub()
 
     return _unsubscribe_all
