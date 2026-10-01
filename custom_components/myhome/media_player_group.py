@@ -456,13 +456,113 @@ class ZoneGroupLayer(ZoneDecoderLayer):
     async def _async_drop_from_group(self, pool: DecoderPool, leader_id: str) -> None:
         """Drop this member from group when its source changes on the bus."""
         await pool.remove_group_member(self.entity_id)
+        self._cancel_pending_off()
+        self._cancel_auto_off()
+        self._parked = False
+        self._wake_pending = False
         self.async_write_ha_state()
         runtime = self._runtime_data
         leader_ent = runtime.media_players.get(leader_id) if runtime else None
         if leader_ent:
             leader_ent.async_write_ha_state()
-        if self._attr_state == MediaPlayerState.ON:
-            await self._async_auto_join_active_stream()
+
+    async def _async_drop_leader_on_source_change(
+        self, pool: DecoderPool, source_num: int, environment: str
+    ) -> None:
+        """Drop this leader from its streaming session when its source changes on the bus."""
+        runtime = self._runtime_data
+        members = pool.get_members(self.entity_id)
+
+        # Any members sharing this environment also switch to source_num
+        same_env_members = [
+            m
+            for m in members
+            if runtime
+            and m in runtime.media_players
+            and zone_environment(runtime.media_players[m]._where) == environment
+        ]
+        for same_m in same_env_members:
+            await pool.remove_group_member(same_m)
+            same_ent = runtime.media_players.get(same_m)
+            if same_ent:
+                same_ent._attr_source = self._source_label(source_num)
+                same_ent._cancel_pending_off()
+                same_ent._cancel_auto_off()
+                same_ent._parked = False
+                same_ent._wake_pending = False
+                same_ent.async_write_ha_state()
+
+        remaining_members = [m for m in members if m not in same_env_members]
+
+        if remaining_members:
+            new_leader_id = remaining_members[0]
+            new_leader_ent = runtime.media_players.get(new_leader_id) if runtime else None
+            result = await pool.transfer_leadership(self.entity_id, new_leader_id)
+            if result and new_leader_ent:
+                new_leader_ent._active_decoder = result[0]
+                new_leader_ent._cancel_pending_off()
+                new_leader_ent._cancel_auto_off()
+
+            self._active_decoder = None
+            self._cancel_pending_off()
+            self._cancel_auto_off()
+            self._parked = False
+            self._wake_pending = False
+            self.async_write_ha_state()
+
+            if new_leader_ent:
+                new_leader_ent.async_write_ha_state()
+            for mem_id in remaining_members[1:]:
+                mem_ent = runtime.media_players.get(mem_id) if runtime else None
+                if mem_ent:
+                    mem_ent.async_write_ha_state()
+
+            LOGGER.info(
+                "%s: leader source changed to %d on bus — transferred leadership to %s",
+                self.entity_id,
+                source_num,
+                new_leader_id,
+            )
+        else:
+            # Standalone leader or solo player on decoder: release the decoder and stop playback
+            active_dec = self._active_decoder or pool.owned_decoder(self.entity_id)
+            if active_dec:
+                target_dec = self._streaming_target(active_dec) or active_dec
+                try:
+                    await self.hass.services.async_call(
+                        "media_player", "media_stop", {"entity_id": target_dec}
+                    )
+                except Exception as err:
+                    LOGGER.debug(
+                        "%s: failed to stop streaming decoder %s: %s",
+                        self.entity_id,
+                        target_dec,
+                        err,
+                    )
+                if target_dec != active_dec:
+                    try:
+                        await self.hass.services.async_call(
+                            "media_player", "media_stop", {"entity_id": active_dec}
+                        )
+                    except Exception as err:
+                        LOGGER.debug(
+                            "%s: failed to stop hardware decoder %s: %s",
+                            self.entity_id,
+                            active_dec,
+                            err,
+                        )
+            await pool.release(self.entity_id)
+            self._active_decoder = None
+            self._cancel_pending_off()
+            self._cancel_auto_off()
+            self._parked = False
+            self._wake_pending = False
+            self.async_write_ha_state()
+            LOGGER.info(
+                "%s: source changed to %d on bus — released streaming decoder",
+                self.entity_id,
+                source_num,
+            )
 
     async def _async_wake_members(
         self,

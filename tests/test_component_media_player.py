@@ -4581,3 +4581,188 @@ async def test_effective_decoder_with_default_source_fallback(hass, mock_gateway
     # _effective_decoder must find the decoder via default source fallback
     assert zone36._effective_decoder == "media_player.streamer"
     assert zone36.state == MediaPlayerState.PLAYING
+
+
+@pytest.mark.asyncio
+async def test_member_source_switch_to_tuner_only_switches_that_room_and_keeps_group(hass, mock_gateway):
+    """When a member switches to Tuner, only that room drops from the group; leader and other members stay playing."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    mem1 = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+    mem2 = _create_test_zone(hass, mock_gateway, runtime, "41", "media_player.kitchen")
+
+    for z in (leader, mem1, mem2):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+    await leader.async_join_players(["media_player.badkamer", "media_player.kitchen"])
+
+    assert leader.group_members == [
+        "media_player.living_room",
+        "media_player.badkamer",
+        "media_player.kitchen",
+    ]
+
+    # Badkamer (env 3) switches source on wall switch to Source 1 (Tuner) -> *16*3*131##
+    mem1.handle_event(OWNSoundEvent.parse("*16*3*131##"))
+    await hass.async_block_till_done()
+
+    # Badkamer dropped from group, stayed ON on Radio
+    assert pool.get_leader("media_player.badkamer") is None
+    assert mem1.group_members is None
+    assert mem1._attr_source == "Radio"
+    assert mem1.state == MediaPlayerState.ON
+
+    # Leader and Kitchen stay grouped on Cambridge and playing
+    assert leader.group_members == ["media_player.living_room", "media_player.kitchen"]
+    assert leader.state == MediaPlayerState.PLAYING
+    assert mem2.state == MediaPlayerState.PLAYING
+
+
+@pytest.mark.asyncio
+async def test_leader_source_switch_to_tuner_transfers_leadership_and_leaves_group(hass, mock_gateway):
+    """When a leader switches to Tuner, leadership is transferred to the next member and remaining members keep playing."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    mem1 = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+    mem2 = _create_test_zone(hass, mock_gateway, runtime, "41", "media_player.kitchen")
+
+    for z in (leader, mem1, mem2):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+    leader._active_decoder = "media_player.streamer"
+    await leader.async_join_players(["media_player.badkamer", "media_player.kitchen"])
+
+    # Living room (env 2) switches source on wall switch to Source 1 (Tuner) -> *16*3*121##
+    leader.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+    await hass.async_block_till_done()
+
+    # Living room handed over group, stayed ON on Radio, no decoder
+    assert leader._active_decoder is None
+    assert leader.group_members is None
+    assert leader._attr_source == "Radio"
+    assert leader.state == MediaPlayerState.ON
+
+    # Badkamer is the new leader, holds the decoder, kitchen is still member
+    assert mem1._active_decoder == "media_player.streamer"
+    assert mem1.group_members == ["media_player.badkamer", "media_player.kitchen"]
+    assert mem1.state == MediaPlayerState.PLAYING
+    assert mem2.state == MediaPlayerState.PLAYING
+
+
+@pytest.mark.asyncio
+async def test_leader_source_switch_with_same_environment_member(hass, mock_gateway):
+    """When leader switches source, members in the same environment also switch to Tuner; other envs transfer leadership."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    lr_front = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_front")
+    lr_rear = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.living_rear")
+    kitchen = _create_test_zone(hass, mock_gateway, runtime, "41", "media_player.kitchen")
+
+    for z in (lr_front, lr_rear, kitchen):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_front", preferred_source=2)
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+    lr_front._active_decoder = "media_player.streamer"
+    await lr_front.async_join_players(["media_player.living_rear", "media_player.kitchen"])
+
+    # Environment 2 routes to Source 1 (Tuner) -> *16*3*121##
+    lr_front.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+    lr_rear.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+    await hass.async_block_till_done()
+
+    # Both living room zones are now ON on Radio, not grouped
+    assert lr_front.group_members is None
+    assert lr_front._attr_source == "Radio"
+    assert lr_front._active_decoder is None
+    assert lr_front.state == MediaPlayerState.ON
+
+    assert lr_rear.group_members is None
+    assert lr_rear._attr_source == "Radio"
+    assert lr_rear.state == MediaPlayerState.ON
+
+    # Kitchen (env 4) took over leadership of the streamer
+    assert kitchen._active_decoder == "media_player.streamer"
+    assert kitchen.state == MediaPlayerState.PLAYING
+
+
+@pytest.mark.asyncio
+async def test_solo_leader_source_switch_releases_and_stops_decoder(hass, mock_gateway):
+    """When a solo playing zone switches to Tuner, decoder is stopped and released; zone stays ON on Tuner."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    leader._options = lambda: dict(base_options)
+    leader._gateway_handler.config_entry.options = dict(base_options)
+    leader._attr_state = MediaPlayerState.ON
+    leader._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_service:
+        leader.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+        await hass.async_block_till_done()
+        mock_service.assert_called_with(
+            "media_player", "media_stop", {"entity_id": "media_player.streamer"}
+        )
+
+    assert leader._active_decoder is None
+    assert pool.get_assignment("media_player.living_room") is None
+    assert leader._attr_source == "Radio"
+    assert leader.state == MediaPlayerState.ON

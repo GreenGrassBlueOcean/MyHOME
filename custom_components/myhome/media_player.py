@@ -889,6 +889,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
             if zone_environment(self._where) != environment:
                 pass
             elif 1 <= source_num <= CONF_SOURCE_SLOTS:
+                previous_source = self._source_number(self._attr_source) if self._attr_source else None
                 self._attr_source = self._source_label(source_num)
                 self._warn_unconfigured_source(source_num)
                 dropping = False
@@ -915,6 +916,24 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
                             dropping = True
                             self.hass.async_create_task(
                                 self._async_drop_from_group(pool, leader_id)
+                            )
+                    elif pool.is_leader(self.entity_id) or self._active_decoder or pool.owned_decoder(self.entity_id):
+                        active_dec = self._active_decoder or pool.owned_decoder(self.entity_id)
+                        expected_source = None
+                        if active_dec:
+                            expected_source = pool.decoder_source(active_dec)
+                        if expected_source is None:
+                            expected_source = previous_source
+                        if expected_source is not None and expected_source != source_num:
+                            LOGGER.info(
+                                "%s: leader source changed to %d on bus while streaming on source %s — leaving group/session",
+                                self.entity_id,
+                                source_num,
+                                expected_source,
+                            )
+                            dropping = True
+                            self.hass.async_create_task(
+                                self._async_drop_leader_on_source_change(pool, source_num, environment)
                             )
                 if not dropping and self._attr_state == MediaPlayerState.ON:
                     trigger_auto_join = True
