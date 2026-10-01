@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.climate import HVACMode
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
@@ -286,10 +286,15 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
 
     # Track central mode updates dispatched to subordinate zones
     central_mode_events: list[HVACMode] = []
+
+    @callback
+    def _record_central_mode(mode: HVACMode) -> None:
+        central_mode_events.append(mode)
+
     async_dispatcher_connect(
         hass,
         f"myhome_central_mode_{MAC}",
-        central_mode_events.append,
+        _record_central_mode,
     )
 
     # 1. Startup update sends zero status requests (no Dimension 14 poll)
