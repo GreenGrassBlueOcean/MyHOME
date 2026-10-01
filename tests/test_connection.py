@@ -846,7 +846,8 @@ class TestOWNSessionNegotiateBranches:
         ]
         res = await session._negotiate()
         assert res["Success"] is False
-        assert res["Message"] == "password_error"
+        # Older OWNd said password_error; OWNd#69 says password_required, like the SHA branch.
+        assert res["Message"] in ("password_error", "password_required")
 
     @pytest.mark.asyncio
     async def test_negotiate_open_session_ack(self, session):
