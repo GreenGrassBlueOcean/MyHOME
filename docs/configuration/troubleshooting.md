@@ -72,6 +72,11 @@ Devices are discovered from bus traffic. Deleting is meant for devices that are 
 
 Log: `Could not send message *#4*<ZPP>*15##`. Probe addresses (`WHERE ≥ 100`) refuse the explicit poll. Probes are receive-only and are only polled when no reading arrived in the last interval (fixed after 2.0.0b12, issue #308); if you still see it, update the integration.
 
+### "Heating zone unresponsive" repair alert on central unit (3550 / 4695) or phantom "Climate Zone 99"
+
+- **Central Unit (`#0` / `#0#1`) false-positive**: In `v2.0.0b14`, central units were queried for Dimension 14 target setpoints (`*#4*#0*14##`), which central units reject with NACK because they manage seasonal modes, not individual zone setpoints. This triggered a false-positive `"unresponsive zone"` repair alert. Upgrading to `v2.0.0b15+` automatically dismisses the stale repair alert and exempts central units from point-to-point status polling.
+- **"Centrale termoregolazione 99 zone" vs "Climate Zone 99"**: The BTicino 3550 is commercially named *"Centrale termoregolazione 99 zone"* because it supports up to 99 zones, but its OpenWebNet central unit address is strictly `#0`. If a `Climate Zone 99` device appears in Home Assistant on an installation with fewer zones, it is an unused zone address whose status request (`*#4*99##`) failed. You can safely delete the **Climate Zone 99** entity or device in **Settings → Devices & services → Entities**.
+
 ### Cover position is wrong
 
 Timed covers estimate position from the travel time. Calibrate it (`myhome.calibrate_cover` or the device's **Calibrate travel time** button) or measure it with a stopwatch and save it with `myhome.set_cover_travel_time`. A full open or close resynchronises the estimate. Position-reporting actuators (dimension 10) are exact; if yours reports position but the entity does not follow, set `advanced_shutter: true` in `myhome.yaml`.
