@@ -312,7 +312,7 @@
       "title": "Decoder {decoder} gebruikt een niet-ondersteunde integratie ({platform})"
     },
     "gateway_authentication_failed": {
-      "title": "Gateway-authenticatie mislukt",
+      "title": "Authenticatie mislukt voor MyHOME-gateway {gateway}",
       "description": "De gateway heeft de OpenWebNet-inloggegevens geweigerd. Configureer het wachtwoord opnieuw."
     },
     "bus_collision_storm": {
@@ -321,7 +321,7 @@
     },
     "gateway_identity_mismatch": {
       "title": "Gatewaymodel komt niet overeen voor {configured}",
-      "description": "De gateway is geconfigureerd als {configured}, maar meldt OpenWebNet-apparaattype {code}, wat {reported} identificeert volgens {basis}."
+      "description": "De gateway is geconfigureerd als {configured} (bron: {source}), maar meldt OpenWebNet-apparaattype {code}, wat {reported} identificeert volgens {basis}."
     },
     "gateway_identity_corrected": {
       "title": "Gatewaymodel gecorrigeerd naar {corrected}",
@@ -403,7 +403,7 @@
       "message": "{entity_id}: onbekende bron \"{source}\""
     },
     "environment_busy": {
-      "message": "{entity_id}: {owner} streamt al in omgeving {environment}; zones in één omgeving delen een matrixingang"
+      "message": "{entity_id}: {owner_name} streamt al in omgeving {environment}; zones in één omgeving delen een matrixingang (ook in gebruik door: {rooms})"
     },
     "routing_unsupported": {
       "message": "{entity_id}: versterker {where} heeft geen routeringsadres in de matrix (omgeving 0, of geen tweecijferige versterker); wissel de bron via een bedieningspaneel"
