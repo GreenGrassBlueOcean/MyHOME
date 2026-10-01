@@ -18,6 +18,61 @@ In MyHOME systems, multi-room audio is managed by dedicated hardware analog matr
 
 ---
 
+## 🧭 How It Fits Together (Start Here)
+
+New to the audio feature? This section answers the questions that come up first. The rest of the page goes into detail.
+
+### What is connected to what
+
+```
+Music Assistant / Home Assistant
+        │  play, volume, group
+        ▼
+MyHOME room entity  (media_player.<room>)
+        │  claims a free decoder, wakes the amplifier, forwards the stream
+        ▼
+Network streamer  (Squeezelite / piCorePlayer, WiiM, Cast, DLNA ...)
+        │  analog audio out (cable)
+        ▼
+F441 / F441M matrix input S1..S4  ──►  room amplifiers  ──►  speakers
+```
+
+| Part | What it does | Connection |
+|---|---|---|
+| **Streamer ("decoder")** | Receives the stream from Music Assistant or Home Assistant and turns it into analog audio. | Network in, analog line-level out. |
+| **F441 / F441M matrix** | Switches one of its four inputs (S1–S4) to each room. It has no network audio. | Analog in from the streamers; analog out to the amplifiers. |
+| **Room amplifiers** | Power the speakers of one room. | Switched on, off and in volume over the SCS bus. |
+| **MyHOME integration** | Ties the three together: wakes the amplifier, routes the room, forwards the stream to a free streamer. | Gateway (SCS bus) and Home Assistant service calls. |
+
+- **The SCS bus carries commands, not audio.** The 2-wire cable on the source and amplifier modules is the control bus (on, off, volume, routing). The music itself travels on separate analog audio cables. Whether you hear stereo or mono depends on how the streamer is cabled into the matrix input and on your amplifiers and speakers; check the F441M manual for your installation.
+- **One streamer per concurrent stream.** Rooms in one group share a streamer. Two different songs at the same time need two streamers wired to two matrix inputs.
+- **The streamer must be the real device**, such as `media_player.squeezelite_salon`. Never use a Music Assistant player as the decoder.
+
+### What "Options" means
+
+*Options* is the integration's own settings dialog. Open it from **Settings → Devices & Services → MyHOME → Configure**. It holds:
+
+- **Source names** (*Source 1*–*Source 4*): what is wired to each matrix input.
+- **Default source per environment**: optional.
+- **Decoder rows** (up to 4): the streamer's media player entity, the matrix input it is plugged into and an optional pre-gain.
+
+Details are in [Configuration via Home Assistant UI](#configuration-via-home-assistant-ui).
+
+### Setting it up, end to end
+
+1. **Cable** the analog output of each streamer into a free F441/F441M source input.
+2. **Add the streamer to Home Assistant** with its own integration (for example Squeezelite via Music Assistant's Slimproto provider, WiiM, Cast or DLNA). It must show up as a `media_player` entity.
+3. **Name the sources and map the decoders** in the integration Options (see above). Leave unused inputs blank.
+4. **Check the rooms.** Each amplifier zone appears as a `media_player` entity under the MyHOME gateway.
+5. **Music Assistant** picks the rooms up through its Home Assistant media player provider and lists them as players. You play to a room, and MyHOME does the physical work behind it. For a house-wide group that you can freely tick and untick, create a [Sync Group](#recommended-one-music-assistant-sync-group-for-the-house).
+6. **Dashboard:** the stock `media-control` and `tile` cards work directly on the room entities. See [Dashboard Display](#dashboard-display-lovelace-speaker-cards) for ready-made cards, including one that shows only the rooms that are playing.
+
+### Choosing a streamer
+
+Any network streamer with an analog output works as long as Home Assistant can play a stream URL on it. A wired network connection is the most reliable. Bluetooth sources are outside what this integration manages. If playback is choppy over Bluetooth, the cause is almost always radio interference (for example a device sitting on top of the Wi-Fi router) or the Bluetooth stack of the source, not the matrix or the integration. See also [Backend Stream Compatibility](#backend-stream-compatibility-dlna-dmr-cambridge-audio-wiim-squeezelite).
+
+---
+
 ## 🔀 The Dynamic Proxy Architecture
 
 To bridge modern streaming platforms (such as **Music Assistant**, **Spotify Connect**, or **Squeezelite / LMS**) into the analog BTicino matrix without audio artifacts, the MyHOME integration implements the **Dynamic Proxy** pattern.
