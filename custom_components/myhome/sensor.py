@@ -67,6 +67,7 @@ from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, PlatformDiscovery
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .typing_compat import as_any
 from .where_grammar import is_probe
 
 PARALLEL_UPDATES = 0
@@ -144,7 +145,7 @@ async def async_setup_entry(
         if platform is not None:
             platform.async_register_entity_service(
                 SERVICE_SEND_INSTANT_POWER,
-                {Optional(ATTR_DURATION): All(Coerce(int), Range(min=1, max=255))},
+                as_any({Optional(ATTR_DURATION): All(Coerce(int), Range(min=1, max=255))}),
                 "start_sending_instant_power",
             )
 

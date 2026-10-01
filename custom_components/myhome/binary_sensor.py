@@ -5,10 +5,10 @@ import typing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined, unused-ignore]
     DOMAIN as PLATFORM,
 )
-from homeassistant.components.binary_sensor import (
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined, unused-ignore]
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )

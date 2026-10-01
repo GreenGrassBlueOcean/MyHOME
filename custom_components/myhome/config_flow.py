@@ -36,7 +36,6 @@ from voluptuous import (
     In,
     Range,
     Required,
-    Schema,
 )
 
 from .const import (
@@ -87,6 +86,7 @@ from .topology import (
     recommend_follower,
     validate_shared_bus_topology,
 )
+from .typing_compat import flow_schema
 
 TEST_CONNECTION_ABORT_REASONS = frozenset(
     {
@@ -177,7 +177,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required("serial"): In(
                         {
@@ -235,7 +235,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
             pass
 
         if available_ports:
-            schema = Schema(
+            schema = flow_schema(
                 {
                     Required("port"): In(available_ports),
                     Required("baudrate", default=19200): In([9600, 19200, 38400, 57600, 115200]),
@@ -243,7 +243,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
             )
         else:
-            schema = Schema(
+            schema = flow_schema(
                 {
                     Required("port"): cv.string,
                     Required("baudrate", default=19200): In([9600, 19200, 38400, 57600, 115200]),
@@ -314,7 +314,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="custom",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required("address", description={"suggested_value": address_suggestion}): str,
                     Required("port", description={"suggested_value": port_suggestion}): int,
@@ -370,7 +370,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="custom_manual",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required(
                         "serialNumber",
@@ -626,7 +626,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="bus_topology",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required(
                         CONF_BUS_TOPOLOGY, default=(user_input or {}).get(CONF_BUS_TOPOLOGY, TOPOLOGY_STANDALONE)
@@ -687,7 +687,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="port",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required(CONF_PORT, description={"suggested_value": 20000}): int,
                 }
@@ -720,7 +720,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="password",
-            data_schema=Schema(
+            data_schema=flow_schema(
                 {
                     Required(
                         CONF_OWN_PASSWORD,
@@ -861,7 +861,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                     )
 
         if is_serial:
-            schema = Schema(
+            schema = flow_schema(
                 {
                     Required("port", default=entry.data.get(CONF_HOST, "")): cv.string,
                     Required("baudrate", default=entry.data.get("baudrate", 19200)): In(
@@ -870,7 +870,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
             )
         else:
-            schema = Schema(
+            schema = flow_schema(
                 {
                     Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
                     Required(CONF_PORT, default=entry.data.get(CONF_PORT, 20000)): All(
@@ -1361,7 +1361,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=Schema(schema_dict),
+            data_schema=flow_schema(schema_dict),
             errors=errors,
             description_placeholders={
                 "session_limit": str(command_session_limit(limit_model or current_model) or ""),

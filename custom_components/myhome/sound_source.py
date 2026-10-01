@@ -57,7 +57,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.media_player import (
+from homeassistant.components.media_player import (  # type: ignore[attr-defined, unused-ignore]
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
 )

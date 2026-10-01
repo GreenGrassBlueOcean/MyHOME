@@ -5,10 +5,10 @@ import typing
 from homeassistant.components.alarm_control_panel import (  # type: ignore[attr-defined]
     DOMAIN as ALARM_CONTROL_PANEL,
 )
-from homeassistant.components.binary_sensor import (
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined, unused-ignore]
     DOMAIN as BINARY_SENSOR,
 )
-from homeassistant.components.binary_sensor import (
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined, unused-ignore]
     BinarySensorDeviceClass,
 )
 from homeassistant.components.button import DOMAIN as BUTTON  # type: ignore
@@ -24,7 +24,7 @@ from homeassistant.components.sensor import (
 from homeassistant.components.switch import (  # type: ignore
     DOMAIN as SWITCH,
 )
-from homeassistant.components.switch import (
+from homeassistant.components.switch import (  # type: ignore[attr-defined, unused-ignore]
     SwitchDeviceClass,
 )
 from homeassistant.const import CONF_MAC, CONF_NAME
