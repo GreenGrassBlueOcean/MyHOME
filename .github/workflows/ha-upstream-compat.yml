@@ -58,7 +58,7 @@ jobs:
           else
             pip install ${{ matrix.pip-install }}
           fi
-          pip install pytest pytest-asyncio pytest-cov pytest-socket syrupy time-machine python-dateutil pytz freezegun requests-mock respx paho-mqtt tqdm jsonschema pyyaml
+          pip install pytest pytest-asyncio pytest-cov pytest-socket execnet syrupy time-machine python-dateutil pytz freezegun requests-mock respx paho-mqtt tqdm jsonschema pyyaml
           if [ "${{ matrix.ha-channel }}" != "stable" ]; then
             pip install pytest-homeassistant-custom-component --no-deps
           fi
