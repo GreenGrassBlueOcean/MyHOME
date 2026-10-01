@@ -4766,3 +4766,268 @@ async def test_solo_leader_source_switch_releases_and_stops_decoder(hass, mock_g
     assert pool.get_assignment("media_player.living_room") is None
     assert leader._attr_source == "Radio"
     assert leader.state == MediaPlayerState.ON
+
+
+@pytest.mark.asyncio
+async def test_handle_event_invalid_what_string(hass, mock_gateway):
+    """Event with non-numeric what string is handled gracefully without exception."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    zone = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    zone._attr_state = MediaPlayerState.OFF
+
+    mock_msg = MagicMock()
+    mock_msg.where = "21"
+    mock_msg.is_source_event = False
+    mock_msg.is_off = False
+    mock_msg.is_on = False
+    mock_msg.volume = None
+    mock_msg.what = "not_a_number"
+    mock_msg._what = "not_a_number"
+
+    zone.handle_event(mock_msg)
+    assert zone.state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_leader_source_change_fallback_to_previous_source(hass, mock_gateway):
+    """When leader has no active decoder in pool, expected source falls back to previous source."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    mem = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+
+    for z in (leader, mem):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    await leader.async_join_players(["media_player.badkamer"])
+
+    # Simulate active decoder being None or not in pool.decoder_source map
+    leader._active_decoder = None
+    with patch.object(pool, "owned_decoder", return_value=None):
+        leader.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+        await hass.async_block_till_done()
+
+    assert leader._attr_source == "Radio"
+    assert leader.group_members is None
+
+
+@pytest.mark.asyncio
+async def test_solo_leader_source_switch_handles_stop_errors_and_separate_proxy(hass, mock_gateway):
+    """Solo leader source change handles exceptions from media_stop and stops companion proxy target."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+
+    base_options = {
+        CONF_SOURCE_NAME.format(1): "Radio",
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_TUNER.format(1): True,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    leader._options = lambda: dict(base_options)
+    leader._gateway_handler.config_entry.options = dict(base_options)
+    leader._attr_state = MediaPlayerState.ON
+    leader._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+
+    # Streaming target returns separate proxy player, and media_stop raises on both
+    with (
+        patch.object(leader, "_streaming_target", return_value="media_player.proxy_companion"),
+        patch("homeassistant.core.ServiceRegistry.async_call", side_effect=Exception("stop error")),
+    ):
+        leader.handle_event(OWNSoundEvent.parse("*16*3*121##"))
+        await hass.async_block_till_done()
+
+    assert leader._active_decoder is None
+    assert pool.get_assignment("media_player.living_room") is None
+    assert leader._attr_source == "Radio"
+
+
+@pytest.mark.asyncio
+async def test_auto_join_reentrancy_and_guards(hass, mock_gateway):
+    """Test re-entrancy guard, state guards, and missing source in _async_auto_join_active_stream."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+
+    zone = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+
+    # 1. Re-entrancy guard: if _auto_joining is True, early return
+    zone._auto_joining = True
+    await zone._async_auto_join_active_stream()
+    assert zone._auto_joining is True
+    zone._auto_joining = False
+
+    # 2. State guards: not ON
+    zone._attr_state = MediaPlayerState.OFF
+    await zone._async_auto_join_active_stream()
+    assert zone.group_members is None
+
+    # 3. Source is None and _default_source is None
+    zone._attr_state = MediaPlayerState.ON
+    zone._attr_source = None
+    with patch.object(zone, "_default_source", return_value=None):
+        await zone._async_auto_join_active_stream()
+    assert zone.group_members is None
+
+
+@pytest.mark.asyncio
+async def test_auto_join_streaming_disabled(hass, mock_gateway):
+    """Auto-join is skipped when CONF_AUTO_JOIN_STREAMING is False."""
+    from custom_components.myhome.const import CONF_AUTO_JOIN_STREAMING
+
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    base_options = {
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_AUTO_JOIN_STREAMING: False,
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    zone = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+
+    for z in (leader, zone):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+
+    # Zone turns on via bus
+    zone._attr_state = MediaPlayerState.OFF
+    zone.handle_event(OWNSoundEvent.parse("*16*3*36##"))
+    await hass.async_block_till_done()
+
+    assert zone.group_members is None
+    assert pool.get_leader("media_player.badkamer") is None
+
+
+@pytest.mark.asyncio
+async def test_auto_join_decoder_not_playing(hass, mock_gateway):
+    """Auto-join is skipped when decoder is paused or idle."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+
+    base_options = {
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    zone = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+
+    for z in (leader, zone):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+
+    # Decoder is paused: _resolve_playback_state returns PAUSED
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PAUSED)
+    await zone._async_auto_join_active_stream()
+
+    assert zone.group_members is None
+    assert pool.get_leader("media_player.badkamer") is None
+    zone._cancel_auto_off()
+
+
+@pytest.mark.asyncio
+async def test_auto_join_leader_not_found_in_runtime(hass, mock_gateway):
+    """Auto-join returns cleanly if leader entity is not in runtime.media_players."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    base_options = {CONF_SOURCE_NAME.format(2): "Cambridge"}
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    zone = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+    zone._options = lambda: dict(base_options)
+    zone._gateway_handler.config_entry.options = dict(base_options)
+    zone._attr_state = MediaPlayerState.ON
+    zone._attr_source = "Cambridge"
+
+    with patch.object(pool, "get_decoder_owner", return_value="media_player.missing_leader"):
+        await zone._async_auto_join_active_stream()
+
+    assert zone.group_members is None
+
+
+@pytest.mark.asyncio
+async def test_auto_join_handles_environment_busy_and_exception(hass, mock_gateway):
+    """Auto-join handles EnvironmentBusyError and generic exceptions without crashing."""
+    from custom_components.myhome.decoder_pool import EnvironmentBusyError
+
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", "idle")
+
+    base_options = {CONF_SOURCE_NAME.format(2): "Cambridge"}
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    zone = _create_test_zone(hass, mock_gateway, runtime, "36", "media_player.badkamer")
+
+    for z in (leader, zone):
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.ON
+        z._attr_source = "Cambridge"
+
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    # 1. EnvironmentBusyError
+    with patch.object(pool, "add_member", side_effect=EnvironmentBusyError("3", "media_player.other")):
+        await zone._async_auto_join_active_stream()
+    assert zone.group_members is None
+
+    # 2. Generic Exception
+    with patch.object(pool, "add_member", side_effect=RuntimeError("unexpected")):
+        await zone._async_auto_join_active_stream()
+    assert zone.group_members is None
+
+
+@pytest.mark.asyncio
+async def test_mute_volume_remembers_previous_volume(hass, player):
+    """Muting when volume > 0 records pre-mute volume; unmuting restores it."""
+    player._attr_volume_level = 0.8
+    player._attr_is_volume_muted = False
+    with patch.object(player, "async_set_volume_level", new_callable=AsyncMock) as set_vol:
+        await player.async_mute_volume(True)
+        set_vol.assert_called_with(0.0)
+        assert player._pre_mute_volume == 0.8
+
+        await player.async_mute_volume(False)
+        set_vol.assert_called_with(0.8)

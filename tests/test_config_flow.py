@@ -1509,6 +1509,7 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
 
     from custom_components.myhome.const import (
         CONF_ADDRESS,
+        CONF_AUTO_JOIN_STREAMING,
         CONF_BROADCAST_RESYNC,
         CONF_BUS_TOPOLOGY,
         CONF_DECODER_ENTITY,
@@ -1524,6 +1525,7 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_SOURCE_TUNER,
         CONF_TRANSITION_MODE,
         CONF_WORKER_COUNT,
+        DEFAULT_AUTO_JOIN_STREAMING,
         ROLE_PRIMARY,
         TOPOLOGY_STANDALONE,
     )
@@ -1532,6 +1534,7 @@ async def test_options_flow_data_only_reloads_entry(hass: HomeAssistant) -> None
         CONF_WORKER_COUNT: 1,
         CONF_GENERATE_EVENTS: False,
         CONF_BROADCAST_RESYNC: True,
+        CONF_AUTO_JOIN_STREAMING: DEFAULT_AUTO_JOIN_STREAMING,
         CONF_TRANSITION_MODE: "software_stepped",
         CONF_SOURCE_DEFAULTS: {},
         CONF_BUS_TOPOLOGY: TOPOLOGY_STANDALONE,
