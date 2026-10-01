@@ -399,9 +399,10 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     async def async_update(self) -> None:
         """Request status update from gateway, unless the zone has stopped answering."""
         if self._central:
-            # Central units (#0, #0#1) do not have target temperature setpoints
-            # or respond to Dimension 14 status queries; they receive autonomous mode events
-            # and do not participate in point-to-point status polling or PollHealth tracking.
+            # Central units (#0, #0#1) do not answer Dimension 14 status requests (*#4*#0*14##);
+            # in OpenWebNet, Dimension 14 status reads only apply to zone addresses 1..99.
+            # Central units receive setpoints via commands (*#4*#0*#14*T*M##), broadcast events,
+            # or restored state, and do not participate in point-to-point status polling or PollHealth tracking.
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)

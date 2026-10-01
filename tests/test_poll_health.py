@@ -1,5 +1,6 @@
 """A zone that never answers its status request stops costing the startup queue (#466)."""
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.helpers import issue_registry as ir
@@ -141,7 +142,7 @@ async def test_restored_unresponsive_zone_is_skipped_at_startup(hass):
     zone, gateway = _zone(hass)
     state = MagicMock()
     state.state = "off"
-    state.attributes = {"failed_polls": 2, "unresponsive_since": __import__("time").time() - 3600}
+    state.attributes = {"failed_polls": 2, "unresponsive_since": time.time() - 3600}
     await zone.async_restore_last_state(state)
     await zone.async_update()
     gateway.send_status_request.assert_not_called()
@@ -153,7 +154,7 @@ async def test_a_reprobe_that_is_answered_clears_the_repair(hass):
     await _poll(hass, zone, gateway, "nack")
     await _poll(hass, zone, gateway, "nack")
     assert _issue(hass, zone) is not None
-    zone._poll_health.since = __import__("time").time() - 8 * 24 * 3600  # re-probe is due
+    zone._poll_health.since = time.time() - 8 * 24 * 3600  # re-probe is due
     await _poll(hass, zone, gateway, "ack")
     assert _issue(hass, zone) is None
     assert "failed_polls" not in zone.extra_state_attributes
@@ -170,7 +171,7 @@ async def test_removing_the_entity_drops_its_repair(hass):
 
 
 async def test_central_unit_exempt_from_status_poll_and_poll_health(hass):
-    """Central units (#0, #0#1) do not have target temperature setpoints or Dimension 14 status queries (#582)."""
+    """Central units (#0, #0#1) do not answer Dimension 14 status queries (#582)."""
     central, gateway = _zone(hass, where="#0", central=True, name="Centrale termoregolazione")
     await central.async_update()
     gateway.send_status_request.assert_not_called()
@@ -190,7 +191,7 @@ async def test_central_unit_restores_cleanly_and_clears_stale_repair(hass):
     # 2. State restored with failed_polls: 2
     state = MagicMock()
     state.state = "heat"
-    state.attributes = {"failed_polls": 2, "unresponsive_since": __import__("time").time() - 3600}
+    state.attributes = {"failed_polls": 2, "unresponsive_since": time.time() - 3600}
     await central.async_restore_last_state(state)
 
     # Issue must be automatically dropped and attributes kept clean
