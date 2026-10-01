@@ -882,14 +882,17 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
         # changes source. If we unconditionally set state=ON here, a zone
         # that was just turned OFF would be resurrected as a ghost "On" entity
         # whenever a different zone turns on.
+        trigger_auto_join = False
         routing = parse_routing_address(zone_str)
         if routing is not None:
             source_num, environment = routing
             if zone_environment(self._where) != environment:
                 pass
             elif 1 <= source_num <= CONF_SOURCE_SLOTS:
+                previous_source = self._source_number(self._attr_source) if self._attr_source else None
                 self._attr_source = self._source_label(source_num)
                 self._warn_unconfigured_source(source_num)
+                dropping = False
                 pool = self._get_pool()
                 if pool:
                     leader_id = pool.get_leader(self.entity_id)
@@ -910,9 +913,30 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
                                 leader_id,
                                 expected_source,
                             )
+                            dropping = True
                             self.hass.async_create_task(
                                 self._async_drop_from_group(pool, leader_id)
                             )
+                    elif pool.is_leader(self.entity_id) or self._active_decoder or pool.owned_decoder(self.entity_id):
+                        active_dec = self._active_decoder or pool.owned_decoder(self.entity_id)
+                        expected_source = None
+                        if active_dec:
+                            expected_source = pool.decoder_source(active_dec)
+                        if expected_source is None:
+                            expected_source = previous_source
+                        if expected_source is not None and expected_source != source_num:
+                            LOGGER.info(
+                                "%s: leader source changed to %d on bus while streaming on source %s — leaving group/session",
+                                self.entity_id,
+                                source_num,
+                                expected_source,
+                            )
+                            dropping = True
+                            self.hass.async_create_task(
+                                self._async_drop_leader_on_source_change(pool, source_num, environment)
+                            )
+                if not dropping and self._attr_state == MediaPlayerState.ON:
+                    trigger_auto_join = True
             else:
                 # The F441M has inputs S1-S4; anything else is not a source
                 # this zone can be on, so the label is left as it was.
@@ -930,6 +954,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
                 self._mark_status_seen()
                 self._restore_claim()
                 self._check_stray_at_startup()
+            trigger_auto_join = True
         elif message.is_off:
             if self._is_wake_echo():
                 # Our own wake sequence's OFF: the ON follows it.
@@ -948,6 +973,25 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
                 if not self._turning_off:
                     self.hass.async_create_task(self._async_handle_turn_off(from_bus=True))
 
+        what = getattr(message, "what", getattr(message, "_what", None))
+        is_volume_up = False
+        if what is not None:
+            try:
+                is_volume_up = 1001 <= int(what) <= 1015
+            except (ValueError, TypeError):
+                pass
+
+        if not message.is_off and (is_volume_up or (message.volume is not None and message.volume > 0)):
+            if self._attr_state != MediaPlayerState.ON or self._parked:
+                self._cancel_pending_off()
+                self._parked = False
+                self._attr_state = MediaPlayerState.ON
+                if not self._status_seen:
+                    self._mark_status_seen()
+                    self._restore_claim()
+                    self._check_stray_at_startup()
+                trigger_auto_join = True
+
         if message.volume is not None:
             self._attr_volume_level = message.volume / 31.0
             # Volume 0 is not a mute: only async_mute_volume() mutes. Music
@@ -956,6 +1000,9 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
             # there. A volume raised above 0 (a wall panel, say) does end a mute.
             if message.volume > 0 and self._attr_is_volume_muted:
                 self._attr_is_volume_muted = False
+
+        if trigger_auto_join:
+            self.hass.async_create_task(self._async_auto_join_active_stream())
 
         self._publish_state()
 

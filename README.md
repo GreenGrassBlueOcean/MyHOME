@@ -633,7 +633,7 @@ automated coverage and physical gateway verification steps.
 ### CI Workflows
 - **`hassfest`**: Official Home Assistant manifest, translation, and metadata validation.
 - **`validate`**: Official HACS compliance checks.
-- **`test-coverage`**: 2090 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
+- **`test-coverage`**: 2991 automated unit tests with snapshot matching and 100% line coverage enforcement on the `ownd` core package.
 - **`ha-container-smoke`**: Automated containerized smoke testing against official Home Assistant Docker images (`stable`, `beta`, `dev`) verifying `check_config`, clean platform module imports, and zero asyncio loop-blocking calls.
 - **`ownd-smoke`**: Automated smoke testing of the `OWNd` protocol engine across `pinned`, `latest`, and `upstream-dev` distributions on Python 3.14.
 - **`ha-upstream-compat`**: Continuous integration testing against upstream Home Assistant Stable, Beta, and Dev channels.
@@ -661,7 +661,7 @@ _Self-audit of [`quality_scale.yaml`](custom_components/myhome/quality_scale.yam
 
 ### 📊 Code Coverage & Quality Assurance
 
-The integration maintains 2090 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
+The integration maintains 2991 automated unit tests (100% line coverage across all modules) covering core protocol handling, hardware profiles, discovery, state reconciliation, and error boundaries.
 
 <!-- START_COVERAGE_TABLE -->
 
@@ -679,24 +679,45 @@ The integration maintains 2090 automated unit tests (100% line coverage across a
 | [`core/transport/serial.py`](custom_components/myhome/core/transport/serial.py) | **100%** | Async Serial/USB transport for Legrand 3578 / OpenZigBee |
 | [`core/transport/tcp.py`](custom_components/myhome/core/transport/tcp.py) | **100%** | Modular TCP/IP socket transport with framed stream parsing |
 | [`cover.py`](custom_components/myhome/cover.py) | **100%** | Motorized shutters, blinds, roll-ups with state tracking |
+| [`cover_calibration.py`](custom_components/myhome/cover_calibration.py) | **100%** | Core integration component |
+| [`cover_motion.py`](custom_components/myhome/cover_motion.py) | **100%** | Core integration component |
+| [`cover_scope.py`](custom_components/myhome/cover_scope.py) | **100%** | Core integration component |
 | [`data.py`](custom_components/myhome/data.py) | **100%** | Core integration component |
+| [`decoder_companion.py`](custom_components/myhome/decoder_companion.py) | **100%** | Core integration component |
 | [`decoder_pool.py`](custom_components/myhome/decoder_pool.py) | **100%** | Thread-safe streaming proxy audio pool |
 | [`device_trigger.py`](custom_components/myhome/device_trigger.py) | **100%** | Stateless CEN/CEN+ scenario device automation triggers |
 | [`diagnostics.py`](custom_components/myhome/diagnostics.py) | **100%** | Config entry diagnostics with sensitive data redaction |
 | [`discovery.py`](custom_components/myhome/discovery.py) | **100%** | Core integration component |
 | [`gateway.py`](custom_components/myhome/gateway.py) | **100%** | Hardware handler, lockout prevention, adaptive queue pacing |
+| [`gateway_events.py`](custom_components/myhome/gateway_events.py) | **100%** | Core integration component |
+| [`gateway_resync.py`](custom_components/myhome/gateway_resync.py) | **100%** | Core integration component |
+| [`gateway_sessions.py`](custom_components/myhome/gateway_sessions.py) | **100%** | Core integration component |
 | [`identity.py`](custom_components/myhome/identity.py) | **100%** | Core integration component |
+| [`legacy_yaml.py`](custom_components/myhome/legacy_yaml.py) | **100%** | Core integration component |
 | [`light.py`](custom_components/myhome/light.py) | **100%** | Relays, auto-dimmer detection, and brightness transitions |
+| [`light_dali.py`](custom_components/myhome/light_dali.py) | **100%** | Core integration component |
+| [`light_fade.py`](custom_components/myhome/light_fade.py) | **100%** | Core integration component |
 | [`light_group.py`](custom_components/myhome/light_group.py) | **100%** | Core integration component |
 | [`media_player.py`](custom_components/myhome/media_player.py) | **100%** | F441/F441M sound system zones, dynamic proxy, gain-staging |
+| [`media_player_decoder.py`](custom_components/myhome/media_player_decoder.py) | **100%** | Core integration component |
+| [`media_player_group.py`](custom_components/myhome/media_player_group.py) | **100%** | Core integration component |
+| [`media_player_pool.py`](custom_components/myhome/media_player_pool.py) | **100%** | Core integration component |
+| [`media_player_routing.py`](custom_components/myhome/media_player_routing.py) | **100%** | Core integration component |
+| [`media_player_source.py`](custom_components/myhome/media_player_source.py) | **100%** | Core integration component |
+| [`media_player_zone.py`](custom_components/myhome/media_player_zone.py) | **100%** | Core integration component |
+| [`migrate.py`](custom_components/myhome/migrate.py) | **100%** | Core integration component |
 | [`myhome_device.py`](custom_components/myhome/myhome_device.py) | **100%** | Home Assistant device registry schema compliance |
+| [`poll_health.py`](custom_components/myhome/poll_health.py) | **100%** | Core integration component |
 | [`repairs.py`](custom_components/myhome/repairs.py) | **100%** | Core integration component |
 | [`router.py`](custom_components/myhome/router.py) | **100%** | Core integration component |
 | [`sensor.py`](custom_components/myhome/sensor.py) | **100%** | Power meters, energy counters, and pulse sensors |
 | [`services.py`](custom_components/myhome/services.py) | **100%** | Core integration component |
+| [`sound_source.py`](custom_components/myhome/sound_source.py) | **100%** | Core integration component |
 | [`switch.py`](custom_components/myhome/switch.py) | **100%** | Relay actuators, auxiliary switches, socket controllers |
+| [`topology.py`](custom_components/myhome/topology.py) | **100%** | Core integration component |
 | [`validate.py`](custom_components/myhome/validate.py) | **100%** | Device & gateway schemas, custom WHERE validators, sensor injections |
 | [`websocket.py`](custom_components/myhome/websocket.py) | **100%** | WebSocket API for real-time bus streaming, history, and diagnostics |
+| [`where_grammar.py`](custom_components/myhome/where_grammar.py) | **100%** | Core integration component |
 
 <!-- END_COVERAGE_TABLE -->
 

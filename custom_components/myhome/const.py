@@ -127,6 +127,8 @@ CONF_DECODER_SOURCE = "decoder_{}_source"     # BTicino source number (int 1-4)
 CONF_DECODER_PRE_GAIN = "decoder_{}_pre_gain" # Volume offset % added to decoder (0-100)
 CONF_DECODER_COMPANION = "decoder_{}_companion"  # Optional media_player that receives stream URLs for this decoder
 CONF_DECODER_SLOTS = 4                        # Maximum number of decoder slots
+CONF_AUTO_JOIN_STREAMING = "auto_join_streaming"
+DEFAULT_AUTO_JOIN_STREAMING = True
 
 # ── Matrix sources (F441M inputs S1-S4) ────────────────────────────────────
 # Friendly name per physical source input. A blank name means "no source wired

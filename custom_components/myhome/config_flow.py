@@ -40,6 +40,7 @@ from voluptuous import (
 
 from .const import (
     CONF_ADDRESS,
+    CONF_AUTO_JOIN_STREAMING,
     CONF_BROADCAST_RESYNC,
     CONF_BUS_TOPOLOGY,
     CONF_DECODER_COMPANION,
@@ -66,6 +67,7 @@ from .const import (
     CONF_TRANSITION_MODE,
     CONF_UDN,
     CONF_WORKER_COUNT,
+    DEFAULT_AUTO_JOIN_STREAMING,
     DEFAULT_TRANSITION_MODE,
     DOMAIN,
     IDENTIFICATION_MANUAL,
@@ -925,6 +927,8 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             self.options[CONF_BROADCAST_RESYNC] = True  # type: ignore
         if CONF_TRANSITION_MODE not in self.options:  # type: ignore
             self.options[CONF_TRANSITION_MODE] = DEFAULT_TRANSITION_MODE  # type: ignore
+        if CONF_AUTO_JOIN_STREAMING not in self.options:  # type: ignore
+            self.options[CONF_AUTO_JOIN_STREAMING] = DEFAULT_AUTO_JOIN_STREAMING  # type: ignore
         return await self.async_step_user()  # type: ignore
 
     def _audio_environments(self) -> list[str]:
@@ -1055,6 +1059,9 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                 self.options.update({CONF_GENERATE_EVENTS: user_input[CONF_GENERATE_EVENTS]})  # type: ignore
                 self.options.update({CONF_BROADCAST_RESYNC: user_input.get(CONF_BROADCAST_RESYNC, True)})  # type: ignore
                 self.options[CONF_TRANSITION_MODE] = user_input.get(CONF_TRANSITION_MODE, DEFAULT_TRANSITION_MODE)  # type: ignore
+                self.options[CONF_AUTO_JOIN_STREAMING] = user_input.get(  # type: ignore
+                    CONF_AUTO_JOIN_STREAMING, DEFAULT_AUTO_JOIN_STREAMING
+                )
 
                 # Persist the per-environment default source ("" = leave routing alone)
                 _defaults: dict[str, int] = {}
@@ -1176,6 +1183,15 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                CONF_AUTO_JOIN_STREAMING,
+                description={
+                    "suggested_value": self.options.get(  # type: ignore
+                        CONF_AUTO_JOIN_STREAMING, DEFAULT_AUTO_JOIN_STREAMING
+                    )
+                },
+                default=DEFAULT_AUTO_JOIN_STREAMING,
+            ): selector.BooleanSelector(),
         }
 
         # Matrix source names 1–4 (F441M inputs S1–S4)
