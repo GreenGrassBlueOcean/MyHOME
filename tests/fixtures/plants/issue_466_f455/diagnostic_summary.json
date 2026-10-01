@@ -2,7 +2,7 @@
   "home_assistant": {
     "installation_type": "Home Assistant OS",
     "version": "2026.9.4",
-    "timezone": "Europe/Brussels"
+    "timezone": "UTC"
   },
   "data": {
     "integration_version": "2.0.0b14",
