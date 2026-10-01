@@ -34,6 +34,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _noop_unsubscribe() -> None:
+    """Unsubscribe callback for a trigger that never subscribed."""
+
 CONF_ADDRESS = "address"
 CONF_OBJECT = "object"
 CONF_SUBTYPE = "subtype"
@@ -297,7 +301,7 @@ async def async_attach_trigger(
                 trigger_data.get("id", trigger_type),
                 config[CONF_DEVICE_ID],
             )
-            return lambda: None
+            return _noop_unsubscribe
         target_gateway_mac = _get_gateway_mac_from_device(device)
         family = _get_cen_family_from_device(device)
         if target_address is None:

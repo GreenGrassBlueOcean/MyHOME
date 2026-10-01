@@ -1185,7 +1185,7 @@ async def test_gateway_device_button_trigger_matches_both_families(hass: HomeAss
 
 
 @pytest.mark.asyncio
-async def test_missing_device_fails_closed(hass: HomeAssistant):
+async def test_missing_device_fails_closed(hass: HomeAssistant, caplog: pytest.LogCaptureFixture):
     """If the device cannot be resolved the family is unknown: fire on neither (#601)."""
     mock_registry = MagicMock()
     mock_registry.async_get.return_value = None
@@ -1203,4 +1203,35 @@ async def test_missing_device_fails_closed(hass: HomeAssistant):
     hass.bus.async_fire("myhome_cenplus_event", payload)
     await hass.async_block_till_done()
     action.assert_not_called()
+    assert "device gone not found" in caplog.text
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_family_filter_combines_with_gateway_mac_mismatch(hass: HomeAssistant):
+    """A CEN+ device trigger ignores other gateways even on its own family (#601)."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc-25-8")}
+    mock_device.connections = set()
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+    action = AsyncMock()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        unsub = await async_attach_trigger(
+            hass,
+            {CONF_DEVICE_ID: "dev", CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1"},
+            action,
+            {"name": "t"},
+        )
+
+    base = {"event": CONF_SHORT_PRESS, "pushbutton": 1, "object": 8}
+    hass.bus.async_fire("myhome_cenplus_event", {**base, "gateway_mac": "00:03:50:11:11:11"})
+    await hass.async_block_till_done()
+    action.assert_not_called()
+
+    hass.bus.async_fire("myhome_cenplus_event", {**base, "gateway_mac": "00:03:50:aa:bb:cc"})
+    await hass.async_block_till_done()
+    action.assert_called_once()
     unsub()
