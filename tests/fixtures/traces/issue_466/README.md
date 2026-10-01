@@ -408,3 +408,60 @@ Verbatim bus trace contributed by **@gdluck** on [#466 (comment 5895736715)](htt
 | `myhome_trace_MyHomeServer1_all_2026-09-29T17-57-37.json` | Bus Card Export (200 frames, buffer truncated) | Startup light-state sweep (`*1*0*WHERE##` on 10-15), grouped on/off of points 24, 27, 28, 33, 36, dimmer level reads on point 66 (`*#1*66*#1*WHERE*0##` answered by `*#1*66*1*WHERE*2##`), WHO 1 command `*1*1000#0*0415##` and thermoregulation actuator/valve traffic (`*4*4002#NN*0#Z##`, `*#4*60/61*...`) with the gateway's `*#13` clock frames.
 
 The file is in the tree because its 200 frames include the probe reading `*#4*169*0*...##` (probe 1 of zone 69) beside zones 35-70; the replay in `tests/test_probe_frames_not_zones.py` checks that no such frame names a heating zone (#549).
+
+---
+
+# #466 MyHomeServer1 Guided Cover Calibration Runs (WHERE 91 & Interleaved Energy Telemetry)
+
+Verbatim bus trace contributed by **@Interstellar0verdrive** on [#466 (comment 5927373969)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5927373969), exported from the bus monitor (HA 2026.9.2, integration 2.0.0b13, OWNd 2.0.0b8, gateway firmware 2.87.13).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino MyHomeServer1
+- **Firmware**: 2.87.13
+- **Actuator Model**: BTicino F411 (as reported by contributor; on-wire frame identifies WHERE `91`)
+- **Actuator Address**: WHERE `91`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MyHomeServer1_all_2026-10-01T07-59-11.json` | Bus Monitor Trace (159 frames) | Guided cover calibration runs: eight timed movements on cover WHERE `91` started and stopped by the calibration wizard, with gateway translation frames (`*2*1000#x*`) and basic status replies, interleaved with WHO 18 Dimension 113 and Dimension 1200 telemetry on meters 51, 52, and 53. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Cover Calibration Runs (WHO 2 - Eight Timed Movements)**:
+   - Eight start/stop runs on WHERE `91`, four down and four up:
+
+| Run | Start | Stop | Direction | Duration |
+|---|---|---|---|---|
+| 1 | 07:49:47 | 07:50:03 | down | ~16.0 s |
+| 2 | 07:50:05 | 07:50:08 | up | ~3.5 s |
+| 3 | 07:50:15 | 07:50:20 | down | ~5.4 s |
+| 4 | 07:50:22 | 07:50:37 | up | ~15.2 s |
+| 5 | 07:50:41 | 07:50:56 | down | ~15.0 s |
+| 6 | 07:50:58 | 07:51:08 | up | ~9.4 s |
+| 7 | 07:51:13 | 07:51:20 | up | ~6.5 s |
+| 8 | 07:51:21 | 07:51:27 | down | ~6.4 s |
+
+   - **Start Movement Sequence (Leading Idle Echo)**:
+     Every directional TX command (`*2*1*91##` for UP, `*2*2*91##` for DOWN) triggers a distinctive 4-frame response pattern:
+     1. TX `*2*dir*91##` (command write)
+     2. RX `*2*1000#0*91##` then RX `*2*0*91##` ~50 ms later — a **leading idle/stopped status report** emitted before the motor begins moving. A naive cover state machine could mishandle this by staying stopped.
+     3. RX `*2*1000#dir*91##` (moving translation frame)
+     4. RX `*2*dir*91##` (basic moving status frame, ~450 ms after the leading idle)
+   - **Stop Movement Sequence**:
+     Every stop TX command (`*2*0*91##`) is answered strictly by `*2*1000#0*91##` and `*2*0*91##`.
+
+2. **Energy Management (WHO 18)**:
+   - **Dimension 113 (Active Power)**: 86 frames recording instantaneous active power on meters 51, 52, and 53 (`*#18*51*113*WATT##`). Meter 51 climbs from ~367 W to 526 W during cover motion; meters 52 and 53 remain steady at ~6 W and ~1 W.
+   - **Dimension 1200 (Power Threshold)**: 9 frames total:
+     - 3 threshold telemetry responses: `*#18*51*1200#1*125##`, `*#18*52*1200#1*125##`, `*#18*53*1200#1*125##` at 07:50:34.
+     - 6 poll requests across 2 periodic rounds (5-minute interval): meters 51, 52, 53 queried at 07:52:39 and 07:57:39 (`*#18*METER*1200##`).
+
+## Subsystems Verified (MyHomeServer1)
+
+- **WHO 2 (Automation / Covers)**: WHERE `91` cover movement, eight start/stop cycles, leading idle frame transition handling (`*2*1000#0*` + `*2*0*` followed by `*2*1000#dir*` + `*2*dir*`), and clean stop transitions.
+- **WHO 18 (Energy Management)**: Real-time Dimension 113 power readings on meters 51, 52, and 53, and Dimension 1200 periodic threshold polling and reports.
+
