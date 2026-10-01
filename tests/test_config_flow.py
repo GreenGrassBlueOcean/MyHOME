@@ -1367,6 +1367,58 @@ async def test_options_flow_source_names_and_environment_defaults(hass: HomeAssi
     assert options[CONF_SOURCE_DEFAULTS] == {"2": 2}
 
 
+async def test_options_flow_auto_join_streaming_toggle(hass: HomeAssistant) -> None:
+    """Validate CONF_AUTO_JOIN_STREAMING default, toggle, and persistence."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.config_flow import MyhomeOptionsFlowHandler
+    from custom_components.myhome.const import (
+        CONF_AUTO_JOIN_STREAMING,
+        DEFAULT_AUTO_JOIN_STREAMING,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"mac": "00:03:50:00:12:34", "host": "192.168.1.50", "port": 20000},
+        options={},
+        unique_id="00:03:50:00:12:34",
+    )
+    entry.add_to_hass(hass)
+
+    flow = MyhomeOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    form = await flow.async_step_init()
+    assert form["type"] == FlowResultType.FORM
+    assert flow.options[CONF_AUTO_JOIN_STREAMING] is DEFAULT_AUTO_JOIN_STREAMING
+
+    schema_keys = {str(k): k for k in form["data_schema"].schema}
+    assert CONF_AUTO_JOIN_STREAMING in schema_keys
+    field = schema_keys[CONF_AUTO_JOIN_STREAMING]
+    assert field.description["suggested_value"] is True
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result = await flow.async_step_user(
+            {
+                "address": "192.168.1.50",
+                "password": "12345",
+                "command_worker_count": 1,
+                "generate_events": False,
+                CONF_AUTO_JOIN_STREAMING: False,
+            }
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_AUTO_JOIN_STREAMING] is False
+    hass.config_entries.async_update_entry(entry, options=result["data"])
+
+    flow2 = MyhomeOptionsFlowHandler(entry)
+    flow2.hass = hass
+    form2 = await flow2.async_step_init()
+    schema_keys2 = {str(k): k for k in form2["data_schema"].schema}
+    field2 = schema_keys2[CONF_AUTO_JOIN_STREAMING]
+    assert field2.description["suggested_value"] is False
+
+
 async def test_options_flow_environments_without_registry(hass: HomeAssistant) -> None:
     """A registry lookup that fails leaves the form without default-source fields."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry

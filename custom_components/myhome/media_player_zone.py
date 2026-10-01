@@ -86,6 +86,7 @@ class ZoneBase(MyHOMEEntity, MediaPlayerEntity):
         self._companion_cache: dict[str, str] = {}  # cached decoder_id -> companion_id mapping
         self._pending_off_task: asyncio.Task[None] | None = None  # grace-period group-leave OFF
         self._status_seen: bool = False  # first bus status report received since being added
+        self._auto_joining: bool = False  # guard flag — prevents overlapping auto-join runs
 
         # ── Base hardware features (always available) ──────────────────────
         self._attr_supported_features = (
@@ -163,4 +164,8 @@ class ZoneBase(MyHOMEEntity, MediaPlayerEntity):
 
     async def _async_handle_turn_off(self, from_bus: bool = False) -> None:
         """Coordinated turn-off of a zone, its group and its decoder (entity)."""
+        raise NotImplementedError
+
+    async def _async_auto_join_active_stream(self) -> None:
+        """Auto-join an active streaming group when this room turns on or adjusts volume (group layer)."""
         raise NotImplementedError

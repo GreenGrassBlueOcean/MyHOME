@@ -37,20 +37,21 @@ class ZoneDecoderLayer(ZoneSourceLayer):
         if self._active_decoder:
             return self._active_decoder
         pool = self._get_pool()
-        if pool:
+        source_num = (
+            self._source_number(self._attr_source)
+            if self._attr_source
+            else self._default_source()
+        )
+        if pool and source_num is not None:
             assigned = pool.get_assignment(self.entity_id)
             # A group member listens to the leader's decoder only while its
             # environment is routed there. Without automatic routing it may
             # still be on another input, and an input never reported on the
             # bus is not evidence either way, so only a known match mirrors.
-            current = self._source_number(self._attr_source) if self._attr_source else None
-            if assigned and current is not None and current == pool.decoder_source(assigned):
+            if assigned and source_num == pool.decoder_source(assigned):
                 return assigned
-        if self._attr_state == MediaPlayerState.ON and self._attr_source:
-            source_num = self._source_number(self._attr_source)
-            if source_num is not None:
-                if pool:
-                    return pool.get_decoder_for_source(source_num)
+        if self._attr_state == MediaPlayerState.ON and source_num is not None and pool:
+            return pool.get_decoder_for_source(source_num)
         return None
 
     def _decoders_refusing(self, pool: DecoderPool, media_type: str) -> set[str]:
@@ -299,6 +300,16 @@ class ZoneDecoderLayer(ZoneSourceLayer):
                 # not switch off a room someone just turned on to start playing.
                 if not (unchanged and not self._active_decoder):
                     self._apply_decoder_state(new_state.state, watched)
+
+        if (
+            new_state
+            and new_state.state in _DECODER_PLAYING_STATES
+            and self._attr_state == MediaPlayerState.ON
+            and not self._active_decoder
+        ):
+            pool = self._get_pool()
+            if not (pool and pool.get_leader(self.entity_id)):
+                self.hass.async_create_task(self._async_auto_join_active_stream())
 
         self.async_schedule_update_ha_state()
 

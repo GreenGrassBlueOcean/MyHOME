@@ -903,6 +903,10 @@ class DecoderPool:
                 return dec_id
         return None
 
+    def get_decoder_owner(self, decoder_entity_id: str) -> str | None:
+        """Return the zone entity ID that directly owns decoder_entity_id, or None."""
+        return self._assignments.get(decoder_entity_id)
+
     def decoder_source(self, decoder_entity_id: str) -> int | None:
         """Return the physical source number (1–4) for *decoder_entity_id*, or ``None``."""
         return self._decoder_map.get(decoder_entity_id)

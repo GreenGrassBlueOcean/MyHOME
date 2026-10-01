@@ -11,7 +11,12 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from OWNd.message import OWNSoundCommand
 
-from .const import DOMAIN, LOGGER
+from .const import (
+    CONF_AUTO_JOIN_STREAMING,
+    DEFAULT_AUTO_JOIN_STREAMING,
+    DOMAIN,
+    LOGGER,
+)
 from .data import MyHOMERuntimeData
 from .decoder_pool import DecoderPool, EnvironmentBusyError
 from .media_player_decoder import ZoneDecoderLayer
@@ -456,6 +461,8 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         leader_ent = runtime.media_players.get(leader_id) if runtime else None
         if leader_ent:
             leader_ent.async_write_ha_state()
+        if self._attr_state == MediaPlayerState.ON:
+            await self._async_auto_join_active_stream()
 
     async def _async_wake_members(
         self,
@@ -505,3 +512,74 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         self.async_write_ha_state()
         for member_id in members:
             self._write_zone_state(member_id)
+
+    async def _async_auto_join_active_stream(self) -> None:
+        """Auto-join an active streaming group when this room turns on or adjusts volume."""
+        if self._auto_joining:
+            return
+        self._auto_joining = True
+        try:
+            options = self._options()
+            if not options.get(CONF_AUTO_JOIN_STREAMING, DEFAULT_AUTO_JOIN_STREAMING):
+                return
+
+            pool = self._get_pool()
+            runtime = self._runtime_data
+            if pool is None or runtime is None or not pool.is_configured:
+                return
+
+            # Already in a group or owns a decoder
+            if pool.get_leader(self.entity_id) or pool.is_leader(self.entity_id) or self._active_decoder:
+                return
+
+            if self._attr_state != MediaPlayerState.ON or self._parked or self._turning_off:
+                return
+
+            source_num = self._source_number(self._attr_source) if self._attr_source else None
+            if source_num is None:
+                source_num = self._default_source()
+            if source_num is None:
+                return
+
+            decoder_id = pool.get_decoder_for_source(source_num)
+            if decoder_id is None:
+                return
+
+            leader_id = pool.get_decoder_owner(decoder_id)
+            if not leader_id or leader_id == self.entity_id:
+                return
+
+            leader_ent = runtime.media_players.get(leader_id)
+            if leader_ent is None:
+                return
+
+            dec_state = self._resolve_playback_state(decoder_id, allow_idle=False)
+            if dec_state not in (MediaPlayerState.PLAYING, MediaPlayerState.BUFFERING):
+                return
+
+            member_env = zone_environment(self._where)
+            try:
+                await pool.add_member(leader_id, self.entity_id, member_env)
+            except EnvironmentBusyError as err:
+                LOGGER.debug("%s: cannot auto-join group of %s: %s", self.entity_id, leader_id, err)
+                return
+            except Exception as err:
+                LOGGER.warning("%s: unexpected error auto-joining group of %s: %s", self.entity_id, leader_id, err)
+                return
+
+            self._active_decoder = None
+            self._cancel_auto_off()
+            self._cancel_pending_off()
+            if self._attr_source is None:
+                self._attr_source = self._source_label(source_num)
+
+            self.async_write_ha_state()
+            leader_ent.async_write_ha_state()
+            LOGGER.info(
+                "%s: physical wall activation auto-joined active streaming group of %s on source %d",
+                self.entity_id,
+                leader_id,
+                source_num,
+            )
+        finally:
+            self._auto_joining = False
