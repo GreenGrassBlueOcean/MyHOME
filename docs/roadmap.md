@@ -159,7 +159,7 @@ graph TD
         GW_MH202["🟢 MH202<br/>(Physical plant capture #466)"]
         GW_F461["🟢 F461<br/>(DALI DIN Web Server)"]
         GW_H4890["🟢 H4890 / AM4890<br/>(Touchscreen IP gateway #466)"]
-        GW_F455["🟡 F455<br/>(Synthetic profile verified)"]
+        GW_F455["🟢 F455<br/>(Physical plant capture #466)"]
         GW_3578["🟡 Legrand 3578<br/>(Serial/ZigBee Loopback)"]
     end
 
@@ -192,6 +192,7 @@ graph TD
     GW_MH202 --> HARNESS
     GW_F461 --> HARNESS
     GW_H4890 --> HARNESS
+    GW_F455 --> HARNESS
     SUB_LIGHT --> HARNESS
     SUB_DALI --> HARNESS
     SUB_F418 --> HARNESS
@@ -212,8 +213,8 @@ graph TD
     classDef covered fill:#2e7d32,stroke:#1b5e20,color:#ffffff;
     classDef partial fill:#f57f17,stroke:#e65100,color:#ffffff;
 
-    class GW_MHS1,GW_F454,GW_MH200,GW_MH202,GW_F461,GW_H4890,SUB_LIGHT,SUB_DALI,SUB_F418,SUB_TIMER,SUB_GRP,SUB_COV_V,SUB_COV_H,SUB_CU3550,SUB_CU4695,SUB_FANCOIL,SUB_ENERGY,SUB_DRY,SUB_CEN,SUB_AUDIO,SUB_ALARM,SUB_ROUTER covered;
-    class GW_F455,GW_3578 partial;
+    class GW_MHS1,GW_F454,GW_MH200,GW_MH202,GW_F461,GW_H4890,GW_F455,SUB_LIGHT,SUB_DALI,SUB_F418,SUB_TIMER,SUB_GRP,SUB_COV_V,SUB_COV_H,SUB_CU3550,SUB_CU4695,SUB_FANCOIL,SUB_ENERGY,SUB_DRY,SUB_CEN,SUB_AUDIO,SUB_ALARM,SUB_ROUTER covered;
+    class GW_3578 partial;
 ```
 
 ---
@@ -228,7 +229,7 @@ graph TD
 | **MH202** | 🟢 **Covered** | Real-world plant capture in #466 | *None needed — verified against physical MH202 installation.* |
 | **H4890 / AM4890** | 🟢 **Covered** | Livinglight / Axolute 3.5" touchscreen capture in #466 | *None needed — verified against physical display gateway.* |
 | **F461 Web Server** | 🟢 **Covered** | Issue #273 capture (@lyubomirtraykov) | *None needed — DALI DT8 ballasts verified.* |
-| **F455** | 🟡 **Profile Verified** | Synthetic gateway profile tests in `tests/test_gateway.py` | **Optional**: Normal residential bus captures through an F455 to expand fixture diversity. |
+| **F455** | 🟢 **Covered** | Real-world plant capture in #466 (@lionelser) | *None needed — verified against physical F455 basic gateway.* |
 | **Legrand 3578 USB/Serial** | 🟡 **Profile Verified** | Loopback transport tests in `tests/test_gateway.py` | **Real-world USB serial stream**: Raw byte capture from physical OpenZigBee installation (`WHERE=<id>#9`). |
 
 ---
