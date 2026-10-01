@@ -110,7 +110,7 @@ async def test_options_flow_rejects_workers_above_gateway_limit(hass: HomeAssist
     )
     assert rejected["type"] == FlowResultType.FORM
     assert rejected["errors"] == {"command_worker_count": "worker_count_above_gateway_limit"}
-    assert rejected["description_placeholders"] == {"session_limit": "1", "model": "MH200N"}
+    assert rejected["description_placeholders"] == {"session_limit": "1", "session_default": "1", "model": "MH200N"}
 
     with patch("homeassistant.config_entries.ConfigEntries.async_reload", return_value=True):
         accepted = await hass.config_entries.options.async_configure(

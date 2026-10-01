@@ -154,7 +154,8 @@
         },
         "data_description": {
           "decoder_1_pre_gain": "Calibra in base all'hardware, non a occhio: se l'uscita di linea di questo decoder alimenta un modulo BTicino Ingresso RCA (L/N/NT4560) o Controllo Stereo (L4561), aumenta il Pre-Gain durante la riproduzione finché il led di segnale di quel modulo lampeggia arancione — non fisso verde (segnale troppo basso) né fisso rosso/arancione (distorsione). Collega sempre l'uscita di linea fissa ('OUT') del decoder, mai un'uscita cuffia/AUX dipendente dal volume: un secondo stadio di guadagno incontrollato in quel punto causa esattamente la distorsione contro cui mette in guardia la guida guasti BTicino.",
-          "delegated_whos": "Solo per il ruolo secondario: sottosistemi di cui questo gateway rileva i nuovi dispositivi. I dispositivi che il primario ha già restano sul primario."
+          "delegated_whos": "Solo per il ruolo secondario: sottosistemi di cui questo gateway rileva i nuovi dispositivi. I dispositivi che il primario ha già restano sul primario.",
+          "command_worker_count": "Consigliato per il {model}: {session_default}. Accetta al massimo {session_limit} sessione/i di comando, e ognuna, insieme alla sessione eventi, occupa una delle sue poche connessioni, necessarie anche all'app Legrand/BTicino e ad altri client. Aumenta solo se i comandi si accodano."
         }
       }
     },
@@ -535,4 +536,3 @@
     }
   }
 }
-
