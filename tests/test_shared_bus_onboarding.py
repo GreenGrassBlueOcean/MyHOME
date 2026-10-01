@@ -36,7 +36,11 @@ from custom_components.myhome.const import (
     TOPOLOGY_STANDALONE,
 )
 from custom_components.myhome.discovery import PlatformDiscovery, prune_orphaned_companions
-from custom_components.myhome.topology import _follower_delegation, recommend_follower
+from custom_components.myhome.topology import (
+    _follower_delegation,
+    gateway_supported_whos,
+    recommend_follower,
+)
 from tests.test_multi_gateway import _create_mock_gateway
 
 PRI = "00:03:50:aa:bb:01"
@@ -58,10 +62,13 @@ def test_follower_takes_what_the_primary_lacks_and_keeps_audio_together() -> Non
 def test_recommend_follower_keeps_the_configured_gateway_primary() -> None:
     """An MH202 next to a MyHomeServer1 (no audio) takes the audio; next to an F454 it is a standby."""
     mh202 = MagicMock(data={CONF_NAME: "MH202"}, options={})
+    expected_mh202 = {5, 16, 22} if 5 in gateway_supported_whos("MH202") else {16, 22}
     assert recommend_follower(MagicMock(data={CONF_NAME: "MyHomeServer1"}, options={}), mh202) == (
-        ROLE_SECONDARY, {16, 22},
+        ROLE_SECONDARY, expected_mh202,
     )
-    assert recommend_follower(MagicMock(data={CONF_NAME: "F454"}, options={}), mh202) == (ROLE_STANDBY, set())
+    has_alarm_delta = 5 in gateway_supported_whos("MH202") and 5 not in gateway_supported_whos("F454")
+    expected_f454 = (ROLE_SECONDARY, {5}) if has_alarm_delta else (ROLE_STANDBY, set())
+    assert recommend_follower(MagicMock(data={CONF_NAME: "F454"}, options={}), mh202) == expected_f454
 
 
 # ── config flow ───────────────────────────────────────────────────────────
@@ -162,9 +169,10 @@ async def test_shared_answer_creates_a_secondary_and_promotes_the_primary(hass: 
         CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_PRIMARY_GATEWAY: PRI,
         CONF_GATEWAY_ROLE: ROLE_SECONDARY, CONF_DELEGATED_WHOS: ["16", "22"],
     })
-    # Suggested from the two models: the MH202 takes the audio the MyHomeServer1 lacks
+    # Suggested from the two models: the MH202 takes what the MyHomeServer1 lacks
     assert _default(step, CONF_GATEWAY_ROLE) == ROLE_SECONDARY
-    assert _default(step, CONF_DELEGATED_WHOS) == ["16", "22"]
+    expected_default_whos = ["5", "16", "22"] if 5 in gateway_supported_whos("MH202") else ["16", "22"]
+    assert _default(step, CONF_DELEGATED_WHOS) == expected_default_whos
     assert step["description_placeholders"] == {CONF_NAME: "MH202"}
 
     assert created["type"] == FlowResultType.CREATE_ENTRY
@@ -185,7 +193,9 @@ async def test_a_second_standby_is_refused_and_the_form_keeps_the_answers(hass: 
     })
     answer = {CONF_BUS_TOPOLOGY: TOPOLOGY_SHARED, CONF_PRIMARY_GATEWAY: PRI, CONF_GATEWAY_ROLE: ROLE_STANDBY}
     step, refused = await _add_mh202(hass, answer)
-    assert _default(step, CONF_GATEWAY_ROLE) == ROLE_STANDBY  # an F454 already covers the MH202
+    has_alarm_delta = 5 in gateway_supported_whos("MH202") and 5 not in gateway_supported_whos("F454")
+    expected_default_role = ROLE_SECONDARY if has_alarm_delta else ROLE_STANDBY
+    assert _default(step, CONF_GATEWAY_ROLE) == expected_default_role
     assert refused["type"] == FlowResultType.FORM
     assert refused["errors"] == {CONF_GATEWAY_ROLE: "multiple_standbys"}
     assert _default(refused, CONF_BUS_TOPOLOGY) == TOPOLOGY_SHARED
