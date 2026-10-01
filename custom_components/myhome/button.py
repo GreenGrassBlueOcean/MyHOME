@@ -17,7 +17,7 @@ from homeassistant.const import (
     EntityCategory,
     Platform,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -442,9 +442,39 @@ class CalibrateAllCoversButtonEntity(ButtonEntity):
         self._attr_unique_id = f"{gateway.mac}-calibrate-all-covers"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, gateway.unique_id)})
 
+    async def async_added_to_hass(self) -> None:
+        """Register listeners when entity is added to Home Assistant."""
+        await super().async_added_to_hass()
+        if hasattr(self._gateway_handler, "availability_signal"):
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    self._gateway_handler.availability_signal,
+                    self._handle_availability_update,
+                )
+            )
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                self._handle_registry_update,
+            )
+        )
+
+    @callback
+    def _handle_availability_update(self) -> None:
+        """Write state when gateway availability changes."""
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_registry_update(self, event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        """Write state when covers are added, removed, or modified."""
+        entity_id = event.data.get("entity_id", "")
+        if entity_id.startswith("cover."):
+            self.async_write_ha_state()
+
     @property
     def available(self) -> bool:
-        """Unavailable with no covers to calibrate: a follower whose covers all live on its primary (#525)."""
+        """Unavailable if disconnected or if gateway has no covers to calibrate (#525, #565)."""
         return bool(getattr(self._gateway_handler, "available", True)) and bool(self._cover_entity_ids())
 
     def _cover_entity_ids(self) -> list[str]:
@@ -456,10 +486,10 @@ class CalibrateAllCoversButtonEntity(ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        entity_ids = self._cover_entity_ids()
-        if not entity_ids:
-            LOGGER.warning("%s No cover entities to calibrate.", self._gateway_handler.log_id)
+        if not self.available:
+            LOGGER.warning("%s Cannot calibrate covers: gateway unavailable or no covers present.", self._gateway_handler.log_id)
             return
+        entity_ids = self._cover_entity_ids()
         LOGGER.info("%s Calibrating %d covers sequentially.", self._gateway_handler.log_id, len(entity_ids))
         # The entity service runs the covers concurrently; the per-gateway lock serializes them.
         await self.hass.services.async_call(DOMAIN, SERVICE_CALIBRATE_COVER, {"entity_id": entity_ids}, blocking=False)
