@@ -14,6 +14,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.myhome.const import (
@@ -636,6 +637,10 @@ async def test_async_attach_trigger_centralized_shutter(hass: HomeAssistant):
         )
         await hass.async_block_till_done()
         action_open.assert_called_once()
+        call_arg = action_open.call_args[0][0]
+        assert call_arg["trigger"]["platform"] == "device"
+        assert call_arg["trigger"]["trigger_name"] == "open"
+        assert call_arg["trigger"]["event"]["event"] == "open"
         action_close.assert_not_called()
         action_stop.assert_not_called()
         action_open.reset_mock()
@@ -683,3 +688,227 @@ async def test_async_attach_trigger_centralized_shutter(hass: HomeAssistant):
         unsub_open()
         unsub_close()
         unsub_stop()
+
+
+@pytest.mark.asyncio
+async def test_centralized_shutter_trigger_in_automation_choose_condition(hass: HomeAssistant):
+    """Test centralized shutter device triggers inside a real HA automation with choose/trigger.id (issue #445)."""
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    dev = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "00:03:50:aa:bb:cc")},
+    )
+
+    events_received: list[str] = []
+
+    async def record_service(call):
+        events_received.append(call.data["result"])
+
+    hass.services.async_register("test", "record", record_service)
+
+    config = {
+        "automation": [
+            {
+                "alias": "Pulsante Centralizzato Tapparelle",
+                "triggers": [
+                    {
+                        "trigger": "device",
+                        "domain": "myhome",
+                        "device_id": dev.id,
+                        "type": "centralized_shutter_open",
+                        "id": "open",
+                    },
+                    {
+                        "trigger": "device",
+                        "domain": "myhome",
+                        "device_id": dev.id,
+                        "type": "centralized_shutter_close",
+                        "id": "close",
+                    },
+                    {
+                        "trigger": "device",
+                        "domain": "myhome",
+                        "device_id": dev.id,
+                        "type": "centralized_shutter_stop",
+                        "id": "stop",
+                    },
+                ],
+                "actions": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "trigger", "id": ["open"]}
+                                ],
+                                "sequence": [
+                                    {"action": "test.record", "data": {"result": "matched_open"}}
+                                ],
+                            },
+                            {
+                                "conditions": [
+                                    {"condition": "trigger", "id": ["close"]}
+                                ],
+                                "sequence": [
+                                    {"action": "test.record", "data": {"result": "matched_close"}}
+                                ],
+                            },
+                            {
+                                "conditions": [
+                                    {"condition": "trigger", "id": ["stop"]}
+                                ],
+                                "sequence": [
+                                    {"action": "test.record", "data": {"result": "matched_stop"}}
+                                ],
+                            },
+                        ],
+                        "default": [
+                            {"action": "test.record", "data": {"result": "default_fallback"}}
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert await async_setup_component(hass, "automation", config)
+    await hass.async_block_till_done()
+
+    # 1. Fire open event -> matches 'open'
+    hass.bus.async_fire(
+        "myhome_general_automation_event",
+        {
+            "message": "*2*11#100#001#1*0##",
+            "event": "open",
+            "where": "0",
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_open"]
+
+    # 2. Fire close event -> matches 'close'
+    hass.bus.async_fire(
+        "myhome_general_automation_event",
+        {
+            "message": "*2*12#100#001#1*0##",
+            "event": "close",
+            "where": "0",
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_open", "matched_close"]
+
+    # 3. Fire stop event -> matches 'stop'
+    hass.bus.async_fire(
+        "myhome_general_automation_event",
+        {
+            "message": "*2*10#001#1*0##",
+            "event": "stop",
+            "where": "0",
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_open", "matched_close", "matched_stop"]
+
+
+@pytest.mark.asyncio
+async def test_cen_scenario_trigger_in_automation_choose_condition(hass: HomeAssistant):
+    """Test CEN scenario device triggers inside a real HA automation with choose/trigger.id."""
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    dev = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "00:03:50:aa:bb:cc-15-5")},
+    )
+
+    events_received: list[str] = []
+
+    async def record_service(call):
+        events_received.append(call.data["result"])
+
+    hass.services.async_register("test", "record_cen", record_service)
+
+    config = {
+        "automation": [
+            {
+                "alias": "CEN Scenario Button Automation",
+                "triggers": [
+                    {
+                        "trigger": "device",
+                        "domain": "myhome",
+                        "device_id": dev.id,
+                        "type": CONF_SHORT_PRESS,
+                        "subtype": "button_1",
+                        "id": "btn1",
+                    },
+                    {
+                        "trigger": "device",
+                        "domain": "myhome",
+                        "device_id": dev.id,
+                        "type": CONF_SHORT_PRESS,
+                        "subtype": "button_2",
+                        "id": "btn2",
+                    },
+                ],
+                "actions": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "trigger", "id": ["btn1"]}
+                                ],
+                                "sequence": [
+                                    {"action": "test.record_cen", "data": {"result": "matched_btn1"}}
+                                ],
+                            },
+                            {
+                                "conditions": [
+                                    {"condition": "trigger", "id": ["btn2"]}
+                                ],
+                                "sequence": [
+                                    {"action": "test.record_cen", "data": {"result": "matched_btn2"}}
+                                ],
+                            },
+                        ],
+                        "default": [
+                            {"action": "test.record_cen", "data": {"result": "default_fallback"}}
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert await async_setup_component(hass, "automation", config)
+    await hass.async_block_till_done()
+
+    # Fire CEN short press on button 1, object 5
+    hass.bus.async_fire(
+        "myhome_cen_event",
+        {
+            "event": CONF_SHORT_PRESS,
+            "pushbutton": 1,
+            "object": 5,
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_btn1"]
+
+    # Fire CEN short press on button 2, object 5
+    hass.bus.async_fire(
+        "myhome_cen_event",
+        {
+            "event": CONF_SHORT_PRESS,
+            "pushbutton": 2,
+            "object": 5,
+            "gateway_mac": "00:03:50:aa:bb:cc",
+        },
+    )
+    await hass.async_block_till_done()
+    assert events_received == ["matched_btn1", "matched_btn2"]

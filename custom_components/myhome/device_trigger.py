@@ -231,6 +231,7 @@ async def async_attach_trigger(
     trigger_info: dict[str, Any],
 ) -> CALLBACK_TYPE:
     """Attach a trigger to Home Assistant event bus."""
+    trigger_data = trigger_info.get("trigger_data", trigger_info)
     trigger_type = config[CONF_TYPE]
 
     if trigger_type in GATEWAY_TRIGGER_TYPES:
@@ -257,11 +258,12 @@ async def async_attach_trigger(
                 await action(
                     {
                         "trigger": {
-                            **trigger_info,
+                            **trigger_data,
                             "platform": "device",
                             "event": event_data,
                         }
-                    }
+                    },
+                    event.context,
                 )
 
         return hass.bus.async_listen("myhome_general_automation_event", _handle_gateway_event)
@@ -329,11 +331,12 @@ async def async_attach_trigger(
             await action(
                 {
                     "trigger": {
-                        **trigger_info,
+                        **trigger_data,
                         "platform": "device",
                         "event": event_data,
                     }
-                }
+                },
+                event.context,
             )
 
     # Listen to both CEN and CEN+ event streams
