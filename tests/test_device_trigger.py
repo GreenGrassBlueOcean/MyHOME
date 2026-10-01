@@ -1074,7 +1074,7 @@ async def test_cenplus_scenario_trigger_in_automation_choose_condition(hass: Hom
 async def test_async_attach_trigger_tolerates_missing_trigger_data(hass: HomeAssistant, trigger_info):
     """A None, absent or populated trigger_data never stops the action from running (#445)."""
     action = AsyncMock()
-    unsub = await async_attach_trigger(
+    await async_attach_trigger(
         hass, {CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 8}, action, trigger_info
     )
     context = Context()
