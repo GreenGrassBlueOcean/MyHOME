@@ -63,7 +63,7 @@ Legend: ✅ supported · 👁️ read-only · ⚙️ via a service, not an entit
 | Target temperature | ✅ | Manual set-point. |
 | HVAC modes | ✅ | `heat`, `cool`, `auto`, `off`; heating / cooling support per zone from YAML. |
 | Fan speed (3-speed fancoil) | ✅ | `fan: true`. |
-| Central unit modes | ✅ | Central unit 3550 (`#0`) and 4695 (`#0#1`) as `central: true` zones; seasonal propagation. |
+| Central unit modes | ✅ | Central unit 3550 (`#0`) and 4695 (`#0#1`) as `central: true` zones; seasonal propagation. Central units operate via autonomous events and are exempt from point-to-point status polling. |
 | Weekly programs / scenarios | ❌ | Program selection frames (`*4*11xx*#0##`) can be sent with `myhome.send_message`. |
 | Temperature-only probes | 👁️ | `sensor` platform (see below). |
 

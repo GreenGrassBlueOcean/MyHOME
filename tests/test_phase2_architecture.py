@@ -239,6 +239,10 @@ async def test_p4_central_unit_3550_initialization_and_commands(hass: HomeAssist
     sent_cmd = gateway.send.call_args[0][0]
     assert str(sent_cmd) == "*#4*#0*#14*0215*1##"
 
+    # Status update is a no-op for central units (no *#4*#0*14## status poll, #582)
+    await cu99.async_update()
+    gateway.send_status_request.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_p4_central_unit_4695_four_zone(hass: HomeAssistant):
@@ -246,6 +250,7 @@ async def test_p4_central_unit_4695_four_zone(hass: HomeAssistant):
     gateway = MagicMock()
     gateway.mac = "00:03:50:11:22:33"
     gateway.send = AsyncMock()
+    gateway.send_status_request = AsyncMock()
 
     cu4 = MyHOMEClimate(
         hass=hass,
@@ -272,6 +277,10 @@ async def test_p4_central_unit_4695_four_zone(hass: HomeAssistant):
     await cu4.async_set_hvac_mode(HVACMode.HEAT)
     sent_cmd = gateway.send.call_args[0][0]
     assert str(sent_cmd) == "*4*101*#0#1##"
+
+    # Status update is a no-op for central units (no *#4*#0#1*14## status poll, #582)
+    await cu4.async_update()
+    gateway.send_status_request.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 """A zone that never answers its status request stops costing the startup queue (#466)."""
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.helpers import issue_registry as ir
@@ -12,6 +13,7 @@ from custom_components.myhome.poll_health import (
     SKIP_AFTER_FAILED_POLLS,
     PollHealth,
 )
+from custom_components.myhome.repairs import async_create_unresponsive_zone_issue
 
 NOW = 1_800_000_000.0
 
@@ -53,19 +55,21 @@ def test_state_attributes_round_trip():
     assert not junk.unresponsive
 
 
-def _zone(hass, connected=True):
+def _zone(hass, connected=True, where="71", central=False, name=None):
     gateway = MagicMock()
     gateway.mac = "00:03:50:00:04:66"
     gateway.name = "MyHomeServer1 Gateway"
     gateway.log_id = "[poll health]"
     gateway.is_connected = connected
     gateway.send_status_request = AsyncMock()
+    model = "Central Unit (3550)" if where == "#0" else ("Central Unit (4695)" if where == "#0#1" else "Heating Zone")
+    display_name = name or (f"Central Unit {where}" if central else f"Zone {where}")
     zone = MyHOMEClimate(
-        hass=hass, name="Zone 71", device_id="4-71", who="4", where="71", heating=True, cooling=False,
-        fan=False, standalone=True, central=False, manufacturer="BTicino", model="Heating Zone", gateway=gateway,
+        hass=hass, name=display_name, device_id=f"4-{where}", who="4", where=where, heating=True, cooling=False,
+        fan=False, standalone=not central, central=central, manufacturer="BTicino", model=model, gateway=gateway,
     )
     zone.hass = hass
-    zone.entity_id = "climate.zone_71"
+    zone.entity_id = f"climate.zone_{where.replace('#', '')}"
     zone.async_write_ha_state = MagicMock()
     zone._publish_state = MagicMock()
     return zone, gateway
@@ -138,7 +142,7 @@ async def test_restored_unresponsive_zone_is_skipped_at_startup(hass):
     zone, gateway = _zone(hass)
     state = MagicMock()
     state.state = "off"
-    state.attributes = {"failed_polls": 2, "unresponsive_since": __import__("time").time() - 3600}
+    state.attributes = {"failed_polls": 2, "unresponsive_since": time.time() - 3600}
     await zone.async_restore_last_state(state)
     await zone.async_update()
     gateway.send_status_request.assert_not_called()
@@ -150,7 +154,7 @@ async def test_a_reprobe_that_is_answered_clears_the_repair(hass):
     await _poll(hass, zone, gateway, "nack")
     await _poll(hass, zone, gateway, "nack")
     assert _issue(hass, zone) is not None
-    zone._poll_health.since = __import__("time").time() - 8 * 24 * 3600  # re-probe is due
+    zone._poll_health.since = time.time() - 8 * 24 * 3600  # re-probe is due
     await _poll(hass, zone, gateway, "ack")
     assert _issue(hass, zone) is None
     assert "failed_polls" not in zone.extra_state_attributes
@@ -164,3 +168,48 @@ async def test_removing_the_entity_drops_its_repair(hass):
     assert _issue(hass, zone) is not None
     await zone.async_will_remove_from_hass()  # not in the entity registry: the owner deleted it
     assert _issue(hass, zone) is None
+
+
+async def test_central_unit_exempt_from_status_poll_and_poll_health(hass):
+    """Central units (#0, #0#1) do not answer Dimension 14 status queries (#582)."""
+    central, gateway = _zone(hass, where="#0", central=True, name="Centrale termoregolazione")
+    await central.async_update()
+    gateway.send_status_request.assert_not_called()
+    assert "failed_polls" not in central.extra_state_attributes
+    assert "unresponsive_since" not in central.extra_state_attributes
+    assert _issue(hass, central) is None
+
+
+async def test_central_unit_restores_cleanly_and_clears_stale_repair(hass):
+    """Upgrading from v2.0.0b14 auto-clears any false-positive unresponsive repairs for central units (#582)."""
+    central, gateway = _zone(hass, where="#0", central=True, name="Centrale termoregolazione")
+
+    # 1. Stale repair issue exists from an earlier run
+    async_create_unresponsive_zone_issue(hass, central.unique_id, central._display_name, gateway.name)
+    assert _issue(hass, central) is not None
+
+    # 2. State restored with failed_polls: 2
+    state = MagicMock()
+    state.state = "heat"
+    state.attributes = {"failed_polls": 2, "unresponsive_since": time.time() - 3600}
+    await central.async_restore_last_state(state)
+
+    # Issue must be automatically dropped and attributes kept clean
+    assert _issue(hass, central) is None
+    assert "failed_polls" not in central.extra_state_attributes
+
+    # 3. async_added_to_hass also guarantees issue cleanup
+    async_create_unresponsive_zone_issue(hass, central.unique_id, central._display_name, gateway.name)
+    assert _issue(hass, central) is not None
+    await central.async_added_to_hass()
+    assert _issue(hass, central) is None
+
+
+async def test_four_zone_central_unit_exempt_from_poll_health(hass):
+    """Four-zone central units (#0#1) are also exempt from status polling and PollHealth (#582)."""
+    cu4, gateway = _zone(hass, where="#0#1", central=True, name="Central Unit 4-Zone")
+    await cu4.async_update()
+    gateway.send_status_request.assert_not_called()
+    assert "failed_polls" not in cu4.extra_state_attributes
+    assert _issue(hass, cu4) is None
+

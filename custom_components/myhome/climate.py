@@ -362,13 +362,17 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 attrs["running_fan_speed"] = self._running_fan_speed
         if self._interface is not None:
             attrs["Int"] = self._interface
-        attrs.update(self._poll_health.attributes())
+        if not self._central:
+            attrs.update(self._poll_health.attributes())
         return attrs
 
     async def async_restore_last_state(self, last_state: State | None) -> None:
         """Restore climate state from HA storage."""
         if last_state is not None:
-            self._poll_health.restore(last_state.attributes)
+            if not self._central:
+                self._poll_health.restore(last_state.attributes)
+            else:
+                self._clear_unresponsive_issue()
         if last_state is not None and last_state.state is not None:
             try:
                 restored_mode = HVACMode(last_state.state)
@@ -394,19 +398,22 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     async def async_update(self) -> None:
         """Request status update from gateway, unless the zone has stopped answering."""
+        if self._central:
+            # Central units (#0, #0#1) do not answer Dimension 14 status requests (*#4*#0*14##);
+            # in OpenWebNet, Dimension 14 status reads only apply to zone addresses 1..99.
+            # Central units receive setpoints via commands (*#4*#0*#14*T*M##), broadcast events,
+            # or restored state, and do not participate in point-to-point status polling or PollHealth tracking.
+            return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
             self._raise_unresponsive_issue()
             return
-        if self._central:
-            request = OWNHeatingCommand.central_status(self._where)
-        else:
-            request = OWNHeatingCommand.status(self._full_where)
+        request = OWNHeatingCommand.status(self._full_where)
         frames_before = self._poll_health.frames
         written = await self._gateway_handler.send_status_request(request)
         if isinstance(written, asyncio.Future):
             written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
-        if self._fan and not self._central:
+        if self._fan:
             await self._gateway_handler.send_status_request(
                 cast(OWNCommand, OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##"))
             )
@@ -446,7 +453,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         """Run when entity about to be added to hass."""
         target_hass = self.hass or self._hass
         if target_hass is not None:
-            if not self._standalone and not self._central:
+            if self._central:
+                self._clear_unresponsive_issue()
+            elif not self._standalone:
                 self.async_on_remove(
                     async_dispatcher_connect(
                         target_hass,
