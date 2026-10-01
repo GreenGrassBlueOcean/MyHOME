@@ -1,6 +1,7 @@
 """Provides device triggers for MyHOME CEN / CEN+ buttons."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -30,6 +31,8 @@ from .const import (
     CONF_SHORT_RELEASE,
     DOMAIN,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 CONF_ADDRESS = "address"
 CONF_OBJECT = "object"
@@ -286,15 +289,23 @@ async def async_attach_trigger(
     if CONF_DEVICE_ID in config:
         device_registry = dr.async_get(hass)
         device = device_registry.async_get(config[CONF_DEVICE_ID])
-        if device is not None:
-            target_gateway_mac = _get_gateway_mac_from_device(device)
-            family = _get_cen_family_from_device(device)
+        if device is None:
+            # The family is unknown, so listening to both streams would bring
+            # #601 back. Fail closed rather than fire on the wrong family.
+            _LOGGER.warning(
+                "Device trigger %s: device %s not found; trigger is inactive",
+                trigger_data.get("id", trigger_type),
+                config[CONF_DEVICE_ID],
+            )
+            return lambda: None
+        target_gateway_mac = _get_gateway_mac_from_device(device)
+        family = _get_cen_family_from_device(device)
+        if target_address is None:
+            target_address = _get_cen_address_from_device(device)
             if target_address is None:
-                target_address = _get_cen_address_from_device(device)
-                if target_address is None:
-                    _, dev_addr = _get_cen_info_from_device(device)
-                    if dev_addr is not None:
-                        target_address = dev_addr
+                _, dev_addr = _get_cen_info_from_device(device)
+                if dev_addr is not None:
+                    target_address = dev_addr
 
     async def _handle_event(event: Any) -> None:
         event_data = event.data

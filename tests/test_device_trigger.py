@@ -1101,6 +1101,8 @@ async def test_async_attach_trigger_tolerates_missing_trigger_data(hass: HomeAss
         ("00:03:50:aa:bb:cc-25-8", "myhome_cenplus_event", "myhome_cen_event"),
         ("cen_8", "myhome_cen_event", "myhome_cenplus_event"),
         ("cenplus_8", "myhome_cenplus_event", "myhome_cen_event"),
+        ("00:03:50:aa:bb:cc-cen-8", "myhome_cen_event", "myhome_cenplus_event"),
+        ("00:03:50:aa:bb:cc-cenplus-8", "myhome_cenplus_event", "myhome_cen_event"),
     ],
 )
 async def test_device_trigger_only_fires_on_own_family(
@@ -1154,4 +1156,51 @@ async def test_bare_address_trigger_still_matches_both_families(hass: HomeAssist
     hass.bus.async_fire("myhome_cenplus_event", payload)
     await hass.async_block_till_done()
     assert action.call_count == 2
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_gateway_device_button_trigger_matches_both_families(hass: HomeAssistant):
+    """A MAC-only gateway has no family: the button trigger keeps both streams."""
+    mock_device = MagicMock()
+    mock_device.identifiers = {(DOMAIN, "00:03:50:aa:bb:cc")}
+    mock_device.connections = set()
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_device
+    action = AsyncMock()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        unsub = await async_attach_trigger(
+            hass,
+            {CONF_DEVICE_ID: "gw", CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1"},
+            action,
+            {"name": "t"},
+        )
+    payload = {"event": CONF_SHORT_PRESS, "pushbutton": 1, "object": 8}
+    hass.bus.async_fire("myhome_cen_event", payload)
+    hass.bus.async_fire("myhome_cenplus_event", payload)
+    await hass.async_block_till_done()
+    assert action.call_count == 2
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_missing_device_fails_closed(hass: HomeAssistant):
+    """If the device cannot be resolved the family is unknown: fire on neither (#601)."""
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = None
+    action = AsyncMock()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("homeassistant.helpers.device_registry.async_get", lambda h: mock_registry)
+        unsub = await async_attach_trigger(
+            hass,
+            {CONF_DEVICE_ID: "gone", CONF_TYPE: CONF_SHORT_PRESS, CONF_SUBTYPE: "button_1", CONF_ADDRESS: 8},
+            action,
+            {"name": "t"},
+        )
+    payload = {"event": CONF_SHORT_PRESS, "pushbutton": 1, "object": 8}
+    hass.bus.async_fire("myhome_cen_event", payload)
+    hass.bus.async_fire("myhome_cenplus_event", payload)
+    await hass.async_block_till_done()
+    action.assert_not_called()
     unsub()
