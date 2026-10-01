@@ -465,3 +465,37 @@ Verbatim bus trace contributed by **@Interstellar0verdrive** on [#466 (comment 5
 - **WHO 2 (Automation / Covers)**: WHERE `91` cover movement, eight start/stop cycles, leading idle frame transition handling (`*2*1000#0*` + `*2*0*` followed by `*2*1000#dir*` + `*2*dir*`), and clean stop transitions.
 - **WHO 18 (Energy Management)**: Real-time Dimension 113 power readings on meters 51, 52, and 53, and Dimension 1200 periodic threshold polling and reports.
 
+---
+
+# #466 F455 Basic Gateway Traces (Bus Sweep, Dimmer Telemetry & Pushbuttons)
+
+Verbatim bus trace contributed by **@lionelser** on [#466 (comment 5938596974)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-5938596974), exported from Home Assistant diagnostics (HA 2026.9.4, integration 2.0.0b14, OWNd 2.0.0b9, gateway firmware 1.0.86).
+
+## Hardware Profile
+
+- **Gateway Model**: Legrand F455 ("Basic gateway", single SCS bus)
+- **Firmware**: 1.0.86
+- **WHO 13 Device Type Code**: `200`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `config_entry-myhome_F455.json` | HA Diagnostic Download (80 frames: 42 rx / 38 tx) | Full diagnostic export with bus monitor capture during `myhome.sweep_bus`, physical dimmer queries (WHERE 11–17), physical pushbutton presses, and gateway identity replies. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Gateway Identity & Diagnostics (WHO 13)**:
+   - Device type `*#13**15##` -> `*#13**15*200##` (corroborating modern gateway family alongside F454, MH202, F461, H4890, MyHomeServer1).
+   - Firmware version `*#13**16##` -> `*#13**16*1*0*86##` (firmware 1.0.86).
+   - Gateway clock `*#13**0##` -> `*#13**0*20*40*21*##`.
+
+2. **Lighting & Physical Dimmer Telemetry (WHO 1)**:
+   - **Dimension 4 (Physical Dimmer Level Reports)**: WHERE `13` and WHERE `15` report Dimension 4 status (`*#1*13*4*100*2##` and `*#1*15*4*100*2##`), confirming physical modular dimmer telemetry on F455.
+   - **Dimension 1 (Standard Level Reports)**: WHERE `11`, `12`, `14`, `16`, and `17` report Dimension 1 status (`*#1*12*1*134*5##`, `*#1*17*1*175*1##`, `*#1*16*1*200*5##`, `*#1*14*1*175*5##`, `*#1*11*1*200*5##`).
+   - **Command Translation Pushbuttons**: Pushbutton press (`*1*1000#1*<where>##`) and release (`*1*1000#0*<where>##`) captured across WHERE `12`, `13`, and `17`.
+
+3. **Subsystem Scans**:
+   - Outbound queries for automation (`*#2*0##`), thermoregulation (`*#4*0##`), sound (`*#16*0*5##`), burglar alarm (`*#5*0##`), energy (`*#18*51*51##`...`*#18*59*51##`), and diagnostic identity (`*#1013*0*1##`).
+
