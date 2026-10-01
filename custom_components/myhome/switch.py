@@ -1,7 +1,7 @@
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.components.switch import (
+from homeassistant.components.switch import (  # type: ignore[attr-defined, unused-ignore]
     SwitchDeviceClass,
     SwitchEntity,
 )
@@ -34,6 +34,7 @@ from .data import get_runtime_data
 from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
+from .typing_compat import as_any
 
 PLATFORM = Platform.SWITCH
 PARALLEL_UPDATES = 0
@@ -103,12 +104,12 @@ async def async_setup_entry(
     if platform is not None:
         platform.async_register_entity_service(
             SERVICE_TURN_ON_TIMED,
-            {
+            as_any({
                 vol.Optional("duration"): vol.Coerce(float),
                 vol.Optional("hours", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
                 vol.Optional("minutes", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=59)),
                 vol.Optional("seconds", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=59)),
-            },
+            }),
             "async_turn_on_timed",
         )
     return True
