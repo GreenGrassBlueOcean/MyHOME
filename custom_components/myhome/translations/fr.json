@@ -5,6 +5,7 @@
     "step": {
       "user": {
         "title": "Choisisez votre serveur \"MyHome\"",
+        "description": "MyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible.",
         "data": {
           "host": "Adresse IP"
         }
@@ -25,7 +26,7 @@
       },
       "custom": {
         "title": "Ajout manuel d'un serveur",
-        "description": "Remplissez les informations de votre serveur",
+        "description": "Remplissez les informations de votre serveur\n\nMyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible.",
         "data": {
           "address": "Adresse IP",
           "port": "Port"
@@ -41,7 +42,7 @@
       },
       "discovery_confirm": {
         "title": "Passerelle MyHOME découverte",
-        "description": "Voulez-vous configurer la passerelle {name} ({host}) ?"
+        "description": "Voulez-vous configurer la passerelle {name} ({host}) ?\n\nMyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible."
       },
       "serial": {
         "title": "Passerelle USB / Série",
@@ -485,4 +486,3 @@
     }
   }
 }
-
