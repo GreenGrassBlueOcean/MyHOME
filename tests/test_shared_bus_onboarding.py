@@ -11,11 +11,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import EntityPlatform
 from OWNd.message import OWNAutomationEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -339,37 +340,85 @@ async def test_button_setup_prunes_orphans_on_followers_only(hass: HomeAssistant
         await platform.async_reset()
 
 
-async def test_calibrate_all_button_startup_race_and_no_covers_warning(
+async def test_calibrate_all_button_reactive_availability_and_no_covers(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The global button remains available even with no covers, preventing startup race conditions (#565).
-    Pressing it with no covers is a no-op and logs a warning. Follower gateways without covers will show the button but pressing it warns (#525 tradeoff)."""
+    """The global button dynamically updates availability across gateway drops and cover registry changes (#525, #565)."""
     from custom_components.myhome.button import CalibrateAllCoversButtonEntity
 
     entry_p, entry_x = _follower(hass)
+    _actuator(hass, entry_p, PRI, "21")  # primary owns a cover; follower starts with 0 covers
 
-    # 1. Created with empty registry (the race condition)
     btn = CalibrateAllCoversButtonEntity(hass=hass, config_entry=entry_x, gateway=entry_x.runtime_data.gateway)
     entry_x.runtime_data.gateway._available = True
-    assert btn.available is True
 
-    # 2. Pressing with no covers -> warning
-    await btn.async_press()
-    assert "No cover entities to calibrate" in caplog.text
-    caplog.clear()
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="button",
+        platform_name=DOMAIN,
+        platform=button,
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    await platform.async_add_entities([btn])
+    await hass.async_block_till_done()
 
-    # 3. Covers populate after creation
-    _, cover, _ = _actuator(hass, entry_x, NEW, "21")
-    assert btn.available is True
-    assert btn._cover_entity_ids() == [cover.entity_id]
+    try:
+        # 1. Created with empty registry on follower: unavailable in state machine (#525)
+        assert btn.available is False
+        state = hass.states.get(btn.entity_id)
+        assert state is not None
+        assert state.state == STATE_UNAVAILABLE
 
-    calls = []
-    hass.services.async_register(DOMAIN, SERVICE_CALIBRATE_COVER, lambda call: calls.append(call))
-    await btn.async_press()
-    assert len(calls) == 1
-    assert calls[0].data == {"entity_id": [cover.entity_id]}
+        # 2. Pressing while unavailable logs a warning and does not call service
+        await btn.async_press()
+        assert "Cannot calibrate covers: gateway unavailable or no covers present." in caplog.text
+        caplog.clear()
 
-    # 4. Gateway drops -> unavailable
-    entry_x.runtime_data.gateway._available = False
-    assert btn.available is False
+        # 3. Covers populate after creation (e.g. late discovery / startup race #565)
+        _, cover, _ = _actuator(hass, entry_x, NEW, "21")
+        await hass.async_block_till_done()
+
+        # Registry listener fires -> button becomes available in state machine
+        assert btn.available is True
+        assert btn._cover_entity_ids() == [cover.entity_id]
+        state = hass.states.get(btn.entity_id)
+        assert state is not None
+        assert state.state != STATE_UNAVAILABLE
+
+        # 4. Pressing with covers dispatches calibration service
+        calls = []
+        hass.services.async_register(DOMAIN, SERVICE_CALIBRATE_COVER, lambda call: calls.append(call))
+        await btn.async_press()
+        assert len(calls) == 1
+        assert calls[0].data == {"entity_id": [cover.entity_id]}
+
+        # 5. Gateway drops -> availability listener fires -> state becomes unavailable
+        entry_x.runtime_data.gateway._available = False
+        async_dispatcher_send(hass, entry_x.runtime_data.gateway.availability_signal)
+        await hass.async_block_till_done()
+        assert btn.available is False
+        state = hass.states.get(btn.entity_id)
+        assert state is not None
+        assert state.state == STATE_UNAVAILABLE
+
+        # 6. Gateway restores -> state becomes available again
+        entry_x.runtime_data.gateway._available = True
+        async_dispatcher_send(hass, entry_x.runtime_data.gateway.availability_signal)
+        await hass.async_block_till_done()
+        assert btn.available is True
+        state = hass.states.get(btn.entity_id)
+        assert state is not None
+        assert state.state != STATE_UNAVAILABLE
+
+        # 7. Covers pruned from follower -> registry listener fires -> state returns to unavailable (#525)
+        er.async_get(hass).async_remove(cover.entity_id)
+        await hass.async_block_till_done()
+        assert btn.available is False
+        state = hass.states.get(btn.entity_id)
+        assert state is not None
+        assert state.state == STATE_UNAVAILABLE
+    finally:
+        await platform.async_reset()
 
