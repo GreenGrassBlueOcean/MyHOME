@@ -108,7 +108,7 @@ Legend: ✅ supported · 👁️ read-only · ⚙️ via a service, not an entit
 | On / off, volume, mute, source 0–4 | ✅ | Per zone / amplifier. |
 | Streaming (play, pause, next, previous) | ✅ | Only when decoders are mapped in the options flow: the zone becomes a Music Assistant / Spotify target and routes the matrix to a free decoder. |
 | Media metadata | 👁️ | Mirrored from the decoder while a stream is active. |
-| Speaker groups | ✅ | Home Assistant `join` / `unjoin` and Music Assistant sync groups: rooms of a group share one decoder and one source. See [Multi-Room Audio Grouping](media_player.md#multi-room-audio-grouping-music-assistant--home-assistant). |
+| Speaker groups | ✅ | Home Assistant `join` / `unjoin` and Music Assistant sync groups: rooms of a group share one decoder and one source. See [Multi-Room Audio Grouping](media_player.md#multi-room-audio-grouping-music-assistant-home-assistant). |
 
 ### Device triggers (WHO 15 / 25)
 

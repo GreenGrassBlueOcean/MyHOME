@@ -82,7 +82,26 @@ The actuator did not report its stop within 180 s, or an MH200 / MH200N delayed 
 
 ### Music Assistant does not offer the audio zone as a player
 
-The zone only advertises `play_media` when at least one decoder is mapped in the options flow (**Configure → Dynamic Proxy Decoders**). After saving, the zone re-publishes its features; reload Music Assistant's player list. See [Sound System](media_player.md).
+Two conditions must be met for a MyHOME room to appear and accept playback in Music Assistant:
+
+1. **Home Assistant Player Provider in Music Assistant:** Music Assistant does not expose Home Assistant media players automatically. In Music Assistant, navigate to **Settings → Providers → Add Provider → Home Assistant (Player Provider)**, connect to your Home Assistant instance, and ensure the MyHOME room amplifier entities (`media_player.<room>`) are selected and enabled.
+2. **Dynamic Proxy Decoders mapped in MyHOME:** A MyHOME room entity only advertises `play_media` (streaming support) when at least one streaming decoder is mapped in the integration options (**Settings → Devices & Services → MyHOME → Configure → Decoders**). Without a decoder, zones operate in standalone WHO 16 mode (power, volume, source only). After mapping a decoder, reload Music Assistant's player list. See [Sound System](media_player.md).
+
+### Playing music to a room vs. backend streamer (Why you should never group them)
+
+- **Question / Misconception:** *"The streamer plugged into the matrix is `Livingroom 1_3519`, but I want to hear music in `Bathroom`. Should I create a group containing `Livingroom 1_3519` and `Bathroom` so both play?"*
+- **Solution:** **No! Never group your backend streamer with a destination room.**
+  - Map `Livingroom 1_3519` as a **Decoder** in MyHOME options (**Configure → Decoders**).
+  - In Music Assistant, target and play directly to **`Bathroom`**.
+  - Behind the scenes, MyHOME automatically claims the streamer from the pool, wakes the Bathroom amplifier, routes the F441/F441M matrix to that input, and forwards the stream URL to the streamer.
+  - Grouping the streamer and the room causes Music Assistant to stream to both the physical streamer and the virtual proxy at the same time, leading to stream collisions, desynchronization, or audio loops.
+  - Groups in Music Assistant are **only** for multi-room playback across **multiple destination rooms** (e.g., Bathroom + Living Room). Never add the backend streamer to that group.
+
+### How can you have stereo with only 2 wires? / Do I need an L4561N interface?
+
+- **The 2-wire SCS bus carries commands only, not audio.** Digital OpenWebNet frames (WHO 16: power, volume, input routing) run over the 2-wire SCS bus. Audio distribution travels over separate analog cabling.
+- **You need an audio source interface for external streamers.** The F441/F441M matrix connects to audio source interface modules. To plug in a streamer, DAC, or phone with an analog line-out, connect its stereo RCA / 3.5mm jack into an interface module like the Legrand / BTicino **L4561N** (4 DIN stereo source interface) or **L4560 / N4560 / NT4560** (modular RCA socket) / **3482** (auxiliary line preamplifier). The interface feeds the analog signal into matrix inputs S1–S4 and connects to the SCS bus for presence signaling.
+- **Stereo vs. mono:** The F441/F441M matrix and L4561N interface are true stereo analog devices. Whether you hear stereo in a given room depends on the amplifier installed in that room (e.g. 3484/3487 stereo amplifiers) and whether two speakers (L + R) are wired to it.
 
 ### "All audio matrix inputs are currently in use"
 
