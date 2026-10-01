@@ -9,11 +9,11 @@ This guide explains how to configure and automate the BTicino / Legrand **Diffus
 In MyHOME systems, multi-room audio is managed by dedicated hardware analog matrices and room amplifiers communicating over the SCS bus using **OpenWebNet WHO = 16**.
 
 ### Supported Hardware
-- **Audio Matrix**: F441, F441M (4 analog stereo source inputs S1–S4, up to 8 independent stereo room amplifier environment outputs)
-- **Audio Source Interfaces**: L4561N (stereo source interface with RCA line inputs and IR emitter control, 4 DIN modules), L4560 / N4560 / NT4560 (flush-mount modular RCA line-in sockets), 3482 (auxiliary line-in preamplifier / interface), 3495 (audio ground-loop isolator)
-- **FM Tuner Modules**: F500, F500N (WHO 16 FM RDS tuner modules)
-- **Room Amplifiers**: 3484, 3484/1, 3487 (stereo/mono room amplifiers)
-- **Audio Controls**: L/N/NT4684, 3529 (wall control panels)
+- **Audio Matrix**: F441, F441M (4 stereo source inputs S1–S4, up to 8 independent stereo room amplifier environment outputs over the 2-wire SCS bus)
+- **Audio Source Interfaces**: L4561N / L4561 (stereo source interface with RCA line inputs and IR emitter control, 4 DIN modules), L4560 / HS4560 / N4560 / NT4560 / HC4560 (flush-mount modular RCA line-in sockets), 3482 (auxiliary line-in preamplifier / interface), 3495 (source isolator with 1500 Vrms galvanic isolation for ground loop and hum elimination)
+- **FM Tuner Modules**: F500, F500COAX (WHO 16 FM RDS stereo tuner modules, 4 DIN modules)
+- **Room Amplifiers**: H4562, L4562 (flush-mount stereo room amplifiers), F502 (DIN rail stereo room amplifier, 230 Vac powered), 3484, 3484/1, 3487 (modular stereo/mono amplifiers)
+- **Audio Controls & Accessories**: H4651/2, L4651/2 (special controls), HC/HS4563, L/N/NT4563 (rotary controls), HC/HS4653/2, HC/HS4653/3 (soft-touch controls), H/L4684 (colour touchscreen), 3529 (wall control panels), 3499 (bus line terminators), 346000 (SCS bus power supply)
 
 > [!IMPORTANT]
 > **Hardware-Only Analog Matrix**: The BTicino F441 / F441M is a purely analog matrix switcher. It does not contain an Ethernet port or digital audio decoder and cannot stream IP audio by itself. It routes line-level analog signals from physical source inputs (Source 1 to Source 4) to its room outputs, one output per **environment**. Amplifiers are addressed `EA` (`01`–`99`): environment digit, then amplifier number within it.
@@ -31,7 +31,7 @@ Music Assistant / Home Assistant
         │  1. Play, pause, volume target the ROOM entity: media_player.<room> (e.g. Bathroom)
         ▼
 MyHOME Dynamic Proxy
-        ├──► OpenWebNet WHO=16 over 2-wire SCS Bus (CONTROL ONLY)
+        ├──► OpenWebNet WHO=16 over 2-wire SCS Bus (CONTROL)
         │       ├── Routes matrix environment output to matrix input S1..S4
         │       └── Wakes & powers room amplifier ──► Speakers
         │
@@ -41,32 +41,46 @@ MyHOME Dynamic Proxy
                 │  Analog stereo line out (RCA / 3.5mm jack)
                 ▼
         Audio Source Interface (Legrand / BTicino L4561N, 3482, L4560)
-                │  Analog audio distribution wiring
+                │  2-wire SCS Bus (modulates stereo audio onto the bus)
                 ▼
         F441 / F441M Audio Matrix (Source Inputs S1..S4)
-                │  Analog audio distribution to room amplifiers
+                │  2-wire SCS Bus per Environment (carries audio + commands)
                 ▼
-        Room Amplifiers (3484, 3487) ──► Speakers
+        Room Amplifiers (H4562, F502, 3484/3487)
+                │  Local speaker wires (L / R)
+                ▼
+        Room Speakers
 ```
 
 | Part | What it does | Connection |
 |---|---|---|
 | **Streamer ("decoder")** | Receives the stream from Music Assistant or Home Assistant over IP and converts it into analog line-level audio. | Ethernet / Wi-Fi network in; analog stereo line-level out (RCA / 3.5mm). |
-| **Audio source interface (L4561N / 3482 / L4560)** | Accepts line audio from the streamer and injects it into a matrix input; provides presence signaling on the SCS bus. | Analog line audio in; connection to matrix source input (S1–S4) & 2-wire SCS bus. |
-| **F441 / F441M matrix** | Switches one of its four stereo inputs (S1–S4) to each room environment. It has no network audio. | Analog audio in from source interfaces; analog audio out to room amplifiers. |
-| **Room amplifiers** | Powers the speakers of one room / zone. | Switched on, off and volume-regulated over the 2-wire SCS bus; audio fed from matrix. |
+| **Audio source interface (L4561N / 3482 / L4560)** | Accepts line-level stereo analog audio from the streamer and modulates it onto the 2-wire SCS bus to a matrix source input (S1–S4); provides presence signaling on the SCS bus. | Analog line audio in; 2-wire SCS bus connection to matrix source input (S1–S4). |
+| **Source isolator (3495)** | Optional galvanic isolator (1500 Vrms) installed between streamer and source interface for Class I or multiple Class II devices to eliminate 50/60 Hz ground loops and hum. | RCA IN from streamer; RCA OUT to source interface. |
+| **F441 / F441M matrix** | Switches one of its four 2-wire SCS stereo source inputs (S1–S4) to each room environment output over the 2-wire SCS bus. It has no network audio. | 2-wire SCS inputs (S1–S4) from source interfaces; 2-wire SCS outputs to room environments. |
+| **Room amplifiers (H4562, F502, 3484/3487)** | Receives both digital OpenWebNet control frames and modulated stereo audio over the 2-wire SCS bus; powers the room speakers. | Switched on, off and volume-regulated over the 2-wire SCS bus; audio demodulated from the same 2-wire SCS bus; local copper speaker wires (L/R) to speakers. |
 | **MyHOME integration** | Ties the three together: wakes the amplifier, routes the room, forwards the stream to a free streamer. | Gateway (SCS bus) and Home Assistant service calls. |
 
 ---
 
-### The 2-Wire Question: Control vs. Audio & Stereo Sound
+<a id="the-2-wire-question-control-vs-audio-stereo-sound"></a>
+<a id="the-2-wire-architecture-audio-and-control-over-the-scs-bus"></a>
+### The 2-Wire Architecture: Audio & Control Multiplexing & Stereo Sound
 
-A common question is: ***"How can you have stereo sound with only 2 wires, and do I need an audio interface like the L4561N?"***
+A common question is: ***"How can you have stereo sound with only 2 wires, and why do I need an audio interface like the L4561N?"***
 
-- **The SCS bus carries commands, not audio.** The 2-wire cable (`BUS SCS`) connects to source interfaces, matrix units, and room amplifiers solely for **digital control** (power on/off, volume up/down, source routing via OpenWebNet WHO = 16). It carries **zero sound**.
-- **Audio travels over dedicated analog wiring.** The music itself travels on separate analog audio distribution cables linking the source interface, the F441/F441M matrix inputs S1–S4, and the room amplifiers.
-- **You need an audio source interface for external streamers.** The F441/F441M matrix does not have bare 3.5mm or RCA jacks on its front. External streamers (WiiM, Squeezelite, Cambridge Audio, etc.) plug their analog stereo line-out into a Legrand / BTicino audio source interface module (such as the **L4561N** 4-DIN module with RCA inputs and IR emitter control, or **L4560 / N4560 / NT4560** modular RCA sockets, or **3482** auxiliary line preamplifier). The interface module injects the analog audio into the matrix source input terminals and connects to the SCS bus for presence signaling.
-- **Stereo vs. mono.** The F441/F441M matrix is a true stereo (L/R) analog switcher. Whether you hear stereo in a given room depends on the amplifier model installed in that room (e.g. 3484/3487 stereo amplifiers vs. mono configurations) and whether two speakers are wired to it. Consult the F441M installation manual for your specific wiring.
+- **Audio and commands travel together over the same 2-wire SCS bus.** In BTicino MyHOME **Diffusion Sonore 2 Fils** (2-Wire Sound System), the physical 2-wire SCS bus (white/grey twisted pair) simultaneously carries **27V DC power**, **digital OpenWebNet control frames** (WHO = 16: power, volume, source routing, FM frequency tuning), and **high-frequency modulated stereo audio** across the very same two conductors. There is no separate analog audio cabling running between the matrix and the room amplifiers; the 2-wire SCS bus carries the music directly to each room.
+- **Why an audio source interface is required for external streamers.** External network streamers (WiiM, Squeezelite/Raspberry Pi, DLNA DACs, Cambridge Audio, CD players, etc.) output standard baseband analog line-level stereo audio (0.7–2.0 V RMS via RCA or 3.5mm jack). They cannot connect directly to SCS bus screw terminals. A Legrand / BTicino audio source interface—such as the **L4561N / L4561** (4-DIN stereo control module with RCA inputs and IR emitter output), **L4560 / HS4560 / N4560 / NT4560 / HC4560** (modular flush-mount RCA sockets), or **3482** (auxiliary line-in preamplifier)—is the physical bridge that takes line-level stereo analog audio and modulates/injects it directly onto the 2-wire SCS bus into one of the matrix source inputs (S1–S4).
+- **Galvanic isolation (art. 3495) for ground loops & hum.** When connecting external Class I audio sources (equipment with an earth ground connection, such as a desktop PC or earthed Hi-Fi amplifier) or multiple Class II sources, BTicino strongly recommends placing a **3495** source isolator between the streamer and the source interface. It provides 1500 Vrms isolation to preserve the SELV safety rating of the MyHOME SCS bus and prevent 50/60 Hz ground hum.
+- **Stereo distribution and speaker wiring.** The F441 / F441M matrix and SCS audio bus transmit a true stereo (L/R) signal. Each room environment ("Ambiance") is wired with a single 2-wire SCS bus daisy-chained across room amplifiers (e.g. flush-mount **H4562 / L4562** or DIN rail **F502**) and control panels (**H4651/2**, **H4684**), ending at a **3499** bus termination resistor. The amplifier in the room demodulates the stereo signal and drives the room's speakers over standard local copper speaker wire (Left and Right).
+
+<a id="official-bticino-2-wire-sound-system-wiring-schematic"></a>
+#### Official BTicino 2-Wire Sound System Wiring Schematic
+
+The schematic below from the official BTicino MyHOME Diffusion Sonore documentation illustrates how external stereo audio sources, the F441 matrix, and multi-room environment zones all interconnect using the 2-wire SCS bus:
+
+![BTicino MyHOME Diffusion Sonore 2 Fils Wiring Schematic](../images/bticino-sound-system-schematic.jpg)
+*Figure: Official BTicino MyHOME Diffusion Sonore 2 Fils system architecture and wiring schematic (from catalog 3495). At the bottom: audio sources (F500 RDS tuner, Hi-Fi via L4561 stereo control and 3494 connector, external RCA input via HS4560 and 3495 source isolator) connect to matrix inputs over the 2-wire SCS bus. In the center: F441 matrix and 346000 power supply. At the top: four room environments (Ambiance 1–4) receive 2-wire SCS bus lines driving flush-mount amplifiers (H4562), DIN amplifiers (F502), special controls (H4651/2), and touchscreens (H4684), terminated with 3499 bus line terminators.*
 
 ---
 
@@ -165,7 +179,7 @@ To bridge modern streaming platforms (such as **Music Assistant**, **Spotify Con
        │  Cambridge)   │ │ & Amplifiers  │
        └───────┬───────┘ └───────▲───────┘
                │ Analog Line-Out │
-               ▼                 │ Analog Audio Distribution
+               ▼                 │ 2-Wire SCS Audio Bus
        ┌───────────────┐         │ (Inputs S1..S4)
        │ Audio Source  ├─────────┘
        │ Interface     │
