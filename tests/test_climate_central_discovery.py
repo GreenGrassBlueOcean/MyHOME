@@ -4,7 +4,8 @@ Guarantees:
 1. Physical bus frames from 3550 central units (#0) and 4-zone central units (#0#1)
    never trigger bus discovery of phantom 'Climate Zone 99' (#582).
 2. Deleting an unused/ghost heating zone entity permanently drops its unresponsive
-   repair alert and prevents resurrection in the absence of on-wire frames for that zone.
+   repair alert, clears the entity registry, and prevents resurrection in the absence
+   of on-wire frames for that zone.
 3. Central units operate via event-driven broadcast synchronization without point-to-point status polling.
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from OWNd.message import OWNEvent, OWNHeatingEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -33,14 +35,14 @@ from tests.conftest import attach_runtime
 MAC = "00:03:50:44:55:66"
 
 BTICINO_3550_FRAMES = [
-    "*4*101*#0##",  # Heating command mode
-    "*4*102*#0##",  # Cooling / Antifreeze command mode
-    "*4*100*#0##",  # Conditioning / Heating OFF command mode
-    "*4*103*#0##",  # Automatic command mode
-    "*4*110*#0##",  # Heating status event
-    "*4*210*#0##",  # Cooling status event
-    "*4*303*#0##",  # OFF status event
-    "*4*311*#0##",  # Auto status event
+    "*4*101*#0##",  # Manual Heating command frame (sent to CU)
+    "*4*102*#0##",  # Manual Cooling command frame / Antifreeze
+    "*4*100*#0##",  # Conditioning / Heating OFF command frame
+    "*4*103*#0##",  # Auto Heating/Cooling command frame / OFF-heating
+    "*4*110*#0##",  # Manual Heating operating mode event (broadcast by CU)
+    "*4*210*#0##",  # Manual Cooling operating mode event (broadcast by CU)
+    "*4*303*#0##",  # Generic OFF operating mode event (broadcast by CU)
+    "*4*311*#0##",  # Programmed / Automatic operating mode event (broadcast by CU)
     "*4*110#0200*#0##",  # Manual setpoint 20.0 °C on central unit
     "*4*210#0240*#0##",  # Cooling setpoint 24.0 °C on central unit
     "*4*21*#0##",  # Remote control enabled
@@ -72,7 +74,7 @@ def test_3550_frames_never_resolve_to_zone_99(raw_frame: str) -> None:
     message = OWNEvent.parse(raw_frame)
     assert message is not None
 
-    zones, interface = _calling_zones(message)
+    zones, _ = _calling_zones(message)
     assert "99" not in zones
 
     address = _zone_address(message)
@@ -91,7 +93,7 @@ def test_4695_frames_never_resolve_to_zone_99(raw_frame: str) -> None:
     message = OWNEvent.parse(raw_frame)
     assert message is not None
 
-    zones, interface = _calling_zones(message)
+    zones, _ = _calling_zones(message)
     assert "99" not in zones
 
     address = _zone_address(message)
@@ -115,42 +117,36 @@ async def test_3550_bus_traffic_never_discovers_phantom_climate_zone_99(hass: Ho
     gateway.send_status_request = AsyncMock()
 
     runtime = attach_runtime(hass, entry, MAC, gateway)
-    runtime.platforms["climate"] = {
-        "central_unit": {
-            "zone": "#0",
-            "name": "Centrale termoregolazione",
-            "heat": True,
-            "cool": False,
-            "central": True,
-            "standalone": False,
-            "manufacturer": "BTicino",
-            "model": "3550",
-        }
-    }
+    runtime.platforms["climate"] = {}
 
     discovered_entities: list[MyHOMEClimate] = []
     await async_setup_entry(hass, entry, discovered_entities.extend)
 
-    # 1. Initially, only the configured central unit exists
+    # 1. Initially, no entities exist
+    assert len(discovered_entities) == 0
+
+    # 2. Dispatch all 3550 central unit traffic through the real message dispatcher
+    for raw_frame in BTICINO_3550_FRAMES:
+        event = OWNHeatingEvent(raw_frame)
+        async_dispatcher_send(hass, f"myhome_message_{MAC}", event)
+
+    # 3. Central unit #0 is discovered, but phantom zone 99 is NEVER discovered
     assert len(discovered_entities) == 1
     assert discovered_entities[0]._where == "#0"
     assert discovered_entities[0]._central is True
-
-    # 2. Dispatch all 3550 central unit traffic through the event dispatcher
-    for raw_frame in BTICINO_3550_FRAMES:
-        event = OWNHeatingEvent(raw_frame)
-        runtime.gateway._event_dispatcher.process_message_sync(event)
-
-    # 3. Assert zero additional entities were discovered
-    assert len(discovered_entities) == 1
     assert not any(getattr(e, "_where", None) == "99" for e in discovered_entities)
     assert not any("99" in (getattr(e, "name", "") or "") for e in discovered_entities)
+
+    # 4. Positive control: genuine subordinate zone traffic (e.g. Zone 5) MUST trigger dynamic discovery
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNHeatingEvent("*4*110*5##"))
+    assert len(discovered_entities) == 2
+    assert any(getattr(e, "_where", None) == "5" for e in discovered_entities)
 
 
 async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_resurrection(
     hass: HomeAssistant,
 ) -> None:
-    """Assert deleting a ghost Climate Zone 99 entity removes its repair and does not resurrect on central bus traffic (#582)."""
+    """Assert deleting a ghost Climate Zone 99 entity removes its repair, clears registry, and does not resurrect on central bus traffic (#582)."""
     entry = MockConfigEntry(domain=DOMAIN, data={"mac": MAC}, unique_id=MAC)
     entry.add_to_hass(hass)
 
@@ -162,13 +158,7 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
     gateway.send_status_request = AsyncMock()
 
     runtime = attach_runtime(hass, entry, MAC, gateway)
-    runtime.platforms["climate"] = {
-        "central_unit": {
-            "zone": "#0",
-            "name": "Centrale termoregolazione",
-            "central": True,
-        }
-    }
+    runtime.platforms["climate"] = {}
 
     # Simulate pre-existing ghost entity in entity registry (e.g. from prior user configuration)
     entity_reg = er.async_get(hass)
@@ -184,11 +174,10 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
     entities: list[MyHOMEClimate] = []
     await async_setup_entry(hass, entry, entities.extend)
 
-    # Both central unit and registered ghost zone 99 are built
-    assert len(entities) == 2
-    cu = next(e for e in entities if e._where == "#0")
-    assert cu._central is True
-    ghost_z99 = next(e for e in entities if e._where == "99")
+    # Registered ghost zone 99 is built from registry
+    assert len(entities) == 1
+    ghost_z99 = entities[0]
+    assert ghost_z99._where == "99"
     ghost_z99.entity_id = ghost_reg_entry.entity_id
 
     # Simulate 2 failed polls on ghost zone 99
@@ -216,14 +205,37 @@ async def test_ghost_zone_99_deletion_permanently_clears_repair_and_prevents_res
     # The repair issue is automatically dropped
     assert issue_reg.async_get_issue(DOMAIN, issue_id) is None
 
+    # Entity registry no longer contains zone 99
+    assert entity_reg.async_get(ghost_z99.entity_id) is None
+    remaining_entries = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
+    assert not any(e.unique_id == f"{MAC}-4-99" for e in remaining_entries)
+
+    # Simulate entry reload / system restart after deletion
+    reloaded_entities: list[MyHOMEClimate] = []
+    await async_setup_entry(hass, entry, reloaded_entities.extend)
+
+    # Zone 99 is NOT restored because it was removed from the entity registry
+    assert len(reloaded_entities) == 0
+
     # Central unit bus activity does NOT resurrect or recreate ghost zone 99
     gateway.send_status_request.reset_mock()
     for raw_frame in BTICINO_3550_FRAMES:
         event = OWNHeatingEvent(raw_frame)
-        runtime.gateway._event_dispatcher.process_message_sync(event)
+        async_dispatcher_send(hass, f"myhome_message_{MAC}", event)
 
-    assert len(entities) == 2  # No new entities added
+    # Central unit #0 is discovered, but zone 99 is not resurrected
+    assert len(reloaded_entities) == 1
+    assert reloaded_entities[0]._where == "#0"
     assert issue_reg.async_get_issue(DOMAIN, issue_id) is None
+    assert entity_reg.async_get_entity_id("climate", DOMAIN, f"{MAC}-4-99") is None
+
+    # Positive control: if genuine on-wire traffic for Zone 99 arrives (*4*110*99##),
+    # discovery recognizes it as a valid subordinate zone.
+    async_dispatcher_send(hass, f"myhome_message_{MAC}", OWNHeatingEvent("*4*110*99##"))
+    assert len(reloaded_entities) == 2
+    discovered_z99 = reloaded_entities[-1]
+    assert discovered_z99._where == "99"
+    assert discovered_z99._central is False
 
 
 async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) -> None:
@@ -236,11 +248,10 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
 
     cu = MyHOMEClimate(
         hass=hass,
+        name="Centrale termoregolazione",
         device_id="cu_3550",
         who="4",
         where="#0",
-        interface=None,
-        name="Centrale termoregolazione",
         heating=True,
         cooling=True,
         fan=False,
@@ -253,21 +264,69 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
     cu.entity_id = "climate.centrale_termoregolazione"
     cu.async_write_ha_state = MagicMock()
 
-    # 1. Startup update sends zero status requests
+    # Track central mode updates dispatched to subordinate zones
+    central_mode_events: list[HVACMode] = []
+    async_dispatcher_connect(
+        hass,
+        f"myhome_central_mode_{MAC}",
+        central_mode_events.append,
+    )
+
+    # 1. Startup update sends zero status requests (no Dimension 14 poll)
     await cu.async_update()
     gateway.send_status_request.assert_not_called()
 
-    # 2. Autonomous mode broadcast events update HVACMode immediately
-    cu.handle_event(OWNHeatingEvent("*4*110*#0##"))
+    # 2. Command path: setting mode via HA emits central commands and dispatches signal
+    await cu.async_set_hvac_mode(HVACMode.HEAT)
+    sent_cmd = gateway.send.call_args[0][0]
+    assert str(sent_cmd) == "*4*101*#0##"
     assert cu.hvac_mode == HVACMode.HEAT
+    assert central_mode_events[-1] == HVACMode.HEAT
 
-    cu.handle_event(OWNHeatingEvent("*4*210*#0##"))
+    await cu.async_set_hvac_mode(HVACMode.COOL)
+    sent_cmd = gateway.send.call_args[0][0]
+    assert str(sent_cmd) == "*4*102*#0##"
     assert cu.hvac_mode == HVACMode.COOL
+    assert central_mode_events[-1] == HVACMode.COOL
 
-    cu.handle_event(OWNHeatingEvent("*4*103*#0##"))
+    await cu.async_set_hvac_mode(HVACMode.AUTO)
+    sent_cmd = gateway.send.call_args[0][0]
+    assert str(sent_cmd) == "*4*103*#0##"
+    assert cu.hvac_mode == HVACMode.AUTO
+    assert central_mode_events[-1] == HVACMode.AUTO
+
+    await cu.async_set_hvac_mode(HVACMode.OFF)
+    sent_cmd = gateway.send.call_args[0][0]
+    assert str(sent_cmd) == "*4*100*#0##"
     assert cu.hvac_mode == HVACMode.OFF
+    assert central_mode_events[-1] == HVACMode.OFF
 
-    # 3. Target setpoint broadcast frame updates target temperature and restores mode
+    # 3. Autonomous operating mode broadcast events update HVACMode and dispatch signal
+    cu.handle_event(OWNHeatingEvent("*4*110*#0##"))  # Manual heating status event
+    assert cu.hvac_mode == HVACMode.HEAT
+    assert central_mode_events[-1] == HVACMode.HEAT
+
+    cu.handle_event(OWNHeatingEvent("*4*210*#0##"))  # Manual cooling status event
+    assert cu.hvac_mode == HVACMode.COOL
+    assert central_mode_events[-1] == HVACMode.COOL
+
+    cu.handle_event(OWNHeatingEvent("*4*311*#0##"))  # Programmed / Auto status event
+    assert cu.hvac_mode == HVACMode.AUTO
+    assert central_mode_events[-1] == HVACMode.AUTO
+
+    cu.handle_event(OWNHeatingEvent("*4*303*#0##"))  # Generic OFF status event
+    assert cu.hvac_mode == HVACMode.OFF
+    assert central_mode_events[-1] == HVACMode.OFF
+
+    # 4. Target setpoint broadcast frame updates target temperature and restores mode
     cu.handle_event(OWNHeatingEvent("*4*110#0215*#0##"))
     assert cu.target_temperature == 21.5
+    assert cu.hvac_mode == HVACMode.HEAT
+    assert central_mode_events[-1] == HVACMode.HEAT
+
+    # 5. Weekly programs and scenarios: heating program confirms heating context
+    cu.handle_event(OWNHeatingEvent("*4*1101*#0##"))  # Weekly program 1 (heating)
+    assert cu.hvac_mode == HVACMode.HEAT
+
+    cu.handle_event(OWNHeatingEvent("*4*1201*#0##"))  # Scenario 1 (heating)
     assert cu.hvac_mode == HVACMode.HEAT
