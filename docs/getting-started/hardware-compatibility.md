@@ -38,6 +38,9 @@ The MyHOME integration supports all official BTicino and Legrand OpenWebNet gate
 | **Burglar Alarm** | `5` | `alarm_control_panel` | 3485, 3486 (Central Units), 3480 |
 | **Gateway Diagnostics** | `13` | `diagnostics`, `repair` | Gateway internal RTC clock, firmware, uptime, device types |
 | **Scenario Control (CEN)** | `15` | `device_trigger`, `event` | 3477, L4651/2, L4652/2 (Short / Long press) |
-| **Sound System** | `16` | `media_player` | F441, F441M (Audio matrix), 3445 (amplifiers), 3482 |
+| **Sound System** | `16` | `media_player` | F441, F441M (Audio matrix), L4561N, L4560, 3482 (Audio source interfaces), 3484, 3487 (Room amplifiers), F500, F500N (FM RDS Tuners) |
 | **Energy Management** | `18` | `sensor` | F520, F521, F522, F523, 3522 |
 | **Scenario Control (CEN+)** | `25` | `device_trigger`, `event` | L4652/3, LN4652, H4652 (Rotary dials, pushbuttons) |
+
+> [!NOTE]
+> **Sound System (WHO = 16) Wiring**: The 2-wire SCS bus carries digital commands only (power, volume, input routing). Audio distribution travels over separate analog audio cabling. External audio streamers connect their stereo analog line-out to an audio source interface (e.g. Legrand / BTicino L4561N, L4560, or 3482), which feeds the F441/F441M matrix inputs S1–S4. For full details, see the [Sound System / Media Player Guide](../configuration/media_player.md).
