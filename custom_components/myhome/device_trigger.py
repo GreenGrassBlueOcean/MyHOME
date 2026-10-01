@@ -231,7 +231,9 @@ async def async_attach_trigger(
     trigger_info: dict[str, Any],
 ) -> CALLBACK_TYPE:
     """Attach a trigger to Home Assistant event bus."""
-    trigger_data = trigger_info.get("trigger_data", trigger_info)
+    trigger_data = trigger_info.get("trigger_data")
+    if trigger_data is None:
+        trigger_data = trigger_info
     trigger_type = config[CONF_TYPE]
 
     if trigger_type in GATEWAY_TRIGGER_TYPES:
