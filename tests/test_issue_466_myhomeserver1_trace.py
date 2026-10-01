@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.const import (
@@ -26,6 +26,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
     OWNAutomationEvent,
     OWNCENPlusEvent,
+    OWNEnergyCommand,
     OWNEnergyEvent,
     OWNHeatingEvent,
     OWNLightingCommand,
@@ -41,6 +42,7 @@ from custom_components.myhome.const import (
     CONF_MANUFACTURER,
     DOMAIN,
 )
+from custom_components.myhome.cover import MyHOMECover
 
 TRACES_DIR = Path(__file__).resolve().parent / "fixtures" / "traces" / "issue_466"
 CEN_SCENARIO_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_cen_scenario_2026-09-27T13-28-10.json"
@@ -50,6 +52,7 @@ SCENARIOS_DIAGNOSTIC_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_scenarios_c
 MONOSTABLE_DIAGNOSTIC_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_monostable_cover_diagnostic_2026-09-27T13-51-19.json"
 BISTABLE_COVER_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_bistable_cover_2026-09-27T13-54-05.json"
 CEN_LONG_PRESS_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_who25_2026-09-27T20-56-45.json"
+CALIBRATION_COVER_FILE = TRACES_DIR / "myhome_trace_MyHomeServer1_all_2026-10-01T07-59-11.json"
 
 
 async def _setup_myhomeserver1_gateway(hass: HomeAssistant, mac: str = "00:03:50:00:04:66"):
@@ -550,3 +553,162 @@ def test_mixed_bus_capture_2026_09_29_parses():
     assert all(message is not None for message in messages)
     assert sum(isinstance(m, OWNLightingEvent) for m in messages) >= 30
     assert sum(isinstance(m, OWNHeatingEvent) for m in messages) >= 100
+
+
+def test_cover_calibration_capture_2026_10_01_parses():
+    """The @Interstellar0verdrive cover calibration capture (comment 5927373969) parses frame by frame without errors."""
+    trace = json.loads(CALIBRATION_COVER_FILE.read_text(encoding="utf-8"))
+    frames = trace["frames"]
+    assert len(frames) == 159
+
+    raw_frames = [f["raw"] for f in frames]
+    messages = [OWNMessage.parse(raw) for raw in raw_frames]
+    assert all(message is not None for message in messages)
+
+    # WHO 2 breakdown: 64 frames, all targeting cover WHERE 91
+    who2_messages = [m for m in messages if isinstance(m, OWNAutomationEvent)]
+    assert len(who2_messages) == 64
+    assert all(m.where == "91" for m in who2_messages)
+
+    # WHO 18 breakdown: 95 frames (89 events, 6 commands) across meters 51, 52, 53
+    who18_messages = [m for m in messages if isinstance(m, (OWNEnergyEvent, OWNEnergyCommand))]
+    assert len(who18_messages) == 95
+    assert sum(isinstance(m, OWNEnergyEvent) for m in messages) == 89
+    assert sum(isinstance(m, OWNEnergyCommand) for m in messages) == 6
+
+    # Dimension 113 (active power) telemetry: 86 frames
+    dim113_frames = [f for f in frames if f.get("who") == "18" and "*113*" in f["raw"]]
+    assert len(dim113_frames) == 86
+
+    # Dimension 1200 (power threshold): 9 frames total
+    dim1200_frames = [f for f in frames if f.get("who") == "18" and "1200" in f["raw"]]
+    assert len(dim1200_frames) == 9
+    rx_1200 = [f for f in dim1200_frames if f["direction"] == "rx"]
+    tx_1200 = [f for f in dim1200_frames if f["direction"] == "tx"]
+    assert len(rx_1200) == 3
+    assert [f["raw"] for f in rx_1200] == [
+        "*#18*51*1200#1*125##",
+        "*#18*52*1200#1*125##",
+        "*#18*53*1200#1*125##",
+    ]
+    # Two periodic poll rounds (meters 52, 51, 53) spaced 300s (5 minutes) apart
+    assert len(tx_1200) == 6
+    round1 = [f["raw"] for f in tx_1200[:3]]
+    round2 = [f["raw"] for f in tx_1200[3:]]
+    assert round1 == ["*#18*52*1200##", "*#18*51*1200##", "*#18*53*1200##"]
+    assert round2 == ["*#18*52*1200##", "*#18*51*1200##", "*#18*53*1200##"]
+    poll_interval = tx_1200[3]["timestamp"] - tx_1200[0]["timestamp"]
+    assert 299.0 <= poll_interval <= 301.0
+
+    # Eight start/stop movement runs on WHERE 91 (4 down, 4 up)
+    who2_raw = [f for f in frames if f.get("who") == "2"]
+    starts = [i for i, f in enumerate(who2_raw) if f["direction"] == "tx" and f["raw"] in ("*2*1*91##", "*2*2*91##")]
+    stops = [i for i, f in enumerate(who2_raw) if f["direction"] == "tx" and f["raw"] == "*2*0*91##"]
+    assert len(starts) == 8
+    assert len(stops) == 8
+
+    # Verify each start command produces the 4-frame sequence: leading idle (1000#0, 0) then moving (1000#dir, dir)
+    for s_idx in starts:
+        cmd = who2_raw[s_idx]["raw"]
+        direction = "1" if cmd == "*2*1*91##" else "2"
+        assert who2_raw[s_idx + 1]["raw"] == "*2*1000#0*91##"
+        assert who2_raw[s_idx + 2]["raw"] == "*2*0*91##"
+        assert who2_raw[s_idx + 3]["raw"] == f"*2*1000#{direction}*91##"
+        assert who2_raw[s_idx + 4]["raw"] == f"*2*{direction}*91##"
+
+    # Verify each stop command produces the 2-frame stop sequence: 1000#0 and 0
+    for st_idx in stops:
+        assert who2_raw[st_idx + 1]["raw"] == "*2*1000#0*91##"
+        assert who2_raw[st_idx + 2]["raw"] == "*2*0*91##"
+
+
+@pytest.mark.asyncio
+async def test_myhomeserver1_cover_calibration_trace_replay(hass: HomeAssistant) -> None:
+    """Replay all 159 frames from the guided cover calibration run trace.
+
+    Authentic capture contributed by @Interstellar0verdrive on #466 (comment 5927373969):
+    - Eight timed movements on cover WHERE 91 started and stopped by the calibration wizard.
+    - Gateway status replies (*2*1000#x* followed by basic status frames).
+    - Verifies cover state machine correctly transitions through the leading idle report
+      (*2*1000#0*91## + *2*0*91##) and enters opening/closing upon directional status.
+    - Interleaved WHO 18 energy frames (Dimension 113 active power and Dimension 1200 on meters 51, 52, 53).
+    """
+    assert CALIBRATION_COVER_FILE.is_file(), f"Missing fixture: {CALIBRATION_COVER_FILE}"
+    trace = json.loads(CALIBRATION_COVER_FILE.read_text(encoding="utf-8"))
+
+    assert trace["gateway"]["model"] == "MyHomeServer1"
+    assert trace["gateway"]["firmware"] == "2.87.13"
+
+    handler, mac = await _setup_myhomeserver1_gateway(hass)
+    raw_frames = trace["frames"]
+    assert len(raw_frames) == 159
+
+    cover = MyHOMECover(
+        hass=hass,
+        name="Cover 91",
+        entity_name="Cover 91",
+        device_id="91",
+        who="2",
+        where="91",
+        interface=None,
+        advanced=False,
+        manufacturer="BTicino",
+        model="F411",
+        gateway=handler,
+    )
+    cover._publish_state = MagicMock()
+
+    replayed = 0
+    who2_events = []
+    who18_events = []
+    recovered_runs = []
+
+    for item in raw_frames:
+        raw = item["raw"]
+        msg = OWNMessage.parse(raw)
+        if isinstance(msg, OWNAutomationEvent):
+            who2_events.append(msg)
+            if msg.where == "91":
+                cover.handle_event(msg)
+                # When the moving status frame arrives after the leading idle, record active motion
+                if item["direction"] == "rx" and raw in ("*2*1*91##", "*2*2*91##"):
+                    run_dir = "up" if cover.is_opening else "down" if cover.is_closing else "stopped"
+                    recovered_runs.append((raw, run_dir))
+        elif isinstance(msg, (OWNEnergyEvent, OWNEnergyCommand)):
+            who18_events.append(msg)
+
+        await handler._process_message(msg)
+        replayed += 1
+
+    await hass.async_block_till_done()
+
+    assert replayed == 159
+    assert len(who2_events) == 64
+    assert len(who18_events) == 95
+
+    # All WHO 2 events target actuator WHERE 91
+    assert all(ev.where == "91" for ev in who2_events)
+
+    # Energy meter addresses in trace are 51, 52, and 53
+    energy_meters = {ev.where for ev in who18_events}
+    assert energy_meters == {"51", "52", "53"}
+
+    # Verify that the cover was NOT permanently trapped in stopped state by the leading idle
+    # frame (*2*0*91##), but correctly recovered active motion for all 8 runs:
+    # 4 down runs and 4 up runs
+    assert len(recovered_runs) == 8
+    assert [direction for _, direction in recovered_runs] == [
+        "down",
+        "up",
+        "down",
+        "up",
+        "down",
+        "up",
+        "up",
+        "down",
+    ]
+
+    # At the end of the trace (after final stop run), the cover settles into stopped state
+    assert cover.is_opening is False
+    assert cover.is_closing is False
+
