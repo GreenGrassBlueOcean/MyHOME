@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, cast
 
 import voluptuous as vol
-from homeassistant.components.light import (
+from homeassistant.components.light import (  # type: ignore[attr-defined, unused-ignore]
     ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_TEMP_KELVIN,
@@ -75,6 +75,7 @@ from .light_dali import DaliFeatureLock
 from .light_fade import SoftwareFadeEngine
 from .light_group import MyHOMELightGroup, _color_modes_from_flags
 from .myhome_device import MyHOMEEntity
+from .typing_compat import as_any
 
 PARALLEL_UPDATES = 0
 
@@ -212,7 +213,7 @@ async def async_setup_entry(
     if platform is not None:
         platform.async_register_entity_service(
             SERVICE_TURN_ON_TIMED,
-            {
+            as_any({
                 vol.Optional("duration"): vol.Coerce(float),
                 vol.Optional("hours", default=0): vol.All(
                     vol.Coerce(int), vol.Range(min=0, max=255)
@@ -223,7 +224,7 @@ async def async_setup_entry(
                 vol.Optional("seconds", default=0): vol.All(
                     vol.Coerce(float), vol.Range(min=0, max=59)
                 ),
-            },
+            }),
             "async_turn_on_timed",
         )
 

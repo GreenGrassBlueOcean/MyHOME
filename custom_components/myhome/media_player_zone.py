@@ -16,7 +16,10 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from homeassistant.components.media_player import MediaPlayerDeviceClass, MediaPlayerEntity
+from homeassistant.components.media_player import (  # type: ignore[attr-defined, unused-ignore]
+    MediaPlayerDeviceClass,
+    MediaPlayerEntity,
+)
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature, MediaPlayerState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant

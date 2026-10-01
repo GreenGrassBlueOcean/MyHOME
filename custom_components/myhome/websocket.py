@@ -47,17 +47,17 @@ WS_TYPE_CLEAR = "myhome/bus_monitor/clear"
 WS_TYPE_INFO = "myhome/bus_monitor/info"
 WS_TYPE_CALIBRATION_TRACE = "myhome/cover/calibration_trace"
 
-SCHEMA_WS_CALIBRATION_TRACE: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_CALIBRATION_TRACE: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_CALIBRATION_TRACE,
     vol.Optional("mac"): vol.Any(cv.string, None),
 }
 
-SCHEMA_WS_INFO: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_INFO: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_INFO,
     vol.Optional("mac"): vol.Any(cv.string, None),
 }
 
-SCHEMA_WS_HISTORY: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_HISTORY: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_HISTORY,
     vol.Optional("mac"): vol.Any(cv.string, None),
     vol.Optional("limit", default=100): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
@@ -66,7 +66,7 @@ SCHEMA_WS_HISTORY: dict[str | vol.Marker, Any] = {
     vol.Optional("direction"): vol.Any(vol.In(["rx", "tx", "ack", "nack", "all"]), None),
 }
 
-SCHEMA_WS_STREAM: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_STREAM: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_STREAM,
     vol.Optional("mac"): vol.Any(cv.string, None),
     vol.Optional("who"): vol.Any(cv.string, vol.Coerce(int), None),
@@ -74,13 +74,13 @@ SCHEMA_WS_STREAM: dict[str | vol.Marker, Any] = {
     vol.Optional("direction"): vol.Any(vol.In(["rx", "tx", "ack", "nack", "all"]), None),
 }
 
-SCHEMA_WS_SEND: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_SEND: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_SEND,
     vol.Required("frame"): cv.string,
     vol.Optional("mac"): vol.Any(cv.string, None),
 }
 
-SCHEMA_WS_CLEAR: dict[str | vol.Marker, Any] = {
+SCHEMA_WS_CLEAR: dict[Any, Any] = {
     vol.Required("type"): WS_TYPE_CLEAR,
     vol.Optional("mac"): vol.Any(cv.string, None),
 }
