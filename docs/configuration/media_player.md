@@ -45,6 +45,7 @@ F441 / F441M matrix input S1..S4  ──►  room amplifiers  ──►  speaker
 | **MyHOME integration** | Ties the three together: wakes the amplifier, routes the room, forwards the stream to a free streamer. | Gateway (SCS bus) and Home Assistant service calls. |
 
 - **The SCS bus carries commands, not audio.** The 2-wire cable on the source and amplifier modules is the control bus (on, off, volume, routing). The music itself travels on separate analog audio cables. Whether you hear stereo or mono depends on how the streamer is cabled into the matrix input and on your amplifiers and speakers; check the F441M manual for your installation.
+- **Getting the streamer's audio onto the bus needs an interface module.** A streamer has a normal stereo line-level output, and the 2-wire bus cannot carry it. Put a stereo source interface between the two, for example a Legrand L4561N "stereo control, 4 DIN" module: it connects to the F441 / F441M distribution, and the streamer's stereo output (a Cambridge Audio streamer in one reported setup) goes into its input. The 2 wires then only control the zones, and stereo comes from the streamer's left/right audio path. Check the module's own manual for the exact wiring.
 - **One streamer per concurrent stream.** Rooms in one group share a streamer. Two different songs at the same time need two streamers wired to two matrix inputs.
 - **The streamer must be the real device**, such as `media_player.squeezelite_salon`. Never use a Music Assistant player as the decoder.
 
@@ -64,7 +65,7 @@ Details are in [Configuration via Home Assistant UI](#configuration-via-home-ass
 2. **Add the streamer to Home Assistant** with its own integration (for example Squeezelite via Music Assistant's Slimproto provider, WiiM, Cast or DLNA). It must show up as a `media_player` entity.
 3. **Name the sources and map the decoders** in the integration Options (see above). Leave unused inputs blank.
 4. **Check the rooms.** Each amplifier zone appears as a `media_player` entity under the MyHOME gateway.
-5. **Music Assistant** picks the rooms up through its Home Assistant media player provider and lists them as players. You play to a room, and MyHOME does the physical work behind it. For a house-wide group that you can freely tick and untick, create a [Sync Group](#recommended-one-music-assistant-sync-group-for-the-house).
+5. **Music Assistant** picks the rooms up through its Home Assistant media player provider and lists them as players. If your rooms do not appear, the provider is not set up: in Music Assistant open **Settings → Providers**, add the **Home Assistant** player provider, connect it to your Home Assistant, and select the MyHOME room entities. The Music Assistant integration in Home Assistant alone does not expose other media players. You play to a room, and MyHOME does the physical work behind it. For a house-wide group that you can freely tick and untick, create a [Sync Group](#recommended-one-music-assistant-sync-group-for-the-house).
 6. **Dashboard:** the stock `media-control` and `tile` cards work directly on the room entities. See [Dashboard Display](#dashboard-display-lovelace-speaker-cards) for ready-made cards, including one that shows only the rooms that are playing.
 
 ### Choosing a streamer
