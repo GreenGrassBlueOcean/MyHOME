@@ -103,6 +103,28 @@ Behaviour:
 
 ---
 
+## 🌡️ Central heating units (`#0` / `#0#1`) are broadcast event-driven
+
+Central thermoregulation units (such as the BTicino **3550** at address `#0` and the **4695** 4-zone unit at `#0#1`) manage subordinate zones and set plant-wide seasonal modes (heating, cooling, off, auto).
+
+Unlike subordinate zone thermostats (`1..99`), central units do not support point-to-point operational status polling:
+- Gateways reject Dimension 14 status queries (`*#4*#0*14##`) with NACK, as Dimension 14 status reads are only defined for zone thermostats `1..99`.
+- Gateways also reject general status requests (`*#4*#0##`) with NACK.
+
+Instead, OpenWebNet central units operate as purely **event-driven broadcast emitters**:
+1. **Startup Hydration**: On restart, the central unit entity is restored from its previous state (`async_restore_last_state()`), maintaining the last known mode and target setpoint without querying the gateway.
+2. **Autonomous Bus Updates**: The unit broadcasts physical events across the bus whenever its state changes:
+   - Operating mode: `*4*101*#0##` (Heating), `*4*102*#0##` (Cooling), `*4*100*#0##` (Off), `*4*103*#0##` (Auto).
+   - Target temperature: `*4*110#<temp>*#0##` (Heating setpoint), `*4*210#<temp>*#0##` (Cooling setpoint).
+   - Remote control / local adjustments: `*4*20*#0##`, `*4*21*#0##`, `*4*40*#0##`.
+3. **No Active Polling**: Central units are exempt from `async_update()` status requests and `PollHealth` tracking, preventing spurious `unresponsive_zone` repair alerts.
+4. **Subordinate Coordination**: When the central unit changes seasonal mode, it dispatches an internal event (`myhome_central_mode_<mac>`) so non-standalone subordinate zones synchronize their operating mode immediately.
+5. **Bus Discovery Isolation**: All broadcast frames emitted by a 3550 carry address `#0` (or the specific subordinate zone `1..99` being reported). They never resolve to or discover phantom zone `99` (commercial name *"Centrale termoregolazione 99 zone"*).
+
+*(#582)*
+
+---
+
 ## 🪟 Timed covers: clock starts at the write, echoes are not keypad presses
 
 Covers without position feedback (`advanced: false`) estimate their position from `travel_time`. Measured on a MyHOMEServer1, this is what the bus does after Home Assistant queues a direction command:
