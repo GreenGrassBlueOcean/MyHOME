@@ -590,6 +590,14 @@ async def test_illuminance_sensor_ignores_broadcast_and_prunes_registry_ghost(ha
 
         assert len(added) == 0
 
+        # General broadcast frames on WHO 18 (energy) and WHO 4 (temperature) also do NOT discover any sensor
+        for frame in ("*#18*0*113*12345##", "*#4*0*15*0215##"):
+            msg = OWNEvent.parse(frame)
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+            await hass.async_block_till_done()
+
+        assert len(added) == 0
+
         # Legitimate point-to-point illuminance frame DOES discover an entity
         valid_msg = OWNEvent.parse("*#1*21*6*350##")
         async_dispatcher_send(hass, f"myhome_message_{mac}", valid_msg)
@@ -598,5 +606,73 @@ async def test_illuminance_sensor_ignores_broadcast_and_prunes_registry_ghost(ha
         assert len(added) == 1
         assert added[0]._where == "21"
         assert added[0]._attr_native_value == 350
+
+
+@pytest.mark.asyncio
+async def test_build_illuminance_rejects_where_0_and_00(hass: HomeAssistant):
+    """Test that build_illuminance guards against broadcast WHERE 0 and 00 for both YAML and dynamic contexts (#604)."""
+    from custom_components.myhome.discovery import Address, DeviceContext, PlatformDiscovery
+
+    mac = "00:03:50:02:1b:37"
+    mock_gateway = MagicMock()
+    mock_gateway.mac = mac
+    mock_gateway.send_status_request = AsyncMock()
+
+    hass.data = {
+        DOMAIN: {
+            mac: {
+                CONF_PLATFORMS: {
+                    "sensor": {
+                        "bad_yaml_0": {
+                            CONF_DEVICE_CLASS: SensorDeviceClass.ILLUMINANCE,
+                            CONF_WHO: "1",
+                            CONF_WHERE: "0",
+                            CONF_NAME: "Illuminance 0",
+                            CONF_MANUFACTURER: "BTicino",
+                            CONF_DEVICE_MODEL: "Light Sensor",
+                        },
+                        "bad_yaml_00": {
+                            CONF_DEVICE_CLASS: SensorDeviceClass.ILLUMINANCE,
+                            CONF_WHO: "1",
+                            CONF_WHERE: "00",
+                            CONF_NAME: "Illuminance 00",
+                            CONF_MANUFACTURER: "BTicino",
+                            CONF_DEVICE_MODEL: "Light Sensor",
+                        },
+                    }
+                },
+                CONF_ENTITY: mock_gateway,
+            }
+        }
+    }
+    config_entry = MagicMock()
+    config_entry.data = {CONF_MAC: mac}
+    config_entry.entry_id = "test_yaml_0"
+
+    added = []
+    attach_runtime(hass, config_entry)
+
+    with patch("custom_components.myhome.sensor.PlatformDiscovery", wraps=PlatformDiscovery) as mock_pd, \
+         patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]), \
+         patch("custom_components.myhome.discovery.er.async_get", return_value=MagicMock()):
+        assert await async_setup_entry(hass, config_entry, lambda e: added.extend(e)) is True
+
+    # YAML with WHERE 0 and 00 must return None and produce no entities
+    assert len(added) == 0
+
+    # Retrieve build_illuminance from the PlatformDiscovery call arguments for WHO 1
+    build_fn = None
+    for call in mock_pd.call_args_list:
+        if call.kwargs.get("who") == "1":
+            build_fn = call.kwargs["build"]
+            break
+
+    assert build_fn is not None
+    # Dynamic contexts with primary WHERE 0 or 00 return None
+    ctx_0 = DeviceContext(address=Address("0"), who="1", source="bus")
+    assert build_fn(ctx_0) is None
+    ctx_00 = DeviceContext(address=Address("00"), who="1", source="bus")
+    assert build_fn(ctx_00) is None
+
 
 

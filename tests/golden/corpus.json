@@ -1398,7 +1398,7 @@
     "who": 1,
     "where": "21",
     "dimension": 6,
-    "source": "community-plant-capture",
+    "source": "legrand-spec",
     "mcp_valid": true,
     "mcp_notes": "Lighting: Query illuminance status for light sensor at address 21",
     "roundtrip": true,
@@ -1421,7 +1421,7 @@
     "dimension_values": [
       "450"
     ],
-    "source": "community-plant-capture",
+    "source": "legrand-spec",
     "mcp_valid": true,
     "mcp_notes": "Lighting: Illuminance reading 450 lx for light sensor at address 21",
     "roundtrip": true,
