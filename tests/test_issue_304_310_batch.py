@@ -256,14 +256,14 @@ async def test_discovery_skips_unsupported_who(gateway_handler):
     """A profile without WHO 16 must not be asked *#16*0*5## at startup."""
     gateway_handler.gateway.profile = GatewayProfile(
         model_name="NoAudioGateway",
-        supported_who=(2, 4),
+        supported_who=(1, 2, 4),
     )
     await gateway_handler.initial_discovery()
 
     queued = []
     while not gateway_handler.send_buffer.empty():
         queued.append(str(gateway_handler.send_buffer.get_nowait()["message"]))
-    assert queued == ["*#2*0##", "*#4*0##"]
+    assert queued == ["*#1*0##", "*#2*0##", "*#4*0##"]
 
 
 @pytest.mark.skipif(
@@ -278,7 +278,7 @@ async def test_discovery_asks_an_mh200n_for_its_amplifiers(gateway_handler):
     queued = []
     while not gateway_handler.send_buffer.empty():
         queued.append(str(gateway_handler.send_buffer.get_nowait()["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##"]
+    assert queued == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##"]
 
 
 # OWNd up to 2.0.0b8 gives the MH200 the MH200N profile, which advertises no WHO 16.
@@ -299,7 +299,7 @@ async def test_discovery_asks_an_mh200_for_its_amplifiers(gateway_handler):
     queued = []
     while not gateway_handler.send_buffer.empty():
         queued.append(str(gateway_handler.send_buffer.get_nowait()["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##"]
+    assert queued == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##"]
 
 
 def test_profile_supports_who_defaults_to_true_without_profile(gateway_handler):

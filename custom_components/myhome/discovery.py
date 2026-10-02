@@ -31,6 +31,10 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.cover import CoverEntity
+from homeassistant.components.light import LightEntity
+from homeassistant.components.light.const import ColorMode
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
@@ -255,6 +259,44 @@ def default_known_keys(ctx: DeviceContext) -> list[str]:
         if not ctx.address.interface:
             keys.append(ctx.address.clean_where)
     return [k for k in keys if k]
+
+
+def message_has_state(entity: MyHOMEEntity, message: Any) -> bool:
+    """Whether the revealing bus message already carries the entity's complete state.
+
+    When True, poll-on-add is suppressed so the gateway command session is not
+    flooded during general status request bursts. When False (e.g. a moving cover
+    without position, or a dimmer without brightness), the entity retains
+    poll-on-add to query its full state once the general sweep completes.
+    """
+    if message is None:
+        return False
+
+    # Cover: needs current position or dimension 10 reply
+    if isinstance(entity, CoverEntity):
+        return getattr(message, "current_position", None) is not None or getattr(message, "dimension", None) == 10
+
+    # Light: a dimmer or colour light needs brightness or a dimension status
+    if isinstance(entity, LightEntity):
+        modes = set(entity.supported_color_modes or ())
+        if modes - {ColorMode.ONOFF, ColorMode.UNKNOWN}:
+            return getattr(message, "brightness", None) is not None or getattr(message, "dimension", None) is not None
+        return getattr(message, "is_on", None) is not None
+
+    # Heating zone: mode, setpoint and temperature arrive in separate frames, so a
+    # temperature-only frame must not cancel the poll for the rest.
+    if isinstance(entity, ClimateEntity):
+        return False
+
+    # Switch / binary device
+    if getattr(message, "is_on", None) is not None:
+        return True
+
+    # General dimension reply
+    if getattr(message, "dimension", None) is not None:
+        return True
+
+    return False
 
 
 class PlatformDiscovery:
@@ -511,6 +553,10 @@ class PlatformDiscovery:
                 return []
         if not created:
             return []
+        if ctx.source == "bus":
+            for entity in created:
+                if message_has_state(entity, ctx.message):
+                    entity._poll_on_add = False
         self.known.add(*keys)
         for entity in created:
             entity.async_on_remove(self.router.subscribe(self.who, keys, entity.handle_event))

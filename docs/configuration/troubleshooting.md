@@ -50,7 +50,7 @@ The resource `/myhome_static/myhome-bus-card.js?v=<hash>` is registered automati
 
 ### Lights are `unknown` after a restart
 
-There is no general status request for WHO 1, so lights are hydrated from bus traffic. Run `myhome.sweep_bus` (or press **Sweep Bus** on the card); an automation on `homeassistant.start` can do this for you. Covers, thermostats and audio zones are queried at startup.
+Lighting states are queried at startup via `*#1*0##`. If a specific light remains `unknown`, it may not have answered the general status request or is on an unrouted bus interface. Run `myhome.sweep_bus` (or press **Sweep Bus** on the card), or operate the light from its physical switch to report state.
 
 ### Entities go unavailable for about a minute, then recover
 

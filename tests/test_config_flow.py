@@ -2408,3 +2408,22 @@ def test_all_config_flow_literal_abort_reasons_in_catalogs(catalog_file: str) ->
     assert not missing, f"Missing literal abort reasons in {catalog_file}: {missing}"
 
 
+async def test_ssdp_discovery_null_serial(hass: HomeAssistant) -> None:
+    """Test SSDP discovery aborts when gateway serial is None or empty."""
+    from custom_components.myhome.config_flow import MyhomeFlowHandler
+
+    flow = MyhomeFlowHandler()
+    flow.hass = hass
+    discovery_info = MagicMock()
+    discovery_info.upnp = {"friendlyName": "MH201"}
+    discovery_info.ssdp_st = "upnp:rootdevice"
+    discovery_info.ssdp_location = "http://192.168.1.10:20000"
+    discovery_info.ssdp_headers = {"_host": "192.168.1.10"}
+
+    with patch(
+        "custom_components.myhome.config_flow.OWNGateway.build_from_discovery_info",
+        AsyncMock(return_value=MagicMock(unique_id=None, serial=None)),
+    ):
+        result = await flow.async_step_ssdp(discovery_info)
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "no_serial"

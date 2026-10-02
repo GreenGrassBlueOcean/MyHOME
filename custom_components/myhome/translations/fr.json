@@ -93,6 +93,7 @@
       "all_configured": "Tous les serveurs MyHome sont déjà configurés",
       "unknown": "Une erreur inconnue s'est produite",
       "cannot_connect": "Connexion au serveur impossible",
+      "no_serial": "La passerelle n'a pas communiqué de numéro de série et ne peut pas être identifiée. Ajoutez-la manuellement.",
       "connection_closed": "La passerelle a fermé la connexion pendant la configuration. Elle est peut-être occupée, sans session disponible, nécessite un redémarrage, ou filtre les adresses IP autorisées.",
       "connection_refused": "La passerelle a refusé la demande de connexion.",
       "connection_error": "Erreur de communication lors de la connexion à la passerelle.",
