@@ -80,7 +80,7 @@ from .const import (
     TOPOLOGY_STANDALONE,
 )
 from .decoder_companion import async_get_excluded_decoders
-from .gateway import MyHOMEGatewayHandler, command_session_limit
+from .gateway import MyHOMEGatewayHandler, command_session_default, command_session_limit
 from .topology import (
     entry_for_mac,
     entry_is_follower,
@@ -520,7 +520,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_UDN: gateway.udn,
             }
             _new_entry_options = {
-                CONF_WORKER_COUNT: 1,
+                CONF_WORKER_COUNT: command_session_default(gateway.model_name),
             }
 
             if self._bus_primaries():
@@ -920,7 +920,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
         self.options = dict(self.config_entry.options)  # type: ignore
         self.data = dict(self.config_entry.data)  # type: ignore
         if CONF_WORKER_COUNT not in self.options:  # type: ignore
-            self.options[CONF_WORKER_COUNT] = 1  # type: ignore
+            self.options[CONF_WORKER_COUNT] = command_session_default(self.data.get(CONF_NAME))  # type: ignore
         if CONF_GENERATE_EVENTS not in self.options:  # type: ignore
             self.options[CONF_GENERATE_EVENTS] = False  # type: ignore
         if CONF_BROADCAST_RESYNC not in self.options:  # type: ignore
@@ -1381,6 +1381,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "session_limit": str(command_session_limit(limit_model or current_model) or ""),
+                "session_default": str(command_session_default(limit_model or current_model)),
                 "model": str(limit_model or current_model),
             },
         )
