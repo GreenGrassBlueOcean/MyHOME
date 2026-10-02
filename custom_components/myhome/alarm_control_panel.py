@@ -11,6 +11,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
@@ -22,6 +23,7 @@ from .const import (
     CONF_DEVICE_MODEL,
     CONF_ENTITY_NAME,
     CONF_MANUFACTURER,
+    DOMAIN,
     LOGGER,
 )
 from .data import MyHOMERuntimeData
@@ -105,7 +107,16 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
 
 
 class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
-    """Representation of a MyHOME burglar alarm control panel."""
+    """A MyHOME burglar alarm central unit, read-only.
+
+    The central unit rejects arm/disarm sent as WHO 5 frames over SCS (#564:
+    BTicino support, via the plant owner; no TX capture shows one accepted).
+    Plants arm through a WHO 9 AUX frame (e.g. *9*1*7##) that an automation
+    programmed on the central unit maps to zones, so the frames are the
+    installer's choice. This entity reports the state; a core template alarm
+    panel sends the AUX frames with myhome.send_message
+    (docs/configuration/alarm.md).
+    """
 
     def __init__(
         self,
@@ -133,13 +144,9 @@ class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
         )
 
         self._gateway_handler = gateway
-        self._attr_supported_features = (
-            AlarmControlPanelEntityFeature.ARM_AWAY
-            | AlarmControlPanelEntityFeature.ARM_HOME
-            | AlarmControlPanelEntityFeature.TRIGGER
-        )
-        # The central unit takes no code over the bus: without this, the core arm
-        # handlers (services, alarm card) refuse to arm when no code is given.
+        # Read-only: no arm/trigger actions (see the class docstring).
+        self._attr_supported_features = AlarmControlPanelEntityFeature(0)
+        # The central unit takes no code over the bus.
         self._attr_code_arm_required = False
         self._attr_alarm_state = STATE_DISARMED
         self._attr_extra_state_attributes = {
@@ -162,20 +169,13 @@ class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
         await self._gateway_handler.send_status_request(OWNAlarmCommand.status(self._where))
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:  # pylint: disable=unused-argument
-        """Send disarm command."""
-        await self._gateway_handler.send(OWNAlarmCommand.disarm(self._where))
-
-    async def async_alarm_arm_home(self, code: str | None = None) -> None:  # pylint: disable=unused-argument
-        """Send arm home command."""
-        await self._gateway_handler.send(OWNAlarmCommand.arm_home(self._where))
-
-    async def async_alarm_arm_away(self, code: str | None = None) -> None:  # pylint: disable=unused-argument
-        """Send arm away command."""
-        await self._gateway_handler.send(OWNAlarmCommand.arm_away(self._where))
-
-    async def async_alarm_trigger(self, code: str | None = None) -> None:  # pylint: disable=unused-argument
-        """Send panic / alarm trigger command."""
-        await self._gateway_handler.send(OWNAlarmCommand.trigger(self._where))
+        """Disarm has no feature flag in core, so refuse it here instead of sending a frame the panel rejects."""
+        raise ServiceValidationError(
+            f"{self._display_name} is read-only: arm and disarm through the AUX frames your central unit is programmed for",
+            translation_domain=DOMAIN,
+            translation_key="alarm_read_only",
+            translation_placeholders={"name": self._display_name},
+        )
 
     @callback
     def handle_event(self, message: OWNAlarmEvent) -> None:
