@@ -140,8 +140,9 @@ async def test_h4890_alarm_trace_replay_and_state_transitions(hass: HomeAssistan
             alarm_frames.append(raw)
 
     # Authentic alarm frames present in trace
-    assert "*5*9*0##" in alarm_frames  # Disarm
-    assert "*5*1*0##" in alarm_frames  # Arm away
+    # A disarmed panel's status dump: activation + disengaged, then zone states
+    assert "*5*9*0##" in alarm_frames  # Disengaged
+    assert "*5*1*0##" in alarm_frames  # Activation (system operational, not armed)
     assert "*5*11*#1##" in alarm_frames
     assert "*5*11*#5##" in alarm_frames
     assert "*5*18*#7##" in alarm_frames
@@ -171,8 +172,8 @@ async def test_h4890_alarm_trace_replay_and_state_transitions(hass: HomeAssistan
         alarm.handle_event(OWNAlarmEvent.parse("*5*9*0##"))
         assert alarm.alarm_state == AlarmControlPanelState.DISARMED
 
-        # Feed arm away frame *5*1*0##
-        alarm.handle_event(OWNAlarmEvent.parse("*5*1*0##"))
+        # Feed arm away frame *5*8*0## (engage; the trace has no arm transition)
+        alarm.handle_event(OWNAlarmEvent.parse("*5*8*0##"))
         assert alarm.alarm_state == AlarmControlPanelState.ARMED_AWAY
 
         # Disarm again
