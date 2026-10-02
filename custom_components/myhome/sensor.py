@@ -247,7 +247,9 @@ async def async_setup_entry(
         return address_of
 
     def duplicate_illuminance(entry: er.RegistryEntry, ctx: DeviceContext) -> bool:
-        # Obsolete second registry entry, or an address that myhome.yaml configures
+        # Broadcast address or obsolete second registry entry, or an address that myhome.yaml configures
+        if ctx.address.where in ("0", "00"):
+            return True
         return normalize_where(ctx.address.where) in discovery_for["1"].known or is_configured(
             "1", ctx.address.where, SensorDeviceClass.ILLUMINANCE
         )
@@ -259,12 +261,17 @@ async def async_setup_entry(
             or isinstance(getattr(message, "illuminance", None), (int, float))
         ):
             return None
+        if getattr(message, "is_general", False) is True or str(getattr(message, "where", "")) in ("0", "00"):
+            return None
         where = str(message.where)
         return Address(normalize_where(where) or where)
 
-    def build_illuminance(ctx: DeviceContext) -> MyHOMEIlluminanceSensor:
+    def build_illuminance(ctx: DeviceContext) -> MyHOMEIlluminanceSensor | None:
         if ctx.source == "yaml":
             cfg = ctx.cfg
+            where = str(cfg.get(CONF_WHERE, ""))
+            if where in ("0", "00") or normalize_where(where) in ("0", "00"):
+                return None
             return MyHOMEIlluminanceSensor(
                 hass=hass, device_id=ctx.config_id or ctx.key, who=cfg[CONF_WHO], where=cfg[CONF_WHERE],
                 name=cfg[CONF_NAME], device_class=SensorDeviceClass.ILLUMINANCE, manufacturer=cfg[CONF_MANUFACTURER],
@@ -273,6 +280,8 @@ async def async_setup_entry(
         where = ctx.address.where
         clean = where.split("-")[-1]
         primary = normalize_where(where) or normalize_where(clean) or where
+        if primary in ("0", "00"):
+            return None
         sensor = MyHOMEIlluminanceSensor(
             hass=hass, device_id=primary, who="1", where=primary, name=f"Illuminance {normalize_where(clean) or clean}",
             device_class=SensorDeviceClass.ILLUMINANCE, manufacturer="BTicino", model="Light Sensor", gateway=gateway,
@@ -332,7 +341,6 @@ async def async_setup_entry(
     common_args: dict[str, Any] = dict(
         hass=hass, config_entry=config_entry, async_add_entities=async_add_entities, platform=PLATFORM,
         route_keys=route_keys, one_per_address=False,
-        general_is_device=True,  # sensor frames are never broadcasts; the address hooks decide
     )
     discovery_for["18"] = PlatformDiscovery(
         who="18", event_type=OWNEnergyEvent, build=build_energy, accept=yaml_class(SensorDeviceClass.POWER, SensorDeviceClass.ENERGY),

@@ -1392,6 +1392,76 @@
     "_file": "who01_lighting.yaml"
   },
   {
+    "id": "light.dim.req.illuminance.ptp.21",
+    "frame": "*#1*21*6##",
+    "direction": "dimension_request",
+    "who": 1,
+    "where": "21",
+    "dimension": 6,
+    "source": "legrand-spec",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Query illuminance status for light sensor at address 21",
+    "roundtrip": true,
+    "builder": {
+      "class": "OWNLightingCommand",
+      "method": "get_illuminance",
+      "args": [
+        "21"
+      ]
+    },
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.illuminance.ptp.21",
+    "frame": "*#1*21*6*450##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "21",
+    "dimension": 6,
+    "dimension_values": [
+      "450"
+    ],
+    "source": "legrand-spec",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Illuminance reading 450 lx for light sensor at address 21",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.illuminance.broadcast.0",
+    "frame": "*#1*0*6*0##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "0",
+    "scope": "general",
+    "dimension": 6,
+    "dimension_values": [
+      "0"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Broadcast illuminance reading 0 lx during installation sweep (MyHOME#600, MyHOME#604)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
+    "id": "light.dim.reply.illuminance.broadcast.19",
+    "frame": "*#1*0*6*19##",
+    "direction": "dimension_response",
+    "who": 1,
+    "where": "0",
+    "scope": "general",
+    "dimension": 6,
+    "dimension_values": [
+      "19"
+    ],
+    "source": "community-plant-capture",
+    "mcp_valid": true,
+    "mcp_notes": "Lighting: Broadcast illuminance reading 19 lx during switch programming sweep (MyHOME#600, MyHOME#604)",
+    "roundtrip": true,
+    "_file": "who01_lighting.yaml"
+  },
+  {
     "id": "cover.cmd.up.ptp.93",
     "frame": "*2*1*93##",
     "direction": "command",
