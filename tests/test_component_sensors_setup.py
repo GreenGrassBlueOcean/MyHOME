@@ -522,3 +522,81 @@ async def test_async_setup_entry_illuminance_deduplication_exception_and_padded_
         sensor.async_on_remove = MagicMock()
         await sensor.async_added_to_hass()
 
+
+@pytest.mark.asyncio
+async def test_illuminance_sensor_ignores_broadcast_and_prunes_registry_ghost(hass: HomeAssistant):
+    """Test that broadcast WHERE 0 / 00 frames never discover illuminance entities and prune existing registry ghosts (#600, #604)."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from OWNd.message import OWNEvent
+
+    mac = "00:03:50:02:1b:35"
+    mock_gateway = MagicMock()
+    mock_gateway.mac = mac
+    mock_gateway.log_id = "[MH200N gateway - 192.168.1.40]"
+    mock_gateway.send_status_request = AsyncMock()
+
+    hass.data = {
+        DOMAIN: {
+            mac: {
+                CONF_PLATFORMS: {
+                    "sensor": {}
+                },
+                CONF_ENTITY: mock_gateway,
+            }
+        }
+    }
+    config_entry = MagicMock()
+    config_entry.data = {CONF_MAC: mac}
+    config_entry.entry_id = "test_ghost_0"
+
+    # Registry contains the phantom entity created by *#1*0*6*0##
+    entry_ghost_0 = MagicMock()
+    entry_ghost_0.domain = "sensor"
+    entry_ghost_0.entity_id = "sensor.illuminance_0_eclairement"
+    entry_ghost_0.unique_id = f"{mac}-0-illuminance"
+    entry_ghost_0.original_device_class = SensorDeviceClass.ILLUMINANCE
+
+    # Registry also contains a phantom with WHO-included unique ID
+    entry_ghost_00 = MagicMock()
+    entry_ghost_00.domain = "sensor"
+    entry_ghost_00.entity_id = "sensor.illuminance_00"
+    entry_ghost_00.unique_id = f"{mac}-1-00-illuminance"
+    entry_ghost_00.original_device_class = SensorDeviceClass.ILLUMINANCE
+
+    mock_er = MagicMock()
+    mock_er.async_get_entity_id.return_value = None
+
+    with patch(
+        "custom_components.myhome.discovery.er.async_entries_for_config_entry",
+        return_value=[entry_ghost_0, entry_ghost_00],
+    ), patch(
+        "custom_components.myhome.discovery.er.async_get",
+        return_value=mock_er,
+    ):
+        added = []
+        attach_runtime(hass, config_entry)
+        assert await async_setup_entry(hass, config_entry, lambda e: added.extend(e)) is True
+
+        # Both phantom entries must be removed from the entity registry
+        mock_er.async_remove.assert_any_call("sensor.illuminance_0_eclairement")
+        mock_er.async_remove.assert_any_call("sensor.illuminance_00")
+        assert len(added) == 0
+
+        # Broadcast / general frames on the bus must NOT discover any sensor
+        for frame in ("*#1*0*6*19##", "*#1*0*6*5##", "*#1*0*6*0##", "*#1*00*6*0##"):
+            msg = OWNEvent.parse(frame)
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+            await hass.async_block_till_done()
+
+        assert len(added) == 0
+
+        # Legitimate point-to-point illuminance frame DOES discover an entity
+        valid_msg = OWNEvent.parse("*#1*21*6*350##")
+        async_dispatcher_send(hass, f"myhome_message_{mac}", valid_msg)
+        await hass.async_block_till_done()
+
+        assert len(added) == 1
+        assert added[0]._where == "21"
+        assert added[0]._attr_native_value == 350
+
+
