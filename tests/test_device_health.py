@@ -368,6 +368,8 @@ async def test_a_fault_raised_during_a_failover_clears_on_the_primary_after_the_
 async def test_frames_without_a_point_address_or_a_binary_mask_are_ignored(hass):
     health = _health(hass)
     health.observe(SimpleNamespace(who=1, where=None, unknown_state=19, is_on=None))
+    health.observe(SimpleNamespace(who=1, where="74", unknown_state=32, is_on=None))
+    health.observe(SimpleNamespace(who=1001, where="74", dimension=99, _dimension_value=["01"]))
     health.observe(SimpleNamespace(who=1001, where="74", dimension=11, _dimension_value=[]))
     health.observe(SimpleNamespace(who=1001, where="74", dimension=11, _dimension_value=["1201"]))
     health.observe(_frame(FAULT))
@@ -455,3 +457,4 @@ async def test_ignored_address_suppresses_name_address_and_report(hass):
     health.report(fault)
     assert _issue(hass) is None
     assert health.faults == []
+    assert health.is_ignored("invalid_who", "74") is False

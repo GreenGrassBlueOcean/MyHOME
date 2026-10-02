@@ -33,13 +33,10 @@ def parse_ignored_address(value: Any) -> tuple[int, str] | None:
             return None
         match = _PAIR_PATTERN.match(val)
         if match:
-            try:
-                who = int(match.group(1))
-                where = match.group(2).strip()
-                if where:
-                    return who, where
-            except (ValueError, TypeError):
-                return None
+            who = int(match.group(1))
+            where = match.group(2).strip()
+            if where:
+                return who, where
         return None
 
     if isinstance(value, dict):
@@ -199,7 +196,7 @@ class IgnoredAddresses:
 
         return False
 
-    def __contains__(self, item: tuple[int, str]) -> bool:
+    def __contains__(self, item: object) -> bool:
         """Containment check."""
         if not isinstance(item, tuple) or len(item) != 2:
             return False

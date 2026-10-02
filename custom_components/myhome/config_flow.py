@@ -1066,7 +1066,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                 if not is_valid:
                     errors[CONF_IGNORED_ADDRESSES] = "invalid_ignored_address"
                 else:
-                    self.options[CONF_IGNORED_ADDRESSES] = parsed_ignored
+                    self.options[CONF_IGNORED_ADDRESSES] = parsed_ignored  # type: ignore
 
             if not errors:
                 self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})  # type: ignore

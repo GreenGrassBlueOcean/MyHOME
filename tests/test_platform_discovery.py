@@ -388,3 +388,7 @@ async def test_discovery_with_ignored_addresses(hass):
     discovery.handle_message(OWNEvent.parse("*1*1*74##"))
     assert "74" not in discovery.known
     assert len(routed) == 0
+
+    # 4. Non-numeric who returns False safely
+    discovery.who = "not_int"
+    assert discovery._is_ignored(Address("74")) is False

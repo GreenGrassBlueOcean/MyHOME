@@ -56,6 +56,10 @@ def test_parse_ignored_address_valid(raw, expected):
         "-1/74",
         {"who": 1},
         {"where": "74"},
+        {"who": "not_int", "where": "74"},
+        ["not_int", "74"],
+        ("not_int", "74"),
+        (1,),
         [1],
         [1, 2, 3],
         123,
@@ -104,6 +108,9 @@ def test_validate_ignored_addresses_valid():
     assert validate_ignored_addresses([]) == ([], True)
     assert validate_ignored_addresses("") == ([], True)
     assert validate_ignored_addresses(None) == ([], True)
+    parsed_list, is_valid_list = validate_ignored_addresses(["1/74", "   ", "2/12"])
+    assert is_valid_list is True
+    assert parsed_list == ["1/74", "2/12"]
 
 
 def test_validate_ignored_addresses_invalid():
@@ -120,6 +127,8 @@ def test_validate_ignored_addresses_invalid():
     assert is_valid is False
     assert parsed == []
 
+    assert validate_ignored_addresses(12345) == ([], False)
+
 
 def test_ignored_addresses_initialization_and_bool():
     """Verify IgnoredAddresses empty and non-empty state."""
@@ -127,12 +136,18 @@ def test_ignored_addresses_initialization_and_bool():
     assert bool(empty) is False
     assert len(empty) == 0
     assert list(empty) == []
+    assert empty.is_ignored(1, "74") is False
 
     populated = IgnoredAddresses([(1, "74"), (2, "12")])
     assert bool(populated) is True
     assert len(populated) == 2
     assert (1, "74") in populated
     assert (2, "12") in populated
+    assert (1, "75") not in populated
+    assert (123 in populated) is False
+    assert ("1/74" in populated) is False
+    assert ((1,) in populated) is False
+    assert ((1, "74", "extra") in populated) is False
 
 
 def test_ignored_addresses_from_config_entry():
@@ -199,3 +214,13 @@ def test_ignored_addresses_matching_routed_interfaces():
     assert ign_qual.is_ignored(1, "074#4#01") is True
     assert ign_qual.is_ignored(1, "74#4#02") is False
     assert ign_qual.is_ignored(1, "74") is False
+
+    # Interface parameter matching
+    assert ign_qual.is_ignored(1, "74", interface="1") is True
+    assert ign_qual.is_ignored(1, "74", interface="01") is True
+    assert ign_qual.is_ignored(1, "74", interface="2") is False
+    assert ign_qual.is_ignored(1, "74", interface="bus") is False
+
+    # Hyphenated WHERE stripping
+    assert ign_bare.is_ignored(1, "1-74") is True
+    assert ign_bare.is_ignored(1, "prefix-74") is True
