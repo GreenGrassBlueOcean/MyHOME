@@ -266,7 +266,7 @@ async def async_setup_entry(
         where = str(message.where)
         return Address(normalize_where(where) or where)
 
-    def build_illuminance(ctx: DeviceContext) -> MyHOMEIlluminanceSensor | None:
+    def build_illuminance(ctx: DeviceContext) -> MyHOMEIlluminanceSensor:
         if ctx.source == "yaml":
             cfg = ctx.cfg
             return MyHOMEIlluminanceSensor(
@@ -277,8 +277,6 @@ async def async_setup_entry(
         where = ctx.address.where
         clean = where.split("-")[-1]
         primary = normalize_where(where) or normalize_where(clean) or where
-        if primary in ("0", "00"):
-            return None
         sensor = MyHOMEIlluminanceSensor(
             hass=hass, device_id=primary, who="1", where=primary, name=f"Illuminance {normalize_where(clean) or clean}",
             device_class=SensorDeviceClass.ILLUMINANCE, manufacturer="BTicino", model="Light Sensor", gateway=gateway,
