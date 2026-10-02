@@ -12,7 +12,9 @@ MODELS = ["F454", "F455", "F461", "MH200", "MH200N", "MH201", "MH202", "H4890", 
 def test_default_is_within_the_gateway_limit(model: str) -> None:
     default = command_session_default(model)
     limit = command_session_limit(model)
-    assert limit is not None
+    if limit is None:  # a model the installed OWNd has no profile for
+        assert default == 1
+        return
     assert 1 <= default <= limit
     assert default == min(get_gateway_profile(model).default_command_sessions, limit)
 
