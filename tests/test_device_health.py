@@ -12,7 +12,7 @@ from homeassistant.helpers import issue_registry as ir
 from OWNd.message import OWNEvent
 
 from custom_components.myhome import device_health as dh
-from custom_components.myhome.const import DOMAIN
+from custom_components.myhome.const import CONF_IGNORED_ADDRESSES, DOMAIN
 from custom_components.myhome.device_health import DeviceHealth, Fault, FaultKind, fault_issue_id
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
 from custom_components.myhome.gateway_events import GatewayEventDispatcher
@@ -26,9 +26,15 @@ OFF = "*1*0*74##"
 ISSUE_74 = fault_issue_id(ENTRY_ID, FaultKind.UNMAPPED_STATUS, 1, "74")
 
 
-def _health(hass):
+def _health(hass, ignored_addresses=None):
+    options = {}
+    if ignored_addresses is not None:
+        options[CONF_IGNORED_ADDRESSES] = ignored_addresses
     handler = SimpleNamespace(
-        hass=hass, config_entry=SimpleNamespace(entry_id=ENTRY_ID), name="MH200 Gateway", log_id="[health]"
+        hass=hass,
+        config_entry=SimpleNamespace(entry_id=ENTRY_ID, options=options, data={}),
+        name="MH200 Gateway",
+        log_id="[health]",
     )
     return DeviceHealth(handler)
 
@@ -410,3 +416,42 @@ async def test_sub_entity_added_to_hass_preserves_device_name_on_issue(hass):
     updated_issue = _issue(hass, fault_issue_id(ENTRY_ID, FaultKind.UNRESPONSIVE, 4, "71"))
     assert updated_issue.translation_placeholders["device"] == "Heating zone Zone 71"
 
+
+async def test_ignored_address_suppresses_actuator_fault(hass):
+    """An ignored address emits no repair issues on abnormal status."""
+    health = _health(hass, ignored_addresses=["1/74"])
+    health.observe(_frame(FAULT))
+    assert _issue(hass) is None
+    assert health.faults == []
+
+
+async def test_ignored_address_suppresses_autodiag(hass):
+    """An ignored address suppresses both autodiagnostic frame tracking and fault reporting."""
+    health = _health(hass, ignored_addresses=["1/74"])
+    health.observe(_frame(MASK))
+    health.observe(_frame(FAULT))
+    assert _issue(hass) is None
+    assert health.faults == []
+
+
+async def test_ignored_address_cleans_preexisting_issues_at_startup(hass):
+    """Configuring an address as ignored removes pre-existing repair issues on startup."""
+    normal_health = _health(hass)
+    normal_health.observe(_frame(FAULT))
+    assert _issue(hass) is not None
+
+    # Gateway reloads with 1/74 in ignored_addresses
+    _ignored_health = _health(hass, ignored_addresses=["1/74"])
+    assert _issue(hass) is None
+
+
+async def test_ignored_address_suppresses_name_address_and_report(hass):
+    """name_address and direct report calls do nothing for ignored addresses."""
+    health = _health(hass, ignored_addresses=["1/74"])
+    health.name_address(1, "74", "Ignored Lamp")
+    assert (1, "74") not in health._names
+
+    fault = Fault(1, "74", FaultKind.UNMAPPED_STATUS, "19")
+    health.report(fault)
+    assert _issue(hass) is None
+    assert health.faults == []
