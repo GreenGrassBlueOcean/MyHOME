@@ -12,7 +12,8 @@ In v2, setup is **UI-first**: the central unit is discovered from the SCS bus wi
 
 When your gateway connects to Home Assistant:
 
-1. **Dynamic Bus Discovery**: The first central-unit frame on the SCS bus (for example the `*5*9*0##` a disarmed panel sends when polled, or `*5*8*0##` when it is armed) registers the `alarm_control_panel` entity.
+1. **Dynamic Bus Discovery**: The first central-unit frame on the SCS bus that names the panel (for example the `*5*9*0##` a disarmed panel sends when polled, or `*5*8*0##` when it is armed) registers the `alarm_control_panel` entity.
+   * **Depends on the gateway.** An MH202 answers a poll with `*5*9*0##`, so the panel appears at once ([#564](https://github.com/OpenWebNet-HA/MyHOME/issues/564)). An F454 answers with system-level frames that have an empty WHERE (`*5*1*##`, `*5*5*##`, `*5*7*##`, `*5*9*##`, see [#311](https://github.com/OpenWebNet-HA/MyHOME/issues/311)), and MyHOME deliberately creates no entity from an empty WHERE. On such a gateway the panel appears at the first `*5*8*0##` or `*5*9*0##`, that is the first real arm or disarm after a blank start.
 2. **Global Broadcast Zone 0 Listening**: Entities follow global broadcast zone 0 telemetry (`myhome_update_<mac>_5_0`) alongside their own address (`myhome_update_<mac>_5_<where>`), so every alarm panel stays in sync.
 3. **UI Customization**: You can rename the alarm panel, assign it to an Area (e.g. *Entrance*, *Security*), and change its icon in the Home Assistant UI.
 
@@ -51,15 +52,22 @@ Current central-unit firmware rejects arm and disarm commands sent as WHO 5 fram
 
 The route that works is an **auxiliary (WHO 9) command**. Your installer programs the central unit so that receiving, for example, `*9*1*7##` (AUX channel 7 on) arms a set of zones. Which AUX channels and values arm or disarm depends on that programming: check the central unit's configuration or ask your installer.
 
-Combine the MyHOME panel's state with those AUX frames in a core [template alarm control panel](https://www.home-assistant.io/integrations/template/#alarm-control-panel):
+Combine the MyHOME panel's state with those AUX frames in a core [template alarm control panel](https://www.home-assistant.io/integrations/template/#alarm-control-panel).
+
+> [!WARNING]
+> The template panel is a separate entity, so the MyHOME panel's refusal does not protect it. Without a code check, anyone who can reach Home Assistant can disarm the burglar alarm with one tap, including from the alarm card. The recipe below therefore asks for a code on disarm and stops unless it matches. Keep the code out of the YAML with `!secret` if you share your configuration.
 
 ```yaml
 template:
   - alarm_control_panel:
       - name: Home alarm
         unique_id: home_alarm
-        # State from the MyHOME panel
-        state: "{{ states('alarm_control_panel.alarm_0') }}"
+        # State from the MyHOME panel. Until it has reported (unknown/unavailable)
+        # fall back to disarmed, so the template panel logs no invalid state.
+        state: >-
+          {% set s = states('alarm_control_panel.alarm_0') %}
+          {{ s if s in ['disarmed', 'armed_away', 'triggered'] else 'disarmed' }}
+        code_format: number
         code_arm_required: false
         # Example AUX frames: use the ones your central unit is programmed for
         arm_away:
@@ -68,6 +76,9 @@ template:
               gateway: "00:03:50:00:00:00"
               message: "*9*1*7##"
         disarm:
+          # Stop here unless the right code was entered
+          - condition: template
+            value_template: "{{ code == '1234' }}"
           - action: myhome.send_message
             data:
               gateway: "00:03:50:00:00:00"
