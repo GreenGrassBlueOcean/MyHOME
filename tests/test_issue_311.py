@@ -104,8 +104,9 @@ async def test_real_world_trace_replay_issue_311(hass: HomeAssistant) -> None:
     # In the end of the trace, the alarm is disarmed (*5*2*0## and *5*9*0##)
     assert alarm_0.state == AlarmControlPanelState.DISARMED
 
-    # 2. Test arming away event explicitly on the entity
-    arm_msg = OWNMessage.parse("*5*1*0##")
+    # 2. Test arming away event explicitly on the entity. The trace arms with
+    # *5*1*0## -> *5*8*0##: WHAT 8 (engage) is the armed state, WHAT 1 is not.
+    arm_msg = OWNMessage.parse("*5*8*0##")
     assert isinstance(arm_msg, OWNAlarmEvent)
     async_dispatcher_send(hass, f"myhome_message_{mac}", arm_msg)
     await hass.async_block_till_done()

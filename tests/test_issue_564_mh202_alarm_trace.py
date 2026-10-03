@@ -148,8 +148,9 @@ async def test_mh202_alarm_entity_state_transitions(hass: HomeAssistant) -> None
         alarm.hass = hass
         alarm.async_schedule_update_ha_state = MagicMock()
 
-        # Feed arm away frame *5*1*0##
-        arm_event = OWNAlarmEvent.parse("*5*1*0##")
+        # Feed arm away frame *5*8*0## (engage). The trace's *5*1*0## sits 3 ms
+        # before *5*9*0## in one status dump: activation, not armed.
+        arm_event = OWNAlarmEvent.parse("*5*8*0##")
         assert arm_event is not None
         assert arm_event.is_armed_away is True
         alarm.handle_event(arm_event)
