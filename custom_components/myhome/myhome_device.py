@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,6 +17,7 @@ from homeassistant.helpers.typing import UNDEFINED
 
 from .const import CONF_ENTITIES, DOMAIN, LOGGER
 from .data import get_runtime_data
+from .device_health import DeviceHealth, Fault, FaultKind
 
 __all__ = ["Entity", "MyHOMEEntity"]
 
@@ -164,6 +166,36 @@ class MyHOMEEntity(RestoreEntity):
         if isinstance(entities, dict):
             entities.pop(key, None)
 
+    def _device_health(self) -> DeviceHealth | None:
+        """The gateway's fault tracker (``None`` for a stand-in gateway in tests)."""
+        health = getattr(self._gateway_handler, "device_health", None)
+        return health if isinstance(health, DeviceHealth) else None
+
+    @property
+    def _health_address(self) -> tuple[int, str] | None:
+        """WHO and WHERE (with F422 interface) this device's faults are filed under."""
+        try:
+            return int(self._who), str(getattr(self, "_full_where", self._where))
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def _health_owner(self) -> Hashable:
+        """What tells this entity apart from the others on its address (survives a rename)."""
+        return self.unique_id or id(self)
+
+    def _report_fault(self, kind: FaultKind, code: str = "") -> None:
+        """Raise a fault only the entity can see (see ``device_health``)."""
+        health, address = self._device_health(), self._health_address
+        if health is not None and address is not None:
+            health.report(Fault(*address, kind, code), device=self._display_name)
+
+    def _clear_fault(self, kind: FaultKind) -> None:
+        """Withdraw a fault raised by :meth:`_report_fault`."""
+        health, address = self._device_health(), self._health_address
+        if health is not None and address is not None:
+            health.clear(*address, kind)
+
     @property
     def via_device_id(self) -> str:
         """Return gateway unique ID associated with this device."""
@@ -204,6 +236,9 @@ class MyHOMEEntity(RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         self._register_availability_listener()
+        health, address = self._device_health(), self._health_address
+        if health is not None and address is not None:
+            health.name_address(*address, self._device_name, owner=self._health_owner)
         await super().async_added_to_hass()
         try:
             last_state = await self.async_get_last_state()
@@ -231,5 +266,14 @@ class MyHOMEEntity(RestoreEntity):
                 except (ValueError, TypeError):
                     setattr(self, "_attr_native_value", last_state.state)
 
-    async def async_will_remove_from_hass(self) -> None:
-        """When entity is removed from hass."""
+    async def async_removed_from_registry(self) -> None:
+        """Drop the device's fault issues when the owner deletes the entity.
+
+        Home Assistant calls this only for a real registry removal, so neither a reload
+        nor an entity_id rename (which removes the old entity object) reaches it. The
+        tracker keeps the issues while another entity still uses the address.
+        """
+        await super().async_removed_from_registry()
+        health, address = self._device_health(), self._health_address
+        if health is not None and address is not None:
+            health.forget_address(*address, owner=self._health_owner)

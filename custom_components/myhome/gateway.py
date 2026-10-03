@@ -50,6 +50,7 @@ from .const import (
     WHO1013_BRANDS,
     WHO1013_LINES,
 )
+from .device_health import DeviceHealth
 from .gateway_events import GatewayEventDispatcher
 from .gateway_resync import LightingResyncManager
 from .gateway_sessions import (
@@ -214,6 +215,8 @@ class MyHOMEGatewayHandler:
         self._unavailable_timer: CALLBACK_TYPE | None = None
         self.listening_worker: asyncio.Task[None] | None = None
         self.bus_monitor = BusMonitor()
+        # Faults of the devices on this bus, raised as repair issues (device_health.py).
+        self.device_health = DeviceHealth(self)
         self.device_registry_id = None
         self.broadcast_resync = broadcast_resync
 
@@ -573,6 +576,20 @@ class MyHOMEGatewayHandler:
         self._failover_active = False
         from .repairs import async_delete_failover_issue
         async_delete_failover_issue(self.hass, self.mac)
+
+    def health_owner(self) -> DeviceHealth | None:
+        """The tracker that files device faults seen by this gateway.
+
+        Its own, except for a warm standby carrying an offline primary's traffic: the
+        primary's, so that one entry owns every issue of the devices it configures
+        and a recovery seen on either side withdraws it.
+        """
+        if self.is_standby:
+            primary_gw = self._get_primary_gateway()
+            if primary_gw is None or primary_gw.is_connected or primary_gw._get_standby_gateway() is not self:
+                return None
+            return primary_gw.device_health
+        return self.device_health
 
     def _bridge_to_primary(self, message: Any) -> None:
         """Hand a bus frame to the offline primary's entities (warm standby only).

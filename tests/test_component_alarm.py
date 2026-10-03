@@ -396,6 +396,18 @@ class TestMyHOMEAlarmEntity:
         assert alarm_central.extra_state_attributes["raw_state"] == "active zone"
         assert alarm_central.extra_state_attributes["state_code"] == 11
 
+        # Explicitly exercise is_armed_home branch for OWNd versions where is_armed_home is False on the wire
+        msg_home_explicit = MagicMock()
+        msg_home_explicit.human_readable_log = "Armed home"
+        msg_home_explicit.is_alarm = False
+        msg_home_explicit.is_armed_away = False
+        msg_home_explicit.is_armed_home = True
+        msg_home_explicit.is_disarmed = False
+        msg_home_explicit.state_name = "armed home"
+        msg_home_explicit.state_code = 11
+        alarm_central.handle_event(msg_home_explicit)
+        assert alarm_central.alarm_state == STATE_ARMED_HOME
+
         # Triggered event (*5*15*0## - intrusion alarm)
         msg_alarm = OWNEvent.parse("*5*15*0##")
         alarm_central.handle_event(msg_alarm)
