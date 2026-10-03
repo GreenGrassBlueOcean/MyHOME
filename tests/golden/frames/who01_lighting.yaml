@@ -985,3 +985,57 @@
   mcp_notes: "Lighting: DIMENSION 13 multi-parameter actuator state feedback reporting type 2, level 130, speed 5 on MH202 gateway (MyHOME#466 comment 5854805415, #501)"
   roundtrip: true
 
+- id: light.dim.req.illuminance.ptp.21
+  frame: "*#1*21*6##"
+  direction: dimension_request
+  who: 1
+  where: "21"
+  dimension: 6
+  source: legrand-spec
+  mcp_valid: true
+  mcp_notes: "Lighting: Query illuminance status for light sensor at address 21"
+  roundtrip: true
+  builder:
+    class: OWNLightingCommand
+    method: get_illuminance
+    args: ["21"]
+
+- id: light.dim.reply.illuminance.ptp.21
+  frame: "*#1*21*6*450##"
+  direction: dimension_response
+  who: 1
+  where: "21"
+  dimension: 6
+  dimension_values: ["450"]
+  source: legrand-spec
+  mcp_valid: true
+  mcp_notes: "Lighting: Illuminance reading 450 lx for light sensor at address 21"
+  roundtrip: true
+
+- id: light.dim.reply.illuminance.broadcast.0
+  frame: "*#1*0*6*0##"
+  direction: dimension_response
+  who: 1
+  where: "0"
+  scope: general
+  dimension: 6
+  dimension_values: ["0"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: Broadcast illuminance reading 0 lx during installation sweep (MyHOME#600, MyHOME#604)"
+  roundtrip: true
+
+- id: light.dim.reply.illuminance.broadcast.19
+  frame: "*#1*0*6*19##"
+  direction: dimension_response
+  who: 1
+  where: "0"
+  scope: general
+  dimension: 6
+  dimension_values: ["19"]
+  source: community-plant-capture
+  mcp_valid: true
+  mcp_notes: "Lighting: Broadcast illuminance reading 19 lx during switch programming sweep (MyHOME#600, MyHOME#604)"
+  roundtrip: true
+
+

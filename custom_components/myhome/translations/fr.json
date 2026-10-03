@@ -5,6 +5,7 @@
     "step": {
       "user": {
         "title": "Choisisez votre serveur \"MyHome\"",
+        "description": "MyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible.",
         "data": {
           "host": "Adresse IP"
         }
@@ -25,7 +26,7 @@
       },
       "custom": {
         "title": "Ajout manuel d'un serveur",
-        "description": "Remplissez les informations de votre serveur",
+        "description": "Remplissez les informations de votre serveur\n\nMyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible.",
         "data": {
           "address": "Adresse IP",
           "port": "Port"
@@ -41,7 +42,7 @@
       },
       "discovery_confirm": {
         "title": "Passerelle MyHOME découverte",
-        "description": "Voulez-vous configurer la passerelle {name} ({host}) ?"
+        "description": "Voulez-vous configurer la passerelle {name} ({host}) ?\n\nMyHOME garde ouverte une connexion permanente pour les événements, plus une connexion par worker de commande (1 par défaut). Une passerelle n'accepte qu'un petit nombre de connexions OpenWebNet simultanées (5 sur une F455, moins sur une MH200N), partagées avec tout ce qui s'y connecte : l'application Legrand/BTicino Home+Project, d'autres instances Home Assistant, d'autres intégrations. Si les connexions sont épuisées, MyHOME ou l'autre client est refusé ou déconnecté. Fermez les clients inutiles et gardez un nombre de workers de commande faible."
       },
       "serial": {
         "title": "Passerelle USB / Série",
@@ -154,7 +155,8 @@
         },
         "data_description": {
           "decoder_1_pre_gain": "Calibrez à partir du matériel, pas au jugé : si la sortie ligne de ce décodeur alimente un module BTicino Ingresso RCA (L/N/NT4560) ou Controllo Stereo (L4561), augmentez le Pre-Gain pendant la lecture jusqu'à ce que la led de signal de ce module clignote en orange — ni fixe vert (signal trop faible) ni fixe rouge/orange (écrêtage). Câblez toujours la sortie ligne fixe (« OUT ») du décodeur, jamais une sortie casque/AUX dépendante du volume : un second étage de gain incontrôlé à cet endroit provoque exactement la distorsion contre laquelle le guide de dépannage BTicino met en garde.",
-          "delegated_whos": "Rôle secondaire uniquement : sous-systèmes dont cette passerelle découvre les nouveaux appareils. Les appareils que la principale possède déjà restent sur la principale."
+          "delegated_whos": "Rôle secondaire uniquement : sous-systèmes dont cette passerelle découvre les nouveaux appareils. Les appareils que la principale possède déjà restent sur la principale.",
+          "command_worker_count": "Recommandé pour la {model} : {session_default}. Elle accepte au plus {session_limit} session(s) de commande, et chacune, avec la session d'événements, occupe l'une de ses rares connexions, dont l'application Legrand/BTicino et d'autres clients ont aussi besoin. N'augmentez que si les commandes s'accumulent."
         }
       }
     },
@@ -493,4 +495,3 @@
     }
   }
 }
-

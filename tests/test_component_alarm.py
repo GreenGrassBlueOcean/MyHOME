@@ -371,12 +371,21 @@ class TestMyHOMEAlarmEntity:
         assert alarm_central.extra_state_attributes["raw_state"] == "deactivation"
         assert alarm_central.extra_state_attributes["state_code"] == 2
 
-        # Armed away event (*5*1*0## - activation)
-        msg_away = OWNEvent.parse("*5*1*0##")
-        alarm_central.handle_event(msg_away)
-        assert alarm_central.alarm_state == STATE_ARMED_AWAY
+        # Activation (*5*1*0##) is "system operational", not armed: the F454
+        # trace (#311) sends it on every disarm (*5*2*0## -> *5*1*0## -> *5*9*0##).
+        # OWNd <= 2.0.0b9 still reads it as armed_away; OWNd#66 does not.
+        msg_activation = OWNEvent.parse("*5*1*0##")
+        alarm_central.handle_event(msg_activation)
+        assert alarm_central.alarm_state == (STATE_ARMED_AWAY if msg_activation.is_armed_away else STATE_DISARMED)
         assert alarm_central.extra_state_attributes["raw_state"] == "activation"
         assert alarm_central.extra_state_attributes["state_code"] == 1
+
+        # Armed away event (*5*8*0## - engage)
+        msg_away = OWNEvent.parse("*5*8*0##")
+        alarm_central.handle_event(msg_away)
+        assert alarm_central.alarm_state == STATE_ARMED_AWAY
+        assert alarm_central.extra_state_attributes["raw_state"] == "engage"
+        assert alarm_central.extra_state_attributes["state_code"] == 8
 
         # Armed home event (*5*11*0## - active zone)
         msg_home = OWNEvent.parse("*5*11*0##")

@@ -5,6 +5,7 @@
     "step": {
       "user": {
         "title": "Pick your \"MyHome\" gateway",
+        "description": "MyHOME keeps one permanent event connection plus one connection per command worker (default 1) open to the gateway. A gateway only accepts a handful of simultaneous OpenWebNet connections (5 on an F455, fewer on an MH200N), shared with everything else that talks to it: the Legrand/BTicino Home+Project app, other Home Assistant instances, other integrations. If the connections run out, either MyHOME or the other client gets refused or dropped. Close other clients you do not need, and keep the command worker count low.",
         "data": {
           "host": "IP address"
         }
@@ -25,7 +26,7 @@
       },
       "custom": {
         "title": "Manual gateway entry",
-        "description": "Enter the gateway IP address and port. The MAC address and model will be auto-discovered.",
+        "description": "Enter the gateway IP address and port. The MAC address and model will be auto-discovered.\n\nMyHOME keeps one permanent event connection plus one connection per command worker (default 1) open to the gateway. A gateway only accepts a handful of simultaneous OpenWebNet connections (5 on an F455, fewer on an MH200N), shared with everything else that talks to it: the Legrand/BTicino Home+Project app, other Home Assistant instances, other integrations. If the connections run out, either MyHOME or the other client gets refused or dropped. Close other clients you do not need, and keep the command worker count low.",
         "data": {
           "address": "IP address",
           "port": "Port"
@@ -41,7 +42,7 @@
       },
       "discovery_confirm": {
         "title": "Discovered MyHOME gateway",
-        "description": "Do you want to set up the {name} gateway ({host})?"
+        "description": "Do you want to set up the {name} gateway ({host})?\n\nMyHOME keeps one permanent event connection plus one connection per command worker (default 1) open to the gateway. A gateway only accepts a handful of simultaneous OpenWebNet connections (5 on an F455, fewer on an MH200N), shared with everything else that talks to it: the Legrand/BTicino Home+Project app, other Home Assistant instances, other integrations. If the connections run out, either MyHOME or the other client gets refused or dropped. Close other clients you do not need, and keep the command worker count low."
       },
       "serial": {
         "title": "USB / Serial Gateway",
@@ -163,7 +164,8 @@
         "data_description": {
           "decoder_1_pre_gain": "Calibrate against the hardware, not a guess: if this decoder's line-out feeds a BTicino Ingresso RCA (L/N/NT4560) or Controllo Stereo (L4561) module, raise Pre-Gain while playing until that module's signal LED blinks orange — not steady green (signal too low) or steady red/orange (clipping). Always wire the decoder's fixed line-out ('OUT'), never a variable headphone/AUX output — a second uncontrolled gain stage there causes the same distortion BTicino's own troubleshooting guide warns about.",
           "delegated_whos": "Secondary role only: subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary.",
-          "auto_join_streaming": "Automatically join an active streaming group when turning on a room or adjusting volume from a physical wall control."
+          "auto_join_streaming": "Automatically join an active streaming group when turning on a room or adjusting volume from a physical wall control.",
+          "command_worker_count": "Recommended for the {model}: {session_default}. It accepts at most {session_limit} command session(s), and each one plus the event session uses one of its few connections, which the Legrand/BTicino app and other clients need too. Raise it only if commands queue up."
         }
       }
     },

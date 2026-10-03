@@ -5,6 +5,7 @@
     "step": {
       "user": {
         "title": "Kies uw \"MyHome\" gateway",
+        "description": "MyHOME houdt één permanente eventverbinding open, plus één verbinding per commandoworker (standaard 1). Een gateway accepteert maar een handvol gelijktijdige OpenWebNet-verbindingen (5 bij een F455, minder bij een MH200N), gedeeld met alles wat er verbinding mee maakt: de Legrand/BTicino Home+Project-app, andere Home Assistant-installaties, andere integraties. Als de verbindingen op zijn, wordt MyHOME of de andere client geweigerd of verbroken. Sluit clients die u niet nodig hebt en houd het aantal commandoworkers laag.",
         "data": {
           "host": "IP adres"
         }
@@ -25,7 +26,7 @@
       },
       "custom": {
         "title": "Manuele gateway informatie",
-        "description": "Vul de informatie in voor uw gateway",
+        "description": "Vul de informatie in voor uw gateway\n\nMyHOME houdt één permanente eventverbinding open, plus één verbinding per commandoworker (standaard 1). Een gateway accepteert maar een handvol gelijktijdige OpenWebNet-verbindingen (5 bij een F455, minder bij een MH200N), gedeeld met alles wat er verbinding mee maakt: de Legrand/BTicino Home+Project-app, andere Home Assistant-installaties, andere integraties. Als de verbindingen op zijn, wordt MyHOME of de andere client geweigerd of verbroken. Sluit clients die u niet nodig hebt en houd het aantal commandoworkers laag.",
         "data": {
           "address": "IP address",
           "port": "Port"
@@ -41,7 +42,7 @@
       },
       "discovery_confirm": {
         "title": "Ontdekte MyHOME gateway",
-        "description": "Wilt u de {name} gateway ({host}) instellen?"
+        "description": "Wilt u de {name} gateway ({host}) instellen?\n\nMyHOME houdt één permanente eventverbinding open, plus één verbinding per commandoworker (standaard 1). Een gateway accepteert maar een handvol gelijktijdige OpenWebNet-verbindingen (5 bij een F455, minder bij een MH200N), gedeeld met alles wat er verbinding mee maakt: de Legrand/BTicino Home+Project-app, andere Home Assistant-installaties, andere integraties. Als de verbindingen op zijn, wordt MyHOME of de andere client geweigerd of verbroken. Sluit clients die u niet nodig hebt en houd het aantal commandoworkers laag."
       },
       "serial": {
         "title": "USB / Seriële Gateway",
@@ -154,7 +155,8 @@
         },
         "data_description": {
           "decoder_1_pre_gain": "Kalibreer aan de hand van de hardware, niet op gevoel: voedt de line-out van deze decoder een BTicino Ingresso RCA-module (L/N/NT4560) of Controllo Stereo (L4561), verhoog dan Pre-Gain tijdens het afspelen tot het signaal-ledje van die module oranje knippert — niet vast groen (signaal te laag) of vast rood/oranje (clipping). Sluit altijd de vaste line-out ('OUT') van de decoder aan, nooit een volume-afhankelijke hoofdtelefoon-/AUX-uitgang: een tweede ongecontroleerde versterkingstrap daar veroorzaakt precies de vervorming waar BTicino's eigen storingzoektabel voor waarschuwt.",
-          "delegated_whos": "Alleen voor de rol secundair: subsystemen waarvan deze gateway nieuwe apparaten detecteert. Apparaten die de primaire gateway al heeft, blijven bij de primaire."
+          "delegated_whos": "Alleen voor de rol secundair: subsystemen waarvan deze gateway nieuwe apparaten detecteert. Apparaten die de primaire gateway al heeft, blijven bij de primaire.",
+          "command_worker_count": "Aanbevolen voor de {model}: {session_default}. Hij accepteert maximaal {session_limit} commandosessie(s), en elke sessie gebruikt samen met de eventsessie een van de weinige verbindingen, die ook de Legrand/BTicino-app en andere clients nodig hebben. Verhoog alleen als commando's in de wachtrij komen."
         }
       }
     },
@@ -493,4 +495,3 @@
     }
   }
 }
-

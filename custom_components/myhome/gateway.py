@@ -113,6 +113,7 @@ __all__ = [
     "_session_is_open",
     "async_call_later",
     "async_dispatcher_send",
+    "command_session_default",
     "command_session_limit",
     "dr",
     "er",
@@ -154,6 +155,21 @@ def command_session_limit(model: str | None) -> int | None:
     if isinstance(profile, GenericGatewayProfile):
         return None
     return int(profile.max_command_sessions)
+
+
+def command_session_default(model: str | None) -> int:
+    """Return how many command sessions a new entry should start with.
+
+    The profile's ``default_command_sessions`` leaves headroom below the
+    gateway's socket limit for the vendor app and for a reconnect overlap
+    (an F455 takes 5 connections in all: 4 command sessions plus the event
+    session would use every one).  Never above the limit; 1 when the model is
+    unknown or an older OWNd profile has no default.
+    """
+    profile = get_gateway_profile(model)
+    default = int(getattr(profile, "default_command_sessions", 1))
+    limit = command_session_limit(model)
+    return max(1, min(default, limit) if limit is not None else 1)
 
 
 AVAILABILITY_GRACE = 60
