@@ -224,3 +224,13 @@ def test_ignored_addresses_matching_routed_interfaces():
     # Hyphenated WHERE stripping
     assert ign_bare.is_ignored(1, "1-74") is True
     assert ign_bare.is_ignored(1, "prefix-74") is True
+
+
+def test_ignored_addresses_defensive_types():
+    """Verify non-string or None where arguments return False safely."""
+    ign = IgnoredAddresses([(1, "74")])
+    assert ign.is_ignored(1, None) is False  # type: ignore[arg-type]
+    assert ign.is_ignored(1, "") is False
+    assert (1, None) not in ign
+    assert (1, "") not in ign
+    assert ("not_int", "74") not in ign

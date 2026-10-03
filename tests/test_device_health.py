@@ -446,6 +446,21 @@ async def test_ignored_address_cleans_preexisting_issues_at_startup(hass):
     _ignored_health = _health(hass, ignored_addresses=["1/74"])
     assert _issue(hass) is None
 
+    # Pre-existing routed issue on 74#4#01 is cleaned by bare 1/74
+    routed_issue_id = fault_issue_id(ENTRY_ID, FaultKind.UNMAPPED_STATUS, 1, "74#4#01")
+    normal_health.observe(_frame("*1*19*74#4#01##"))
+    assert _issue(hass, routed_issue_id) is not None
+
+    _ignored_routed = _health(hass, ignored_addresses=["1/74"])
+    assert _issue(hass, routed_issue_id) is None
+
+    # Pre-existing issue on 74 is cleaned by zero-padded 1/074
+    _health(hass).observe(_frame(FAULT))
+    assert _issue(hass) is not None
+
+    _ignored_padded = _health(hass, ignored_addresses=["1/074"])
+    assert _issue(hass) is None
+
 
 async def test_ignored_address_suppresses_name_address_and_report(hass):
     """name_address and direct report calls do nothing for ignored addresses."""

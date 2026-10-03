@@ -168,6 +168,9 @@ class IgnoredAddresses:
         if not self._entries:
             return False
 
+        if not isinstance(where, str) or not where:
+            return False
+
         try:
             who_int = int(who)
         except (ValueError, TypeError):
