@@ -238,7 +238,7 @@ class MyHOMEEntity(RestoreEntity):
         self._register_availability_listener()
         health, address = self._device_health(), self._health_address
         if health is not None and address is not None:
-            health.name_address(*address, self._display_name, owner=self._health_owner)
+            health.name_address(*address, self._device_name, owner=self._health_owner)
         await super().async_added_to_hass()
         try:
             last_state = await self.async_get_last_state()

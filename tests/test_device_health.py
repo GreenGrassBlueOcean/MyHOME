@@ -7,6 +7,7 @@ published WHO 1 table), with a WHO 1001 DIMENSION 11 mask 3.45 s before it.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.helpers import issue_registry as ir
 from OWNd.message import OWNEvent
 
@@ -16,6 +17,7 @@ from custom_components.myhome.device_health import DeviceHealth, Fault, FaultKin
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
 from custom_components.myhome.gateway_events import GatewayEventDispatcher
 from custom_components.myhome.light import MyHOMELight
+from custom_components.myhome.sensor import MyHOMETemperatureSensor
 
 ENTRY_ID = "health_entry"
 FAULT = "*1*19*74##"
@@ -260,7 +262,7 @@ async def test_removing_the_entity_drops_the_issue_of_its_address(hass):
     health = dispatcher.handler.device_health
     light = _light(hass, dispatcher.handler)
     await dispatcher.process_message(_frame(FAULT))
-    health.name_address(*light._health_address, light._display_name, owner=light._health_owner)
+    health.name_address(*light._health_address, light._device_name, owner=light._health_owner)
     assert _issue(hass).translation_placeholders["device"] == "Hall"
 
     # a reload, or an entity_id rename (the old object goes while the registry still holds
@@ -373,3 +375,38 @@ async def test_an_entity_without_a_numeric_who_files_no_fault(hass):
     assert light._health_address is None
     light._report_fault(FaultKind.UNMAPPED_STATUS, "19")
     assert dispatcher.handler.device_health.faults == []
+
+
+async def test_sub_entity_added_to_hass_preserves_device_name_on_issue(hass):
+    dispatcher = _dispatcher(hass)
+    dispatcher.handler.availability_signal = "myhome_avail"
+    health = dispatcher.handler.device_health
+
+    # Climate zone reports an unresponsive issue for device "Heating zone Zone 71"
+    health.report(Fault(4, "71", FaultKind.UNRESPONSIVE), device="Heating zone Zone 71")
+    zone_issue = _issue(hass, fault_issue_id(ENTRY_ID, FaultKind.UNRESPONSIVE, 4, "71"))
+    assert zone_issue.translation_placeholders["device"] == "Heating zone Zone 71"
+
+    # A temperature sensor sharing address (4, "71") is added to hass
+    sensor = MyHOMETemperatureSensor(
+        hass=hass,
+        name="Heating zone Zone 71",
+        device_id="4-71",
+        who="4",
+        where="71",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        manufacturer="BTicino",
+        model="Probe",
+        gateway=dispatcher.handler,
+    )
+    sensor.entity_id = "sensor.heating_zone_zone_71_temperature"
+    assert sensor._device_name == "Heating zone Zone 71"
+    assert sensor._display_name == "Heating zone Zone 71 Temperature"
+
+    await sensor.async_added_to_hass()
+
+    # The issue describes the device, so name_address() passes _device_name
+    # and keeps "Heating zone Zone 71", without renaming to the sensor's display name
+    updated_issue = _issue(hass, fault_issue_id(ENTRY_ID, FaultKind.UNRESPONSIVE, 4, "71"))
+    assert updated_issue.translation_placeholders["device"] == "Heating zone Zone 71"
+
