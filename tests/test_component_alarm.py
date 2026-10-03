@@ -109,9 +109,84 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
             async_dispatcher_send(hass, f"myhome_message_{mac}", phantom_zone_msg)
         assert len(added_entities) == 3
 
+        # Empty-WHERE frames (*5*WHAT*##, e.g. from F453AV) route to the central alarm panel (0)
+        central_alarm = added_entities[0]
+
+        # Armed away (*5*8*## - engage)
+        msg_empty_away = OWNEvent.parse("*5*8*##")
+        assert isinstance(msg_empty_away, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_empty_away)
+        assert len(added_entities) == 3
+        assert central_alarm.alarm_state == STATE_ARMED_AWAY
+        assert central_alarm.extra_state_attributes["raw_state"] == "engage"
+        assert central_alarm.extra_state_attributes["state_code"] == 8
+
+        # Disarmed (*5*9*## - disengage)
+        msg_empty_disarmed = OWNEvent.parse("*5*9*##")
+        assert isinstance(msg_empty_disarmed, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_empty_disarmed)
+        assert len(added_entities) == 3
+        assert central_alarm.alarm_state == STATE_DISARMED
+        assert central_alarm.extra_state_attributes["raw_state"] == "disengage"
+        assert central_alarm.extra_state_attributes["state_code"] == 9
+
+        # Power telemetry: battery ok (*5*5*##)
+        msg_empty_battery = OWNEvent.parse("*5*5*##")
+        assert isinstance(msg_empty_battery, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_empty_battery)
+        assert len(added_entities) == 3
+        assert central_alarm.extra_state_attributes["raw_state"] == "battery ok"
+        assert central_alarm.extra_state_attributes["state_code"] == 5
+
+        # Power telemetry: mains present (*5*7*##)
+        msg_empty_mains = OWNEvent.parse("*5*7*##")
+        assert isinstance(msg_empty_mains, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_empty_mains)
+        assert len(added_entities) == 3
+        assert central_alarm.extra_state_attributes["raw_state"] == "network present"
+        assert central_alarm.extra_state_attributes["state_code"] == 7
+
         # Unload
         attach_runtime(hass, config_entry)
         assert await async_unload_entry(hass, config_entry) is True
+
+
+async def test_alarm_empty_where_does_not_discover_phantom_alarm(hass: HomeAssistant, mock_gateway):
+    """Test that empty-WHERE system frames (*5*WHAT*##) never discover phantom alarm panels."""
+    mac = mock_gateway.mac
+    hass.data = {
+        DOMAIN: {
+            mac: {
+                "entity": mock_gateway,
+                CONF_PLATFORMS: {},
+            }
+        }
+    }
+
+    config_entry = MagicMock()
+    config_entry.data = {"mac": mac}
+    config_entry.entry_id = "alarm_empty_where_entry"
+
+    mock_er = MagicMock()
+    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er), \
+         patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[]):
+
+        added_entities = []
+
+        def fake_add_entities(entities):
+            added_entities.extend(entities)
+
+        attach_runtime(hass, config_entry)
+        await async_setup_entry(hass, config_entry, fake_add_entities)
+        assert len(added_entities) == 0
+
+        # Gateway responses (*5*9*##, *5*1*##, *5*8*##, *5*5*##, *5*7*##) must never create entities
+        for frame in ("*5*9*##", "*5*1*##", "*5*8*##", "*5*5*##", "*5*7*##"):
+            msg = OWNEvent.parse(frame)
+            assert isinstance(msg, OWNAlarmEvent)
+            async_dispatcher_send(hass, f"myhome_message_{mac}", msg)
+
+        assert len(added_entities) == 0
 
 
 async def test_alarm_registry_cleanup_purges_phantom_zones(hass: HomeAssistant, mock_gateway):

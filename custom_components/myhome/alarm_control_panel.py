@@ -1,3 +1,5 @@
+from typing import Any
+
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
 )
@@ -25,7 +27,7 @@ from .const import (
     LOGGER,
 )
 from .data import MyHOMERuntimeData
-from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
+from .discovery import Address, DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -87,12 +89,22 @@ async def async_setup_entry(
             ctx.device_id is not None and str(ctx.device_id).startswith("#")
         )
 
+    def route_keys(message: Any, address: Address | None) -> list[str]:
+        if address is not None:
+            return [address.key]
+        # System-scope empty-WHERE burglar alarm frames (*5*WHAT*##)
+        # route to the central unit ("0")
+        if getattr(message, "where", None) in ("", "*", None):
+            return ["0"]
+        return []
+
     # WHERE=0 is the central unit, a real device on this subsystem.
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="5", event_type=OWNAlarmEvent, build=build, general_is_device=True,
         accept=accept,
         reject_registry_entry=reject_registry_entry,
+        route_keys=route_keys,
         # WHERE=0 is the central unit, and every panel follows its broadcasts
         known_keys=lambda ctx: [*default_known_keys(ctx), "0"],
     ).start()
