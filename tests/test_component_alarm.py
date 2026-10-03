@@ -9,6 +9,7 @@ from homeassistant.const import (
     CONF_NAME,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
     OWNAlarmCommand,
@@ -19,7 +20,6 @@ from OWNd.message import (
 from custom_components.myhome.alarm_control_panel import (
     PLATFORM,
     STATE_ARMED_AWAY,
-    STATE_ARMED_HOME,
     STATE_DISARMED,
     STATE_TRIGGERED,
     MyHOMEAlarmControlPanel,
@@ -310,11 +310,8 @@ class TestMyHOMEAlarmEntity:
             return alarm
 
     def test_alarm_attributes(self, alarm_central, alarm_zone1):
-        assert alarm_central.supported_features == (
-            AlarmControlPanelEntityFeature.ARM_AWAY
-            | AlarmControlPanelEntityFeature.ARM_HOME
-            | AlarmControlPanelEntityFeature.TRIGGER
-        )
+        # Read-only: the central unit rejects SCS arm/disarm (#564)
+        assert alarm_central.supported_features == AlarmControlPanelEntityFeature(0)
         assert alarm_central.alarm_state == STATE_DISARMED
         assert alarm_central.state == STATE_DISARMED
         assert alarm_central.extra_state_attributes["where"] == "0"
@@ -331,31 +328,17 @@ class TestMyHOMEAlarmEntity:
         await alarm_zone1.async_added_to_hass()
         assert alarm_zone1.async_on_remove.call_count == 1
 
-    async def test_alarm_commands(self, alarm_central, alarm_zone1):
-        # Disarm
-        await alarm_central.async_alarm_disarm()
-        alarm_central._gateway_handler.send.assert_awaited()
-        assert str(alarm_central._gateway_handler.send.call_args[0][0]) == "*5*2*0##"
+    async def test_alarm_is_read_only(self, alarm_central):
+        # Core gates arm/trigger on supported_features; disarm has no flag, so
+        # the entity refuses it rather than send a frame the panel rejects.
+        with pytest.raises(ServiceValidationError) as err:
+            await alarm_central.async_alarm_disarm()
+        assert err.value.translation_domain == DOMAIN
+        assert err.value.translation_key == "alarm_read_only"
+        assert err.value.translation_placeholders == {"name": alarm_central._display_name}
+        alarm_central._gateway_handler.send.assert_not_awaited()
 
-        # Arm Away
-        alarm_central._gateway_handler.send.reset_mock()
-        await alarm_central.async_alarm_arm_away()
-        alarm_central._gateway_handler.send.assert_awaited()
-        assert str(alarm_central._gateway_handler.send.call_args[0][0]) == "*5*1*0##"
-
-        # Arm Home
-        alarm_central._gateway_handler.send.reset_mock()
-        await alarm_central.async_alarm_arm_home()
-        alarm_central._gateway_handler.send.assert_awaited()
-        assert str(alarm_central._gateway_handler.send.call_args[0][0]) == "*5*1*0##"
-
-        # Trigger / Panic
-        alarm_central._gateway_handler.send.reset_mock()
-        await alarm_central.async_alarm_trigger()
-        alarm_central._gateway_handler.send.assert_awaited()
-        assert str(alarm_central._gateway_handler.send.call_args[0][0]) == "*5*17*0##"
-
-        # Status requests
+    def test_status_requests(self):
         cmd_central = OWNAlarmCommand.status("0")
         assert str(cmd_central) == "*#5*0##"
         cmd_where_less = OWNAlarmCommand.status(None)
@@ -387,12 +370,11 @@ class TestMyHOMEAlarmEntity:
         assert alarm_central.extra_state_attributes["raw_state"] == "engage"
         assert alarm_central.extra_state_attributes["state_code"] == 8
 
-        # Armed home event (*5*11*0## - active zone)
-        msg_home = OWNEvent.parse("*5*11*0##")
-        alarm_central.handle_event(msg_home)
-        # Accepts both legacy OWNd (which mapped system WHAT 11 to armed_home)
-        # and OWNd#66+ (which treats WHAT 11 as zone-only, leaving panel state unchanged)
-        assert alarm_central.alarm_state in (STATE_ARMED_HOME, STATE_ARMED_AWAY)
+        # Active zone (*5*11*0##): home and away arming look the same on the
+        # bus, so the panel never reports armed_home and keeps its state
+        msg_zone = OWNEvent.parse("*5*11*0##")
+        alarm_central.handle_event(msg_zone)
+        assert alarm_central.alarm_state == STATE_ARMED_AWAY
         assert alarm_central.extra_state_attributes["raw_state"] == "active zone"
         assert alarm_central.extra_state_attributes["state_code"] == 11
 
@@ -423,7 +405,6 @@ def test_alarm_states_are_the_core_enum():
     from custom_components.myhome import alarm_control_panel as mod
 
     assert mod.STATE_DISARMED is AlarmControlPanelState.DISARMED
-    assert mod.STATE_ARMED_HOME is AlarmControlPanelState.ARMED_HOME
     assert mod.STATE_ARMED_AWAY is AlarmControlPanelState.ARMED_AWAY
     assert mod.STATE_TRIGGERED is AlarmControlPanelState.TRIGGERED
 
