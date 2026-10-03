@@ -90,13 +90,11 @@ async def async_setup_entry(
         )
 
     def route_keys(message: Any, address: Address | None) -> list[str]:
-        if address is not None:
+        if address is not None and address.key != "*":
             return [address.key]
-        # System-scope empty-WHERE burglar alarm frames (*5*WHAT*##)
-        # route to the central unit ("0")
-        if getattr(message, "where", None) in ("", "*", None):
-            return ["0"]
-        return []
+        # System-scope broadcasts: empty WHERE (*5*WHAT*##) or star address (*5*WHAT**##)
+        # route to the central unit ("0"), followed by all panels.
+        return ["0"]
 
     # WHERE=0 is the central unit, a real device on this subsystem.
     PlatformDiscovery(

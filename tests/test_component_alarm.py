@@ -109,8 +109,21 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
             async_dispatcher_send(hass, f"myhome_message_{mac}", phantom_zone_msg)
         assert len(added_entities) == 3
 
-        # Empty-WHERE frames (*5*WHAT*##, e.g. from F453AV) route to the central alarm panel (0)
+        # Empty-WHERE frames (*5*WHAT*##, e.g. from F453AV) and star frames route under "0"
+        # and update every panel that follows system broadcasts (both central and zone panels)
         central_alarm = added_entities[0]
+        zone1_alarm = added_entities[1]
+
+        # Activation (*5*1*## - system operational, not armed away)
+        msg_empty_activation = OWNEvent.parse("*5*1*##")
+        assert isinstance(msg_empty_activation, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_empty_activation)
+        assert len(added_entities) == 3
+        assert central_alarm.alarm_state == (STATE_ARMED_AWAY if msg_empty_activation.is_armed_away else STATE_DISARMED)
+        assert central_alarm.extra_state_attributes["raw_state"] == "activation"
+        assert central_alarm.extra_state_attributes["state_code"] == 1
+        assert zone1_alarm.extra_state_attributes["raw_state"] == "activation"
+        assert zone1_alarm.extra_state_attributes["state_code"] == 1
 
         # Armed away (*5*8*## - engage)
         msg_empty_away = OWNEvent.parse("*5*8*##")
@@ -120,6 +133,9 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert central_alarm.alarm_state == STATE_ARMED_AWAY
         assert central_alarm.extra_state_attributes["raw_state"] == "engage"
         assert central_alarm.extra_state_attributes["state_code"] == 8
+        assert zone1_alarm.alarm_state == STATE_ARMED_AWAY
+        assert zone1_alarm.extra_state_attributes["raw_state"] == "engage"
+        assert zone1_alarm.extra_state_attributes["state_code"] == 8
 
         # Disarmed (*5*9*## - disengage)
         msg_empty_disarmed = OWNEvent.parse("*5*9*##")
@@ -129,6 +145,15 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert central_alarm.alarm_state == STATE_DISARMED
         assert central_alarm.extra_state_attributes["raw_state"] == "disengage"
         assert central_alarm.extra_state_attributes["state_code"] == 9
+        assert zone1_alarm.alarm_state == STATE_DISARMED
+
+        # Star address frame (*5*8**##) also routes under "0"
+        msg_star_away = OWNEvent.parse("*5*8**##")
+        assert isinstance(msg_star_away, OWNAlarmEvent)
+        async_dispatcher_send(hass, f"myhome_message_{mac}", msg_star_away)
+        assert len(added_entities) == 3
+        assert central_alarm.alarm_state == STATE_ARMED_AWAY
+        assert zone1_alarm.alarm_state == STATE_ARMED_AWAY
 
         # Power telemetry: battery ok (*5*5*##)
         msg_empty_battery = OWNEvent.parse("*5*5*##")
