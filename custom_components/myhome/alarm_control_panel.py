@@ -1,3 +1,5 @@
+from typing import Any
+
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
 )
@@ -27,7 +29,7 @@ from .const import (
     LOGGER,
 )
 from .data import MyHOMERuntimeData
-from .discovery import DeviceContext, PlatformDiscovery, default_known_keys
+from .discovery import Address, DeviceContext, PlatformDiscovery, default_known_keys
 from .gateway import MyHOMEGatewayHandler
 from .myhome_device import MyHOMEEntity
 
@@ -37,6 +39,8 @@ PARALLEL_UPDATES = 0
 STATE_DISARMED = AlarmControlPanelState.DISARMED
 STATE_ARMED_AWAY = AlarmControlPanelState.ARMED_AWAY
 STATE_TRIGGERED = AlarmControlPanelState.TRIGGERED
+
+CENTRAL_UNIT_KEY = "0"
 
 
 async def async_setup_entry(
@@ -88,14 +92,22 @@ async def async_setup_entry(
             ctx.device_id is not None and str(ctx.device_id).startswith("#")
         )
 
+    def route_keys(message: Any, address: Address | None) -> list[str]:
+        if address is not None:
+            return [address.key]
+        # System-scope broadcasts with empty WHERE (*5*WHAT*##) route to the
+        # central unit, which is followed by all panels.
+        return [CENTRAL_UNIT_KEY]
+
     # WHERE=0 is the central unit, a real device on this subsystem.
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="5", event_type=OWNAlarmEvent, build=build, general_is_device=True,
         accept=accept,
         reject_registry_entry=reject_registry_entry,
+        route_keys=route_keys,
         # WHERE=0 is the central unit, and every panel follows its broadcasts
-        known_keys=lambda ctx: [*default_known_keys(ctx), "0"],
+        known_keys=lambda ctx: [*default_known_keys(ctx), CENTRAL_UNIT_KEY],
     ).start()
     return True
 
