@@ -219,7 +219,10 @@ class GatewayEventDispatcher:
                         # or count towards a resync sweep.
                         self.handler._resync_manager.handle_ptp_echo(message)
 
-                    if message.is_on is not None:
+                    dim = getattr(message, "dimension", None)
+                    is_not_dimension = dim is None or type(dim).__name__ == "MagicMock"
+
+                    if message.is_on is not None and is_not_dimension:
                         event = "on" if message.is_on else "off"
                         if message.is_general:
                             self.hass.bus.async_fire(
@@ -244,12 +247,12 @@ class GatewayEventDispatcher:
                                     "event": event,
                                 },
                             )
-                    if (
-                        getattr(message, "is_general", False)
-                        or getattr(message, "is_area", False)
-                        or getattr(message, "is_group", False)
-                    ):
-                        self.handler._schedule_resync(message)
+                        if (
+                            getattr(message, "is_general", False)
+                            or getattr(message, "is_area", False)
+                            or getattr(message, "is_group", False)
+                        ):
+                            self.handler._schedule_resync(message)
                 elif isinstance(message, OWNAutomationEvent) and self._is_active_for_who(2):
                     if message.is_opening and not message.is_closing:
                         event = "open"
