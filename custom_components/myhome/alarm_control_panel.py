@@ -35,7 +35,6 @@ PLATFORM = Platform.ALARM_CONTROL_PANEL
 PARALLEL_UPDATES = 0
 
 STATE_DISARMED = AlarmControlPanelState.DISARMED
-STATE_ARMED_HOME = AlarmControlPanelState.ARMED_HOME
 STATE_ARMED_AWAY = AlarmControlPanelState.ARMED_AWAY
 STATE_TRIGGERED = AlarmControlPanelState.TRIGGERED
 
@@ -189,8 +188,6 @@ class MyHOMEAlarmControlPanel(MyHOMEEntity, AlarmControlPanelEntity):
             self._attr_alarm_state = STATE_TRIGGERED
         elif message.is_armed_away:
             self._attr_alarm_state = STATE_ARMED_AWAY
-        elif message.is_armed_home:
-            self._attr_alarm_state = STATE_ARMED_HOME
         elif message.is_disarmed:
             self._attr_alarm_state = STATE_DISARMED
 

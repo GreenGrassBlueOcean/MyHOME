@@ -20,7 +20,6 @@ from OWNd.message import (
 from custom_components.myhome.alarm_control_panel import (
     PLATFORM,
     STATE_ARMED_AWAY,
-    STATE_ARMED_HOME,
     STATE_DISARMED,
     STATE_TRIGGERED,
     MyHOMEAlarmControlPanel,
@@ -371,12 +370,11 @@ class TestMyHOMEAlarmEntity:
         assert alarm_central.extra_state_attributes["raw_state"] == "engage"
         assert alarm_central.extra_state_attributes["state_code"] == 8
 
-        # Armed home event (*5*11*0## - active zone)
-        msg_home = OWNEvent.parse("*5*11*0##")
-        alarm_central.handle_event(msg_home)
-        # Accepts both legacy OWNd (which mapped system WHAT 11 to armed_home)
-        # and OWNd#66+ (which treats WHAT 11 as zone-only, leaving panel state unchanged)
-        assert alarm_central.alarm_state in (STATE_ARMED_HOME, STATE_ARMED_AWAY)
+        # Active zone (*5*11*0##): home and away arming look the same on the
+        # bus, so the panel never reports armed_home and keeps its state
+        msg_zone = OWNEvent.parse("*5*11*0##")
+        alarm_central.handle_event(msg_zone)
+        assert alarm_central.alarm_state == STATE_ARMED_AWAY
         assert alarm_central.extra_state_attributes["raw_state"] == "active zone"
         assert alarm_central.extra_state_attributes["state_code"] == 11
 
@@ -395,7 +393,6 @@ def test_alarm_states_are_the_core_enum():
     from custom_components.myhome import alarm_control_panel as mod
 
     assert mod.STATE_DISARMED is AlarmControlPanelState.DISARMED
-    assert mod.STATE_ARMED_HOME is AlarmControlPanelState.ARMED_HOME
     assert mod.STATE_ARMED_AWAY is AlarmControlPanelState.ARMED_AWAY
     assert mod.STATE_TRIGGERED is AlarmControlPanelState.TRIGGERED
 

@@ -55,18 +55,17 @@ The route that works is an **auxiliary (WHO 9) command**. Your installer program
 Combine the MyHOME panel's state with those AUX frames in a core [template alarm control panel](https://www.home-assistant.io/integrations/template/#alarm-control-panel).
 
 > [!WARNING]
-> The template panel is a separate entity, so the MyHOME panel's refusal does not protect it. Without a code check, anyone who can reach Home Assistant can disarm the burglar alarm with one tap, including from the alarm card. The recipe below therefore asks for a code on disarm and stops unless it matches. Keep the code out of the YAML with `!secret` if you share your configuration.
+> The template panel is a separate entity, so the MyHOME panel's refusal does not protect it. Without a code check, anyone who can reach Home Assistant can disarm the burglar alarm with one tap, including from the alarm card. The recipe below therefore asks for a code on disarm and stops unless it matches.
 
 ```yaml
 template:
   - alarm_control_panel:
       - name: Home alarm
         unique_id: home_alarm
-        # State from the MyHOME panel. Until it has reported (unknown/unavailable)
-        # fall back to disarmed, so the template panel logs no invalid state.
-        state: >-
-          {% set s = states('alarm_control_panel.alarm_0') %}
-          {{ s if s in ['disarmed', 'armed_away', 'triggered'] else 'disarmed' }}
+        # Unavailable until the MyHOME panel has reported. Falling back to
+        # "disarmed" instead would show an armed alarm as disarmed after a restart.
+        availability: "{{ states('alarm_control_panel.alarm_0') in ['disarmed', 'armed_away', 'triggered'] }}"
+        state: "{{ states('alarm_control_panel.alarm_0') }}"
         code_format: number
         code_arm_required: false
         # Example AUX frames: use the ones your central unit is programmed for
@@ -84,6 +83,21 @@ template:
               gateway: "00:03:50:00:00:00"
               message: "*9*0*7##"
 ```
+
+To keep the code out of the YAML, for example if you share your configuration, move the **whole** template into `secrets.yaml`. `!secret` replaces a complete value, so it cannot be used inside the template string (`{{ code == !secret ... }}` does not work):
+
+```yaml
+# configuration.yaml
+          - condition: template
+            value_template: !secret alarm_disarm_check
+```
+
+```yaml
+# secrets.yaml
+alarm_disarm_check: "{{ code == '1234' }}"
+```
+
+Alternatively, compare `code` against a helper, such as an `input_text` in password mode.
 
 The template panel's state changes once the central unit reports `*5*8*0##` (armed) or `*5*9*0##` (disarmed) on the bus, not when the AUX frame is sent.
 
