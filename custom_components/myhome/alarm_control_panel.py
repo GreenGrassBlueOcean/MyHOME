@@ -39,6 +39,8 @@ STATE_ARMED_HOME = AlarmControlPanelState.ARMED_HOME
 STATE_ARMED_AWAY = AlarmControlPanelState.ARMED_AWAY
 STATE_TRIGGERED = AlarmControlPanelState.TRIGGERED
 
+CENTRAL_UNIT_KEY = "0"
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -90,11 +92,11 @@ async def async_setup_entry(
         )
 
     def route_keys(message: Any, address: Address | None) -> list[str]:
-        if address is not None and address.key != "*":
+        if address is not None:
             return [address.key]
-        # System-scope broadcasts: empty WHERE (*5*WHAT*##) or star address (*5*WHAT**##)
-        # route to the central unit ("0"), followed by all panels.
-        return ["0"]
+        # System-scope broadcasts with empty WHERE (*5*WHAT*##) route to the
+        # central unit, which is followed by all panels.
+        return [CENTRAL_UNIT_KEY]
 
     # WHERE=0 is the central unit, a real device on this subsystem.
     PlatformDiscovery(
@@ -104,7 +106,7 @@ async def async_setup_entry(
         reject_registry_entry=reject_registry_entry,
         route_keys=route_keys,
         # WHERE=0 is the central unit, and every panel follows its broadcasts
-        known_keys=lambda ctx: [*default_known_keys(ctx), "0"],
+        known_keys=lambda ctx: [*default_known_keys(ctx), CENTRAL_UNIT_KEY],
     ).start()
     return True
 

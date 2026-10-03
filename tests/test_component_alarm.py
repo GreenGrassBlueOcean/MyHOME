@@ -147,7 +147,7 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert central_alarm.extra_state_attributes["state_code"] == 9
         assert zone1_alarm.alarm_state == STATE_DISARMED
 
-        # Star address frame (*5*8**##) also routes under "0"
+        # Star address frame (*5*8**##) parses with WHERE=0 and routes under "0"
         msg_star_away = OWNEvent.parse("*5*8**##")
         assert isinstance(msg_star_away, OWNAlarmEvent)
         async_dispatcher_send(hass, f"myhome_message_{mac}", msg_star_away)
@@ -162,6 +162,8 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert len(added_entities) == 3
         assert central_alarm.extra_state_attributes["raw_state"] == "battery ok"
         assert central_alarm.extra_state_attributes["state_code"] == 5
+        assert zone1_alarm.extra_state_attributes["raw_state"] == "battery ok"
+        assert zone1_alarm.extra_state_attributes["state_code"] == 5
 
         # Power telemetry: mains present (*5*7*##)
         msg_empty_mains = OWNEvent.parse("*5*7*##")
@@ -170,6 +172,8 @@ async def test_alarm_setup_restores_and_discovers(hass: HomeAssistant, mock_gate
         assert len(added_entities) == 3
         assert central_alarm.extra_state_attributes["raw_state"] == "network present"
         assert central_alarm.extra_state_attributes["state_code"] == 7
+        assert zone1_alarm.extra_state_attributes["raw_state"] == "network present"
+        assert zone1_alarm.extra_state_attributes["state_code"] == 7
 
         # Unload
         attach_runtime(hass, config_entry)
