@@ -121,8 +121,8 @@ async def test_initial_discovery_skips_non_delegated_on_secondary(hass: HomeAssi
     gw_primary.send_status_request = AsyncMock()
 
     await gw_primary.initial_discovery()
-    # Primary queries WHO=2 (*#2*0##), WHO=4 (*#4*0##), WHO=16 (*#16*0##)
-    assert gw_primary.send_status_request.call_count == 3
+    # Primary queries WHO=1 (*#1*0##), WHO=2 (*#2*0##), WHO=4 (*#4*0##), WHO=16 (*#16*0*5##)
+    assert gw_primary.send_status_request.call_count == 4
 
     # Secondary with WHO=16 delegated only
     _, gw_secondary = _create_mock_gateway(
@@ -320,7 +320,7 @@ async def test_shared_bus_traffic_detection_tx_echo(hass: HomeAssistant) -> None
 
 
 @pytest.mark.asyncio
-async def test_services_multi_gateway(hass: HomeAssistant) -> None:
+async def test_services_multi_gateway(hass: HomeAssistant, fast_bus_pacing) -> None:
     """Test domain service dispatching across multiple gateways."""
     await async_setup_services(hass)
 
@@ -336,6 +336,8 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
 
     gw_a.send = AsyncMock()
     gw_b.send = AsyncMock()
+    gw_a.send_status_request = AsyncMock()
+    gw_b.send_status_request = AsyncMock()
 
     # 1. _get_gateway_handler prefers primary gateway when unspecified
     assert _get_gateway_handler(hass, None) == gw_a
@@ -350,20 +352,34 @@ async def test_services_multi_gateway(hass: HomeAssistant) -> None:
 
     # 3. sweep_bus filters queries: WHO=2/4/5/16/18 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary gets: RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), plus covers/climate/audio/energy are delegated away = 3
-    assert gw_a.send.call_count == 3
-    assert gw_b.send.call_count == 0
+    # Primary sends RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##); covers/climate/audio/energy
+    # are delegated away, so its only general request is Lighting (*#1*0##). All are status requests.
+    gw_a.send.assert_not_called()
+    assert [str(c.args[0]) for c in gw_a.send_status_request.call_args_list] == [
+        "*#13**0##", "*#13**15##", "*#13**16##", "*#1*0##",
+    ]
+    gw_b.send.assert_not_called()
+    gw_b.send_status_request.assert_not_called()
 
     gw_a.send.reset_mock()
     gw_b.send.reset_mock()
+    gw_a.send_status_request.reset_mock()
+    gw_b.send_status_request.reset_mock()
 
     # 4. targeted sweep hits the secondary
     await hass.services.async_call(
         DOMAIN, SERVICE_SWEEP_BUS, {"gateway": "00:03:50:aa:bb:02"}, blocking=True
     )
-    assert gw_a.send.call_count == 0
-    # Secondary gets: RTC, Model, FW, plus delegated WHO=2, 4, 5, 16, 18 (36 energy queries) = 43
-    assert gw_b.send.call_count == 43
+    gw_a.send.assert_not_called()
+    gw_a.send_status_request.assert_not_called()
+    # Secondary sends RTC, Model, FW, the delegated WHO=2, 4, 5, 16 general requests,
+    # plus the 36 delegated WHO=18 energy queries = 43 status requests
+    gw_b.send.assert_not_called()
+    calls_b = [str(c.args[0]) for c in gw_b.send_status_request.call_args_list]
+    assert len(calls_b) == 43
+    assert calls_b[:3] == ["*#13**0##", "*#13**15##", "*#13**16##"]
+    assert calls_b[3:7] == ["*#2*0##", "*#4*0##", "*#5*0##", "*#16*0*5##"]
+    assert len(calls_b[7:]) == 36
 
     # 4. _get_gateway_handler falls back to next(iter(gateways.values())) if no primary
     hass.config_entries.async_update_entry(
@@ -1002,7 +1018,7 @@ async def test_options_flow_standalone_and_standby_resets(hass: HomeAssistant) -
 
 
 @pytest.mark.asyncio
-async def test_service_sweep_delegated_who16_dimension_5(hass: HomeAssistant) -> None:
+async def test_service_sweep_delegated_who16_dimension_5(hass: HomeAssistant, fast_bus_pacing) -> None:
     """Test that sweep_bus sends dimension 5 query (*#16*0*5##) when WHO=16 is delegated."""
     entry_sec, gw_sec = _create_mock_gateway(
         hass,
@@ -1015,8 +1031,12 @@ async def test_service_sweep_delegated_who16_dimension_5(hass: HomeAssistant) ->
     await async_setup_services(hass)
 
     sent_queries = []
-    with patch.object(gw_sec, "send", new_callable=AsyncMock) as mock_send:
+    with (
+        patch.object(gw_sec, "send", new_callable=AsyncMock) as mock_send,
+        patch.object(gw_sec, "send_status_request", new_callable=AsyncMock) as mock_status,
+    ):
         mock_send.side_effect = lambda cmd: sent_queries.append(str(cmd))
+        mock_status.side_effect = lambda cmd: sent_queries.append(str(cmd))
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SWEEP_BUS,
@@ -1317,6 +1337,27 @@ async def test_secondary_initial_discovery_delegated_who4(hass: HomeAssistant) -
     assert gw_sec.send_status_request.call_count == 1
     call_arg = gw_sec.send_status_request.call_args[0][0]
     assert str(call_arg) == "*#4*0##"
+
+
+@pytest.mark.asyncio
+async def test_secondary_initial_discovery_delegated_who1(hass: HomeAssistant) -> None:
+    """Test that a secondary gateway with delegated WHO=1 sweeps *#1*0## on initial discovery (#578)."""
+    _, gw_sec = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_SECONDARY,
+        primary_gateway="00:03:50:aa:bb:01",
+        delegated_whos=[1],
+    )
+    gw_sec.send_status_request = AsyncMock()
+
+    await gw_sec.initial_discovery()
+
+    # WHO=1 must be queried, while WHO=2, 4, 16 must be skipped on follower
+    assert gw_sec.send_status_request.call_count == 1
+    call_arg = gw_sec.send_status_request.call_args[0][0]
+    assert str(call_arg) == "*#1*0##"
 
 
 @pytest.mark.asyncio

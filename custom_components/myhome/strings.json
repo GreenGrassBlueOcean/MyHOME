@@ -96,6 +96,7 @@
       "all_configured": "All MyHome gateways are already configured",
       "unknown": "An unknown error occured",
       "cannot_connect": "Cannot connect to the gateway",
+      "no_serial": "The gateway did not report a serial number, so it cannot be identified. Add it manually.",
       "connection_closed": "The gateway closed the connection during setup. It may be busy, out of session slots, require a reboot, or have IP address restrictions enabled.",
       "connection_refused": "The gateway refused the connection request.",
       "connection_error": "Communication error while connecting to the gateway.",

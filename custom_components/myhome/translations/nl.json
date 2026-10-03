@@ -93,6 +93,7 @@
       "all_configured": "Alle MyHome gateway’s zijn reeds geconfigureerd",
       "unknown": "Er is een onbekende fout opgetreden",
       "cannot_connect": "Kan niet verbinden met de gateway",
+      "no_serial": "De gateway meldde geen serienummer en kan niet worden geïdentificeerd. Voeg hem handmatig toe.",
       "connection_closed": "De gateway heeft de verbinding tijdens de configuratie verbroken. Deze is mogelijk bezet, heeft geen beschikbare sessies meer, moet opnieuw worden opgestart, of heeft IP-adresbeperkingen ingeschakeld.",
       "connection_refused": "De gateway heeft het verbindingsverzoek geweigerd.",
       "connection_error": "Communicatiefout tijdens het verbinden met de gateway.",

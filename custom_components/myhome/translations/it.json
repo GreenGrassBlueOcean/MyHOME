@@ -93,6 +93,7 @@
       "all_configured": "Tutti i gateway MyHome sono già configurati",
       "unknown": "Si è verificato un errore sconosciuto",
       "cannot_connect": "Impossibile connettersi al gateway",
+      "no_serial": "Il gateway non ha comunicato un numero di serie e non può essere identificato. Aggiungilo manualmente.",
       "connection_closed": "Il gateway ha chiuso la connessione durante la configurazione. Potrebbe essere occupato, aver esaurito le sessioni disponibili, richiedere un riavvio o avere restrizioni sugli indirizzi IP.",
       "connection_refused": "Il gateway ha rifiutato la richiesta di connessione.",
       "connection_error": "Errore di comunicazione durante la connessione al gateway.",

@@ -6,6 +6,9 @@ F422 bus-routing form ``APL#4#<bus>`` (``0311#4#01``).
 """
 from unittest.mock import MagicMock, patch
 
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.cover import CoverEntity
+from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from OWNd.message import OWNAutomationEvent, OWNEvent, OWNLightingEvent
@@ -238,3 +241,100 @@ async def test_build_may_return_several_entities_or_none(hass):
     assert fed == [("a", "51"), ("b", "51")]  # both entities of the address, once each
     discovery.handle_message(MagicMock(where="53", interface=None, is_translation=False))  # discovered: fed once
     assert fed[2:] == [("a", "53"), ("b", "53")]
+
+
+def test_message_has_state_cover():
+    """Test message_has_state for covers (#578)."""
+    from custom_components.myhome.discovery import message_has_state
+
+    cover = MagicMock(spec=CoverEntity)
+
+    # Moving message without position
+    msg_moving = MagicMock(current_position=None, dimension=None)
+    assert message_has_state(cover, msg_moving) is False
+
+    # Status message with position
+    msg_status = MagicMock(current_position=50, dimension=10)
+    assert message_has_state(cover, msg_status) is True
+
+    # Dimension 10 reply
+    msg_dim10 = MagicMock(current_position=None, dimension=10)
+    assert message_has_state(cover, msg_dim10) is True
+
+
+def test_message_has_state_light_and_switch():
+    """Test message_has_state for lights (on/off vs dimmer) and switches (#578)."""
+    from custom_components.myhome.discovery import message_has_state
+
+    # Simple on/off light
+    light = MagicMock(spec=LightEntity)
+    light.supported_color_modes = {ColorMode.ONOFF}
+    msg_on = MagicMock(is_on=True, brightness=None, dimension=None)
+    assert message_has_state(light, msg_on) is True
+
+    # Dimmable light
+    dimmer = MagicMock(spec=LightEntity)
+    dimmer.supported_color_modes = {ColorMode.BRIGHTNESS}
+    assert message_has_state(dimmer, msg_on) is False
+
+    msg_dimmer = MagicMock(is_on=True, brightness=128, dimension=None)
+    assert message_has_state(dimmer, msg_dimmer) is True
+
+    # Dimmable light with dimension reply (no explicit brightness)
+    msg_dimmer_dim = MagicMock(is_on=True, brightness=None, dimension=1)
+    assert message_has_state(dimmer, msg_dimmer_dim) is True
+
+    # None message
+    assert message_has_state(light, None) is False
+
+
+def test_message_has_state_climate_needs_poll():
+    """A heating zone seen through a temperature-only frame still polls mode and setpoint (#578)."""
+    from custom_components.myhome.discovery import message_has_state
+
+    zone = MagicMock(spec=ClimateEntity)
+    msg_temp = MagicMock(is_on=None, dimension=0)
+    assert message_has_state(zone, msg_temp) is False
+
+
+async def test_bus_discovery_poll_on_add_scoping(hass):
+    """Test _poll_on_add is suppressed only when bus message carries state (#578)."""
+    entry = _entry(hass, {"light": {}})
+    added = []
+
+    def build_light(ctx):
+        ent = MagicMock(spec=["_poll_on_add", "async_on_remove", "handle_event", "_device_name"])
+        ent._poll_on_add = True
+        return ent
+
+    discovery = PlatformDiscovery(
+        hass, entry, lambda ents: added.extend(ents), platform="light", who="1", event_type=None,
+        build=build_light,
+    )
+    discovery.start(listen=False)
+
+    # Bus message with state: _poll_on_add suppressed
+    msg_with_state = MagicMock(spec=["where", "interface", "is_translation", "is_on", "dimension", "current_position", "brightness"])
+    msg_with_state.where = "21"
+    msg_with_state.interface = None
+    msg_with_state.is_translation = False
+    msg_with_state.is_on = True
+    msg_with_state.dimension = None
+    msg_with_state.current_position = None
+    msg_with_state.brightness = None
+    discovery.handle_message(msg_with_state)
+    assert len(added) == 1
+    assert added[0]._poll_on_add is False
+
+    # Bus message without state: _poll_on_add retained
+    msg_no_state = MagicMock(spec=["where", "interface", "is_translation", "is_on", "dimension", "current_position", "brightness"])
+    msg_no_state.where = "22"
+    msg_no_state.interface = None
+    msg_no_state.is_translation = False
+    msg_no_state.is_on = None
+    msg_no_state.dimension = None
+    msg_no_state.current_position = None
+    msg_no_state.brightness = None
+    discovery.handle_message(msg_no_state)
+    assert len(added) == 2
+    assert added[1]._poll_on_add is True

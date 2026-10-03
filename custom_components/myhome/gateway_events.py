@@ -165,6 +165,10 @@ class GatewayEventDispatcher:
             self._logger.debug("%s Data received is not a message: `None`", self.handler.log_id)
             return
 
+        note_frame = getattr(self.handler, "note_event_frame", None)
+        if callable(note_frame):
+            note_frame()
+
         msg_who = getattr(message, "who", getattr(message, "_who", None))
         who_int = int(msg_who) if msg_who is not None and str(msg_who).isdigit() else None
 

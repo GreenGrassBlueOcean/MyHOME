@@ -452,7 +452,7 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         async def _run_test_connection() -> dict[str, typing.Any]:
             try:
                 session = OWNSession(gateway=gateway, logger=LOGGER)
-                res = await session.test_connection()
+                res: typing.Any = await session.test_connection()
                 if isinstance(res, dict):
                     return res
                 return {"Success": False, "Message": "cannot_connect"}
@@ -755,6 +755,8 @@ class MyhomeFlowHandler(ConfigFlow, domain=DOMAIN):
         gateway = await OWNGateway.build_from_discovery_info(_discovery_info)
         if gateway is None:
             return self.async_abort(reason="unknown")
+        if not gateway.unique_id or not gateway.serial:
+            return self.async_abort(reason="no_serial")
         await self.async_set_unique_id(dr.format_mac(gateway.unique_id))
         LOGGER.info("Found gateway: %s", gateway.address)
         # What the gateway reports about itself follows a rediscovery. The port is not
