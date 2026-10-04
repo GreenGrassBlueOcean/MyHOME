@@ -148,19 +148,16 @@ class DeviceHealth:
             return
 
         # Query issue registry to match routed and zero-normalized variants
-        try:
-            issue_registry = async_get_issue_registry(hass)
-            prefix = f"{ISSUE_DEVICE_FAULT}_{entry_id}_"
-            for domain, issue_id in list(issue_registry.issues):
-                if domain == DOMAIN and issue_id.startswith(prefix):
-                    issue = issue_registry.async_get_issue(domain, issue_id)
-                    if issue and issue.translation_placeholders:
-                        issue_who = issue.translation_placeholders.get("who")
-                        issue_where = issue.translation_placeholders.get("where")
-                        if issue_who and issue_where and self.is_ignored(issue_who, issue_where):
-                            async_delete_issue(hass, DOMAIN, issue_id)
-        except Exception:
-            pass
+        issue_registry = async_get_issue_registry(hass)
+        prefix = f"{ISSUE_DEVICE_FAULT}_{entry_id}_"
+        for domain, issue_id in list(issue_registry.issues):
+            if domain == DOMAIN and issue_id.startswith(prefix):
+                issue = issue_registry.async_get_issue(domain, issue_id)
+                if issue and issue.translation_placeholders:
+                    issue_who = issue.translation_placeholders.get("who")
+                    issue_where = issue.translation_placeholders.get("where")
+                    if issue_who and issue_where and self.is_ignored(issue_who, issue_where):
+                        async_delete_issue(hass, DOMAIN, issue_id)
 
         # Direct deletion fallback for simple mock test harnesses
         for who, where in ignored:
