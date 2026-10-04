@@ -122,18 +122,11 @@ If the zone no longer exists (for example a leftover entity), remove its device 
 **Fixable via UI**: No
 
 ### What it means
-A lighting actuator (a light or a switch) answered with a status code (`WHAT`) that is not in the published WHO 1 table (`WHAT 0..10, 11..18, 20..31`). Three statuses outside that table are documented as events (ZigBee OpenWebNet spec: `32` Toggle, `34` movement detected, `39` end of movement detected); they say nothing about the state and never raise or clear this issue. The received status does not allow Home Assistant to determine the current device state. A light entity keeps whatever state it had before, and carries the code in its `unknown_state` attribute.
+A lighting actuator (a light or a switch) answered with a status code (`WHAT`) that is not in the published WHO 1 table (`WHAT 0..10, 11..18, 20..31`). Statuses outside that table that are documented as events (ZigBee OpenWebNet spec: `32` Toggle, `34` movement detected, `39` end of movement detected) or recognized device states (dimmer open circuit / no load: `19`, [#619](https://github.com/OpenWebNet-HA/MyHOME/issues/619)) are handled directly by light entities and never raise or clear this issue. For `WHAT 19`, the entity reports as OFF and exposes `no_load: true` in its extra attributes. Truly unmapped statuses outside the table do not allow Home Assistant to determine the current device state; a light entity keeps whatever state it had before, and carries the code in its `unknown_state` attribute.
 
 The issue is raised for every address on the bus, including addresses with no entity in Home Assistant, and names the device once its entity exists. If you remove the device's entity, the issue goes with it, but the next odd status frame from that address raises it again.
 
-The only code seen so far is `WHAT 19`, from an actuator on an MH200 that was in a fault state ([#456](https://github.com/OpenWebNet-HA/MyHOME/issues/456); evidence record `EVID-MH200-WHAT19-FAULT` in the OpenWebNet Encyclopedia). It arrived together with a `WHO 1001` autodiagnostic frame:
-
-```text
-*1*19*74##
-*#1001*74*11*111110111111111111110111##
-```
-
-`WHO 1001` dimensions 7 and 11 carry a 24-bit autodiagnostic mask. No source documents what the individual bits mean, so the integration does not decode the mask: when one arrives within 10 seconds of the status (before or after it), it is shown in the issue exactly as received, as evidence for whoever looks at the device.
+`WHO 1001` dimensions 7 and 11 carry a 24-bit autodiagnostic mask. No source documents what the individual bits mean, so the integration does not decode the mask: when one arrives within 10 seconds of an unmapped status (before or after it), it is shown in the issue exactly as received, as evidence for whoever looks at the device.
 
 ### How to resolve
 1. Find the actuator in the electrical cabinet (the issue gives its address).
