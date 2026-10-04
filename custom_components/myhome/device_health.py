@@ -14,11 +14,11 @@ same way does not rewrite the registry. Issue ids are
 ``device_fault_<entry_id>_<kind>_<who>_<where>``, so the ``_<entry_id>_`` sweep
 in ``async_remove_entry`` finds them.
 
-A fault is described only as far as the evidence goes. WHAT 19 from a lighting
-actuator is outside the published WHO 1 table and has been seen together with a
-WHO 1001 DIMENSION 11 mask (EVID-MH200-WHAT19-FAULT). No source documents the
-bits of that mask, so it is attached to the issue as raw evidence; it is never
-decoded and never raises an issue on its own.
+A fault is described only as far as the evidence goes. An unmapped status from a
+lighting actuator outside the published WHO 1 table (e.g. WHAT 99) may arrive
+together with a WHO 1001 DIMENSION 11 mask (such as in EVID-MH200-WHAT19-FAULT).
+No source documents the bits of that mask, so it is attached to the issue as raw
+evidence; it is never decoded and never raises an issue on its own.
 """
 from __future__ import annotations
 
@@ -51,16 +51,21 @@ DOCS_URL = "https://openwebnet-ha.github.io/MyHOME/beta/diagnostics/repair-issue
 EVIDENCE_WINDOW = 10.0
 # WHO 1001 dimensions carrying an autodiagnostic bitmask (OPEN.db: 7 on request, 11 pushed).
 AUTODIAG_DIMENSIONS = (7, 11)
-# Statuses outside the SCS WHO 1 table that are documented as events, not faults (ZigBee
+# Statuses outside the SCS WHO 1 table that are documented as events (ZigBee
 # OpenWebNet spec 4.0: 32 Toggle, 34 movement detected, 39 end of movement detected).
-# They say nothing about the on/off state, so they neither raise nor clear a fault.
+# They neither raise nor clear an unmapped status fault.
 DOCUMENTED_EVENTS = frozenset({32, 34, 39})
+
+# Recognized actuator states outside the published WHO 1 table (19 dimmer no load /
+# open circuit, handled directly by the light entity; issue #619).
+# They do not raise an unmapped status fault, and clear any pre-existing fault.
+RECOGNIZED_STATUSES = frozenset({19})
 
 
 class FaultKind(StrEnum):
     """What is wrong with a device."""
 
-    #: A status outside the published table of its WHO (lighting WHAT 19).
+    #: A status outside the published table of its WHO (e.g. lighting WHAT 99).
     UNMAPPED_STATUS = "unmapped_status"
     #: The device stopped answering its status request (see ``poll_health``).
     UNRESPONSIVE = "unresponsive"
@@ -256,6 +261,9 @@ class DeviceHealth:
         unknown = getattr(message, "unknown_state", None)
         if isinstance(unknown, int) and not isinstance(unknown, bool):
             if unknown in DOCUMENTED_EVENTS:
+                return
+            if unknown in RECOGNIZED_STATUSES:
+                self.clear(1, where, FaultKind.UNMAPPED_STATUS)
                 return
             code = str(unknown)
             self._anomaly_seen[where] = time.monotonic()
