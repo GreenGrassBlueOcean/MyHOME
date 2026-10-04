@@ -369,6 +369,9 @@
     }
   },
   "exceptions": {
+    "alarm_read_only": {
+      "message": "{name} è di sola lettura: inserisci e disinserisci l'allarme con i comandi AUX programmati sulla centrale"
+    },
     "command_delivery_cancelled": {
       "message": "{name}: l'invio del comando di direzione è stato annullato prima di raggiungere il bus"
     },

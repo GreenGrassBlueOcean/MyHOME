@@ -369,6 +369,9 @@
     }
   },
   "exceptions": {
+    "alarm_read_only": {
+      "message": "{name} est en lecture seule : armez et désarmez via les commandes AUX programmées sur la centrale"
+    },
     "command_delivery_cancelled": {
       "message": "{name} : l'envoi de la commande de direction a été annulé avant d'atteindre le bus"
     },
