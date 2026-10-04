@@ -17,6 +17,7 @@ from homeassistant.helpers import device_registry as dr
 from .const import (
     CONF_BUS_TOPOLOGY,
     CONF_DELEGATED_WHOS,
+    CONF_FIRMWARE,
     CONF_GATEWAY_ROLE,
     CONF_PRIMARY_GATEWAY,
     DOMAIN,
@@ -61,6 +62,21 @@ def entry_model(entry: Any) -> str | None:
     return title or None
 
 
+def entry_firmware(entry: Any) -> str | None:
+    """The configured firmware version of a gateway entry."""
+    data = getattr(entry, "data", None)
+    if isinstance(data, Mapping):
+        fw = data.get(CONF_FIRMWARE)
+        if fw:
+            return str(fw)
+    options = getattr(entry, "options", None)
+    if isinstance(options, Mapping):
+        fw = options.get(CONF_FIRMWARE)
+        if fw:
+            return str(fw)
+    return None
+
+
 def gateway_tier(model: str | None) -> int:
     """Return performance tier for a gateway model (1 = Linux fast, 2 = Modern scenario/Touch, 3 = Legacy)."""
     norm = (model or "").strip().upper()
@@ -71,14 +87,16 @@ def gateway_tier(model: str | None) -> int:
     return 3
 
 
-def gateway_supported_whos(model: str | None) -> set[int]:
+def gateway_supported_whos(
+    model: str | None, firmware: str | None = None
+) -> set[int]:
     """Retrieve supported WHO set directly from OWNd profile."""
     whos: set[int] = set()
     norm = (model or "").strip().upper()
     try:
         from OWNd.profiles import get_gateway_profile
 
-        profile = get_gateway_profile(model or "")
+        profile = get_gateway_profile(model or "", firmware)
         supports = getattr(profile, "supports_who", None)
         supported = getattr(profile, "supported_who", None)
         if supported:
@@ -119,6 +137,14 @@ def _follower_delegation(pri_whos: set[int], sec_whos: set[int]) -> tuple[str, s
     return ROLE_SECONDARY, delta, audio_coupled
 
 
+def _call_supported_whos(model: str | None, firmware: str | None = None) -> set[int]:
+    """Call gateway_supported_whos, falling back defensively if monkeypatched with 1 argument."""
+    try:
+        return gateway_supported_whos(model, firmware=firmware)
+    except TypeError:
+        return gateway_supported_whos(model)
+
+
 def recommend_follower(primary: Any, follower: Any) -> tuple[str, set[int]]:
     """Role and delegated WHOs for ``follower`` joining the bus of an existing ``primary``.
 
@@ -126,7 +152,8 @@ def recommend_follower(primary: Any, follower: Any) -> tuple[str, set[int]]:
     added next to one that already owns the bus's devices joins as its follower.
     """
     role, delegated, _ = _follower_delegation(
-        gateway_supported_whos(entry_model(primary)), gateway_supported_whos(entry_model(follower))
+        _call_supported_whos(entry_model(primary), entry_firmware(primary)),
+        _call_supported_whos(entry_model(follower), entry_firmware(follower)),
     )
     return role, delegated
 
@@ -140,8 +167,8 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
 
     tier_a = gateway_tier(model_a)
     tier_b = gateway_tier(model_b)
-    whos_a = gateway_supported_whos(model_a)
-    whos_b = gateway_supported_whos(model_b)
+    whos_a = _call_supported_whos(model_a, entry_firmware(entry_a))
+    whos_b = _call_supported_whos(model_b, entry_firmware(entry_b))
 
     # Determine Primary vs Follower:
     # 1. Higher tier wins (lower tier number)
@@ -392,7 +419,7 @@ def validate_shared_bus_topology(
 
             model = model_override or entry_model(entry)
             if model:
-                supported = gateway_supported_whos(model)
+                supported = _call_supported_whos(model, entry_firmware(entry))
                 for w in delegated:
                     if w not in supported:
                         errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"

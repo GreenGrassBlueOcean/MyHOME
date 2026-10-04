@@ -984,7 +984,7 @@ class MyHOMEGatewayHandler:
         """Make ``model`` the entry's model: handler, profile, log id, config entry and title."""
         self.gateway.model_name = model
         self.gateway.model = model
-        self.gateway.profile = get_gateway_profile(model)
+        self.gateway.profile = get_gateway_profile(model, getattr(self.gateway, "firmware", None))
         self.gateway._log_id = f"[{model} gateway - {self.gateway.host}]"
         self._trim_sending_workers(model)
         new_data = dict(self.config_entry.data)

@@ -30,9 +30,14 @@ from OWNd.connection import (
 from OWNd.message import OWNCommand
 from OWNd.profiles import (
     WHO_AUTOMATION,
+    WHO_CEN_PLUS,
     WHO_ENERGY,
     WHO_LIGHTING,
     WHO_SOUND,
+    F452Profile,
+    F452VProfile,
+    F453AVProfile,
+    F453Profile,
     F454Profile,
     F455Profile,
     GenericGatewayProfile,
@@ -177,6 +182,10 @@ class TestGatewayProfiles:
             ("F 454", F454Profile),
             ("F-454", F454Profile),
             ("F455", F455Profile),
+            ("F452", F452Profile),
+            ("F452V", F452VProfile),
+            ("F453", F453Profile),
+            ("F453AV", F453AVProfile),
             ("MH200N", MH200NProfile),
             ("MH-200-N", MH200NProfile),
             ("MH202", MH202Profile),
@@ -190,6 +199,20 @@ class TestGatewayProfiles:
     def test_get_gateway_profile_resolution(self, name, expected_cls):
         profile = get_gateway_profile(name)
         assert isinstance(profile, expected_cls)
+
+    def test_f453av_profile_firmware_discrimination(self):
+        """F453AV profile gates WHO 25 (CEN+) on firmware >= 2.1.7."""
+        # Unstated firmware: conservative profile (no WHO 25)
+        prof_default = get_gateway_profile("F453AV")
+        assert prof_default.supports_who(WHO_CEN_PLUS) is False
+
+        # Older firmware: no WHO 25
+        prof_old = get_gateway_profile("F453AV", "1.0.19")
+        assert prof_old.supports_who(WHO_CEN_PLUS) is False
+
+        # Newer firmware >= 2.1.7: supports WHO 25
+        prof_new = get_gateway_profile("F453AV", "2.1.7")
+        assert prof_new.supports_who(WHO_CEN_PLUS) is True
 
     @pytest.mark.xfail(
         _OWND_MH200_IS_MH200N,

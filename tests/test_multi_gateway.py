@@ -1795,6 +1795,33 @@ def test_gateway_supported_whos_profile_exception(monkeypatch: pytest.MonkeyPatc
     assert whos == set()
 
 
+def test_gateway_supported_whos_with_firmware() -> None:
+    """Verify gateway_supported_whos discriminates firmware-gated capabilities (e.g. F453AV CEN+)."""
+    from custom_components.myhome.topology import gateway_supported_whos
+
+    # F453AV without firmware or < 2.1.7: no WHO 25
+    assert 25 not in gateway_supported_whos("F453AV")
+    assert 25 not in gateway_supported_whos("F453AV", "1.0.19")
+
+    # F453AV with FW >= 2.1.7: supports WHO 25
+    assert 25 in gateway_supported_whos("F453AV", "2.1.7")
+    assert 25 in gateway_supported_whos("F453AV", "3.0.0")
+
+
+def test_entry_firmware_extraction() -> None:
+    """Verify entry_firmware extracts firmware version from data or options."""
+    from custom_components.myhome.topology import entry_firmware
+
+    entry_data = MagicMock(data={"firmware": "2.1.7"}, options={})
+    assert entry_firmware(entry_data) == "2.1.7"
+
+    entry_opts = MagicMock(data={}, options={"firmware": "1.0.19"})
+    assert entry_firmware(entry_opts) == "1.0.19"
+
+    entry_none = MagicMock(data={}, options={})
+    assert entry_firmware(entry_none) is None
+
+
 def test_infer_shared_bus_topology_equal_tier_b_has_more_whos(hass: HomeAssistant) -> None:
     """Test infer_shared_bus_topology when tier_a == tier_b but entry_b has more supported WHOs."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
