@@ -179,9 +179,25 @@ async def test_removing_the_entity_drops_its_repair(hass):
     assert _issue(hass, zone) is None
 
 
-async def test_central_unit_exempt_from_status_poll_and_poll_health(hass):
-    """Central units (#0, #0#1) do not answer Dimension 14 status queries (#582)."""
+async def test_central_unit_cu99_polls_plain_status_and_clears_repair(hass):
+    """Central unit #0 polls with canonical plain status *#4*#0## and recovers on response (#629)."""
     central, gateway = _zone(hass, where="#0", central=True, name="Centrale termoregolazione")
+    await central.async_update()
+    gateway.send_status_request.assert_called_once()
+    assert str(gateway.send_status_request.call_args[0][0]) == "*#4*#0##"
+
+    # Frame answer *4*202*#0## clears any stale repair issue and attributes
+    gateway.device_health.report(Fault(4, "#0", FaultKind.UNRESPONSIVE))
+    assert _issue(hass, central) is not None
+    central.handle_event(OWNHeatingEvent("*4*202*#0##"))
+    assert _issue(hass, central) is None
+    assert "failed_polls" not in central.extra_state_attributes
+    assert "unresponsive_since" not in central.extra_state_attributes
+
+
+async def test_central_unit_cu4_exempt_from_status_poll(hass):
+    """4-zone central units (#0#1) remain exempt from polling to avoid gateway timeouts (#629)."""
+    central, gateway = _zone(hass, where="#0#1", central=True, name="Centrale 4 zone")
     await central.async_update()
     gateway.send_status_request.assert_not_called()
     assert "failed_polls" not in central.extra_state_attributes

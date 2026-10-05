@@ -397,17 +397,24 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     async def async_update(self) -> None:
         """Request status update from gateway, unless the zone has stopped answering."""
-        if self._central:
-            # Central units (#0, #0#1) do not answer Dimension 14 status requests (*#4*#0*14##);
-            # in OpenWebNet, Dimension 14 status reads only apply to zone addresses 1..99.
-            # Central units receive setpoints via commands (*#4*#0*#14*T*M##), broadcast events,
-            # or restored state, and do not participate in point-to-point status polling or PollHealth tracking.
+        if self._central and self._where not in ("#0", "0"):
+            # 4-zone central units (#0#1) do not participate in point-to-point status polling;
+            # bus captures confirm querying #0#1 times out on plants without a physical 4-zone unit (#629).
+            # They receive setpoints via commands (*#4*#0#1*#14*T*M##), broadcast events, or restored state.
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
             self._raise_unresponsive_issue()
             return
-        request = OWNHeatingCommand.status(self._full_where)
+        # 99-zone central units (#0) answer plain status requests (*#4*#0##) within ~0.17 s,
+        # reporting operating mode via *4*202*#0## (conditional OFF) and operational flags (#629).
+        # Dimension 14 status queries (*#4*#0*14##) are rejected with NACK by physical gateways.
+        where = (
+            (f"#0#4#{self._interface}" if self._interface is not None else "#0")
+            if self._central
+            else self._full_where
+        )
+        request = OWNHeatingCommand.status(where)
         frames_before = self._poll_health.frames
         written = await self._gateway_handler.send_status_request(request)
         if isinstance(written, asyncio.Future):
@@ -668,7 +675,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     @callback
     def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
-        if self._poll_health.frame_seen():
+        if self._poll_health.frame_seen() or self._central:
             self._clear_unresponsive_issue()
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
             LOGGER.debug(

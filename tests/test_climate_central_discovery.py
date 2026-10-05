@@ -301,9 +301,10 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
         _record_central_mode,
     )
 
-    # 1. Startup update sends zero status requests (no Dimension 14 poll)
+    # 1. Startup update sends canonical plain status request *#4*#0## (#629)
     await cu.async_update()
-    gateway.send_status_request.assert_not_called()
+    gateway.send_status_request.assert_called_once()
+    assert str(gateway.send_status_request.call_args[0][0]) == "*#4*#0##"
 
     # 2. Command path: setting mode via HA emits central commands and dispatches signal
     await cu.async_set_hvac_mode(HVACMode.HEAT)
