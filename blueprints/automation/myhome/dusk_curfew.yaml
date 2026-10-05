@@ -21,6 +21,14 @@ blueprint:
       default: "23:00:00"
       selector:
         time: {}
+    curfew_end_time:
+      name: Curfew End Time (Morning)
+      description: >
+        Time in the morning when the curfew period ends (e.g., 06:00:00).
+        Between curfew_time and curfew_end_time, any turn-ons will automatically turn off after a 2-minute safety grace period.
+      default: "06:00:00"
+      selector:
+        time: {}
     max_duration:
       name: Maximum Duration (Minutes)
       description: Optional maximum runtime in minutes after turning on. Set to 0 to disable and rely solely on curfew time.
@@ -42,8 +50,8 @@ blueprint:
     presence_entity:
       name: Occupancy / Presence Entity (Optional)
       description: >
-        Optional presence entity. Supports zone.* (away when person count is 0),
-        person.*, group.*, device_tracker.*, or binary_sensor.* (away when 'not_home', 'off', or 'away').
+        Optional presence tracking entity. Supports zone.* (away when person count is 0),
+        person.*, device_tracker.*, group.*, or binary_sensor.* (away when 'not_home', 'off', or 'away').
       default: ""
       selector:
         entity: {}
@@ -60,13 +68,22 @@ blueprint:
     after_sunset_only:
       name: Only Run Between Sunset and Sunrise
       description: >
-        When enabled, companion synchronization and curfew logic only activate when the sun
-        is below the horizon. Daytime manual switch activations will not trigger companion lights.
-      default: true
+        When enabled, companion synchronization and automatic turn-off logic only activate when the sun
+        is below the horizon. Keep disabled (default) if your twilight sensor trips before sunset on
+        overcast afternoons or in winter.
+      default: false
       selector:
         boolean: {}
 
-mode: restart
+mode: parallel
+max: 10
+
+trigger_variables:
+  target_light: !input target_light
+  curfew_time: !input curfew_time
+  curfew_end_time: !input curfew_end_time
+  presence_entity: !input presence_entity
+  away_timeout: !input away_timeout
 
 triggers:
   - trigger: state
@@ -87,7 +104,7 @@ triggers:
     id: ha_started
   - trigger: template
     value_template: >-
-      {% if presence_entity is defined and presence_entity != '' %}
+      {% if away_timeout > 0 and presence_entity is defined and presence_entity != '' %}
         {% set p = presence_entity %}
         {% if p.startswith('zone.') %}
           {{ states(p) | int(default=1) == 0 }}
@@ -104,6 +121,7 @@ triggers:
 variables:
   target_light: !input target_light
   curfew_time: !input curfew_time
+  curfew_end_time: !input curfew_end_time
   max_duration: !input max_duration
   sync_lights: !input sync_lights
   presence_entity: !input presence_entity
@@ -124,6 +142,7 @@ variables:
 
 actions:
   - choose:
+      # Branch 1: Target light turned off manually or by external switch
       - conditions:
           - condition: trigger
             id: light_turned_off
@@ -135,6 +154,7 @@ actions:
               - action: light.turn_off
                 target: !input sync_lights
 
+      # Branch 2: Bedtime curfew reached
       - conditions:
           - condition: trigger
             id: curfew_reached
@@ -152,6 +172,7 @@ actions:
               - action: light.turn_off
                 target: !input sync_lights
 
+      # Branch 3: HA started during curfew hours with light still on
       - conditions:
           - condition: trigger
             id: ha_started
@@ -160,7 +181,7 @@ actions:
             state: "on"
           - condition: time
             after: !input curfew_time
-            before: "06:00:00"
+            before: !input curfew_end_time
         sequence:
           - action: light.turn_off
             target:
@@ -172,11 +193,10 @@ actions:
               - action: light.turn_off
                 target: !input sync_lights
 
+      # Branch 4: Presence changed to away while target light was on
       - conditions:
           - condition: trigger
             id: presence_away
-          - condition: template
-            value_template: "{{ away_timeout > 0 and presence_entity != '' }}"
           - condition: state
             entity_id: !input target_light
             state: "on"
@@ -191,29 +211,33 @@ actions:
               - action: light.turn_off
                 target: !input sync_lights
 
+      # Branch 5: Target light turned on
       - conditions:
           - condition: trigger
             id: light_turned_on
         sequence:
+          # Optional guard against daytime manual activations
           - if:
               - condition: template
                 value_template: >-
                   {{ after_sunset_only and is_state('sun.sun', 'above_horizon') }}
             then:
-              - stop: "Sun is above horizon; ignoring daytime manual turn-on."
+              - stop: "Sun is above horizon and after_sunset_only is enabled; ignoring daytime turn-on."
 
+          # If turned on during curfew hours (between curfew_time and curfew_end_time)
           - if:
               - condition: time
                 after: !input curfew_time
-                before: "06:00:00"
+                before: !input curfew_end_time
             then:
               - delay:
                   minutes: 2
               - action: light.turn_off
                 target:
                   entity_id: !input target_light
-              - stop: "Turned on past curfew; turned off after 2-minute grace period."
+              - stop: "Turned on during curfew hours; turned off after 2-minute safety grace period."
 
+          # Normal evening dusk activation
           - if:
               - condition: template
                 value_template: "{{ sync_lights_defined }}"

@@ -1,10 +1,10 @@
 """Tests for the MyHOME dusk curfew & hardware-coupled sensor automation blueprint."""
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-import pytest
 from homeassistant.components.automation.config import (
     _MINIMAL_PLATFORM_SCHEMA,
     AUTOMATION_BLUEPRINT_SCHEMA,
@@ -13,7 +13,9 @@ from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import template
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from homeassistant.util import yaml as yaml_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 
 def _get_blueprint_path() -> Path:
@@ -41,6 +43,7 @@ def test_dusk_curfew_blueprint_schema_and_inputs() -> None:
     expected_inputs = {
         "target_light",
         "curfew_time",
+        "curfew_end_time",
         "max_duration",
         "sync_lights",
         "presence_entity",
@@ -53,16 +56,18 @@ def test_dusk_curfew_blueprint_schema_and_inputs() -> None:
     target_selector = bp.inputs["target_light"]["selector"]
     assert target_selector["entity"]["domain"] == ["light"]
 
-    # Validate curfew_time time selector and default
+    # Validate curfew_time & curfew_end_time selectors and defaults
     assert "time" in bp.inputs["curfew_time"]["selector"]
     assert bp.inputs["curfew_time"]["default"] == "23:00:00"
+    assert "time" in bp.inputs["curfew_end_time"]["selector"]
+    assert bp.inputs["curfew_end_time"]["default"] == "06:00:00"
 
-    # Validate default values
+    # Validate default values (after_sunset_only defaults to False for photocells on winter afternoons)
     assert bp.inputs["sync_lights"]["default"] == {}
     assert bp.inputs["presence_entity"]["default"] == ""
     assert bp.inputs["away_timeout"]["default"] == 0
     assert bp.inputs["max_duration"]["default"] == 0
-    assert bp.inputs["after_sunset_only"]["default"] is True
+    assert bp.inputs["after_sunset_only"]["default"] is False
 
 
 def test_dusk_curfew_blueprint_substitution() -> None:
@@ -74,11 +79,12 @@ def test_dusk_curfew_blueprint_substitution() -> None:
     user_inputs = {
         "target_light": "light.light_98",
         "curfew_time": "23:00:00",
+        "curfew_end_time": "06:00:00",
         "max_duration": 180,
         "sync_lights": {"entity_id": ["light.garden_pathway", "light.driveway_spots"]},
         "presence_entity": "zone.home",
         "away_timeout": 15,
-        "after_sunset_only": True,
+        "after_sunset_only": False,
     }
 
     bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
@@ -87,7 +93,13 @@ def test_dusk_curfew_blueprint_substitution() -> None:
 
     # Pass minimal automation platform validation
     validated = _MINIMAL_PLATFORM_SCHEMA(substituted)
-    assert validated.get("mode") == "restart"
+    assert validated.get("mode") == "parallel"
+    assert validated.get("max") == 10
+
+    # Verify trigger_variables scoping so template triggers can access presence_entity
+    trig_vars = validated.get("trigger_variables", {})
+    assert trig_vars.get("presence_entity") == "zone.home"
+    assert trig_vars.get("away_timeout") == 15
 
     triggers = validated["triggers"]
     trigger_ids = {t.get("id") for t in triggers}
@@ -160,9 +172,12 @@ async def test_dusk_curfew_presence_template_rendering(hass: HomeAssistant) -> N
     assert t.async_render({"presence_entity": "binary_sensor.presence"}, parse_result=True) is False
 
 
-@pytest.mark.parametrize("expected_lingering_timers", [True])
-async def test_dusk_curfew_automation_setup_in_hass(hass: HomeAssistant) -> None:
-    """Verify instantiated automation successfully loads and attaches in a live Home Assistant instance."""
+async def test_dusk_curfew_behavioral_turn_on_and_from_off_guard(hass: HomeAssistant) -> None:
+    """Behaviorally verify from: off guard prevents unavailable->on flap and off->on syncs companion lights."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    hass.services.async_register("light", "turn_on", lambda c: calls.append(("on", c.data)))
+    hass.services.async_register("light", "turn_off", lambda c: calls.append(("off", c.data)))
+
     blueprint_path = _get_blueprint_path()
     raw_data: dict[str, Any] = yaml_util.load_yaml(str(blueprint_path))
     bp = Blueprint(raw_data, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
@@ -170,15 +185,139 @@ async def test_dusk_curfew_automation_setup_in_hass(hass: HomeAssistant) -> None
     user_inputs = {
         "target_light": "light.light_98",
         "curfew_time": "23:00:00",
-        "max_duration": 60,
+        "curfew_end_time": "06:00:00",
+        "max_duration": 0,
         "sync_lights": {"entity_id": ["light.garden_pathway"]},
-        "presence_entity": "zone.home",
-        "away_timeout": 10,
+        "after_sunset_only": False,
     }
 
     bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
     substituted = bp_inputs.async_substitute()
-    substituted["alias"] = "Dusk Curfew Test Automation"
+    substituted["alias"] = "test_turn_on_guard"
 
-    config = {"automation": [substituted]}
-    assert await async_setup_component(hass, "automation", config)
+    hass.states.async_set("light.light_98", "off")
+    hass.states.async_set("light.garden_pathway", "off")
+
+    assert await async_setup_component(hass, "automation", {"automation": [substituted]})
+    await hass.async_block_till_done()
+
+    # Flap test: unavailable -> on must NOT trigger companion turn_on
+    hass.states.async_set("light.light_98", "unavailable")
+    await hass.async_block_till_done()
+
+    hass.states.async_set("light.light_98", "on")
+    await hass.async_block_till_done()
+    assert not any(action == "on" for action, _ in calls)
+
+    # Valid transition test: off -> on MUST trigger companion turn_on
+    hass.states.async_set("light.light_98", "off")
+    await hass.async_block_till_done()
+    calls.clear()
+
+    hass.states.async_set("light.light_98", "on")
+    await hass.async_block_till_done()
+    assert any(action == "on" and data.get("entity_id") == ["light.garden_pathway"] for action, data in calls)
+
+    # Clean up automation
+    await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_turn_on_guard"}, blocking=True)
+
+
+async def test_dusk_curfew_behavioral_daylight_guard(hass: HomeAssistant) -> None:
+    """Behaviorally verify after_sunset_only stops companion activation when sun is above horizon."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    hass.services.async_register("light", "turn_on", lambda c: calls.append(("on", c.data)))
+    hass.services.async_register("light", "turn_off", lambda c: calls.append(("off", c.data)))
+
+    blueprint_path = _get_blueprint_path()
+    raw_data: dict[str, Any] = yaml_util.load_yaml(str(blueprint_path))
+    bp = Blueprint(raw_data, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+
+    user_inputs = {
+        "target_light": "light.light_98",
+        "curfew_time": "23:00:00",
+        "curfew_end_time": "06:00:00",
+        "max_duration": 0,
+        "sync_lights": {"entity_id": ["light.garden_pathway"]},
+        "after_sunset_only": True,
+    }
+
+    bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
+    substituted = bp_inputs.async_substitute()
+    substituted["alias"] = "test_daylight_guard"
+
+    hass.states.async_set("light.light_98", "off")
+    hass.states.async_set("light.garden_pathway", "off")
+    hass.states.async_set("sun.sun", "above_horizon")
+
+    assert await async_setup_component(hass, "automation", {"automation": [substituted]})
+    await hass.async_block_till_done()
+
+    # Daytime off -> on: companion lights must NOT turn on
+    hass.states.async_set("light.light_98", "on")
+    await hass.async_block_till_done()
+    assert not any(action == "on" for action, _ in calls)
+
+    # Nighttime off -> on: companion lights MUST turn on
+    hass.states.async_set("light.light_98", "off")
+    hass.states.async_set("sun.sun", "below_horizon")
+    await hass.async_block_till_done()
+    calls.clear()
+
+    hass.states.async_set("light.light_98", "on")
+    await hass.async_block_till_done()
+    assert any(action == "on" and data.get("entity_id") == ["light.garden_pathway"] for action, data in calls)
+
+    # Clean up automation
+    await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_daylight_guard"}, blocking=True)
+
+
+async def test_dusk_curfew_behavioral_presence_away_trigger(hass: HomeAssistant) -> None:
+    """Behaviorally verify presence_away trigger fires via trigger_variables and turns off lights."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    hass.services.async_register("light", "turn_on", lambda c: calls.append(("on", c.data)))
+    hass.services.async_register("light", "turn_off", lambda c: calls.append(("off", c.data)))
+
+    blueprint_path = _get_blueprint_path()
+    raw_data: dict[str, Any] = yaml_util.load_yaml(str(blueprint_path))
+    bp = Blueprint(raw_data, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+
+    user_inputs = {
+        "target_light": "light.light_98",
+        "curfew_time": "23:00:00",
+        "curfew_end_time": "06:00:00",
+        "max_duration": 0,
+        "sync_lights": {"entity_id": ["light.garden_pathway"]},
+        "presence_entity": "zone.home",
+        "away_timeout": 1,
+        "after_sunset_only": False,
+    }
+
+    bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
+    substituted = bp_inputs.async_substitute()
+    substituted["alias"] = "test_presence_away_guard"
+
+    # Initialize: lights on, zone.home has 1 person
+    hass.states.async_set("light.light_98", "on")
+    hass.states.async_set("light.garden_pathway", "on")
+    hass.states.async_set("zone.home", "1")
+
+    assert await async_setup_component(hass, "automation", {"automation": [substituted]})
+    await hass.async_block_till_done()
+
+    # Trigger template verification: transition to 0 person
+    hass.states.async_set("zone.home", "0")
+    await hass.async_block_till_done()
+
+    # Advance time by 65 seconds so the 1-minute 'for:' duration expires
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=65))
+    await hass.async_block_till_done()
+
+    try:
+        # Assert that presence_away fired and commanded light.turn_off on target_light
+        assert any(
+            action == "off" and ("light.light_98" in data.get("entity_id", []) or data.get("entity_id") == "light.light_98")
+            for action, data in calls
+        )
+    finally:
+        # Clean up automation
+        await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_presence_away_guard"}, blocking=True)
