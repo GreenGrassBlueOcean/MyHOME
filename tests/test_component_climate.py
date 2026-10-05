@@ -1,6 +1,7 @@
 """Test the MyHOME climate component."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
 from OWNd.message import (
@@ -158,7 +159,8 @@ async def test_climate_properties_and_hvac_modes(hass):
 
     # Test set_hvac_mode AUTO
     await climate.async_set_hvac_mode(HVACMode.AUTO)
-    gateway.send.assert_not_called()
+    gateway.send.assert_called_once()
+    assert str(gateway.send.call_args[0][0]) == "*4*311*#1##"
     gateway.send.reset_mock()
 
     # Test set_hvac_mode HEAT
@@ -663,6 +665,48 @@ async def test_climate_fan_mode_and_attributes(hass):
     sent_requests = [str(call[0][0]) for call in gateway.send_status_request.call_args_list]
     assert "*#4*5##" in sent_requests
     assert "*#4*5*11##" in sent_requests
+
+
+async def test_climate_central_fan_mode_guard(hass):
+    """Test that central units cannot enable fan mode and calls raise ServiceValidationError."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    from custom_components.myhome.const import DOMAIN
+
+    gateway = AsyncMock()
+    gateway.mac = "00:11:22:33:44:55"
+
+    # 1. Central unit initialized with fan=True ignores fan mode
+    cu = MyHOMEClimate(
+        hass=hass,
+        name="Central Unit",
+        device_id="climate_cu",
+        who="4",
+        where="#0",
+        heating=True,
+        cooling=True,
+        fan=True,
+        standalone=False,
+        central=True,
+        manufacturer="BTicino",
+        model="Central Unit (3550)",
+        gateway=gateway,
+    )
+    cu.entity_id = "climate.cu"
+    assert not (cu.supported_features & ClimateEntityFeature.FAN_MODE)
+    assert cu.fan_modes is None
+
+    # Dynamic enable attempt on central unit is rejected
+    cu._enable_fan_mode()
+    assert not (cu.supported_features & ClimateEntityFeature.FAN_MODE)
+
+    # Calling async_set_fan_mode on central unit raises ServiceValidationError
+    with pytest.raises(ServiceValidationError) as excinfo:
+        await cu.async_set_fan_mode("low")
+    gateway.send.assert_not_called()
+    assert excinfo.value.translation_domain == DOMAIN
+    assert excinfo.value.translation_key == "fan_speed_zone_only"
+
 
 
 async def test_climate_knob_positions_coverage(hass):

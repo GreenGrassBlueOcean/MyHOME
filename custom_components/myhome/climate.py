@@ -325,7 +325,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_fan_modes: list[str] | None = None
         self._running_fan_speed: str | None = None
         self._actuator_states: dict[str, bool] = {}
-        if fan:
+        if fan and not self._central:
             self._enable_fan_mode()
 
         self._attr_current_temperature: float | None = None
@@ -342,6 +342,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     def _enable_fan_mode(self) -> None:
         """Dynamically enable fan mode support if not already enabled."""
+        if self._central:
+            return
         if not self._fan:
             self._fan = True
             self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
@@ -547,13 +549,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if cmd is not None:
                 await self._gateway_handler.send(cmd)
         elif hvac_mode == HVACMode.AUTO:
-            cmd = OWNHeatingCommand.set_mode(
-                where=self._where,
-                mode=CLIMATE_MODE_AUTO,
-                standalone=self._standalone,
+            await self._gateway_handler.send(
+                OWNHeatingCommand.set_mode(
+                    where=self._where,
+                    mode=CLIMATE_MODE_AUTO,
+                    standalone=self._standalone,
+                )
             )
-            if cmd is not None:
-                await self._gateway_handler.send(cmd)
         elif hvac_mode == HVACMode.HEAT:
             if self._target_temperature is not None:
                 await self._gateway_handler.send(

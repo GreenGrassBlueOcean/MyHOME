@@ -81,9 +81,9 @@
   who: 4
   what: 1
   where: "#0"
-  source: legrand-spec
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Set 99-zone Central Unit to Heating mode"
+  mcp_notes: "Set 99-zone Central Unit to Heating mode (OpenWebNet Encyclopedia what.md; openwebnet-mcp flags non-standard WHAT warning due to legacy summary table)"
   roundtrip: true
   builder:
     class: OWNHeatingCommand
@@ -96,9 +96,9 @@
   who: 4
   what: 0
   where: "#0"
-  source: legrand-spec
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Set 99-zone Central Unit to Cooling mode"
+  mcp_notes: "Set 99-zone Central Unit to Cooling mode (OpenWebNet Encyclopedia what.md; openwebnet-mcp flags non-standard WHAT warning due to legacy summary table)"
   roundtrip: true
   builder:
     class: OWNHeatingCommand
@@ -111,9 +111,9 @@
   who: 4
   what: 303
   where: "#0"
-  source: legrand-spec
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Turn conditioning OFF on 99-zone Central Unit"
+  mcp_notes: "Turn conditioning OFF on 99-zone Central Unit (OpenWebNet Encyclopedia what.md; openwebnet-mcp flags non-standard WHAT warning due to legacy summary table)"
   roundtrip: true
   builder:
     class: OWNHeatingCommand
@@ -219,9 +219,9 @@
   who: 4
   what: 1
   where: "#0"
-  source: legrand-spec
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Set 4-zone Central Unit to Heating mode"
+  mcp_notes: "Set 4-zone Central Unit to Heating mode (OpenWebNet Encyclopedia what.md; openwebnet-mcp flags non-standard WHAT warning due to legacy summary table)"
   roundtrip: true
   builder:
     class: OWNHeatingCommand
