@@ -8,7 +8,7 @@ Verifies the integration and protocol engine health of OWNd across:
 
 Executes 4 comprehensive validation gates:
 - Gate 1: Metadata & Version Lockstep Audit
-- Gate 2: OpenWebNet Golden Corpus Conformance (191 tests)
+- Gate 2: OpenWebNet Golden Corpus Conformance (one fixture per tests/golden/corpus.json entry)
 - Gate 3: Integration Platform Import Cleanliness
 - Gate 4: Mock Gateway TCP Handshake & Asynchronous Event Loopback
 """
@@ -105,7 +105,11 @@ def verify_golden_corpus() -> Tuple[bool, str]:
     res = run_cmd(cmd, check=False)
     if res.returncode != 0:
         return False, "test_golden_conformance.py failed against installed OWNd"
-    return True, "191 Golden Corpus fixtures verified (parser extraction & builder parity passed)"
+    try:
+        count = len(json.loads((REPO_ROOT / "tests" / "golden" / "corpus.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        count = "all"
+    return True, f"{count} Golden Corpus fixtures verified (parser extraction & builder parity passed)"
 
 
 def verify_platform_imports() -> Tuple[bool, str]:
