@@ -215,18 +215,20 @@ async def async_setup_entry(
     if platform is not None:
         platform.async_register_entity_service(
             SERVICE_TURN_ON_TIMED,
-            as_any({
-                vol.Optional("duration"): vol.Coerce(float),
-                vol.Optional("hours", default=0): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=255)
-                ),
-                vol.Optional("minutes", default=0): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=59)
-                ),
-                vol.Optional("seconds", default=0): vol.All(
-                    vol.Coerce(float), vol.Range(min=0, max=59)
-                ),
-            }),
+            as_any(
+                {
+                    vol.Optional("duration"): vol.Coerce(float),
+                    vol.Optional("hours", default=0): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=255)
+                    ),
+                    vol.Optional("minutes", default=0): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=59)
+                    ),
+                    vol.Optional("seconds", default=0): vol.All(
+                        vol.Coerce(float), vol.Range(min=0, max=59)
+                    ),
+                }
+            ),
             "async_turn_on_timed",
         )
 
@@ -1099,7 +1101,12 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._attr_brightness = percent_to_eight_bits(message.brightness)
                 if message.brightness > 0:
                     self._last_brightness_pct = message.brightness
-        elif has_level and message.brightness is None and isinstance(message.brightness_preset, int) and not is_fading:
+        elif (
+            has_level
+            and message.brightness is None
+            and isinstance(message.brightness_preset, int)
+            and not is_fading
+        ):
             # WHAT 2..10 is "ON at 20 %..100 %": the preset is the level, not just
             # a hint that the actuator can dim.
             self._apply_brightness_state(max(0, min(100, message.brightness_preset * 10)))

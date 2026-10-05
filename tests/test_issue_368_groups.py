@@ -30,7 +30,14 @@ def _gateway() -> MagicMock:
     return gateway
 
 
-def _group(hass: HomeAssistant, gateway: MagicMock, *, members: list[str] | None = None, entity_id: str = "light.group_6", **flags) -> MyHOMELightGroup:
+def _group(
+    hass: HomeAssistant,
+    gateway: MagicMock,
+    *,
+    members: list[str] | None = None,
+    entity_id: str = "light.group_6",
+    **flags,
+) -> MyHOMELightGroup:
     entity = MyHOMELightGroup(
         hass,
         "Group 6",
@@ -105,8 +112,9 @@ async def test_build_group_from_yaml(hass: HomeAssistant):
     """A `where: '#6'` yaml light becomes a MyHOMELightGroup, not a broken point light."""
     from homeassistant.util.yaml.loader import parse_yaml
 
-    validated = config_schema(parse_yaml(
-        f"""
+    validated = config_schema(
+        parse_yaml(
+            f"""
 {MAC}:
   light:
     group_6:
@@ -114,7 +122,8 @@ async def test_build_group_from_yaml(hass: HomeAssistant):
       name: Kitchen Group
       dimmable: true
 """
-    ))
+        )
+    )
     lights = validated[MAC]["platforms"]["light"]
 
     config_entry = MagicMock()
@@ -124,7 +133,9 @@ async def test_build_group_from_yaml(hass: HomeAssistant):
     hass.data = {DOMAIN: {MAC: {"entity": gateway, "platforms": {"light": lights}}}}
 
     with (
-        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]),
+        patch(
+            "custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]
+        ),
         patch("custom_components.myhome.discovery.er.async_get", return_value=MagicMock()),
     ):
         async_add_entities = MagicMock()
@@ -152,7 +163,10 @@ async def test_restore_group_from_registry(hass: HomeAssistant):
     mock_entry.unique_id = f"{MAC}-1-#6"
 
     with (
-        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[mock_entry]),
+        patch(
+            "custom_components.myhome.discovery.er.async_entries_for_config_entry",
+            return_value=[mock_entry],
+        ),
         patch("custom_components.myhome.discovery.er.async_get", return_value=MagicMock()),
     ):
         async_add_entities = MagicMock()
@@ -168,8 +182,9 @@ async def test_build_refuses_area_and_general_where(hass: HomeAssistant, caplog)
     """Area/general yaml WHEREs never make a light entity (#368 point 3, #402)."""
     from homeassistant.util.yaml.loader import parse_yaml
 
-    validated = config_schema(parse_yaml(
-        f"""
+    validated = config_schema(
+        parse_yaml(
+            f"""
 {MAC}:
   light:
     area_1:
@@ -179,7 +194,8 @@ async def test_build_refuses_area_and_general_where(hass: HomeAssistant, caplog)
       where: '100'
       name: Area 10 Light
 """
-    ))
+        )
+    )
     lights = validated[MAC]["platforms"]["light"]
 
     config_entry = MagicMock()
@@ -189,7 +205,9 @@ async def test_build_refuses_area_and_general_where(hass: HomeAssistant, caplog)
     hass.data = {DOMAIN: {MAC: {"entity": gateway, "platforms": {"light": lights}}}}
 
     with (
-        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]),
+        patch(
+            "custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]
+        ),
         patch("custom_components.myhome.discovery.er.async_get", return_value=MagicMock()),
     ):
         async_add_entities = MagicMock()
@@ -205,15 +223,17 @@ async def test_build_allows_point_to_point_where_10(hass: HomeAssistant, caplog)
     """WHERE '10' is Point-to-Point (A=1, PL=0), NOT an area broadcast (#402)."""
     from homeassistant.util.yaml.loader import parse_yaml
 
-    validated = config_schema(parse_yaml(
-        f"""
+    validated = config_schema(
+        parse_yaml(
+            f"""
 {MAC}:
   light:
     light_10:
       where: '10'
       name: Light 10
 """
-    ))
+        )
+    )
     lights = validated[MAC]["platforms"]["light"]
 
     config_entry = MagicMock()
@@ -223,7 +243,9 @@ async def test_build_allows_point_to_point_where_10(hass: HomeAssistant, caplog)
     hass.data = {DOMAIN: {MAC: {"entity": gateway, "platforms": {"light": lights}}}}
 
     with (
-        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]),
+        patch(
+            "custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]
+        ),
         patch("custom_components.myhome.discovery.er.async_get", return_value=MagicMock()),
     ):
         async_add_entities = MagicMock()
@@ -397,8 +419,12 @@ async def test_bus_frame_wrong_group_ignored(hass: HomeAssistant):
 async def test_members_resolve_and_track(hass: HomeAssistant):
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
-    entry2 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
+    entry2 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2"
+    )
 
     group = _group(hass, gateway, members=["11", "12"], dimmable=True, color_temp=False, rgb=False)
     await group.async_added_to_hass()
@@ -427,7 +453,9 @@ async def test_members_resolve_and_track(hass: HomeAssistant):
 async def test_members_all_off_clears_derived_attributes(hass: HomeAssistant):
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
 
     group = _group(hass, gateway, members=["11"], dimmable=True, color_temp=False, rgb=False)
     await group.async_added_to_hass()
@@ -447,7 +475,9 @@ async def test_members_mode_ignores_group_broadcast_frames(hass: HomeAssistant):
     """With declared members, a group bus frame carries no per-member truth and is dropped."""
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
     hass.states.async_set(entry1.entity_id, "off")
 
     group = _group(hass, gateway, members=["11"])
@@ -502,9 +532,13 @@ async def test_bus_frame_updates_icon(hass: HomeAssistant):
 async def test_member_changed_updates_icon(hass: HomeAssistant):
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
 
-    group = _group(hass, gateway, members=["11"], icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on")
+    group = _group(
+        hass, gateway, members=["11"], icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on"
+    )
     await group.async_added_to_hass()
 
     hass.states.async_set(entry1.entity_id, STATE_ON)
@@ -524,7 +558,9 @@ async def test_members_on_without_reported_attributes_clears_derived_values(hass
     """A member that is on but reports no brightness/colour clears the group's derived values."""
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
 
     group = _group(hass, gateway, members=["11"])
     await group.async_added_to_hass()
@@ -542,8 +578,12 @@ async def test_members_hs_color_is_averaged(hass: HomeAssistant):
 
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
-    entry2 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
+    entry2 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2"
+    )
 
     group = _group(hass, gateway, members=["11", "12"], dimmable=False, color_temp=False, rgb=True)
     await group.async_added_to_hass()
@@ -560,8 +600,12 @@ async def test_members_color_temp_kelvin_is_averaged(hass: HomeAssistant):
 
     gateway = _gateway()
     registry = er.async_get(hass)
-    entry1 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1")
-    entry2 = registry.async_get_or_create("light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2")
+    entry1 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-11", suggested_object_id="member_1"
+    )
+    entry2 = registry.async_get_or_create(
+        "light", DOMAIN, f"{MAC}-1-12", suggested_object_id="member_2"
+    )
 
     group = _group(hass, gateway, members=["11", "12"], dimmable=False, color_temp=True, rgb=False)
     await group.async_added_to_hass()
@@ -621,7 +665,9 @@ async def test_group_turn_on_simultaneous_brightness_and_color_temp(hass: HomeAs
     gateway = _gateway()
     group = _group(hass, gateway, dimmable=True, color_temp=True, rgb=False)
 
-    await group.async_turn_on(**{ATTR_BRIGHTNESS: 128, ATTR_COLOR_TEMP_KELVIN: 3000, "transition": 10})
+    await group.async_turn_on(
+        **{ATTR_BRIGHTNESS: 128, ATTR_COLOR_TEMP_KELVIN: 3000, "transition": 10}
+    )
 
     assert gateway.send.await_count == 2
     sent_frames = [str(c.args[0]) for c in gateway.send.call_args_list]
@@ -661,5 +707,3 @@ async def test_group_turn_on_brightness_rounding(hass: HomeAssistant):
     sent = str(gateway.send.call_args[0][0])
     assert sent == "*#1*#6*#1*200*0##"
     assert group.brightness == 254
-
-
