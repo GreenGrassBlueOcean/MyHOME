@@ -619,10 +619,15 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         return self._fade_engine.should_use_software_stepped(transition)
 
     async def _set_brightness_instant(self, pct: int) -> None:
-        """Send set_brightness with transition=0."""
-        await self._gateway_handler.send(
-            OWNLightingCommand.set_brightness(self._full_where, pct, 0)
-        )
+        """Send set_brightness with transition=0, or switch_off when pct <= 0."""
+        if pct <= 0:
+            await self._gateway_handler.send(
+                OWNLightingCommand.switch_off(self._full_where)
+            )
+        else:
+            await self._gateway_handler.send(
+                OWNLightingCommand.set_brightness(self._full_where, pct, 0)
+            )
 
     async def _maybe_instant_brightness(
         self, start_pct: int, target_pct: int, is_on: bool | None = None
@@ -676,6 +681,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             target_pct = brightness_pct
         elif brightness is not None:
             target_pct = eight_bits_to_percent(brightness)
+            if target_pct == 0 and brightness > 0:
+                target_pct = 1
 
         if (
             target_pct is not None
@@ -742,6 +749,8 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
             # Determine Value (brightness 0-100%)
             if ATTR_BRIGHTNESS in kwargs:
                 v = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
+                if v == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
+                    v = 1
             elif ATTR_BRIGHTNESS_PCT in kwargs:
                 v = kwargs[ATTR_BRIGHTNESS_PCT]
             elif self._attr_brightness_pct is not None and self._attr_brightness_pct > 0:
