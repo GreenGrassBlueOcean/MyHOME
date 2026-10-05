@@ -1795,34 +1795,71 @@ def test_gateway_supported_whos_profile_exception(monkeypatch: pytest.MonkeyPatc
     assert whos == set()
 
 
+def _require_f453av_profile() -> None:
+    """Skip when the installed OWNd does not discriminate F453AV firmware yet (OWNd#80)."""
+    profiles = pytest.importorskip("OWNd.profiles")
+    if not hasattr(profiles, "F453AVProfile"):
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+
+
 def test_gateway_supported_whos_with_firmware() -> None:
     """Verify gateway_supported_whos discriminates firmware-gated capabilities (e.g. F453AV CEN+)."""
+    _require_f453av_profile()
+
     from custom_components.myhome.topology import gateway_supported_whos
 
     # F453AV without firmware or < 2.1.7: no WHO 25
     assert 25 not in gateway_supported_whos("F453AV")
     assert 25 not in gateway_supported_whos("F453AV", "1.0.19")
 
-    # If installed OWNd does not discriminate F453AV firmware yet, skip positive assertion
-    if 25 not in gateway_supported_whos("F453AV", "2.1.7"):
-        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
-
     # F453AV with FW >= 2.1.7: supports WHO 25
     assert 25 in gateway_supported_whos("F453AV", "2.1.7")
     assert 25 in gateway_supported_whos("F453AV", "3.0.0")
 
 
-def test_validate_shared_bus_topology_firmware_delegation(hass: HomeAssistant) -> None:
-    """Verify validate_shared_bus_topology permits WHO 25 when secondary F453AV has FW >= 2.1.7."""
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+def test_gateway_supported_whos_passes_firmware_to_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify gateway_supported_whos passes firmware to get_gateway_profile when supported."""
+    from custom_components.myhome.topology import gateway_supported_whos
 
-    from custom_components.myhome.topology import (
-        gateway_supported_whos,
-        validate_shared_bus_topology,
+    captured_calls: list[tuple[str, str | None]] = []
+
+    class DummyFirmwareProfile:
+        supported_who = {1, 25}
+
+        def __init__(self, model: str, fw: str | None) -> None:
+            self.model = model
+            self.fw = fw
+
+        def supports_who(self, who: int) -> bool:
+            if who == 25:
+                return self.fw == "2.1.7"
+            return True
+
+    def mock_two_arg_get_profile(model: str | None, fw: str | None = None) -> Any:
+        captured_calls.append((model or "", fw))
+        return DummyFirmwareProfile(model or "", fw)
+
+    monkeypatch.setattr(
+        "OWNd.profiles.get_gateway_profile",
+        mock_two_arg_get_profile,
     )
 
-    if 25 not in gateway_supported_whos("F453AV", "2.1.7"):
-        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+    whos_old = gateway_supported_whos("F453AV", "1.0.0")
+    assert 25 not in whos_old
+    assert captured_calls[-1] == ("F453AV", "1.0.0")
+
+    whos_new = gateway_supported_whos("F453AV", "2.1.7")
+    assert 25 in whos_new
+    assert captured_calls[-1] == ("F453AV", "2.1.7")
+
+
+def test_validate_shared_bus_topology_firmware_delegation(hass: HomeAssistant) -> None:
+    """Verify validate_shared_bus_topology permits WHO 25 when secondary F453AV has FW >= 2.1.7."""
+    _require_f453av_profile()
+
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.topology import validate_shared_bus_topology
 
     primary = MockConfigEntry(
         domain="myhome",
@@ -1858,6 +1895,75 @@ def test_validate_shared_bus_topology_firmware_delegation(hass: HomeAssistant) -
     assert errors_old.get("delegated_whos") == "who_not_supported_by_gateway"
 
     # Follower F453AV with FW >= 2.1.7 succeeds delegating WHO 25
+    follower_new = MockConfigEntry(
+        domain="myhome",
+        title="F453AV Gateway",
+        data={"address": "192.168.1.3", "model": "F453AV", "firmware": "2.1.7"},
+        unique_id="00:03:50:00:00:03",
+    )
+    errors_new = validate_shared_bus_topology(
+        hass,
+        follower_new,
+        {
+            "bus_topology": "shared",
+            "gateway_role": "secondary",
+            "primary_gateway": "00:03:50:00:00:01",
+            "delegated_whos": ["25"],
+        },
+    )
+    assert "delegated_whos" not in errors_new
+
+
+def test_validate_shared_bus_topology_firmware_delegation_mocked(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify validate_shared_bus_topology delegates based on entry firmware version."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.topology import validate_shared_bus_topology
+
+    def mock_supported_whos(model: str | None, firmware: str | None = None) -> set[int]:
+        if model == "F453AV" and firmware == "2.1.7":
+            return {1, 2, 4, 15, 25}
+        return {1, 2, 4, 15}
+
+    monkeypatch.setattr(
+        "custom_components.myhome.topology.gateway_supported_whos",
+        mock_supported_whos,
+    )
+
+    primary = MockConfigEntry(
+        domain="myhome",
+        title="F454 Gateway",
+        data={
+            "address": "192.168.1.1",
+            "model": "F454",
+            "firmware": "2.0.0",
+            "bus_topology": "shared",
+            "gateway_role": "primary",
+        },
+        unique_id="00:03:50:00:00:01",
+    )
+    primary.add_to_hass(hass)
+
+    follower_old = MockConfigEntry(
+        domain="myhome",
+        title="F453AV Gateway",
+        data={"address": "192.168.1.2", "model": "F453AV", "firmware": "1.0.19"},
+        unique_id="00:03:50:00:00:02",
+    )
+    errors_old = validate_shared_bus_topology(
+        hass,
+        follower_old,
+        {
+            "bus_topology": "shared",
+            "gateway_role": "secondary",
+            "primary_gateway": "00:03:50:00:00:01",
+            "delegated_whos": ["25"],
+        },
+    )
+    assert errors_old.get("delegated_whos") == "who_not_supported_by_gateway"
+
     follower_new = MockConfigEntry(
         domain="myhome",
         title="F453AV Gateway",
