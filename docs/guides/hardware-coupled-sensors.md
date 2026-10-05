@@ -15,7 +15,7 @@ In classic BTicino MyHOME installations, point-to-point automation is establishe
 [BTicino 3477 Contact Interface]  (Model 129, Configured: A=9, PL=8)
          │ SCS Bus Event: *1*1*98##
          ▼
-[BTicino F411/4 Relay Actuator]   (Model 130, Channel 4: A=9, PL4=8)
+[BTicino F411/4 Relay Actuator]   (Channel 4: A=9, PL4=8)
          │ relay closure
          ▼
 [Outdoor Light Fixture]
@@ -23,21 +23,16 @@ In classic BTicino MyHOME installations, point-to-point automation is establishe
 
 ### Diagnostic Investigation via WHO 1001
 
-You can confirm whether an address is hardware-coupled by querying OpenWebNet diagnostics (`WHO 1001`):
+OpenWebNet diagnostics (`WHO 1001`) can help identify which device sits behind an address, with caveats:
 
-1. **Query Installed Device Models (`DIMENSION 1`)**:
-   Send `*#1001*WHERE*1##` (for example, address `98`: `*#1001*98*1##`).
-   When two devices share the same address, the gateway returns two separate diagnostic responses:
-   - `*#1001*98*1*130*6##`: Identifies **Model 130** (BTicino F411/4 4-relay modular actuator, 6 configurator positions).
-   - `*#1001*98*1*129*5##`: Identifies **Model 129** (BTicino 3477 Basic Contact Interface, 5 configurator positions).
-
-2. **Read Back Physical Configurators (`DIMENSION 4`)**:
-   Send `*#1001*WHERE*4##` (for address `98`: `*#1001*98*4##`):
-   - `*#1001*98*4*9*5*6*7*8*15##`: Reports configurators `A=9`, `PL1=5`, `PL2=6`, `PL3=7`, `PL4=8`, `M=15`. Channel 4 corresponds to `PL4=8`, directly creating SCS lighting address `98`.
-   - `*#1001*98*4*9*8*0*0*15*0##`: Reports configurators `A=9`, `PL=8`, `M=0`, configuring the 3477 to broadcast commands directly to address `98`.
+1. **Identity request (`DIMENSION 1`)**: send `*#1001*WHERE*1##` (for address `98`: `*#1001*98*1##`). A device answers with `*#1001*WHERE*1*OBJECT_MODEL*N_CONF*BRAND*LINE##`: its item/model value, its number of physical configurator positions, and brand and product-line codes. The MyHOME_Suite catalogue lists object model `129` for the 3477 contact interface.
+2. **Which devices answer**: a device appears to answer diagnostics at the address of its *first* channel. An F411/4 configured `A=9`, `PL1=5` … `PL4=8` would then answer at `95`, not `98`, so a reply at `98` normally comes from the 3477 (or a single-channel actuator), not from the F411/4 channel that shares the address.
+3. **Configurator readback (`DIMENSION 4`)**: MyHOME_Suite can read the inserted configurators with `*#1001*WHERE*4##`, but gateways may NACK it.
 
 > [!NOTE]
-> The Model 130 and Model 129 replies above were captured and verified directly on a physical MH200 gateway plant. Readback of inserted physical configurators via `DIMENSION 4` (`*#1001*WHERE*4*...##`) is defined in the OpenWebNet WHO 1001 diagnostic specification; however, some gateway models or older firmware revisions (such as early MH200/MH201 versions) may NACK `DIMENSION 4` requests and only report `DIMENSION 1`.
+> These diagnostic replies have not been captured on a test plant for this guide yet. If you can capture them for a 3477 and the actuator it drives, please attach the trace to [issue #631](https://github.com/OpenWebNet-HA/MyHOME/issues/631).
+>
+> The practical signal is simpler: if `light.light_98` turns on by itself at dusk and a 3477 is installed with `A=9`, `PL=8`, the address is hardware-coupled.
 
 ### What Happens on the Wire
 
@@ -45,7 +40,7 @@ You can confirm whether an address is hardware-coupled by querying OpenWebNet di
 2. **SCS Broadcast**: The **BTicino 3477** senses the transition and broadcasts an unsolicited lighting command:
    `*1*1*98##`
 3. **Actuator Switching**: Relay Channel 4 on the **F411/4** receives this command directly on the SCS bus and closes, illuminating the outdoor light.
-4. **Edge-Triggered Behavior & Manual Control**: The 3477 operates strictly on state transitions (edge-triggered). It transmits a single command upon contact closure and does **not** cyclically re-assert state while closed. When you turn off the light from Home Assistant, an app, or an SCS wall switch, the gateway sends `*1*0*98##`. The actuator opens its relay and remains off for the rest of the evening without being overridden by the sensor.
+4. **Edge-Triggered Behavior & Manual Control**: The 3477 is expected to act on state transitions only: it sends one command when the contact closes and does not repeat it while the contact stays closed. When you turn off the light from Home Assistant, an app, or an SCS wall switch, `*1*0*98##` opens the relay and it stays off for the rest of the evening. Watch the bus for an evening to confirm this on your plant; the curfew approach depends on it.
 5. **At Dawn**: When daylight returns, the twilight switch contact opens, causing the 3477 to broadcast `*1*0*98##`.
 
 ---
@@ -77,14 +72,15 @@ If you cannot easily modify physical configurator plugs in electrical panels, us
   - **Configurable Morning Curfew End**: Configurable `curfew_end_time` (default `06:00:00`), after which daytime behavior resumes.
   - **Max Run Duration**: Optional timeout (e.g. 180 minutes) to guarantee the light turns off even on dark winter afternoons when dusk occurs early.
   - **Companion Synchronization**: When the hardware twilight light turns on at dusk, automatically illuminates additional outdoor lights (e.g. pathway spots, facade accents) and turns them off together at curfew.
-  - **Presence Gating**: Supports `zone.*` (evaluates as away when occupant count is 0), `person.*`, `device_tracker.*`, `group.*`, or `binary_sensor.*`. When occupants are away, reduces the runtime to a configurable `away_timeout`. Dynamic presence tracking automatically turns off lights if occupants leave mid-evening.
-  - **Optional Daylight Guard**: Optional `after_sunset_only` (default `false`) gates companion activation to astronomical night. Keep disabled if your twilight photocell trips before sunset on overcast or winter afternoons.
+  - **Presence Gating**: Supports `zone.*` (evaluates as away when occupant count is 0), `person.*`, `device_tracker.*`, `group.*`, `binary_sensor.*`, or `alarm_control_panel.*` (away when `armed_away` or `armed_vacation`). When occupants are away, reduces the runtime to a configurable `away_timeout`. Dynamic presence tracking automatically turns off lights if occupants leave mid-evening.
+  - **Optional Daylight Guard**: Optional `after_sunset_only` (default `false`) gates companion activation to astronomical night. Keep disabled if your twilight photocell trips before sunset on overcast or winter afternoons. While it is disabled, switching the light on by hand during the day also turns the companion lights on.
   - **Service & Maintenance Overrides**:
-    - **Service Power (Gardener / Power Tools)**: Energizes the circuit immediately on demand during daylight hours, suspends curfew and presence shutoffs, and features a safety auto-reset timer (default 4 hours) so outdoor power is never left on indefinitely.
-    - **Safety Lockout (Electrician / Wiring Work)**: Forces the circuit OFF immediately and intercepts/blocks any dusk photocell triggers or indoor wall switch presses while lamps or wiring are being serviced.
+    - **Service Power (Gardener / Power Tools)**: Energizes the circuit immediately on demand during daylight hours, suspends curfew and presence shutoffs, and turns everything off again after `service_timeout_hours` (default 4 hours). A Home Assistant restart re-arms the full timeout.
+    - **Maintenance Hold**: Turns the circuit off and switches any photocell or wall switch turn-on straight back off. It is a convenience, not electrical isolation; see the warning below.
     - **Pause Automation**: Leaves lights under manual control, temporarily bypassing all curfew and timer logic.
   - **Reconnection Resilience**: Uses `from: "off"` to ensure temporary gateway drops or Home Assistant restarts (`unavailable -> on`) do not re-run curfew sequences in the middle of the night.
-  - **Post-Curfew Safety**: Automatically turns off the light after a 2-minute safety grace period if it is turned on during curfew hours.
+  - **Turn-Ons During Curfew**: A turn-on between `curfew_time` and `curfew_end_time` is turned off after 2 minutes. This includes deliberate turn-ons from a wall switch; use the `pause_automation` override if you need the light for longer at night.
+  - **Restarts**: Home Assistant does not keep a running `max_duration` timer across a restart; the curfew still applies afterwards.
 
 ### Example Automation Configuration
 
@@ -113,12 +109,15 @@ use_blueprint:
     service_timeout_hours: 4
 ```
 
-### Temporary Overrides: Gardener Power & Electrician Safety
+### Temporary Overrides: Gardener Power & Maintenance Hold
 
-Outdoor lighting circuits frequently double as power lines for garden sockets (lawnmowers, hedge trimmers, pumps) or require maintenance:
+Outdoor lighting circuits frequently double as power lines for garden sockets (lawnmowers, hedge trimmers, pumps) or need maintenance:
 
-1. **Gardener Service Power**: Create a helper (`input_boolean.gardener_power` in **Settings → Devices & Services → Helpers**). When turned on (via a dashboard button or NFC tag by the shed), the automation energizes `light.light_98` immediately and suspends curfew/presence turn-offs. After `service_timeout_hours` (e.g., 4 hours), it automatically turns off the circuit and resets the helper.
-2. **Safety Lockout**: When servicing light fixtures or pruning near live cabling, configure `override_mode: safety_lockout` with an `input_boolean.lighting_maintenance_lock` helper. When active, the automation immediately forces the light off and actively suppresses any photocell dusk trips, ensuring 230V is never applied to the circuit while someone is working on it.
+1. **Gardener Service Power**: Create a helper (`input_boolean.gardener_power` in **Settings → Devices & Services → Helpers**). When turned on (via a dashboard button or NFC tag by the shed), the automation energizes `light.light_98` immediately and suspends curfew/presence turn-offs. After `service_timeout_hours` (e.g., 4 hours), it automatically turns off the circuit and resets the helper. Turning the helper off earlier ends the session and cancels the timeout.
+2. **Maintenance Hold**: Configure `override_mode: maintenance_hold` with a helper such as `input_boolean.lighting_maintenance_hold`. While it is on, the automation turns the light off and switches any photocell or wall switch turn-on straight back off, so lamps stay dark while you replace bulbs or tidy the garden.
+
+> [!WARNING]
+> **Maintenance hold is not electrical isolation.** The 3477 switches the relay directly on the bus; Home Assistant only turns it back off afterwards, so the circuit is briefly live on every dusk trigger or switch press. If Home Assistant, the gateway or the network is down, nothing turns it off at all. Before touching wiring, fixtures or lamp holders, switch off and lock the circuit breaker.
 
 
 ---
@@ -130,10 +129,13 @@ If you prefer Home Assistant to hold **100% software authority** over whether an
 ### Option A: Move 3477 to an Unused Address (Physical Decoupling)
 
 1. Locate the **BTicino 3477** module in your electrical panel.
-2. Remove the `PL` configurator plug and replace it with an address in Area 9 where no physical relay exists (e.g. change from `PL=8` to `PL=10`).
-3. **Result**: At dusk, the 3477 broadcasts `*1*1*910##`. No physical relay clicks or turns on.
-4. In Home Assistant, address `910` appears as `light.light_910` (or dispatches a `myhome_event`).
-5. Create a standard Home Assistant automation triggered by `light.light_910` turning on to evaluate weather, presence, and schedule before commanding the actual fixture `light.light_98`.
+2. Replace the `PL` configurator with a point in Area 9 that no actuator uses (e.g. change from `PL=8` to `PL=9` if nothing answers at `99`).
+3. **Result**: At dusk, the 3477 broadcasts `*1*1*99##`. No physical relay clicks or turns on.
+4. In Home Assistant, address `99` appears as `light.light_99` once the integration has seen it on the bus.
+5. Create a standard Home Assistant automation triggered by `light.light_99` turning on to evaluate weather, presence, and schedule before commanding the actual fixture `light.light_98`.
+
+> [!NOTE]
+> A light point of 10 or more uses the four-digit address form: `A=9`, `PL=10` is `0910`, not `910`.
 
 ### Option B: Configure 3477 as a Dry Contact Interface (`WHO = 25`)
 
@@ -141,13 +143,16 @@ If you prefer Home Assistant to hold **100% software authority** over whether an
 2. **Result**: The interface transmits OpenWebNet dry contact frames where `WHAT` is `31` for contact closed and `32` for contact open:
    - Contact closed (dusk): `*25*31#1*WHERE##`
    - Contact opened (dawn): `*25*32#1*WHERE##`
-3. In Home Assistant, declare the contact in `myhome.yaml` using its configured virtual address (for example `where: "15"`):
+3. In Home Assistant, the contact is discovered automatically the first time it changes state (see [Binary Sensors](../configuration/binary-sensors.md)). The contact closes at dusk, so the sensor reads `on` when it is dark. If you want Home Assistant's **Light** device class (`on` = light detected), declare it in `myhome.yaml` under your gateway with `inverted: true`, using its configured address (for example `15`):
    ```yaml
-   binary_sensor:
-     - who: "25"
-       where: "15"
-       name: "Twilight Sensor"
-       device_class: "opening"
+   00:03:50:81:22:33:
+     binary_sensor:
+       twilight_sensor:
+         who: "25"
+         where: "15"
+         name: "Twilight Sensor"
+         device_class: light
+         inverted: true
    ```
 4. You now have full separation of concerns:
    - `binary_sensor.twilight_sensor` accurately mirrors daylight/darkness in real time.
