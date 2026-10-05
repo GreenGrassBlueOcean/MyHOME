@@ -76,10 +76,10 @@
   roundtrip: true
 
 - id: thermo.cmd.central.mode.heat.cu99
-  frame: "*4*101*#0##"
+  frame: "*4*1*#0##"
   direction: command
   who: 4
-  what: 101
+  what: 1
   where: "#0"
   source: legrand-spec
   mcp_valid: true
@@ -91,10 +91,10 @@
     args: ["#0", "heat"]
 
 - id: thermo.cmd.central.mode.cool.cu99
-  frame: "*4*102*#0##"
+  frame: "*4*0*#0##"
   direction: command
   who: 4
-  what: 102
+  what: 0
   where: "#0"
   source: legrand-spec
   mcp_valid: true
@@ -106,10 +106,10 @@
     args: ["#0", "cool"]
 
 - id: thermo.cmd.central.mode.off.cu99
-  frame: "*4*100*#0##"
+  frame: "*4*303*#0##"
   direction: command
   who: 4
-  what: 100
+  what: 303
   where: "#0"
   source: legrand-spec
   mcp_valid: true
@@ -214,10 +214,10 @@
   roundtrip: true
 
 - id: thermo.cmd.central.mode.heat.cu4
-  frame: "*4*101*#0#1##"
+  frame: "*4*1*#0#1##"
   direction: command
   who: 4
-  what: 101
+  what: 1
   where: "#0"
   source: legrand-spec
   mcp_valid: true

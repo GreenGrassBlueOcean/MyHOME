@@ -26,14 +26,14 @@ To prevent divergence and eliminate guesswork, every protocol frame and capabili
 |:---:|---|---|---|:---:|:---:|:---:|
 | **-** | **Signaling** | Gateway ACK / NACK | `*#*1##`, `*#*0##` | Valid | Matched | **VERIFIED (100%)** |
 | **0** | **Scenarios** | Execute, Stop, Start | `*0*1*1##`, `*0*2*1##` | Valid | Matched | **VERIFIED (100%)** |
-| **1** | **Lighting** | ON/OFF, Status, Speed Dimming, Private Bus (`#4#01`), Dimension writes | `*1*1*0311#4#01##`, `*1*1#5*12##`, `*#1*1*#1*20##` | Valid | Matched | **VERIFIED (100%)** |
-| **2** | **Automation** | Shutter UP/DOWN/STOP, Bus Routing (`#4#1`), Slat Tilt, Position % | `*2*1*21#4#1##`, `*#2*1*#1*50##`, `*2*2*12##` | Valid | Matched | **VERIFIED (100%)** |
+| **1** | **Lighting** | ON/OFF, Status, Speed Dimming, Private Bus (`#4#01`), Dimension writes | `*1*1*0311#4#01##`, `*1*1#5*12##`, `*#1*31*#1*150*5##` | Valid | Matched | **VERIFIED (100%)** |
+| **2** | **Automation** | Shutter UP/DOWN/STOP, Bus Routing (`#4#01`), Slat Tilt, Position % | `*2*1*31#4#01##`, `*#2*31*#11#001*100##`, `*2*2*12##` | Valid | Matched | **VERIFIED (100%)** |
 | **4** | **Thermoregulation** | Probe queries (`21.5°C`), Setpoints, Antifreeze, Negative Temp (`-4.8°C`) | `*#4*1*0*0215##`, `*#4*6*12*1048*3##`, `*#4*1*#14*0200*1##` | Valid | Matched | **VERIFIED (100%)** |
 | **5** | **Burglar Alarm** | Zone status, CU status, Silent alarms, System arm/disarm | `*5*1*1##`, `*#5*1##`, `*5*2*2##` | Valid | Matched | **VERIFIED (100%)** |
 | **9** | **Auxiliary** | Relay ON/OFF commands across auxiliary channels | `*9*1*1##`, `*9*0*1##` | Valid | Matched | **VERIFIED (100%)** |
 | **13** | **Gateway Mgmt** | Firmware version, Gateway internal datetime requests | `*#13*0*0##`, `*#13*0*22##` | Valid | Matched | **VERIFIED (100%)** |
 | **15** | **CEN Scenarios** | Press, short release, long release, extended hold | `*15*02*11##`, `*15*02#1*11##`, `*15*02#3*11##`, `*15*02#2*11##` | Valid | Matched | **DOCUMENTED (no bus capture)** |
-| **18** | **Energy Mgmt** | Instantaneous active power (W), Cumulative energy (kWh) | `*#18*51*113##`, `*#18*51*51##`, `*#18*51*52##` | Valid | Matched | **VERIFIED (100%)** |
+| **18** | **Energy Mgmt** | Instantaneous active power (W), Cumulative energy (kWh) | `*#18*51*113##`, `*#18*51*51##`, `*#18*51*52#26#9##` | Valid | Matched | **VERIFIED (100%)** |
 | **25** | **CEN+ / Dry Contacts**| Short press; start, hold and release of an extended press; WHERE `2` + object 0–2047 | `*25*21#1*21##`, `*25*22#1*21##`, `*25*23#1*21##`, `*25*24#1*21##` | Valid | Matched | **VERIFIED (100%)** |
 
 **DOCUMENTED** means the frames follow the [OpenWebNet Encyclopedia](https://github.com/OpenWebNet-HA/OpenWebNet-Encyclopedia) but no bus capture backs them yet. The WHO 15 row waits for the traces requested in [#434](https://github.com/OpenWebNet-HA/MyHOME/issues/434). The WHO 25 examples are an MH201 capture from [#418](https://github.com/OpenWebNet-HA/MyHOME/issues/418).

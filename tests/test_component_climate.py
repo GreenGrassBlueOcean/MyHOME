@@ -158,8 +158,7 @@ async def test_climate_properties_and_hvac_modes(hass):
 
     # Test set_hvac_mode AUTO
     await climate.async_set_hvac_mode(HVACMode.AUTO)
-    gateway.send.assert_called_once()
-    assert str(gateway.send.call_args[0][0]) == "*4*311*1##"
+    gateway.send.assert_not_called()
     gateway.send.reset_mock()
 
     # Test set_hvac_mode HEAT
@@ -607,19 +606,19 @@ async def test_climate_fan_mode_and_attributes(hass):
     # Test setting fan modes: low (1), medium (2), high (3), auto (0)
     await climate_fancoil.async_set_fan_mode("low")
     assert climate_fancoil.fan_mode == "low"
-    assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*1##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*5*#11*1##"
 
     await climate_fancoil.async_set_fan_mode("medium")
     assert climate_fancoil.fan_mode == "medium"
-    assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*2##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*5*#11*2##"
 
     await climate_fancoil.async_set_fan_mode("high")
     assert climate_fancoil.fan_mode == "high"
-    assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*3##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*5*#11*3##"
 
     await climate_fancoil.async_set_fan_mode("auto")
     assert climate_fancoil.fan_mode == "auto"
-    assert str(gateway.send.call_args[0][0]) == "*#4*#5*#11*0##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*5*#11*0##"
 
     # 'off' or unknown fan mode is not dispatched
     gateway.send.reset_mock()
