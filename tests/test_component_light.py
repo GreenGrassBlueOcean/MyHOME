@@ -1608,6 +1608,38 @@ async def test_dali_rgb_turn_on_commands(hass):
     assert mock_gateway.send_status_request.call_args_list[1][0][0]._raw == "*#1*25#4#02*12##"
 
 
+async def test_dali_turn_on_brightness_one_clamps_to_one(hass):
+    """Test that turning on DALI light with 1 8-bit brightness clamps to 1%."""
+    mock_gateway = MagicMock()
+    mock_gateway.send = AsyncMock()
+    mock_gateway.config_entry = MagicMock()
+    mock_gateway.config_entry.options = {}
+
+    light = MyHOMELight(
+        hass=hass,
+        name="DALI RGB Light",
+        entity_name="DALI RGB Light",
+        icon="mdi:lightbulb",
+        icon_on="mdi:lightbulb-on",
+        device_id="25#4#02",
+        who="1",
+        where="25",
+        interface="02",
+        dimmable=True,
+        manufacturer="BTicino",
+        model="DALI Ballast",
+        gateway=mock_gateway,
+        rgb=True,
+    )
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+
+    await light.async_turn_on(hs_color=(255.0, 100.0), brightness=1)
+    mock_gateway.send.assert_called_once()
+    sent_cmd = mock_gateway.send.call_args[0][0]
+    assert sent_cmd._raw == "*#1*25#4#02*#12*255*100*1##"
+
+
 async def test_async_setup_entry_rgb_config(hass):
     """Test light setup from config entry with rgb flag."""
     from homeassistant.const import CONF_NAME

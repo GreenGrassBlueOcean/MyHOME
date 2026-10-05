@@ -227,6 +227,15 @@ def eight_bits_to_percent(value: int) -> int:
     return int(round((value * 100) / 255, 0))
 
 
+def eight_bits_to_min_percent(value: int) -> int:
+    """Like :func:`eight_bits_to_percent`, but 1..2 of 255 is 1 %, never 0 %.
+
+    Level 0 % cannot be sent as a dimension 1 level (gateways NACK ``*#1*WHERE*#1*100*0##``),
+    so a non-zero brightness must stay "on at minimum".
+    """
+    return max(1, eight_bits_to_percent(value)) if value > 0 else 0
+
+
 def percent_to_eight_bits(value: int) -> int:
     """Convert a percentage (0-100) to 8-bit brightness (0-255)."""
     return int(round((value * 255) / 100, 0))
