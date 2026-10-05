@@ -132,6 +132,14 @@ For detailed configuration recommendations, DALI-2 tunable white setup, and grou
 
 ---
 
+## 🌙 Hardware-Coupled Sensors & Twilight Curfew Control
+
+In many installations, physical twilight sensors (photocells) or PIR motion detectors are wired to a contact interface (like the BTicino 3477) configured with the **same $A$ and $PL$ address as a lighting actuator relay**. This causes the light to turn on automatically at dusk at the hardware level.
+
+To add intelligent bedtime curfews, companion light synchronization, or decouple the sensor completely into Home Assistant, see the [Hardware-Coupled Sensors & Curfew Recipe](../recipes/hardware_coupled_sensors.md).
+
+---
+
 ## 🔄 Legacy YAML Note
 
 > [!NOTE]

@@ -20,6 +20,7 @@ Things the integration does not do, or does with a caveat, and the reason. Where
 | **A declared group (`where: '#G'` in `myhome.yaml`) never auto-discovers its membership.** (P7, #368) | OpenWebNet has no command to read back which actuators a group was programmed with - that is set on the plant itself (MyHOME_Suite or a physical group-programmed actuator), not on the bus. | Declare `members:` yourself if you want derived on/off, brightness and colour state; without it the entity is `assumed_state` and shows separate On/Off controls. |
 | **Colour modes are learned, not configured.** A DALI DT8 light shows colour temperature only after its first dimension 14 frame. | The bus does not describe an actuator's capabilities; it only reports what it does. | Set `color_temp: true` / `rgb: true` / `hs: true` in `myhome.yaml` to declare the mode up front. |
 | **Native transitions depend on the actuator.** | Some dimmers ignore the fade parameter. | Keep the default `software_stepped` transition mode. |
+| **Hardware-coupled sensors (e.g. 3477 twilight photocell sharing an actuator address) turn lights on automatically at dusk.** | Point-to-point SCS physical addressing binds the sensor interface directly to the actuator on the wire. | Use the [Dusk Curfew Recipe & Blueprint](../recipes/hardware_coupled_sensors.md) to add automated bedtime curfews or companion light synchronization, or decouple the 3477 to an unused address or WHO 25 dry contact. |
 
 ## Covers (WHO 2)
 

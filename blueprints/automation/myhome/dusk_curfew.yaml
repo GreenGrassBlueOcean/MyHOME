@@ -1,0 +1,139 @@
+blueprint:
+  name: "MyHOME - Dusk Curfew & Hardware-Coupled Sensor Control"
+  description: >
+    Manages lights that turn on automatically via hardware-coupled MyHOME SCS sensors
+    (such as a BTicino 3477 contact interface wired to an external twilight photocell,
+    or a BMSE1001 motion sensor sharing an address with a relay actuator).
+    
+    Enforces a bedtime curfew cutoff time or a maximum run duration, with optional
+    presence gating and companion light synchronization.
+  domain: automation
+  input:
+    target_light:
+      name: Hardware-Coupled Light
+      description: The MyHOME light entity triggered by the physical twilight/contact sensor (e.g. light.outdoor_light).
+      selector:
+        entity:
+          domain: light
+    curfew_time:
+      name: Curfew Cutoff Time
+      description: Time of night to force the light off (e.g., 23:00:00).
+      default: "23:00:00"
+      selector:
+        time: {}
+    max_duration:
+      name: Maximum Duration (Minutes)
+      description: Optional maximum runtime in minutes after turning on. Set to 0 to disable and rely solely on curfew time.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 720
+          unit_of_measurement: minutes
+          mode: box
+    sync_lights:
+      name: Synchronized Companion Lights (Optional)
+      description: Optional additional outdoor lights to turn on when the twilight sensor triggers, and turn off at curfew.
+      default: []
+      selector:
+        target:
+          entity:
+            domain: light
+    presence_entity:
+      name: Occupancy / Presence Entity (Optional)
+      description: If specified, when nobody is home (state is 'not_home', 'off', or 'away'), the light can turn off sooner.
+      default: []
+      selector:
+        entity: {}
+    away_timeout:
+      name: Away Mode Timeout (Minutes)
+      description: Minutes before turning off if the presence entity indicates nobody is home. Set to 0 to disable.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: minutes
+          mode: box
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input target_light
+    to: "on"
+    id: light_turned_on
+  - platform: time
+    at: !input curfew_time
+    id: curfew_reached
+
+variables:
+  target_light: !input target_light
+  max_duration: !input max_duration
+  sync_lights: !input sync_lights
+  presence_entity: !input presence_entity
+  away_timeout: !input away_timeout
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: light_turned_on
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+            then:
+              - action: light.turn_on
+                target: !input sync_lights
+          - if:
+              - condition: template
+                value_template: >
+                  {{ away_timeout > 0 and presence_entity != '' and presence_entity != [] and
+                     states(presence_entity) in ['not_home', 'off', 'away', 'disarmed'] }}
+            then:
+              - delay:
+                  minutes: "{{ away_timeout }}"
+              - action: light.turn_off
+                target:
+                  entity_id: !input target_light
+              - if:
+                  - condition: template
+                    value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+                then:
+                  - action: light.turn_off
+                    target: !input sync_lights
+            else:
+              - if:
+                  - condition: template
+                    value_template: "{{ max_duration > 0 }}"
+                then:
+                  - delay:
+                      minutes: "{{ max_duration }}"
+                  - action: light.turn_off
+                    target:
+                      entity_id: !input target_light
+                  - if:
+                      - condition: template
+                        value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+                    then:
+                      - action: light.turn_off
+                        target: !input sync_lights
+
+      - conditions:
+          - condition: trigger
+            id: curfew_reached
+          - condition: state
+            entity_id: !input target_light
+            state: "on"
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input target_light
+          - if:
+              - condition: template
+                value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+            then:
+              - action: light.turn_off
+                target: !input sync_lights
