@@ -991,7 +991,7 @@ class MyHOMEGatewayHandler:
             fw = entry_firmware(self.config_entry)
         try:
             self.gateway.profile = get_gateway_profile(model, fw)
-        except TypeError:
+        except TypeError:  # pragma: no cover - fallback for OWNd without firmware argument
             self.gateway.profile = get_gateway_profile(model)
         self.gateway._log_id = f"[{model} gateway - {self.gateway.host}]"
         self._trim_sending_workers(model)

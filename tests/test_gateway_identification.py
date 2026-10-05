@@ -894,6 +894,25 @@ def test_apply_model_falls_back_to_entry_firmware(dev_reg):
     assert h.gateway.profile.supports_who(WHO_CEN_PLUS) is True
 
 
+def test_apply_model_single_argument_profile_fallback(dev_reg, monkeypatch):
+    """Applying model falls back to 1-arg get_gateway_profile when OWNd does not accept firmware."""
+    from unittest.mock import MagicMock
+
+    def mock_single_arg_get_profile(model):
+        return MagicMock(model=model)
+
+    monkeypatch.setattr(
+        "custom_components.myhome.gateway.get_gateway_profile",
+        mock_single_arg_get_profile,
+    )
+
+    h = _handler({"name": "Generic", "firmware": "2.1.7"})
+    h.gateway.firmware = "2.1.7"
+    h._apply_model("F453AV")
+    assert h.gateway.model_name == "F453AV"
+    assert h.gateway.profile is not None
+
+
 def test_conflict_tracking_without_entry_id_and_registry_sync_without_device(dev_reg):
     """Defensive paths: no config entry id (no issue registry access) and no device registry id."""
     h = _handler()

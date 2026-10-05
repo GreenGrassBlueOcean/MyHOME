@@ -1891,6 +1891,30 @@ def test_entry_firmware_extraction() -> None:
     assert entry_firmware(entry_none) is None
 
 
+def test_gateway_supported_whos_single_arg_profile_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify gateway_supported_whos falls back when get_gateway_profile only takes 1 argument."""
+    from custom_components.myhome.topology import gateway_supported_whos
+
+    class DummyLegacyProfile:
+        supported_who = {1, 2, 4}
+
+        def supports_who(self, who: int) -> bool:
+            return True
+
+    def mock_single_arg_get_profile(model: str | None) -> Any:
+        return DummyLegacyProfile()
+
+    monkeypatch.setattr(
+        "OWNd.profiles.get_gateway_profile",
+        mock_single_arg_get_profile,
+    )
+
+    whos = gateway_supported_whos("F453AV", "2.1.7")
+    assert 1 in whos
+    assert 2 in whos
+    assert 4 in whos
+
+
 def test_infer_shared_bus_topology_equal_tier_b_has_more_whos(hass: HomeAssistant) -> None:
     """Test infer_shared_bus_topology when tier_a == tier_b but entry_b has more supported WHOs."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry

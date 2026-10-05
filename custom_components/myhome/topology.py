@@ -98,7 +98,7 @@ def gateway_supported_whos(
 
         try:
             profile = get_gateway_profile(model or "", firmware)
-        except TypeError:
+        except TypeError:  # pragma: no cover - fallback for OWNd without firmware argument
             profile = get_gateway_profile(model or "")
         supports = getattr(profile, "supports_who", None)
         supported = getattr(profile, "supported_who", None)
