@@ -64,6 +64,7 @@ from .const import (
     TRANSITION_MODE_NATIVE,
     TRANSITION_MODE_SOFTWARE,
     build_timed_turn_on_command,
+    eight_bits_to_min_percent,
     eight_bits_to_percent,
     normalize_where,
     percent_to_eight_bits,
@@ -215,20 +216,18 @@ async def async_setup_entry(
     if platform is not None:
         platform.async_register_entity_service(
             SERVICE_TURN_ON_TIMED,
-            as_any(
-                {
-                    vol.Optional("duration"): vol.Coerce(float),
-                    vol.Optional("hours", default=0): vol.All(
-                        vol.Coerce(int), vol.Range(min=0, max=255)
-                    ),
-                    vol.Optional("minutes", default=0): vol.All(
-                        vol.Coerce(int), vol.Range(min=0, max=59)
-                    ),
-                    vol.Optional("seconds", default=0): vol.All(
-                        vol.Coerce(float), vol.Range(min=0, max=59)
-                    ),
-                }
-            ),
+            as_any({
+                vol.Optional("duration"): vol.Coerce(float),
+                vol.Optional("hours", default=0): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=255)
+                ),
+                vol.Optional("minutes", default=0): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=59)
+                ),
+                vol.Optional("seconds", default=0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=59)
+                ),
+            }),
             "async_turn_on_timed",
         )
 
@@ -621,9 +620,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
     async def _set_brightness_instant(self, pct: int) -> None:
         """Send set_brightness with transition=0, or switch_off when pct <= 0."""
         if pct <= 0:
-            await self._gateway_handler.send(
-                OWNLightingCommand.switch_off(self._full_where)
-            )
+            await self._gateway_handler.send(OWNLightingCommand.switch_off(self._full_where))
         else:
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, pct, 0)
@@ -680,9 +677,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if brightness_pct is not None:
             target_pct = brightness_pct
         elif brightness is not None:
-            target_pct = eight_bits_to_percent(brightness)
-            if target_pct == 0 and brightness > 0:
-                target_pct = 1
+            target_pct = eight_bits_to_min_percent(brightness)
 
         if (
             target_pct is not None
@@ -748,9 +743,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
 
             # Determine Value (brightness 0-100%)
             if ATTR_BRIGHTNESS in kwargs:
-                v = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
-                if v == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
-                    v = 1
+                v = eight_bits_to_min_percent(kwargs[ATTR_BRIGHTNESS])
             elif ATTR_BRIGHTNESS_PCT in kwargs:
                 v = kwargs[ATTR_BRIGHTNESS_PCT]
             elif self._attr_brightness_pct is not None and self._attr_brightness_pct > 0:
@@ -1110,12 +1103,7 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
                 self._attr_brightness = percent_to_eight_bits(message.brightness)
                 if message.brightness > 0:
                     self._last_brightness_pct = message.brightness
-        elif (
-            has_level
-            and message.brightness is None
-            and isinstance(message.brightness_preset, int)
-            and not is_fading
-        ):
+        elif has_level and message.brightness is None and isinstance(message.brightness_preset, int) and not is_fading:
             # WHAT 2..10 is "ON at 20 %..100 %": the preset is the level, not just
             # a hint that the actuator can dim.
             self._apply_brightness_state(max(0, min(100, message.brightness_preset * 10)))

@@ -24,15 +24,13 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
-from .const import DOMAIN, eight_bits_to_percent, percent_to_eight_bits
+from .const import DOMAIN, eight_bits_to_min_percent, percent_to_eight_bits
 from .myhome_device import MyHOMEEntity
 
 LOGGER = logging.getLogger(__name__)
 
 
-def _color_modes_from_flags(
-    dimmable: bool, color_temp: bool, rgb: bool, hs: bool
-) -> tuple[set[ColorMode], ColorMode | None]:
+def _color_modes_from_flags(dimmable: bool, color_temp: bool, rgb: bool, hs: bool) -> tuple[set[ColorMode], ColorMode | None]:
     """Derive supported colour modes from the ``dimmable``/``color_temp``/``rgb``/``hs`` flags.
 
     Shared by :class:`~.light.MyHOMELight` and :class:`MyHOMELightGroup` so a group
@@ -102,9 +100,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         self._member_entity_ids: list[str] = []
 
         self._attr_assumed_state = not members
-        self._attr_supported_color_modes, self._attr_color_mode = _color_modes_from_flags(
-            dimmable, color_temp, rgb, hs
-        )
+        self._attr_supported_color_modes, self._attr_color_mode = _color_modes_from_flags(dimmable, color_temp, rgb, hs)
 
         self._attr_extra_state_attributes = {
             "group": group,
@@ -139,12 +135,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
                 if entity_id:
                     self._member_entity_ids.append(entity_id)
                 else:
-                    LOGGER.warning(
-                        "Group %s could not resolve member WHERE %s (unique_id: %s)",
-                        self._full_where,
-                        w,
-                        unique_id,
-                    )
+                    LOGGER.warning("Group %s could not resolve member WHERE %s (unique_id: %s)", self._full_where, w, unique_id)
 
             if self._member_entity_ids:
                 self.async_on_remove(
@@ -173,9 +164,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         if getattr(msg, "who", None) != 1 or getattr(msg, "is_translation", False):
             return
 
-        if not getattr(msg, "is_group", False) or str(getattr(msg, "group", "")) != str(
-            self._group
-        ):
+        if not getattr(msg, "is_group", False) or str(getattr(msg, "group", "")) != str(self._group):
             return
 
         # Parse status from the frame (assumed mode only updates attributes)
@@ -230,7 +219,10 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         if not self._member_entity_ids:
             return
 
-        states = [self.hass.states.get(entity_id) for entity_id in self._member_entity_ids]
+        states = [
+            self.hass.states.get(entity_id)
+            for entity_id in self._member_entity_ids
+        ]
         states_list: list[State] = [s for s in states if s is not None]
 
         self._attr_available = any(s.state != "unavailable" for s in states_list)
@@ -240,31 +232,19 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         self._attr_is_on = any(s.state == "on" for s in states_list)
 
         if self._attr_is_on:
-            brightnesses: list[float] = [
-                float(s.attributes.get(ATTR_BRIGHTNESS, 0) or 0)
-                for s in states_list
-                if s.state == "on" and s.attributes.get(ATTR_BRIGHTNESS) is not None
-            ]
+            brightnesses: list[float] = [float(s.attributes.get(ATTR_BRIGHTNESS, 0) or 0) for s in states_list if s.state == "on" and s.attributes.get(ATTR_BRIGHTNESS) is not None]
             if brightnesses:
                 self._attr_brightness = round(sum(brightnesses) / len(brightnesses))
             else:
                 self._attr_brightness = None
 
-            color_temps: list[float] = [
-                float(s.attributes.get(ATTR_COLOR_TEMP_KELVIN, 0) or 0)
-                for s in states_list
-                if s.state == "on" and s.attributes.get(ATTR_COLOR_TEMP_KELVIN) is not None
-            ]
+            color_temps: list[float] = [float(s.attributes.get(ATTR_COLOR_TEMP_KELVIN, 0) or 0) for s in states_list if s.state == "on" and s.attributes.get(ATTR_COLOR_TEMP_KELVIN) is not None]
             if color_temps:
                 self._attr_color_temp_kelvin = round(sum(color_temps) / len(color_temps))
             else:
                 self._attr_color_temp_kelvin = None
 
-            hs_colors: list[tuple[float, float]] = [
-                cast(tuple[float, float], s.attributes.get(ATTR_HS_COLOR))
-                for s in states_list
-                if s.state == "on" and s.attributes.get(ATTR_HS_COLOR) is not None
-            ]
+            hs_colors: list[tuple[float, float]] = [cast(tuple[float, float], s.attributes.get(ATTR_HS_COLOR)) for s in states_list if s.state == "on" and s.attributes.get(ATTR_HS_COLOR) is not None]
             if hs_colors:
                 # Naive average for hs colors
                 h = sum(c[0] for c in hs_colors) / len(hs_colors)
@@ -286,6 +266,11 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
                 kwargs["transition"],
             )
 
+        if ATTR_BRIGHTNESS in kwargs and int(kwargs[ATTR_BRIGHTNESS]) <= 0:
+            # Dimension 1 level 100 (0 %) is NACKed by the gateway; an explicit 0 means off.
+            await self.async_turn_off()
+            return
+
         # Dispatch color temperature if specified (takes precedence over HS color
         # if both are provided in a single service call, matching core behavior).
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
@@ -301,13 +286,13 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         elif ATTR_HS_COLOR in kwargs:
             h, s = kwargs[ATTR_HS_COLOR]
             if ATTR_BRIGHTNESS in kwargs:
-                v_level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
-                if v_level == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
-                    v_level = 1  # brightness 1..2 of 255 is "on at minimum", not off
+                v_level = eight_bits_to_min_percent(kwargs[ATTR_BRIGHTNESS])
             else:
                 v_level = self._last_brightness_pct
             await self._gateway_handler.send(
-                OWNLightingCommand.set_hsv_color(self._full_where, int(h), int(s), v_level)
+                OWNLightingCommand.set_hsv_color(
+                    self._full_where, int(h), int(s), v_level
+                )
             )
             if not self._member_entity_ids:
                 self._attr_hs_color = (h, s)
@@ -319,13 +304,7 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
 
         # Dispatch brightness if specified (and not already included in HSV frame)
         if ATTR_BRIGHTNESS in kwargs and ATTR_HS_COLOR not in kwargs:
-            level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
-            if level == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
-                level = 1  # brightness 1..2 of 255 is "on at minimum", not off
-            if level <= 0:
-                # Dimension 1 level 100 (0 %) is NACKed by the gateway; switch off instead.
-                await self.async_turn_off()
-                return
+            level = eight_bits_to_min_percent(kwargs[ATTR_BRIGHTNESS])
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, level)
             )
@@ -371,14 +350,8 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         # arrives on Dimension 1 whatever the colour mode (mirrors MyHOMELight).
         color_modes = self.supported_color_modes or set()
         if color_modes & {ColorMode.BRIGHTNESS, ColorMode.HS, ColorMode.COLOR_TEMP}:
-            await self._gateway_handler.send_status_request(
-                OWNLightingCommand.get_brightness(self._full_where)
-            )
+            await self._gateway_handler.send_status_request(OWNLightingCommand.get_brightness(self._full_where))
         if ColorMode.COLOR_TEMP in color_modes:
-            await self._gateway_handler.send_status_request(
-                OWNLightingCommand.get_color_temperature(self._full_where)
-            )
+            await self._gateway_handler.send_status_request(OWNLightingCommand.get_color_temperature(self._full_where))
         if ColorMode.HS in color_modes:
-            await self._gateway_handler.send_status_request(
-                OWNLightingCommand.get_hsv_color(self._full_where)
-            )
+            await self._gateway_handler.send_status_request(OWNLightingCommand.get_hsv_color(self._full_where))
