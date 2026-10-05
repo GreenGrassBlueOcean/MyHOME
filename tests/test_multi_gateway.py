@@ -1795,15 +1795,16 @@ def test_gateway_supported_whos_profile_exception(monkeypatch: pytest.MonkeyPatc
     assert whos == set()
 
 
+def _require_f453av_profile() -> None:
+    """Skip when the installed OWNd does not discriminate F453AV firmware yet (OWNd#80)."""
+    profiles = pytest.importorskip("OWNd.profiles")
+    if not hasattr(profiles, "F453AVProfile"):
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+
+
 def test_gateway_supported_whos_with_firmware() -> None:
     """Verify gateway_supported_whos discriminates firmware-gated capabilities (e.g. F453AV CEN+)."""
-    try:
-        from OWNd.profiles import F453AVProfile
-    except ImportError:
-        F453AVProfile = None
-
-    if F453AVProfile is None:
-        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+    _require_f453av_profile()
 
     from custom_components.myhome.topology import gateway_supported_whos
 
@@ -1854,13 +1855,7 @@ def test_gateway_supported_whos_passes_firmware_to_profile(monkeypatch: pytest.M
 
 def test_validate_shared_bus_topology_firmware_delegation(hass: HomeAssistant) -> None:
     """Verify validate_shared_bus_topology permits WHO 25 when secondary F453AV has FW >= 2.1.7."""
-    try:
-        from OWNd.profiles import F453AVProfile
-    except ImportError:
-        F453AVProfile = None
-
-    if F453AVProfile is None:
-        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+    _require_f453av_profile()
 
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
