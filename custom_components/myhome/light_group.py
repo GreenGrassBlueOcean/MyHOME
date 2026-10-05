@@ -302,6 +302,8 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
             h, s = kwargs[ATTR_HS_COLOR]
             if ATTR_BRIGHTNESS in kwargs:
                 v_level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
+                if v_level == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
+                    v_level = 1  # brightness 1..2 of 255 is "on at minimum", not off
             else:
                 v_level = self._last_brightness_pct
             await self._gateway_handler.send(
@@ -318,6 +320,12 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         # Dispatch brightness if specified (and not already included in HSV frame)
         if ATTR_BRIGHTNESS in kwargs and ATTR_HS_COLOR not in kwargs:
             level = eight_bits_to_percent(kwargs[ATTR_BRIGHTNESS])
+            if level == 0 and int(kwargs[ATTR_BRIGHTNESS]) > 0:
+                level = 1  # brightness 1..2 of 255 is "on at minimum", not off
+            if level <= 0:
+                # Dimension 1 level 100 (0 %) is NACKed by the gateway; switch off instead.
+                await self.async_turn_off()
+                return
             await self._gateway_handler.send(
                 OWNLightingCommand.set_brightness(self._full_where, level)
             )
