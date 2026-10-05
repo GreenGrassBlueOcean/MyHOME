@@ -4,14 +4,14 @@ blueprint:
     Manages lights that turn on automatically via hardware-coupled MyHOME SCS sensors
     (such as a BTicino 3477 contact interface wired to an external twilight photocell,
     or a BMSE1001 motion sensor sharing an address with a relay actuator).
-    
+
     Enforces a bedtime curfew cutoff time or a maximum run duration, with optional
     presence gating and companion light synchronization.
   domain: automation
   input:
     target_light:
       name: Hardware-Coupled Light
-      description: The MyHOME light entity triggered by the physical twilight/contact sensor (e.g. light.outdoor_light).
+      description: The MyHOME light entity triggered by the physical twilight/contact sensor (e.g. light.light_98).
       selector:
         entity:
           domain: light
@@ -34,15 +34,17 @@ blueprint:
     sync_lights:
       name: Synchronized Companion Lights (Optional)
       description: Optional additional outdoor lights to turn on when the twilight sensor triggers, and turn off at curfew.
-      default: []
+      default: {}
       selector:
         target:
           entity:
             domain: light
     presence_entity:
       name: Occupancy / Presence Entity (Optional)
-      description: If specified, when nobody is home (state is 'not_home', 'off', or 'away'), the light can turn off sooner.
-      default: []
+      description: >
+        Optional presence entity. Supports zone.* (away when person count is 0),
+        person.*, group.*, device_tracker.*, or binary_sensor.* (away when 'not_home', 'off', or 'away').
+      default: ""
       selector:
         entity: {}
     away_timeout:
@@ -55,71 +57,83 @@ blueprint:
           max: 120
           unit_of_measurement: minutes
           mode: box
+    after_sunset_only:
+      name: Only Run Between Sunset and Sunrise
+      description: >
+        When enabled, companion synchronization and curfew logic only activate when the sun
+        is below the horizon. Daytime manual switch activations will not trigger companion lights.
+      default: true
+      selector:
+        boolean: {}
 
 mode: restart
-max_exceeded: silent
 
-trigger:
-  - platform: state
+triggers:
+  - trigger: state
     entity_id: !input target_light
+    from: "off"
     to: "on"
     id: light_turned_on
-  - platform: time
+  - trigger: state
+    entity_id: !input target_light
+    from: "on"
+    to: "off"
+    id: light_turned_off
+  - trigger: time
     at: !input curfew_time
     id: curfew_reached
+  - trigger: homeassistant
+    event: start
+    id: ha_started
+  - trigger: template
+    value_template: >-
+      {% if presence_entity is defined and presence_entity != '' %}
+        {% set p = presence_entity %}
+        {% if p.startswith('zone.') %}
+          {{ states(p) | int(default=1) == 0 }}
+        {% else %}
+          {{ states(p) in ['not_home', 'off', 'away', 'disarmed'] }}
+        {% endif %}
+      {% else %}
+        {{ false }}
+      {% endif %}
+    for:
+      minutes: !input away_timeout
+    id: presence_away
 
 variables:
   target_light: !input target_light
+  curfew_time: !input curfew_time
   max_duration: !input max_duration
   sync_lights: !input sync_lights
   presence_entity: !input presence_entity
   away_timeout: !input away_timeout
+  after_sunset_only: !input after_sunset_only
+  sync_lights_defined: "{{ sync_lights is defined and sync_lights != {} and sync_lights != '' and sync_lights != [] }}"
+  is_away: >-
+    {% if presence_entity is defined and presence_entity != '' %}
+      {% set p = presence_entity %}
+      {% if p.startswith('zone.') %}
+        {{ states(p) | int(default=1) == 0 }}
+      {% else %}
+        {{ states(p) in ['not_home', 'off', 'away', 'disarmed'] }}
+      {% endif %}
+    {% else %}
+      {{ false }}
+    {% endif %}
 
-action:
+actions:
   - choose:
       - conditions:
           - condition: trigger
-            id: light_turned_on
+            id: light_turned_off
         sequence:
           - if:
               - condition: template
-                value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+                value_template: "{{ sync_lights_defined }}"
             then:
-              - action: light.turn_on
-                target: !input sync_lights
-          - if:
-              - condition: template
-                value_template: >
-                  {{ away_timeout > 0 and presence_entity != '' and presence_entity != [] and
-                     states(presence_entity) in ['not_home', 'off', 'away', 'disarmed'] }}
-            then:
-              - delay:
-                  minutes: "{{ away_timeout }}"
               - action: light.turn_off
-                target:
-                  entity_id: !input target_light
-              - if:
-                  - condition: template
-                    value_template: "{{ sync_lights != [] and sync_lights != {} }}"
-                then:
-                  - action: light.turn_off
-                    target: !input sync_lights
-            else:
-              - if:
-                  - condition: template
-                    value_template: "{{ max_duration > 0 }}"
-                then:
-                  - delay:
-                      minutes: "{{ max_duration }}"
-                  - action: light.turn_off
-                    target:
-                      entity_id: !input target_light
-                  - if:
-                      - condition: template
-                        value_template: "{{ sync_lights != [] and sync_lights != {} }}"
-                    then:
-                      - action: light.turn_off
-                        target: !input sync_lights
+                target: !input sync_lights
 
       - conditions:
           - condition: trigger
@@ -133,7 +147,102 @@ action:
               entity_id: !input target_light
           - if:
               - condition: template
-                value_template: "{{ sync_lights != [] and sync_lights != {} }}"
+                value_template: "{{ sync_lights_defined }}"
             then:
               - action: light.turn_off
                 target: !input sync_lights
+
+      - conditions:
+          - condition: trigger
+            id: ha_started
+          - condition: state
+            entity_id: !input target_light
+            state: "on"
+          - condition: time
+            after: !input curfew_time
+            before: "06:00:00"
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input target_light
+          - if:
+              - condition: template
+                value_template: "{{ sync_lights_defined }}"
+            then:
+              - action: light.turn_off
+                target: !input sync_lights
+
+      - conditions:
+          - condition: trigger
+            id: presence_away
+          - condition: template
+            value_template: "{{ away_timeout > 0 and presence_entity != '' }}"
+          - condition: state
+            entity_id: !input target_light
+            state: "on"
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input target_light
+          - if:
+              - condition: template
+                value_template: "{{ sync_lights_defined }}"
+            then:
+              - action: light.turn_off
+                target: !input sync_lights
+
+      - conditions:
+          - condition: trigger
+            id: light_turned_on
+        sequence:
+          - if:
+              - condition: template
+                value_template: >-
+                  {{ after_sunset_only and is_state('sun.sun', 'above_horizon') }}
+            then:
+              - stop: "Sun is above horizon; ignoring daytime manual turn-on."
+
+          - if:
+              - condition: time
+                after: !input curfew_time
+                before: "06:00:00"
+            then:
+              - delay:
+                  minutes: 2
+              - action: light.turn_off
+                target:
+                  entity_id: !input target_light
+              - stop: "Turned on past curfew; turned off after 2-minute grace period."
+
+          - if:
+              - condition: template
+                value_template: "{{ sync_lights_defined }}"
+            then:
+              - action: light.turn_on
+                target: !input sync_lights
+
+          - variables:
+              effective_timeout: >-
+                {% if is_away and away_timeout > 0 %}
+                  {{ away_timeout if (max_duration == 0 or away_timeout < max_duration) else max_duration }}
+                {% elif max_duration > 0 %}
+                  {{ max_duration }}
+                {% else %}
+                  0
+                {% endif %}
+
+          - if:
+              - condition: template
+                value_template: "{{ effective_timeout | int > 0 }}"
+            then:
+              - delay:
+                  minutes: "{{ effective_timeout | int }}"
+              - action: light.turn_off
+                target:
+                  entity_id: !input target_light
+              - if:
+                  - condition: template
+                    value_template: "{{ sync_lights_defined }}"
+                then:
+                  - action: light.turn_off
+                    target: !input sync_lights
