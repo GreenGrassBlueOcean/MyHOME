@@ -397,20 +397,23 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     async def async_update(self) -> None:
         """Request status update from gateway, unless the zone has stopped answering."""
-        if self._central:
-            # Central units (#0, #0#1) do not answer Dimension 14 status requests (*#4*#0*14##);
-            # in OpenWebNet, Dimension 14 status reads only apply to zone addresses 1..99.
-            # Central units receive setpoints via commands (*#4*#0*#14*T*M##), broadcast events,
-            # or restored state, and do not participate in point-to-point status polling or PollHealth tracking.
+        if self._central and self._where not in ("#0", "0"):
+            # 4-zone central units (#0#1) do not participate in point-to-point status polling;
+            # bus captures confirm querying #0#1 times out on plants without a physical 4-zone unit (#629).
+            # They receive setpoints via commands (*#4*#0#1*#14*T*M##), broadcast events, or restored state.
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
             self._raise_unresponsive_issue()
             return
+        # A 99-zone central unit (#0) answers the plain status request (*#4*#0##) within ~0.17 s,
+        # reporting its mode via *4*202*#0## (conditional OFF) and operational flags (#629). Dimension 14
+        # (*#4*#0*14##) is NACKed. Only an F454 has been captured so far, so the poll is informational:
+        # an unanswered one never counts towards the "unresponsive zone" repair.
         request = OWNHeatingCommand.status(self._full_where)
         frames_before = self._poll_health.frames
         written = await self._gateway_handler.send_status_request(request)
-        if isinstance(written, asyncio.Future):
+        if isinstance(written, asyncio.Future) and not self._central:
             written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
         if self._fan:
             await self._gateway_handler.send_status_request(

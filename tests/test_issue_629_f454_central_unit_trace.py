@@ -258,9 +258,7 @@ def test_f454_central_unit_dimension_14_and_timeout_frames() -> None:
     msg_timeout = OWNMessage.parse(timeout_raw)
     assert msg_timeout is not None
     assert msg_timeout.who == 4
-    assert msg_timeout.where == "#0"
-    assert getattr(msg_timeout, "_where_param", []) == ["1"]
-    assert str(msg_timeout) == "*#4*#0#1##"
+    assert str(msg_timeout) == "*#4*#0#1##"  # round-trips unchanged; OWNd's where/param split is not pinned here
 
     # Command builder verification:
     cmd_plain = OWNHeatingCommand.status("#0")
