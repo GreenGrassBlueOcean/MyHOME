@@ -984,7 +984,15 @@ class MyHOMEGatewayHandler:
         """Make ``model`` the entry's model: handler, profile, log id, config entry and title."""
         self.gateway.model_name = model
         self.gateway.model = model
-        self.gateway.profile = get_gateway_profile(model)
+        fw = getattr(self.gateway, "firmware", None)
+        if not fw and self.config_entry:
+            from .topology import entry_firmware
+
+            fw = entry_firmware(self.config_entry)
+        try:
+            self.gateway.profile = get_gateway_profile(model, fw)
+        except TypeError:  # pragma: no cover - fallback for OWNd without firmware argument
+            self.gateway.profile = get_gateway_profile(model)
         self.gateway._log_id = f"[{model} gateway - {self.gateway.host}]"
         self._trim_sending_workers(model)
         new_data = dict(self.config_entry.data)

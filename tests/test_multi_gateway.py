@@ -1795,6 +1795,126 @@ def test_gateway_supported_whos_profile_exception(monkeypatch: pytest.MonkeyPatc
     assert whos == set()
 
 
+def test_gateway_supported_whos_with_firmware() -> None:
+    """Verify gateway_supported_whos discriminates firmware-gated capabilities (e.g. F453AV CEN+)."""
+    from custom_components.myhome.topology import gateway_supported_whos
+
+    # F453AV without firmware or < 2.1.7: no WHO 25
+    assert 25 not in gateway_supported_whos("F453AV")
+    assert 25 not in gateway_supported_whos("F453AV", "1.0.19")
+
+    # If installed OWNd does not discriminate F453AV firmware yet, skip positive assertion
+    if 25 not in gateway_supported_whos("F453AV", "2.1.7"):
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+
+    # F453AV with FW >= 2.1.7: supports WHO 25
+    assert 25 in gateway_supported_whos("F453AV", "2.1.7")
+    assert 25 in gateway_supported_whos("F453AV", "3.0.0")
+
+
+def test_validate_shared_bus_topology_firmware_delegation(hass: HomeAssistant) -> None:
+    """Verify validate_shared_bus_topology permits WHO 25 when secondary F453AV has FW >= 2.1.7."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.topology import (
+        gateway_supported_whos,
+        validate_shared_bus_topology,
+    )
+
+    if 25 not in gateway_supported_whos("F453AV", "2.1.7"):
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+
+    primary = MockConfigEntry(
+        domain="myhome",
+        title="F454 Gateway",
+        data={
+            "address": "192.168.1.1",
+            "model": "F454",
+            "firmware": "2.0.0",
+            "bus_topology": "shared",
+            "gateway_role": "primary",
+        },
+        unique_id="00:03:50:00:00:01",
+    )
+    primary.add_to_hass(hass)
+
+    # Follower F453AV with FW < 2.1.7 fails delegating WHO 25
+    follower_old = MockConfigEntry(
+        domain="myhome",
+        title="F453AV Gateway",
+        data={"address": "192.168.1.2", "model": "F453AV", "firmware": "1.0.19"},
+        unique_id="00:03:50:00:00:02",
+    )
+    errors_old = validate_shared_bus_topology(
+        hass,
+        follower_old,
+        {
+            "bus_topology": "shared",
+            "gateway_role": "secondary",
+            "primary_gateway": "00:03:50:00:00:01",
+            "delegated_whos": ["25"],
+        },
+    )
+    assert errors_old.get("delegated_whos") == "who_not_supported_by_gateway"
+
+    # Follower F453AV with FW >= 2.1.7 succeeds delegating WHO 25
+    follower_new = MockConfigEntry(
+        domain="myhome",
+        title="F453AV Gateway",
+        data={"address": "192.168.1.3", "model": "F453AV", "firmware": "2.1.7"},
+        unique_id="00:03:50:00:00:03",
+    )
+    errors_new = validate_shared_bus_topology(
+        hass,
+        follower_new,
+        {
+            "bus_topology": "shared",
+            "gateway_role": "secondary",
+            "primary_gateway": "00:03:50:00:00:01",
+            "delegated_whos": ["25"],
+        },
+    )
+    assert "delegated_whos" not in errors_new
+
+
+def test_entry_firmware_extraction() -> None:
+    """Verify entry_firmware extracts firmware version from data or options."""
+    from custom_components.myhome.topology import entry_firmware
+
+    entry_data = MagicMock(data={"firmware": "2.1.7"}, options={})
+    assert entry_firmware(entry_data) == "2.1.7"
+
+    entry_opts = MagicMock(data={}, options={"firmware": "1.0.19"})
+    assert entry_firmware(entry_opts) == "1.0.19"
+
+    entry_none = MagicMock(data={}, options={})
+    assert entry_firmware(entry_none) is None
+
+
+def test_gateway_supported_whos_single_arg_profile_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify gateway_supported_whos falls back when get_gateway_profile only takes 1 argument."""
+    from custom_components.myhome.topology import gateway_supported_whos
+
+    class DummyLegacyProfile:
+        supported_who = {1, 2, 4}
+
+        def supports_who(self, who: int) -> bool:
+            return True
+
+    def mock_single_arg_get_profile(model: str | None) -> Any:
+        return DummyLegacyProfile()
+
+    monkeypatch.setattr(
+        "OWNd.profiles.get_gateway_profile",
+        mock_single_arg_get_profile,
+    )
+
+    whos = gateway_supported_whos("F453AV", "2.1.7")
+    assert 1 in whos
+    assert 2 in whos
+    assert 4 in whos
+
+
 def test_infer_shared_bus_topology_equal_tier_b_has_more_whos(hass: HomeAssistant) -> None:
     """Test infer_shared_bus_topology when tier_a == tier_b but entry_b has more supported WHOs."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -1833,7 +1953,7 @@ def test_infer_shared_bus_topology_audio_coupling_who22_added(monkeypatch: pytes
     entry_b.title = "GW_B"
 
     # Gateway A supports 1, 2, 22. Gateway B supports 1, 2, 16, 22. Both Tier 3.
-    def mock_whos(model: str | None) -> set[int]:
+    def mock_whos(model: str | None, firmware: str | None = None) -> set[int]:
         if model == "GW_A":
             return {1, 2, 22}
         return {1, 2, 16, 22}
@@ -1858,7 +1978,7 @@ def test_infer_shared_bus_topology_audio_coupling_who22_added(monkeypatch: pytes
 
     # Inverted audio test: GW_A supports 1, 2, 16. GW_B supports 1, 2, 16, 22.
     # WHO 22 is in delta; WHO 16 is added via audio coupling.
-    def mock_whos_inv(model: str | None) -> set[int]:
+    def mock_whos_inv(model: str | None, firmware: str | None = None) -> set[int]:
         if model == "GW_A":
             return {1, 2, 16}
         return {1, 2, 16, 22}

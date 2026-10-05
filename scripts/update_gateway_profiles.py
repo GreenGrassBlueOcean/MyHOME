@@ -135,7 +135,7 @@ GATEWAY_METADATA: list[dict[str, object]] = [
     },
     {
         "model": "**F452 / F453AV**",
-        "const_models": ["F453AV", "F452"],
+        "const_models": ["F453AV", "F453", "F452", "F452V"],
         "ssdp_models": ["F452", "F453AV"],
         "profile_name": "Generic",
         "protocol": "OpenWebNet",
