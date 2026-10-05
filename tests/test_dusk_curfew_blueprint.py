@@ -49,6 +49,9 @@ def test_dusk_curfew_blueprint_schema_and_inputs() -> None:
         "presence_entity",
         "away_timeout",
         "after_sunset_only",
+        "override_entity",
+        "override_mode",
+        "service_timeout_hours",
     }
     assert set(bp.inputs.keys()) == expected_inputs
 
@@ -62,12 +65,15 @@ def test_dusk_curfew_blueprint_schema_and_inputs() -> None:
     assert "time" in bp.inputs["curfew_end_time"]["selector"]
     assert bp.inputs["curfew_end_time"]["default"] == "06:00:00"
 
-    # Validate default values (after_sunset_only defaults to False for photocells on winter afternoons)
+    # Validate default values
     assert bp.inputs["sync_lights"]["default"] == {}
     assert bp.inputs["presence_entity"]["default"] == ""
     assert bp.inputs["away_timeout"]["default"] == 0
     assert bp.inputs["max_duration"]["default"] == 0
     assert bp.inputs["after_sunset_only"]["default"] is False
+    assert bp.inputs["override_entity"]["default"] == ""
+    assert bp.inputs["override_mode"]["default"] == "service_power"
+    assert bp.inputs["service_timeout_hours"]["default"] == 4
 
 
 def test_dusk_curfew_blueprint_substitution() -> None:
@@ -85,6 +91,9 @@ def test_dusk_curfew_blueprint_substitution() -> None:
         "presence_entity": "zone.home",
         "away_timeout": 15,
         "after_sunset_only": False,
+        "override_entity": "input_boolean.gardener_power",
+        "override_mode": "service_power",
+        "service_timeout_hours": 3,
     }
 
     bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
@@ -96,10 +105,11 @@ def test_dusk_curfew_blueprint_substitution() -> None:
     assert validated.get("mode") == "parallel"
     assert validated.get("max") == 10
 
-    # Verify trigger_variables scoping so template triggers can access presence_entity
+    # Verify trigger_variables scoping so template triggers can access presence_entity & override_entity
     trig_vars = validated.get("trigger_variables", {})
     assert trig_vars.get("presence_entity") == "zone.home"
     assert trig_vars.get("away_timeout") == 15
+    assert trig_vars.get("override_entity") == "input_boolean.gardener_power"
 
     triggers = validated["triggers"]
     trigger_ids = {t.get("id") for t in triggers}
@@ -109,6 +119,8 @@ def test_dusk_curfew_blueprint_substitution() -> None:
         "curfew_reached",
         "ha_started",
         "presence_away",
+        "override_activated",
+        "override_deactivated",
     }
 
     # Verify light_turned_on trigger has from: off, to: on (prevent flap on gateway reconnect)
@@ -321,3 +333,122 @@ async def test_dusk_curfew_behavioral_presence_away_trigger(hass: HomeAssistant)
     finally:
         # Clean up automation
         await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_presence_away_guard"}, blocking=True)
+
+
+async def test_dusk_curfew_behavioral_service_power_override(hass: HomeAssistant) -> None:
+    """Behaviorally verify service_power override energizes circuit on demand and bypasses curfew."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    hass.services.async_register("light", "turn_on", lambda c: calls.append(("on", c.data)))
+    hass.services.async_register("light", "turn_off", lambda c: calls.append(("off", c.data)))
+
+    blueprint_path = _get_blueprint_path()
+    raw_data: dict[str, Any] = yaml_util.load_yaml(str(blueprint_path))
+    bp = Blueprint(raw_data, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+
+    user_inputs = {
+        "target_light": "light.light_98",
+        "curfew_time": "23:00:00",
+        "curfew_end_time": "06:00:00",
+        "max_duration": 0,
+        "sync_lights": {"entity_id": ["light.garden_pathway"]},
+        "override_entity": "input_boolean.gardener_power",
+        "override_mode": "service_power",
+        "service_timeout_hours": 0,
+    }
+
+    bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
+    substituted = bp_inputs.async_substitute()
+    substituted["alias"] = "test_service_power_override"
+
+    hass.states.async_set("light.light_98", "off")
+    hass.states.async_set("input_boolean.gardener_power", "off")
+
+    assert await async_setup_component(hass, "automation", {"automation": [substituted]})
+    await hass.async_block_till_done()
+
+    # Step 1: Turn on gardener power override -> target light turns on
+    hass.states.async_set("input_boolean.gardener_power", "on")
+    await hass.async_block_till_done()
+
+    assert any(
+        action == "on" and ("light.light_98" in data.get("entity_id", []) or data.get("entity_id") == "light.light_98")
+        for action, data in calls
+    )
+
+    # Step 2: Trigger curfew while override is active -> light must NOT be shut off
+    calls.clear()
+    hass.states.async_set("light.light_98", "on")
+    curfew_dt = dt_util.parse_datetime("2026-10-05T23:00:00+00:00")
+    assert curfew_dt is not None
+    async_fire_time_changed(hass, curfew_dt)
+    await hass.async_block_till_done()
+    assert not any(action == "off" for action, _ in calls)
+
+    # Step 3: Turn off gardener power override -> target light turns off
+    calls.clear()
+    hass.states.async_set("input_boolean.gardener_power", "off")
+    await hass.async_block_till_done()
+
+    assert any(
+        action == "off" and ("light.light_98" in data.get("entity_id", []) or data.get("entity_id") == "light.light_98")
+        for action, data in calls
+    )
+
+    # Clean up automation
+    await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_service_power_override"}, blocking=True)
+
+
+async def test_dusk_curfew_behavioral_safety_lockout_override(hass: HomeAssistant) -> None:
+    """Behaviorally verify safety_lockout forces lights off and intercepts dusk photocell turn-ons."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    hass.services.async_register("light", "turn_on", lambda c: calls.append(("on", c.data)))
+    hass.services.async_register("light", "turn_off", lambda c: calls.append(("off", c.data)))
+
+    blueprint_path = _get_blueprint_path()
+    raw_data: dict[str, Any] = yaml_util.load_yaml(str(blueprint_path))
+    bp = Blueprint(raw_data, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+
+    user_inputs = {
+        "target_light": "light.light_98",
+        "curfew_time": "23:00:00",
+        "curfew_end_time": "06:00:00",
+        "max_duration": 0,
+        "sync_lights": {"entity_id": ["light.garden_pathway"]},
+        "override_entity": "input_boolean.maintenance_lock",
+        "override_mode": "safety_lockout",
+    }
+
+    bp_inputs = BlueprintInputs(bp, {"use_blueprint": {"path": "test", "input": user_inputs}})
+    substituted = bp_inputs.async_substitute()
+    substituted["alias"] = "test_safety_lockout"
+
+    hass.states.async_set("light.light_98", "on")
+    hass.states.async_set("input_boolean.maintenance_lock", "off")
+
+    assert await async_setup_component(hass, "automation", {"automation": [substituted]})
+    await hass.async_block_till_done()
+
+    # Step 1: Turn on maintenance lock -> forces target light off immediately
+    hass.states.async_set("input_boolean.maintenance_lock", "on")
+    await hass.async_block_till_done()
+
+    assert any(
+        action == "off" and ("light.light_98" in data.get("entity_id", []) or data.get("entity_id") == "light.light_98")
+        for action, data in calls
+    )
+
+    # Step 2: Simulate physical photocell turning light on while lockout active -> intercepted and forced off
+    calls.clear()
+    hass.states.async_set("light.light_98", "off")
+    await hass.async_block_till_done()
+
+    hass.states.async_set("light.light_98", "on")
+    await hass.async_block_till_done()
+
+    assert any(
+        action == "off" and ("light.light_98" in data.get("entity_id", []) or data.get("entity_id") == "light.light_98")
+        for action, data in calls
+    )
+
+    # Clean up automation
+    await hass.services.async_call("automation", "turn_off", {"entity_id": "automation.test_safety_lockout"}, blocking=True)

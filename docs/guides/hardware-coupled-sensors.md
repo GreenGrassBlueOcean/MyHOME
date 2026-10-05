@@ -79,6 +79,10 @@ If you cannot easily modify physical configurator plugs in electrical panels, us
   - **Companion Synchronization**: When the hardware twilight light turns on at dusk, automatically illuminates additional outdoor lights (e.g. pathway spots, facade accents) and turns them off together at curfew.
   - **Presence Gating**: Supports `zone.*` (evaluates as away when occupant count is 0), `person.*`, `device_tracker.*`, `group.*`, or `binary_sensor.*`. When occupants are away, reduces the runtime to a configurable `away_timeout`. Dynamic presence tracking automatically turns off lights if occupants leave mid-evening.
   - **Optional Daylight Guard**: Optional `after_sunset_only` (default `false`) gates companion activation to astronomical night. Keep disabled if your twilight photocell trips before sunset on overcast or winter afternoons.
+  - **Service & Maintenance Overrides**:
+    - **Service Power (Gardener / Power Tools)**: Energizes the circuit immediately on demand during daylight hours, suspends curfew and presence shutoffs, and features a safety auto-reset timer (default 4 hours) so outdoor power is never left on indefinitely.
+    - **Safety Lockout (Electrician / Wiring Work)**: Forces the circuit OFF immediately and intercepts/blocks any dusk photocell triggers or indoor wall switch presses while lamps or wiring are being serviced.
+    - **Pause Automation**: Leaves lights under manual control, temporarily bypassing all curfew and timer logic.
   - **Reconnection Resilience**: Uses `from: "off"` to ensure temporary gateway drops or Home Assistant restarts (`unavailable -> on`) do not re-run curfew sequences in the middle of the night.
   - **Post-Curfew Safety**: Automatically turns off the light after a 2-minute safety grace period if it is turned on during curfew hours.
 
@@ -103,7 +107,19 @@ use_blueprint:
     presence_entity: zone.home
     away_timeout: 15
     after_sunset_only: false
+    # Optional Gardener / Maintenance Override Helper
+    override_entity: input_boolean.gardener_power
+    override_mode: service_power
+    service_timeout_hours: 4
 ```
+
+### Temporary Overrides: Gardener Power & Electrician Safety
+
+Outdoor lighting circuits frequently double as power lines for garden sockets (lawnmowers, hedge trimmers, pumps) or require maintenance:
+
+1. **Gardener Service Power**: Create a helper (`input_boolean.gardener_power` in **Settings → Devices & Services → Helpers**). When turned on (via a dashboard button or NFC tag by the shed), the automation energizes `light.light_98` immediately and suspends curfew/presence turn-offs. After `service_timeout_hours` (e.g., 4 hours), it automatically turns off the circuit and resets the helper.
+2. **Safety Lockout**: When servicing light fixtures or pruning near live cabling, configure `override_mode: safety_lockout` with an `input_boolean.lighting_maintenance_lock` helper. When active, the automation immediately forces the light off and actively suppresses any photocell dusk trips, ensuring 230V is never applied to the circuit while someone is working on it.
+
 
 ---
 
