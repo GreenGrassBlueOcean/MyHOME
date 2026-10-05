@@ -406,18 +406,14 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
             self._raise_unresponsive_issue()
             return
-        # 99-zone central units (#0) answer plain status requests (*#4*#0##) within ~0.17 s,
-        # reporting operating mode via *4*202*#0## (conditional OFF) and operational flags (#629).
-        # Dimension 14 status queries (*#4*#0*14##) are rejected with NACK by physical gateways.
-        where = (
-            (f"#0#4#{self._interface}" if self._interface is not None else "#0")
-            if self._central
-            else self._full_where
-        )
-        request = OWNHeatingCommand.status(where)
+        # A 99-zone central unit (#0) answers the plain status request (*#4*#0##) within ~0.17 s,
+        # reporting its mode via *4*202*#0## (conditional OFF) and operational flags (#629). Dimension 14
+        # (*#4*#0*14##) is NACKed. Only an F454 has been captured so far, so the poll is informational:
+        # an unanswered one never counts towards the "unresponsive zone" repair.
+        request = OWNHeatingCommand.status(self._full_where)
         frames_before = self._poll_health.frames
         written = await self._gateway_handler.send_status_request(request)
-        if isinstance(written, asyncio.Future):
+        if isinstance(written, asyncio.Future) and not self._central:
             written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
         if self._fan:
             await self._gateway_handler.send_status_request(
@@ -675,7 +671,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
     @callback
     def handle_event(self, message: OWNHeatingEvent) -> None:
         """Handle an event message."""
-        if self._poll_health.frame_seen() or self._central:
+        if self._poll_health.frame_seen():
             self._clear_unresponsive_issue()
         if message.message_type == MESSAGE_TYPE_MAIN_TEMPERATURE:
             LOGGER.debug(

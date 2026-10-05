@@ -245,7 +245,6 @@ async def test_p4_central_unit_3550_initialization_and_commands(hass: HomeAssist
     assert str(gateway.send_status_request.call_args[0][0]) == "*#4*#0##"
 
 
-
 @pytest.mark.asyncio
 async def test_p4_central_unit_4695_four_zone(hass: HomeAssistant):
     """Test 4-zone Central Unit (#0#1) command emission."""
