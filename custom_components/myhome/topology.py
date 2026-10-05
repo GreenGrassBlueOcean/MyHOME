@@ -96,7 +96,10 @@ def gateway_supported_whos(
     try:
         from OWNd.profiles import get_gateway_profile
 
-        profile = get_gateway_profile(model or "", firmware)
+        try:
+            profile = get_gateway_profile(model or "", firmware)
+        except TypeError:
+            profile = get_gateway_profile(model or "")
         supports = getattr(profile, "supports_who", None)
         supported = getattr(profile, "supported_who", None)
         if supported:
@@ -137,14 +140,6 @@ def _follower_delegation(pri_whos: set[int], sec_whos: set[int]) -> tuple[str, s
     return ROLE_SECONDARY, delta, audio_coupled
 
 
-def _call_supported_whos(model: str | None, firmware: str | None = None) -> set[int]:
-    """Call gateway_supported_whos, falling back defensively if monkeypatched with 1 argument."""
-    try:
-        return gateway_supported_whos(model, firmware=firmware)
-    except TypeError:
-        return gateway_supported_whos(model)
-
-
 def recommend_follower(primary: Any, follower: Any) -> tuple[str, set[int]]:
     """Role and delegated WHOs for ``follower`` joining the bus of an existing ``primary``.
 
@@ -152,8 +147,8 @@ def recommend_follower(primary: Any, follower: Any) -> tuple[str, set[int]]:
     added next to one that already owns the bus's devices joins as its follower.
     """
     role, delegated, _ = _follower_delegation(
-        _call_supported_whos(entry_model(primary), entry_firmware(primary)),
-        _call_supported_whos(entry_model(follower), entry_firmware(follower)),
+        gateway_supported_whos(entry_model(primary), entry_firmware(primary)),
+        gateway_supported_whos(entry_model(follower), entry_firmware(follower)),
     )
     return role, delegated
 
@@ -167,8 +162,8 @@ def infer_shared_bus_topology(entry_a: Any, entry_b: Any) -> RecommendedTopology
 
     tier_a = gateway_tier(model_a)
     tier_b = gateway_tier(model_b)
-    whos_a = _call_supported_whos(model_a, entry_firmware(entry_a))
-    whos_b = _call_supported_whos(model_b, entry_firmware(entry_b))
+    whos_a = gateway_supported_whos(model_a, entry_firmware(entry_a))
+    whos_b = gateway_supported_whos(model_b, entry_firmware(entry_b))
 
     # Determine Primary vs Follower:
     # 1. Higher tier wins (lower tier number)
@@ -419,7 +414,7 @@ def validate_shared_bus_topology(
 
             model = model_override or entry_model(entry)
             if model:
-                supported = _call_supported_whos(model, entry_firmware(entry))
+                supported = gateway_supported_whos(model, entry_firmware(entry))
                 for w in delegated:
                     if w not in supported:
                         errors[CONF_DELEGATED_WHOS] = "who_not_supported_by_gateway"

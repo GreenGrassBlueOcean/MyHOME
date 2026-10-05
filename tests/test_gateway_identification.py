@@ -858,10 +858,37 @@ def test_apply_model_does_not_rewrite_an_entry_that_already_carries_it(dev_reg):
 
 def test_apply_model_preserves_gateway_firmware_in_profile(dev_reg):
     """Applying model preserves gateway firmware so firmware-discriminated profiles (e.g. F453AV) keep CEN+."""
-    from OWNd.profiles import WHO_CEN_PLUS
+    from OWNd.profiles import WHO_CEN_PLUS, get_gateway_profile
+
+    try:
+        supports_fw = getattr(get_gateway_profile("F453AV", "2.1.7"), "supports_who", lambda w: False)(WHO_CEN_PLUS)
+    except TypeError:
+        supports_fw = False
+
+    if not supports_fw:
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
 
     h = _handler({"name": "Generic", "firmware": "2.1.7"})
     h.gateway.firmware = "2.1.7"
+    h._apply_model("F453AV")
+    assert h.gateway.model_name == "F453AV"
+    assert h.gateway.profile.supports_who(WHO_CEN_PLUS) is True
+
+
+def test_apply_model_falls_back_to_entry_firmware(dev_reg):
+    """Applying model falls back to config entry firmware if gateway.firmware is None."""
+    from OWNd.profiles import WHO_CEN_PLUS, get_gateway_profile
+
+    try:
+        supports_fw = getattr(get_gateway_profile("F453AV", "2.1.7"), "supports_who", lambda w: False)(WHO_CEN_PLUS)
+    except TypeError:
+        supports_fw = False
+
+    if not supports_fw:
+        pytest.skip("installed OWNd does not discriminate F453AV firmware yet (OWNd#80)")
+
+    h = _handler({"name": "Generic", "firmware": "2.1.7"})
+    h.gateway.firmware = None
     h._apply_model("F453AV")
     assert h.gateway.model_name == "F453AV"
     assert h.gateway.profile.supports_who(WHO_CEN_PLUS) is True
