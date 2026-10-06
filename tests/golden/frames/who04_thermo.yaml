@@ -41,25 +41,25 @@
     args: ["1", 20.5, "heat", true]
 
 - id: thermo.cmd.mode.antifreeze.zone1
-  frame: "*4*110*1##"
+  frame: "*4*102*#1##"
   direction: command
   who: 4
-  what: 110
-  where: "1"
-  source: legrand-spec
+  what: 102
+  where: "#1"
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Set Zone 1 to Antifreeze protection mode"
+  mcp_notes: "Set Zone 1 (through the central unit) to Antifreeze, WHAT 102 (Encyclopedia functional/who-4-temperature-control/what.md, zone setup: *4*102*#WHERE##). Corrected from *4*110*1##: 110 is manual heating (same table; libqtdevices TS10_1_0_23 WIN_MANUAL) and the MyHomeServer1 firmware forwards nothing for it (OWNd#77). The MyHomeServer1 captures in this file report an antifreeze zone as *4*102*Z##. The judge's description of 102 is not used"
   roundtrip: true
 
 - id: thermo.cmd.mode.protection.zone1
-  frame: "*4*111*1##"
+  frame: "*4*302*#1##"
   direction: command
   who: 4
-  what: 111
-  where: "1"
-  source: legrand-spec
+  what: 302
+  where: "#1"
+  source: encyclopedia
   mcp_valid: true
-  mcp_notes: "Set Zone 1 to Thermal Protection mode"
+  mcp_notes: "Set Zone 1 (through the central unit) to generic protection, WHAT 302 (Encyclopedia what.md zone setup: *4*302*#WHERE##; libqtdevices TS10_1_0_23 ControlledProbeDevice::setProtection sends PROT_GENERIC 302 to #zone). Corrected from *4*111*1##: 111 is programmed/automatic heating (same table; libqtdevices WIN_AUTOMATIC), which the MyHomeServer1 firmware forwards as automatic heating (OWNd#77). The judge's description of 302 (manual cooling setpoint) is wrong"
   roundtrip: true
 
 - id: thermo.resp.probe.status.neg_temp
@@ -162,12 +162,8 @@
   dimension_values: []
   source: legrand-spec
   mcp_valid: true
-  mcp_notes: "Request 99-zone Central Unit status on Dimension 14 (rejected with NACK on physical F454 firmware, issue #629)"
+  mcp_notes: "Request 99-zone Central Unit status on Dimension 14 (rejected with NACK on physical F454 firmware, issue #629; a real MyHomeServer1 refuses it too, OWNd#77). No builder block: OWNd#83 deprecates central_status(), which builds this frame; MyHOME polls with status('#0'). roundtrip means OWNd re-serializes it exactly, not that a gateway accepts it"
   roundtrip: true
-  builder:
-    class: OWNHeatingCommand
-    method: central_status
-    args: ["#0"]
 
 - id: thermo.resp.central.status.cu99.off
   frame: "*4*202*#0##"
