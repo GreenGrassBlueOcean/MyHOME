@@ -75,6 +75,9 @@ from .const import (
     CONF_WHERE,
     CONF_WHO,
     CONF_ZONE,
+    DEFAULT_SLAT_TIME,
+    MAX_SLAT_TIME,
+    MIN_SLAT_TIME,
 )
 
 
@@ -410,8 +413,12 @@ cover_schema = MyHomeDeviceSchema(
             Optional("advanced_shutter", default=False): Boolean(),
             Optional(CONF_SLAT_TILT, default=False): Boolean(),
             Optional("slat_tilt", default=False): Boolean(),
-            Optional(CONF_SLAT_TIME, default=2.0): Coerce(float),
-            Optional("slat_time", default=2.0): Coerce(float),
+            Optional(CONF_SLAT_TIME, default=DEFAULT_SLAT_TIME): All(
+                Coerce(float), Range(min=MIN_SLAT_TIME, max=MAX_SLAT_TIME)
+            ),
+            Optional("slat_time", default=DEFAULT_SLAT_TIME): All(
+                Coerce(float), Range(min=MIN_SLAT_TIME, max=MAX_SLAT_TIME)
+            ),
             Optional(CONF_TRAVEL_TIME, default=25): All(
                 Coerce(int),
                 Range(min=int(CALIBRATION_MIN_RUN), max=int(CALIBRATION_MAX_RUN)),
