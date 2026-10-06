@@ -69,6 +69,7 @@ from .const import (
     CONF_PLATFORMS,
     CONF_RGB,
     CONF_SLAT_TILT,
+    CONF_SLAT_TIME,
     CONF_STANDALONE,
     CONF_TRAVEL_TIME,
     CONF_WHERE,
@@ -275,6 +276,8 @@ class MyHomeDeviceSchema(Schema):
                 data[device][CONF_ADVANCED_SHUTTER] = True
             if "slat_tilt" in data[device] and data[device]["slat_tilt"]:
                 data[device][CONF_SLAT_TILT] = True
+            if "slat_time" in data[device]:
+                data[device][CONF_SLAT_TIME] = float(data[device]["slat_time"])
             if "device_class" in data[device] and CONF_DEVICE_CLASS not in data[device]:
                 data[device][CONF_DEVICE_CLASS] = data[device]["device_class"]
             if CONF_DEVICE_CLASS not in data[device]:
@@ -407,6 +410,8 @@ cover_schema = MyHomeDeviceSchema(
             Optional("advanced_shutter", default=False): Boolean(),
             Optional(CONF_SLAT_TILT, default=False): Boolean(),
             Optional("slat_tilt", default=False): Boolean(),
+            Optional(CONF_SLAT_TIME, default=2.0): Coerce(float),
+            Optional("slat_time", default=2.0): Coerce(float),
             Optional(CONF_TRAVEL_TIME, default=25): All(
                 Coerce(int),
                 Range(min=int(CALIBRATION_MIN_RUN), max=int(CALIBRATION_MAX_RUN)),
