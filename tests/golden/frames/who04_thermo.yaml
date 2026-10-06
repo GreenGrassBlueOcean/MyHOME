@@ -162,12 +162,8 @@
   dimension_values: []
   source: legrand-spec
   mcp_valid: true
-  mcp_notes: "Request 99-zone Central Unit status on Dimension 14 (rejected with NACK on physical F454 firmware, issue #629)"
+  mcp_notes: "Request 99-zone Central Unit status on Dimension 14 (rejected with NACK on physical F454 firmware, issue #629; a real MyHomeServer1 refuses it too, OWNd#77). No builder block: OWNd#83 deprecates central_status(), which builds this frame; MyHOME polls with status('#0'). roundtrip means OWNd re-serializes it exactly, not that a gateway accepts it"
   roundtrip: true
-  builder:
-    class: OWNHeatingCommand
-    method: central_status
-    args: ["#0"]
 
 - id: thermo.resp.central.status.cu99.off
   frame: "*4*202*#0##"
