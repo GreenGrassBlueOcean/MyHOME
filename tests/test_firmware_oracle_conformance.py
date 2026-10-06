@@ -83,11 +83,11 @@ KNOWN_GATEWAY_DISCREPANCIES = {
     ("cover.cmd.up.bus.21", "MH200N"): "nack",
     # Central unit mode commands: MH200N refuses #0 central unit modes in default config:
     ("thermo.cmd.central.mode.heat.cu99", "MH200N"): "nack",
-    ("thermo.cmd.central.mode.heat.cu99", "MyHomeServer1"): "nack",
+    ("thermo.cmd.central.mode.heat.cu99", "MyHomeServer1"): "ack",
     ("thermo.cmd.central.mode.cool.cu99", "MH200N"): "nack",
     ("thermo.cmd.central.mode.cool.cu99", "MyHomeServer1"): "ack",
     ("thermo.cmd.central.mode.off.cu99", "MH200N"): "nack",
-    ("thermo.cmd.central.mode.off.cu99", "MyHomeServer1"): "nack",
+    ("thermo.cmd.central.mode.off.cu99", "MyHomeServer1"): "ack",
 }
 
 

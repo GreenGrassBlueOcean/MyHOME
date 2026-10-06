@@ -38,10 +38,10 @@ MAC = "00:03:50:44:55:66"
 
 BTICINO_3550_FRAMES = [
     # Outbound mode commands (sent by HA / integration to central unit #0)
-    "*4*100*#0##",  # Conditioning OFF command
-    "*4*101*#0##",  # Manual Heating command
-    "*4*102*#0##",  # Manual Cooling command (integration mapping; WHAT 102 in WHO 4 status is Antifreeze)
-    "*4*103*#0##",  # Auto Heating/Cooling command (integration mapping; WHAT 103 in WHO 4 status is Heating OFF)
+    "*4*303*#0##",  # Conditioning OFF command
+    "*4*1*#0##",  # Manual Heating command
+    "*4*0*#0##",  # Manual Cooling command
+    "*4*311*#0##",  # Auto Heating/Cooling command
     # Inbound operating mode status broadcasts (emitted by physical central unit #0)
     "*4*110*#0##",  # Manual Heating operating mode status
     "*4*210*#0##",  # Manual Cooling operating mode status
@@ -62,9 +62,9 @@ BTICINO_3550_FRAMES = [
 ]
 
 BTICINO_4695_FRAMES = [
-    "*4*100*#0#1##",  # Conditioning OFF command for 4695 zone 1
-    "*4*101*#0#1##",  # Manual Heating command for 4695 zone 1
-    "*4*102*#0#1##",  # Manual Cooling command for 4695 zone 1
+    "*4*303*#0#1##",  # Conditioning OFF command for 4695 zone 1
+    "*4*1*#0#1##",  # Manual Heating command for 4695 zone 1
+    "*4*0*#0#1##",  # Manual Cooling command for 4695 zone 1
     "*4*110*#0#1##",  # Manual Heating status for 4695 zone 1
     "*4*210*#0#1##",  # Manual Cooling status for 4695 zone 1
     "*4*303*#0#1##",  # Generic OFF status for 4695 zone 1
@@ -309,25 +309,25 @@ async def test_central_unit_event_driven_synchronization(hass: HomeAssistant) ->
     # 2. Command path: setting mode via HA emits central commands and dispatches signal
     await cu.async_set_hvac_mode(HVACMode.HEAT)
     sent_cmd = gateway.send.call_args[0][0]
-    assert str(sent_cmd) == "*4*101*#0##"
+    assert str(sent_cmd) == "*4*1*#0##"
     assert cu.hvac_mode == HVACMode.HEAT
     assert central_mode_events[-1] == HVACMode.HEAT
 
     await cu.async_set_hvac_mode(HVACMode.COOL)
     sent_cmd = gateway.send.call_args[0][0]
-    assert str(sent_cmd) == "*4*102*#0##"
+    assert str(sent_cmd) == "*4*0*#0##"
     assert cu.hvac_mode == HVACMode.COOL
     assert central_mode_events[-1] == HVACMode.COOL
 
     await cu.async_set_hvac_mode(HVACMode.AUTO)
     sent_cmd = gateway.send.call_args[0][0]
-    assert str(sent_cmd) == "*4*103*#0##"
+    assert str(sent_cmd) == "*4*311*#0##"
     assert cu.hvac_mode == HVACMode.AUTO
     assert central_mode_events[-1] == HVACMode.AUTO
 
     await cu.async_set_hvac_mode(HVACMode.OFF)
     sent_cmd = gateway.send.call_args[0][0]
-    assert str(sent_cmd) == "*4*100*#0##"
+    assert str(sent_cmd) == "*4*303*#0##"
     assert cu.hvac_mode == HVACMode.OFF
     assert central_mode_events[-1] == HVACMode.OFF
 

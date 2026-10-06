@@ -230,7 +230,7 @@ class TestDryContactEvents:
         assert msg.is_on is True
 
     def test_dry_contact_off(self):
-        msg = OWNEvent.parse("*25*0#1*31##")
+        msg = OWNEvent.parse("*25*32#1*31##")
         assert isinstance(msg, OWNDryContactEvent)
         assert msg.is_on is False
 

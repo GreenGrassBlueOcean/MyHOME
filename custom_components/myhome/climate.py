@@ -325,7 +325,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_fan_modes: list[str] | None = None
         self._running_fan_speed: str | None = None
         self._actuator_states: dict[str, bool] = {}
-        if fan:
+        if fan and not self._central:
             self._enable_fan_mode()
 
         self._attr_current_temperature: float | None = None
@@ -342,6 +342,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
     def _enable_fan_mode(self) -> None:
         """Dynamically enable fan mode support if not already enabled."""
+        if self._central:
+            return
         if not self._fan:
             self._fan = True
             self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
