@@ -375,6 +375,9 @@
     "alarm_read_only": {
       "message": "{name} is alleen-lezen: in- en uitschakelen gebeurt via de AUX-opdrachten waarvoor de centrale is geprogrammeerd"
     },
+    "fan_speed_zone_only": {
+      "message": "{name} heeft geen eigen ventilatorsnelheid: alleen een zone (1-99) kan er een krijgen"
+    },
     "command_delivery_cancelled": {
       "message": "{name}: de aflevering van het richtingscommando is geannuleerd voordat het de bus bereikte"
     },

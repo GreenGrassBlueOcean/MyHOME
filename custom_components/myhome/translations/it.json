@@ -375,6 +375,9 @@
     "alarm_read_only": {
       "message": "{name} è di sola lettura: inserisci e disinserisci l'allarme con i comandi AUX programmati sulla centrale"
     },
+    "fan_speed_zone_only": {
+      "message": "{name} non ha una velocità del ventilatore propria: solo una zona (1-99) può averne una"
+    },
     "command_delivery_cancelled": {
       "message": "{name}: l'invio del comando di direzione è stato annullato prima di raggiungere il bus"
     },

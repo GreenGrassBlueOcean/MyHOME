@@ -17,6 +17,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
@@ -53,6 +54,7 @@ from .const import (
     CONF_HEATING_SUPPORT,
     CONF_MANUFACTURER,
     CONF_STANDALONE,
+    DOMAIN,
     LOGGER,
     signed_who4_temperature,
 )
@@ -482,14 +484,23 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         }
         speed_code = fan_mode_map.get(str(fan_mode).lower())
         if speed_code is not None:
-            self._attr_fan_mode = fan_mode
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_fan_speed(
+            # OWNd raises for a central unit or general zone: the firmware forwards
+            # *#4*Z*#11*S## only for a plain zone 1..99 (OWNd#77, A2).
+            try:
+                command = OWNHeatingCommand.set_fan_speed(
                     where=self._where,
                     speed=speed_code,
                     standalone=self._standalone,
                 )
-            )
+            except ValueError as err:
+                raise ServiceValidationError(
+                    f"{self._display_name} has no fan speed of its own: only a zone (1-99) takes one",
+                    translation_domain=DOMAIN,
+                    translation_key="fan_speed_zone_only",
+                    translation_placeholders={"name": self._display_name},
+                ) from err
+            self._attr_fan_mode = fan_mode
+            await self._gateway_handler.send(command)
             if self.hass is not None:
                 self.async_write_ha_state()
 

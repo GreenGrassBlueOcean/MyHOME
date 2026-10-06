@@ -421,6 +421,9 @@
     "alarm_read_only": {
       "message": "{name} is read-only: arm and disarm through the AUX frames your central unit is programmed for"
     },
+    "fan_speed_zone_only": {
+      "message": "{name} has no fan speed of its own: only a zone (1-99) takes one"
+    },
     "command_delivery_cancelled": {
       "message": "{name}: direction command delivery was cancelled before reaching the bus"
     },
