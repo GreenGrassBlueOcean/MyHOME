@@ -623,11 +623,12 @@ python scripts/run_ownd_smoke.py --target dev
 python scripts/run_ownd_smoke.py --target all
 ```
 
-This runner executes 4 validation gates:
+This runner executes 5 validation gates:
 1. **Metadata Lockstep**: Verifies that the exact `OWNd==` pin in `manifest.json` matches the installed package.
-2. **Golden Corpus Conformance**: Runs 250 OpenWebNet frame fixtures (`tests/test_golden_conformance.py`) verifying parser extraction and builder parity.
+2. **Golden Corpus Conformance**: Runs 250+ OpenWebNet frame fixtures (`tests/test_golden_conformance.py`) verifying parser extraction and builder parity.
 3. **Platform Clean Imports**: Verifies all 14 integration platform modules import cleanly without missing symbols or deprecation errors.
 4. **Mock Gateway TCP Loopback**: Boots a mock OpenWebNet TCP server, negotiates session handshake (`*99*0##`), dispatches commands, and verifies frame parsing end-to-end.
+5. **Firmware Oracle Conformance**: Verifies frame compatibility and parser resilience against hash-pinned empirical gateway verdicts (`tests/test_firmware_oracle_conformance.py`), ensuring authentic firmware-emitted frames parse cleanly and target gateway rejection guarantees (e.g. dimmer level writes, unrouted private bus) hold.
 
 See the [F454 regression checks](docs/f454-regression-checks.md) for the fixes,
 automated coverage and physical gateway verification steps.
