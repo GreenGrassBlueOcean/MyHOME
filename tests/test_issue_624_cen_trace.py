@@ -25,7 +25,7 @@ from homeassistant.const import (
     CONF_TYPE,
 )
 from homeassistant.core import HomeAssistant
-from OWNd.message import OWNCENEvent, OWNMessage
+from OWNd.message import OWNCENEvent, OWNCENPlusEvent, OWNMessage
 
 from custom_components.myhome.const import (
     CONF_DEVICE_TYPE,
@@ -465,3 +465,105 @@ async def test_cen_bus_routing_and_non_int_no_value_error(hass: HomeAssistant) -
     assert payload["object"] == 36
     assert payload["where"] == "36"
     assert payload["pushbutton"] == 6
+
+
+@pytest.mark.asyncio
+async def test_cen_and_cenplus_non_integer_fallback(hass: HomeAssistant) -> None:
+    """Ensure non-integer CEN and CEN+ messages fall back safely without raising."""
+    entry = MagicMock()
+    entry.entry_id = "entry_fallback"
+    entry.data = {
+        CONF_HOST: "192.168.1.5",
+        CONF_PORT: 20000,
+        CONF_PASSWORD: "open",
+        CONF_NAME: "MYHOME",
+        CONF_MAC: "00:11:22:33:44:55",
+    }
+    handler = MyHOMEGatewayHandler(hass, entry)
+    handler.device_registry_id = "gateway_device"
+
+    cen_events: list[dict] = []
+    cenplus_events: list[dict] = []
+    hass.bus.async_listen("myhome_cen_event", lambda ev: cen_events.append(ev.data))
+    hass.bus.async_listen("myhome_cenplus_event", lambda ev: cenplus_events.append(ev.data))
+
+    # Mock non-integer CEN message
+    cen_msg = MagicMock(spec=OWNCENEvent)
+    cen_msg.object = "not_an_int"
+    cen_msg.push_button = "not_an_int_pb"
+    cen_msg.is_pressed = True
+    cen_msg.is_released_after_short_press = False
+    cen_msg.is_held = False
+    cen_msg.is_released_after_long_press = False
+    cen_msg.human_readable_log = "mock non-int CEN"
+
+    # Mock non-integer CEN+ message
+    cenplus_msg = MagicMock(spec=OWNCENPlusEvent)
+    cenplus_msg.object = "not_an_int_plus"
+    cenplus_msg.push_button = "not_an_int_plus_pb"
+    cenplus_msg.is_short_pressed = True
+    cenplus_msg.is_held = False
+    cenplus_msg.is_still_held = False
+    cenplus_msg.is_released = False
+    cenplus_msg.is_slowly_turned_cw = False
+    cenplus_msg.is_quickly_turned_cw = False
+    cenplus_msg.is_slowly_turned_ccw = False
+    cenplus_msg.is_quickly_turned_ccw = False
+    cenplus_msg.human_readable_log = "mock non-int CEN+"
+
+    mock_dr = MagicMock()
+    mock_dr.async_get_device.return_value = None
+    with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr):
+        await handler._event_dispatcher.process_message(cen_msg)
+        await handler._event_dispatcher.process_message(cenplus_msg)
+    await hass.async_block_till_done()
+
+    assert len(cen_events) == 1
+    assert cen_events[0]["object"] == "not_an_int"
+    assert cen_events[0]["pushbutton"] == "not_an_int_pb"
+
+    assert len(cenplus_events) == 1
+    assert cenplus_events[0]["object"] == "not_an_int_plus"
+    assert cenplus_events[0]["pushbutton"] == "not_an_int_plus_pb"
+
+
+@pytest.mark.asyncio
+async def test_cenplus_trigger_non_integer_event_handling(hass: HomeAssistant) -> None:
+    """Ensure CEN+ trigger handles malformed/non-integer event object safely without raising."""
+    action = AsyncMock()
+    trigger_config = {
+        CONF_PLATFORM: "device",
+        CONF_DOMAIN: DOMAIN,
+        CONF_DEVICE_ID: "mock_cenplus_device",
+        CONF_TYPE: CONF_SHORT_PRESS,
+        CONF_SUBTYPE: "button_1",
+        CONF_ADDRESS: "12",
+    }
+
+    mock_device = MagicMock()
+    mock_device.identifiers = {(DOMAIN, "00:11:22:33:44:55-25-12")}
+    mock_dr = MagicMock()
+    mock_dr.async_get.return_value = mock_device
+
+    with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr):
+        unsub = await async_attach_trigger(
+            hass,
+            trigger_config,
+            action,
+            {"trigger": trigger_config},
+        )
+
+    # Fire malformed event with non-integer object and where
+    hass.bus.async_fire(
+        "myhome_cenplus_event",
+        {
+            "object": "not_an_int",
+            "pushbutton": 1,
+            "event": CONF_SHORT_PRESS,
+            "where": "not_an_int",
+        },
+    )
+    await hass.async_block_till_done()
+
+    action.assert_not_called()
+    unsub()

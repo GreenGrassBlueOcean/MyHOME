@@ -382,11 +382,11 @@ class GatewayEventDispatcher:
             clean_obj = raw_obj.split("#")[0]
             try:
                 obj_val: int | str = int(clean_obj)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # pragma: no cover - defensive
                 obj_val = raw_obj
             try:
                 pb_val = int(message.push_button)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # pragma: no cover - defensive
                 pb_val = message.push_button
 
             target_mac: str | None = self.handler.mac
@@ -436,11 +436,11 @@ class GatewayEventDispatcher:
             clean_obj = raw_obj.split("#")[0]
             try:
                 obj_val = int(clean_obj)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # pragma: no cover - defensive
                 obj_val = raw_obj
             try:
                 pb_val = int(cast(int, message.push_button))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # pragma: no cover - defensive
                 pb_val = message.push_button
 
             target_mac = self.handler.mac

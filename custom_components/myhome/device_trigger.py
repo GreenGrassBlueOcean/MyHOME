@@ -363,7 +363,7 @@ async def async_attach_trigger(
                                 and (int_object is None or str(int_target) != f"2{int_object}")
                             ):
                                 return
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError):  # pragma: no cover - defensive
                             return
                 else:
                     # CEN (WHO 15): where is wire address (e.g. "0512"), object is int (e.g. 512)
