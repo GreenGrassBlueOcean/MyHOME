@@ -2,13 +2,14 @@
 
 A declarative conformance suite of OpenWebNet frames providing cross-framework verification across Home Assistant (`MyHOME` / `OWNd`), openHAB (`openwebnet4j` & `org.openhab.binding.openwebnet`), and official Legrand OpenWebNet specifications via `openwebnet-mcp`.
 
-## The Three Authorities Triad
+## Verification Authorities
 
 | Layer | Source | Role |
 |---|---|---|
 | **Judge** | Official Legrand PDFs via `openwebnet-mcp` | Validates whether a frame is syntactically legal (its semantics are not authoritative; see Provenance below) |
 | **Oracle** | `openwebnet4j` & openHAB binding (by Massimo Valla) | Provides mature reference factory outputs and empirical test vectors |
-| **SUT** | `OWNd` / `custom_components/myhome` | System Under Test: verified against judge and oracle |
+| **Firmware Translation Oracle** | `own-firmware-oracle` (`tests/golden/firmware_oracle.json`) | Provides hash-pinned empirical verdicts, gateway reply codes, and bus frames from real emulated BTicino/Legrand gateway binaries |
+| **SUT** | `OWNd` / `custom_components/myhome` | System Under Test: verified against judge and oracles |
 
 ## Provenance: which fixtures may change
 
