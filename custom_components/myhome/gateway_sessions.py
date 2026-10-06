@@ -27,6 +27,12 @@ COMMAND_SESSION_IDLE_TIMEOUT: float = 15.0
 EVENT_STALL_TIMEOUT: float = 600.0
 EVENT_RESTART_BACKOFF_MIN: float = 5.0
 EVENT_RESTART_BACKOFF_MAX: float = 60.0
+# OWNd's default EVENT_INACTIVITY_TIMEOUT (3900s) proactively recycles quiet event
+# sessions. On installations with only lights and shutters, no bus traffic occurs
+# overnight, causing cyclic reconnect warning bursts on gateways like MH201.
+# None relies on OS TCP keepalive (TCP_KEEPIDLE=30) and the runner watchdog while
+# leaving sessions open indefinitely. Installations desiring a generous hard ceiling
+# for "TCP up, bus dead" conditions can override this constant (e.g. 43200.0 / 12h).
 EVENT_INACTIVITY_TIMEOUT: float | None = None
 
 
