@@ -56,6 +56,7 @@ from .gateway_events import GatewayEventDispatcher
 from .gateway_resync import LightingResyncManager
 from .gateway_sessions import (
     COMMAND_SESSION_IDLE_TIMEOUT,
+    EVENT_INACTIVITY_TIMEOUT,
     EVENT_READY_TIMEOUT,
     EVENT_RESTART_BACKOFF_MAX,
     EVENT_RESTART_BACKOFF_MIN,
@@ -95,6 +96,7 @@ __all__ = [
     "AVAILABILITY_GRACE",
     "COMMAND_SESSION_IDLE_TIMEOUT",
     "CommandWorkerPool",
+    "EVENT_INACTIVITY_TIMEOUT",
     "EVENT_READY_TIMEOUT",
     "EVENT_RESTART_BACKOFF_MAX",
     "EVENT_RESTART_BACKOFF_MIN",

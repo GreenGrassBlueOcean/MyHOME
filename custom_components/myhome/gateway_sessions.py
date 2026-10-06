@@ -27,6 +27,7 @@ COMMAND_SESSION_IDLE_TIMEOUT: float = 15.0
 EVENT_STALL_TIMEOUT: float = 600.0
 EVENT_RESTART_BACKOFF_MIN: float = 5.0
 EVENT_RESTART_BACKOFF_MAX: float = 60.0
+EVENT_INACTIVITY_TIMEOUT: float | None = None
 
 
 def _resolve_written(task: dict[str, Any], when: float) -> None:
@@ -160,9 +161,13 @@ class EventSessionRunner:
         from . import gateway as gw_module
 
         event_session_cls = getattr(gw_module, "OWNEventSession", OWNEventSession)
+        inactivity_timeout = getattr(
+            gw_module, "EVENT_INACTIVITY_TIMEOUT", EVENT_INACTIVITY_TIMEOUT
+        )
         _event_session = event_session_cls(
             gateway=self.gateway,
             logger=LOGGER,
+            inactivity_timeout=inactivity_timeout,
             on_state_change=self.handler._on_event_connection_state_change,
         )
         watchdog = asyncio.timeout(None)

@@ -41,7 +41,9 @@ class AsyncTcpTransport(OWNTransport):
         """Connect both Event and Command sessions."""
         self._terminate = False
 
-        self._event_session = OWNEventSession(gateway=self.gateway, logger=self._logger)
+        self._event_session = OWNEventSession(
+            gateway=self.gateway, logger=self._logger, inactivity_timeout=None
+        )
         event_res = await self._event_session.connect()
         if isinstance(event_res, dict) and not event_res.get("Success", True):
             self._logger.error(
