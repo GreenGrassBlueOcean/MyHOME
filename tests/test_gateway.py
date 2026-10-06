@@ -1146,6 +1146,7 @@ async def test_sending_loop_collected_responses_and_pacing(gateway_handler):
 async def test_gateway_cen_event_and_auto_registration(gateway_handler: MyHOMEGatewayHandler):
     """Test receiving OWNCENEvent dispatches bus event and registers CEN scenario device."""
     mock_dr = MagicMock()
+    mock_dr.async_get_device.return_value = None
     gateway_handler.config_entry.entry_id = "test_entry_123"
     gateway_handler.device_registry_id = "gateway_device_123"
 
@@ -1203,6 +1204,7 @@ async def test_gateway_cen_event_and_auto_registration(gateway_handler: MyHOMEGa
 async def test_gateway_cenplus_event_and_auto_registration(gateway_handler: MyHOMEGatewayHandler):
     """Test receiving OWNCENPlusEvent dispatches bus event and registers CEN+ scenario device."""
     mock_dr = MagicMock()
+    mock_dr.async_get_device.return_value = None
     gateway_handler.config_entry.entry_id = "test_entry_456"
     gateway_handler.device_registry_id = "gateway_device_456"
 

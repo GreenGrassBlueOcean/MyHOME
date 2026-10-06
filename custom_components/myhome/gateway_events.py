@@ -130,7 +130,11 @@ class GatewayEventDispatcher:
 
             # Preserve existing user-facing device name if the device already exists
             existing_dev = existing_wire_dev or existing_norm_dev
-            dev_name = existing_dev.name if existing_dev and existing_dev.name else f"{type_name} Unit {obj_str}"
+            dev_name = (
+                existing_dev.name
+                if existing_dev and isinstance(existing_dev.name, str) and existing_dev.name
+                else f"{type_name} Unit {obj_str}"
+            )
 
             device_registry.async_get_or_create(
                 config_entry_id=config_entry.entry_id,
