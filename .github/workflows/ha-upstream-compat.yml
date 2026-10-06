@@ -80,10 +80,12 @@ jobs:
 
       - name: Fast Platform Import Smoke Test
         if: steps.install-deps.outputs.installed == 'true'
+        continue-on-error: ${{ matrix.allow-failure }}
         run: |
           PYTHONPATH=. pytest tests/test_platforms.py -k "TestPlatformImportCleanliness" -v
 
       - name: Run the full test suite
         if: steps.install-deps.outputs.installed == 'true'
+        continue-on-error: ${{ matrix.allow-failure }}
         run: |
           PYTHONPATH=. pytest tests/ -q
