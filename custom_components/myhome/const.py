@@ -11,7 +11,7 @@ DOMAIN = "myhome"
 
 ATTR_GATEWAY = "gateway"
 ATTR_MESSAGE = "message"
-INTEGRATION_VERSION = "2.0.0b14"
+INTEGRATION_VERSION = "2.0.0b15"
 # hass.data[DOMAIN] key holding the OWNd version resolved off the event loop
 DATA_OWND_VERSION = "_ownd_version"
 
@@ -196,19 +196,6 @@ ISSUE_PRIMARY_GATEWAY_MISSING = "primary_gateway_missing"
 SHARED_BUS_TX_ECHO_S = 1.5
 SHARED_BUS_EVIDENCE_COUNT = 3
 SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
-
-
-def signed_who4_temperature(message: Any, value: float | None) -> float | None:
-    """Apply the sign digit of a WHO 4 temperature frame to the value OWNd decoded.
-
-    The bus sends ``SXXX`` (``S`` = 1 for a negative reading, tenths of a degree),
-    but OWNd reads digits 1-3 only, so ``1055`` reaches us as ``+5.5``.
-    """
-    raw = getattr(message, "_dimension_value", None)
-    first = raw[0] if isinstance(raw, (list, tuple)) and raw else None
-    if value is not None and isinstance(first, str) and len(first) == 4 and first.startswith("1"):
-        return -abs(value) if value else value  # "1000" is a sign on nothing: 0.0, never -0.0
-    return value
 
 
 def who4_raw_to_celsius(raw: str) -> float:
