@@ -19,6 +19,7 @@ replayed.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import timedelta
 from types import SimpleNamespace
@@ -425,3 +426,59 @@ async def test_scope_cover_timeout_edges(hass: HomeAssistant, gateway) -> None:
     await group.async_will_remove_from_hass()
     unsub.assert_called_once()
     assert group._unsub_members is None and group._run_timeout is None
+
+
+async def test_scope_cover_tilt_handling(hass: HomeAssistant, gateway) -> None:
+    """Test that scope covers fan out tilt commands to members and memberless scopes do not arm run timeout on tilt."""
+    fut = asyncio.Future()
+    fut.set_result(time.monotonic())
+    gateway.send.return_value = fut
+
+    # 1. Memberless scope cover with slat_tilt=True: tilt move does not arm full-travel _run_timeout
+    group = _cover(gateway, "#7", scope=CoverScope.of("#7"), slat_tilt=True, slat_time=2.0)
+    group.entity_id = "cover.group_7"
+    group.hass = hass
+    await group.async_set_cover_tilt_position(tilt_position=100)
+    assert group._is_tilting is True
+    assert group._run_timeout is None
+
+    # Receiving a tilt movement event while tilting also does not arm _run_timeout
+    group.handle_event(OWNEvent.parse("*2*1*#7##"))
+    assert group._run_timeout is None
+    await group.async_stop_cover_tilt()
+    assert group._is_tilting is False
+
+    await group.async_close_cover_tilt()
+    await group.async_stop_cover_tilt()
+    await group.async_open_cover_tilt()
+    await group.async_stop_cover_tilt()
+
+    # 2. Scope cover with member covers with slat_tilt=True fans out tilt commands and aggregates tilt
+    family = CoverFamily()
+    p1 = _cover(gateway, "11", "02", slat_tilt=True)
+    p1.entity_id = "cover.point_11_02"
+    p2 = _cover(gateway, "12", "02", slat_tilt=True)
+    p2.entity_id = "cover.point_12_02"
+    area = _cover(gateway, "1", "02", scope=CoverScope.of("1", "02"), slat_tilt=True)
+    area.entity_id = "cover.area_1_02"
+    for c in (p1, p2, area):
+        family.add(c)
+    p1._attr_current_cover_tilt_position = 20
+    p2._attr_current_cover_tilt_position = 40
+    assert area.current_cover_tilt_position == 30
+
+    with patch.object(MyHOMECover, "async_open_cover_tilt", AsyncMock()) as mock_open:
+        await area.async_open_cover_tilt()
+        assert mock_open.await_count == 2
+
+    with patch.object(MyHOMECover, "async_close_cover_tilt", AsyncMock()) as mock_close:
+        await area.async_close_cover_tilt()
+        assert mock_close.await_count == 2
+
+    with patch.object(MyHOMECover, "async_set_cover_tilt_position", AsyncMock()) as mock_set:
+        await area.async_set_cover_tilt_position(tilt_position=60)
+        assert mock_set.await_count == 2
+
+    with patch.object(MyHOMECover, "async_stop_cover_tilt", AsyncMock()) as mock_stop:
+        await area.async_stop_cover_tilt()
+        assert mock_stop.await_count == 2
