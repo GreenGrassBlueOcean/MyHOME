@@ -1,6 +1,8 @@
 {
   "capture": {
-    "kind": "trace",
+    "kind": "derived_trace_archive",
+    "source_file": "live_test_monitor_2026-10-07.log",
+    "notes": "Derived archive synthesized from authentic raw monitor log lines. Not an authentic Home Assistant runtime diagnostics export (exported_at timestamp is synthetic, total_tx is 0, and all frames are rx). Descriptions are generated using proposed OWNd WHO 4 season decoding (OWNd #94 / #97); pinned OWNd 2.0.0b10 reports *4*1*Z## as hvac_mode.",
     "started_at": "2026-10-07T20:06:54.835000+00:00",
     "filters": {
       "who": null,
@@ -19,8 +21,9 @@
   "environment": {
     "home_assistant_version": "2026.9.4",
     "integration_version": "2.0.0b15",
-    "ownd_version": "2.0.0b10",
-    "exported_at": "2026-10-07T20:20:00.000000+00:00"
+    "ownd_version": "2.0.0b10 (synthesized with proposed WHO 4 season decoder branch)",
+    "exported_at": "2026-10-07T20:20:00.000000+00:00",
+    "archive_type": "derived_monitor_archive"
   },
   "gateway": {
     "model": "MyHomeServer1",
@@ -116,7 +119,7 @@
       "direction": "rx",
       "raw": "*#4*60#2*20*5##",
       "type": "OWNHeatingEvent",
-      "description": "Zone 60's fan is off."
+      "description": "Zone 60 actuator 2 is off (tracks heating actuator on this plant; decoded as fan speed 0 by OWNd)."
     },
     {
       "timestamp": 1791403674.864,
@@ -140,7 +143,7 @@
       "direction": "rx",
       "raw": "*4*4002#39*0#1##",
       "type": "OWNHeatingEvent",
-      "description": "Zone 0's mode is unknown."
+      "description": "Zone 39 external probe/mode report (parsed as zone 0 by OWNd where-param parser)."
     },
     {
       "timestamp": 1791403682.224,
@@ -380,7 +383,7 @@
       "direction": "rx",
       "raw": "*#4*60#2*20*6##",
       "type": "OWNHeatingEvent",
-      "description": "Zone 60's fan is on at speed 1."
+      "description": "Zone 60 actuator 2 is active (tracks heating actuator on this plant; decoded as fan speed 1 by OWNd)."
     },
     {
       "timestamp": 1791403714.186,
@@ -476,7 +479,7 @@
       "direction": "rx",
       "raw": "*#4*60#2*20*5##",
       "type": "OWNHeatingEvent",
-      "description": "Zone 60's fan is off."
+      "description": "Zone 60 actuator 2 is off (tracks heating actuator on this plant; decoded as fan speed 0 by OWNd)."
     },
     {
       "timestamp": 1791403716.595,

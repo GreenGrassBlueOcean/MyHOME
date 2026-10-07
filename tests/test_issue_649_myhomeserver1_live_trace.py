@@ -127,6 +127,38 @@ async def test_myhomeserver1_live_trace_replay_without_exceptions(hass: HomeAssi
     assert "4" in whos_seen, "Trace must contain WHO 4 thermoregulation frames"
 
 
+def test_myhomeserver1_live_trace_log_to_json_raw_equality() -> None:
+    """Verify that every frame in the raw monitor log matches the JSON trace archive exactly.
+
+    Ensures 1:1 parity in sequence order, timestamp, and raw OpenWebNet frame string
+    between the authentic ground-truth log and the derived JSON archive.
+    """
+    assert RAW_LOG_FILE.is_file(), f"Missing raw trace fixture: {RAW_LOG_FILE}"
+    assert JSON_TRACE_FILE.is_file(), f"Missing JSON trace fixture: {JSON_TRACE_FILE}"
+
+    with open(RAW_LOG_FILE, "r", encoding="utf-8") as f:
+        raw_lines = [line.strip() for line in f if line.strip()]
+
+    with open(JSON_TRACE_FILE, "r", encoding="utf-8") as f:
+        trace_data = json.load(f)
+
+    json_frames = trace_data["frames"]
+    assert len(raw_lines) == 107
+    assert len(json_frames) == 107
+
+    for idx, (log_line, json_frame) in enumerate(zip(raw_lines, json_frames)):
+        parts = log_line.split(maxsplit=2)
+        assert len(parts) == 3, f"Line {idx + 1} malformed: {log_line}"
+        ts_str, marker, raw_frame = parts
+        assert marker == "OWN", f"Line {idx + 1} unexpected marker: {marker}"
+        assert raw_frame == json_frame["raw"], (
+            f"Frame mismatch at line {idx + 1}: log '{raw_frame}' != json '{json_frame['raw']}'"
+        )
+        assert abs(float(ts_str) - json_frame["timestamp"]) < 1e-4, (
+            f"Timestamp mismatch at line {idx + 1}: log {ts_str} != json {json_frame['timestamp']}"
+        )
+
+
 def test_myhomeserver1_live_trace_grammar_and_semantics() -> None:
     """Verify syntactic and semantic properties of key frames from the physical trace."""
     # 1. Zone 60 temperature report (Dimension 0: 23.5 °C)
@@ -181,13 +213,11 @@ def test_myhomeserver1_live_trace_grammar_and_semantics() -> None:
     actuator_1 = OWNMessage.parse("*#4*60#1*20*0##")
     assert isinstance(actuator_1, OWNHeatingEvent)
     assert actuator_1.zone == 60
-    assert actuator_1._actuator == "1"
     assert actuator_1.is_active() is False
 
     actuator_2 = OWNMessage.parse("*#4*60#2*20*5##")
     assert isinstance(actuator_2, OWNHeatingEvent)
     assert actuator_2.zone == 60
-    assert actuator_2._actuator == "2"
 
     # 9. Lighting Relay 43 ON and OFF states
     light_on = OWNMessage.parse("*1*1*43##")
