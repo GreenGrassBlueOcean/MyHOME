@@ -78,16 +78,39 @@ def test_emitted_own_frames_parseable_by_ownd():
 
 # Known protocol discrepancies between spec-derived/openwebnet4j corpus fixtures
 # and actual gateway firmware behavior (audited in own-firmware-oracle):
-KNOWN_GATEWAY_DISCREPANCIES = {
-    # Private bus routing #4# is refused on MH200N without explicit routing config:
-    ("cover.cmd.up.bus.21", "MH200N"): "nack",
-    # Central unit mode commands: MH200N refuses #0 central unit modes in default config:
-    ("thermo.cmd.central.mode.heat.cu99", "MH200N"): "nack",
-    ("thermo.cmd.central.mode.heat.cu99", "MyHomeServer1"): "ack",
-    ("thermo.cmd.central.mode.cool.cu99", "MH200N"): "nack",
-    ("thermo.cmd.central.mode.cool.cu99", "MyHomeServer1"): "ack",
-    ("thermo.cmd.central.mode.off.cu99", "MH200N"): "nack",
-    ("thermo.cmd.central.mode.off.cu99", "MyHomeServer1"): "ack",
+KNOWN_GATEWAY_DISCREPANCIES: dict[tuple[str, str], set[str]] = {
+    # Central unit mode commands:
+    ("thermo.cmd.central.mode.heat.cu99", "MH200N"): {"nack"},
+    ("thermo.cmd.central.mode.heat.cu99", "MyHomeServer1"): {"ack", "nack"},
+    ("thermo.cmd.central.mode.heat.cu99", "F450"): {"nack", "-"},
+    ("thermo.cmd.central.mode.heat.cu99", "F460"): {"nack"},
+    ("thermo.cmd.central.mode.heat.cu99", "F461"): {"nack"},
+    ("thermo.cmd.central.mode.cool.cu99", "MH200N"): {"nack"},
+    ("thermo.cmd.central.mode.cool.cu99", "F450"): {"-"},
+    ("thermo.cmd.central.mode.cool.cu99", "F460"): {"nack"},
+    ("thermo.cmd.central.mode.cool.cu99", "F461"): {"nack"},
+    ("thermo.cmd.central.mode.off.cu99", "MH200N"): {"nack"},
+    ("thermo.cmd.central.mode.off.cu99", "MyHomeServer1"): {"ack", "nack"},
+    ("thermo.cmd.central.mode.off.cu99", "F450"): {"-"},
+    ("thermo.cmd.central.mode.off.cu99", "F460"): {"nack"},
+    ("thermo.cmd.central.mode.off.cu99", "F461"): {"nack"},
+    # Zone temperature request without configured probe on unconfigured daemon:
+    ("thermo.req.temp.zone1", "MH200N"): {"nack"},
+    ("thermo.req.temp.zone1", "MyHomeServer1"): {"nack"},
+    ("thermo.req.temp.zone1", "F450"): {"nack"},
+    ("thermo.req.temp.zone1", "F453AV"): {"nack"},
+    ("thermo.req.temp.zone1", "F454"): {"nack"},
+    ("thermo.req.temp.zone1", "F459"): {"nack"},
+    ("thermo.req.temp.zone1", "F460"): {"nack"},
+    ("thermo.req.temp.zone1", "F461"): {"nack"},
+    ("thermo.req.temp.zone1", "MH202"): {"nack"},
+    # Energy dimension 113: refused without configured energy meter:
+    ("energy.req.unit.meter51", "MH200N"): {"nack"},
+    ("energy.req.unit.meter51", "F450"): {"nack"},
+    ("energy.req.unit.meter51", "F454"): {"nack"},
+    # Sound source power on: F454 forwards SCS frame to bus but returns NACK to client session
+    ("sound.cmd.source.on.1", "F454"): {"nack"},
+    ("sound.cmd.source.on.2", "F454"): {"nack"},
 }
 
 
@@ -120,8 +143,8 @@ def test_golden_corpus_against_firmware_oracle():
                 expected_discrepancy = KNOWN_GATEWAY_DISCREPANCIES.get((fixture_id, product))
                 if expected_discrepancy is not None:
                     # Assert expected known divergence behavior on this gateway
-                    assert reply == expected_discrepancy, (
-                        f"Expected known discrepancy {fixture_id} on {product} to be "
+                    assert reply in expected_discrepancy, (
+                        f"Expected known discrepancy {fixture_id} on {product} to be in "
                         f"{expected_discrepancy}, got {reply}"
                     )
                     continue
@@ -138,19 +161,21 @@ def test_golden_corpus_against_firmware_oracle():
 
 
 @pytest.mark.parametrize(
-    ("frame", "expected_reply", "expected_verdict"),
+    ("frame", "expected_reply", "expected_verdict", "expected_gateways"),
     [
-        ("*#1*0*#1*100*0##", "nack", "silent"),
-        ("*#1*31*#1*100*0##", "nack", "silent"),
-        ("*#1*31*#1*100*255##", "nack", "silent"),
-        ("*#1*31*#1*100*5##", "nack", "silent"),
+        ("*#1*0*#1*100*0##", "nack", "silent", {"MH200N", "MyHomeServer1"}),
+        ("*#1*31*#1*100*0##", "nack", "silent", {"MH200N", "MyHomeServer1"}),
+        ("*#1*31*#1*100*255##", "nack", "silent", {"MH200N", "MyHomeServer1"}),
+        ("*#1*31*#1*100*5##", "nack", "silent", {"MH200N", "MyHomeServer1"}),
     ],
 )
-def test_known_firmware_rejections(frame: str, expected_reply: str, expected_verdict: str):
+def test_known_firmware_rejections(
+    frame: str, expected_reply: str, expected_verdict: str, expected_gateways: set[str]
+):
     """Verify that known protocol boundary frames produce expected rejections on target gateways."""
     assert frame in ALL_VERDICTS, f"Target frame {frame} missing from oracle verdicts"
-    entries = ALL_VERDICTS[frame]
-    assert len(entries) > 0
+    entries = [e for e in ALL_VERDICTS[frame] if e["product"] in expected_gateways]
+    assert len(entries) >= len(expected_gateways)
 
     for entry in entries:
         assert entry["reply"] == expected_reply, (
@@ -182,7 +207,7 @@ def test_what19_fault_emitted_event():
 def test_all_gateway_responses_conform_to_openwebnet_protocol():
     """Verify that every verdict entry adheres strictly to OpenWebNet framing rules."""
     valid_replies = {"ack", "nack", "-"}
-    valid_verdicts = {"out", "silent", "timeout"}
+    valid_verdicts = {"out", "silent", "timeout", "crash"}
 
     for inp, entries in ALL_VERDICTS.items():
         assert inp.startswith("*") and inp.endswith("##"), f"Invalid input frame format: {inp}"

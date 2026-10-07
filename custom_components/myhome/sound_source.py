@@ -192,7 +192,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         """
         self._register_availability_listener()
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*101*{self._where}##")
+            OWNSoundCommand.start_rds(self._where)
         )
 
     async def async_update(self) -> None:
@@ -206,7 +206,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Switch the source device on."""
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*3*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.turn_on(self._where))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Switch the source device to standby.
@@ -214,23 +214,23 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         Rooms listening to this input fall silent; the matrix routing is not
         changed, so they stay pointed at it.
         """
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*13*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
 
     async def async_media_next_track(self) -> None:
         """Advance to the next station."""
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*6001*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.next_track(self._where))
 
     async def async_media_previous_track(self) -> None:
         """Return to the previous station."""
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*6101*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.previous_track(self._where))
 
     async def async_seek_up(self) -> None:
         """Seek forward to the next receivable FM frequency."""
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*5000*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.seek_up(self._where))
 
     async def async_seek_down(self) -> None:
         """Seek backward to the previous receivable FM frequency."""
-        await self._gateway_handler.send(OWNSoundCommand(f"*16*5100*{self._where}##"))
+        await self._gateway_handler.send(OWNSoundCommand.seek_down(self._where))
 
     async def async_select_source(self, source: str) -> None:
         """Switch to a stored station.
@@ -263,7 +263,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*#16*{self._where}*#7*{station}##")
+            OWNSoundCommand.select_track(self._where, station)
         )
         self._station = station
         if station > self._station_count:
@@ -288,8 +288,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            # Not zero-padded: the F500N took `*#16*101*#6*0*96200##` (#427).
-            OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz}##")
+            OWNSoundCommand.set_frequency(self._where, kilohertz)
         )
         self._frequency_khz = kilohertz
         self._station = None
@@ -359,6 +358,18 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                     len(values),
                     values,
                 )
+        elif isinstance(getattr(message, "track_step_forward", None), int):
+            if self._station is not None:
+                new_st = min(
+                    self._station + message.track_step_forward, self._station_count
+                )
+                self._station = new_st
+                self._attr_source = f"Station {new_st}"
+        elif isinstance(getattr(message, "track_step_backward", None), int):
+            if self._station is not None:
+                new_st = max(self._station - message.track_step_backward, 1)
+                self._station = new_st
+                self._attr_source = f"Station {new_st}"
         elif getattr(message, "is_on", False):
             self._attr_state = MediaPlayerState.ON
         elif getattr(message, "is_off", False):
