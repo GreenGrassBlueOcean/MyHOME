@@ -369,10 +369,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         step_forward = getattr(message, "track_step_forward", None)
         step_backward = getattr(message, "track_step_backward", None)
         raw_what = getattr(message, "what", getattr(message, "_what", None))
-        try:
-            what_val = int(raw_what) if raw_what is not None else None
-        except (ValueError, TypeError):
-            what_val = None
+        what_val = raw_what if isinstance(raw_what, int) else None
 
         if step_forward is None and what_val is not None and 6001 <= what_val <= 6015:
             step_forward = what_val - 6000
