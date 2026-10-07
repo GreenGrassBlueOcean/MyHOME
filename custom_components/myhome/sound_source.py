@@ -192,7 +192,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         """
         self._register_availability_listener()
         await self._gateway_handler.send(
-            OWNSoundCommand.start_rds(self._where)
+            OWNSoundCommand(f"*16*101*{self._where}##")
         )
 
     async def async_update(self) -> None:
@@ -218,19 +218,27 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
 
     async def async_media_next_track(self) -> None:
         """Advance to the next station."""
-        await self._gateway_handler.send(OWNSoundCommand.next_track(self._where))
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*6001*{self._where}##")
+        )
 
     async def async_media_previous_track(self) -> None:
         """Return to the previous station."""
-        await self._gateway_handler.send(OWNSoundCommand.previous_track(self._where))
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*6101*{self._where}##")
+        )
 
     async def async_seek_up(self) -> None:
         """Seek forward to the next receivable FM frequency."""
-        await self._gateway_handler.send(OWNSoundCommand.seek_up(self._where))
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*5000*{self._where}##")
+        )
 
     async def async_seek_down(self) -> None:
         """Seek backward to the previous receivable FM frequency."""
-        await self._gateway_handler.send(OWNSoundCommand.seek_down(self._where))
+        await self._gateway_handler.send(
+            OWNSoundCommand(f"*16*5100*{self._where}##")
+        )
 
     async def async_select_source(self, source: str) -> None:
         """Switch to a stored station.
@@ -263,7 +271,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand.select_track(self._where, station)
+            OWNSoundCommand(f"*#16*{self._where}*#7*{station}##")
         )
         self._station = station
         if station > self._station_count:
@@ -288,7 +296,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand.set_frequency(self._where, kilohertz)
+            OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz:06d}##")
         )
         self._frequency_khz = kilohertz
         self._station = None
@@ -358,16 +366,29 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                     len(values),
                     values,
                 )
-        elif isinstance(getattr(message, "track_step_forward", None), int):
+        step_forward = getattr(message, "track_step_forward", None)
+        step_backward = getattr(message, "track_step_backward", None)
+        raw_what = getattr(message, "what", getattr(message, "_what", None))
+        try:
+            what_val = int(raw_what) if raw_what is not None else None
+        except (ValueError, TypeError):
+            what_val = None
+
+        if step_forward is None and what_val is not None and 6001 <= what_val <= 6015:
+            step_forward = what_val - 6000
+        if step_backward is None and what_val is not None and 6101 <= what_val <= 6115:
+            step_backward = what_val - 6100
+
+        if isinstance(step_forward, int):
             if self._station is not None:
                 new_st = min(
-                    self._station + message.track_step_forward, self._station_count
+                    self._station + step_forward, self._station_count
                 )
                 self._station = new_st
                 self._attr_source = f"Station {new_st}"
-        elif isinstance(getattr(message, "track_step_backward", None), int):
+        elif isinstance(step_backward, int):
             if self._station is not None:
-                new_st = max(self._station - message.track_step_backward, 1)
+                new_st = max(self._station - step_backward, 1)
                 self._station = new_st
                 self._attr_source = f"Station {new_st}"
         elif getattr(message, "is_on", False):
