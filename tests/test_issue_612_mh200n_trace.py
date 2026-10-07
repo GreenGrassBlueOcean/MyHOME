@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,12 +22,9 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_PORT,
 )
-from OWNd.message import OWNCENEvent, OWNMessage, OWNSceneEvent
+from OWNd.message import OWNCENEvent, OWNLightingEvent, OWNMessage, OWNSceneEvent
 
-from custom_components.myhome.const import (
-    CONF_SHORT_PRESS,
-    DOMAIN,
-)
+from custom_components.myhome.const import DOMAIN
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
 from custom_components.myhome.gateway_events import GatewayEventDispatcher
 
@@ -60,19 +58,42 @@ def test_trace_file_present_and_has_trailing_newline() -> None:
     assert len(data.get("frames", [])) == 193
 
 
-def test_trace_contains_no_motion_sensor_area_sweeps() -> None:
-    """Empirically verify PR #614: No motion sensor area sweeps (*#1*00## or *#1*1##) exist in the trace."""
+@pytest.mark.asyncio
+async def test_trace_and_motion_frames_do_not_trigger_area_sweeps(
+    gateway_handler: MyHOMEGatewayHandler,
+) -> None:
+    """Empirically verify PR #614 in code: frames never schedule motion sensor area sweeps (*#1*00## or *#1*1##)."""
     data = json.loads(TRACE_FILE.read_text(encoding="utf-8"))
     frames = [f["raw"] for f in data["frames"]]
 
-    # Verify no area sweep frames are emitted
+    # 1. Verify authentic capture contains no unsolicited area sweeps
     assert "*#1*00##" not in frames
     assert "*#1*1##" not in frames
     assert "*#1*2##" not in frames
 
-    # Verify initial discovery sweep *#1*0## is present
+    # 2. Verify initial discovery sweep *#1*0## is present in the capture
     initial_sweeps = [f for f in frames if f == "*#1*0##"]
     assert len(initial_sweeps) == 1
+
+    # 3. Empirically verify PR #614 execution in code:
+    # Process startup discovery frames, PIR dimension frames, and motion detection frames.
+    # Gateway handler must NEVER schedule or send area sweeps (*#1*00##, *#1*1##, etc.).
+    gateway_handler.send_status_request = AsyncMock()
+    with patch.object(gateway_handler, "_known_light_areas", return_value=["1", "00"]):
+        # Replay the first 25 startup frames from the capture (containing *#1*0##, datetime, and status frames)
+        for frame_str in frames[:25]:
+            await gateway_handler._process_message(OWNMessage.parse(frame_str))
+
+        # Replay motion detection and PIR dimension frames from issue #612
+        for motion_frame in ["*1*34*1##", "*1*34*00##", "*#1*0*7*0*1*21##", "*#1*0*5*3##"]:
+            await gateway_handler._process_message(OWNMessage.parse(motion_frame))
+
+    # Assert no broadcast resync sweeps were scheduled
+    assert not gateway_handler._resync_timers
+    # Assert send_status_request was never called with any area sweep frame
+    sent_requests = [str(call[0][0]) for call in gateway_handler.send_status_request.call_args_list]
+    assert "*#1*00##" not in sent_requests
+    assert "*#1*1##" not in sent_requests
 
 
 def test_trace_cen_and_scene_events_parse() -> None:
@@ -106,7 +127,7 @@ def test_trace_cen_and_scene_events_parse() -> None:
 
 @pytest.mark.asyncio
 async def test_trace_replay_cen_and_scene_events(gateway_handler: MyHOMEGatewayHandler) -> None:
-    """Replay authentic trace and assert CEN and Scene events are dispatched with deprecation-free lookup."""
+    """Replay authentic trace and assert ordering, debouncing, and state progression."""
     data = json.loads(TRACE_FILE.read_text(encoding="utf-8"))
     raw_frames = [f["raw"] for f in data["frames"]]
     messages = [OWNMessage.parse(f) for f in raw_frames]
@@ -115,9 +136,19 @@ async def test_trace_replay_cen_and_scene_events(gateway_handler: MyHOMEGatewayH
     mock_dr.async_get_device.return_value = None
     mock_dr.async_get_device_by_identifier.return_value = None
 
+    timeline: list[tuple[str, Any]] = []
+
+    def record_fire(event: str, payload: dict[str, Any] | None = None) -> None:
+        timeline.append(("bus_event", (event, dict(payload or {}))))
+
+    def record_dispatcher(hass: Any, signal: str, msg: Any = None) -> None:
+        timeline.append(("dispatcher", (signal, msg)))
+
     with (
         patch("custom_components.myhome.gateway.OWNEventSession") as session_class,
         patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr),
+        patch("custom_components.myhome.gateway.async_dispatcher_send", side_effect=record_dispatcher),
+        patch("custom_components.myhome.gateway_events.async_dispatcher_send", side_effect=record_dispatcher),
     ):
         session = MagicMock()
         session.connect = AsyncMock(return_value={"Success": True})
@@ -125,65 +156,112 @@ async def test_trace_replay_cen_and_scene_events(gateway_handler: MyHOMEGatewayH
         session_class.return_value = session
         gateway_handler.send_status_request = AsyncMock()
 
-        with patch.object(gateway_handler.hass.bus, "async_fire") as fire:
+        with patch.object(gateway_handler.hass.bus, "async_fire", side_effect=record_fire):
             try:
                 await gateway_handler.listening_loop()
             except asyncio.CancelledError:
                 pass
 
-    # 1. Assert myhome_cen_event was fired
-    fire.assert_any_call(
-        "myhome_cen_event",
-        {
-            "object": 61,
-            "pushbutton": 3,
-            "event": CONF_SHORT_PRESS,
-            "where": "61",
-            "gateway_mac": gateway_handler.mac,
-            "entry_id": "entry_612",
-        },
+    # 1. Assert strict chronological ordering:
+    # CEN press (*15*03*61##) -> Scene 1 start (*17*1*1##) -> Actuators ON (25, 74, 26) -> Scene 1 stop (*17*2*1##) -> Actuator 22 ON
+    cen_press_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "bus_event"
+        and payload[0] == "myhome_cen_event"
+        and payload[1].get("object") == 61
+        and payload[1].get("pushbutton") == 3
+    )
+    scene_start_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "bus_event"
+        and payload[0] == "myhome_scene_event"
+        and payload[1].get("scenario") == 1
+        and payload[1].get("is_on") is True
+    )
+    light_25_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "dispatcher"
+        and isinstance(payload[1], OWNLightingEvent)
+        and payload[1].where == "25"
+        and payload[1].is_on is True
+    )
+    light_74_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "dispatcher"
+        and isinstance(payload[1], OWNLightingEvent)
+        and payload[1].where == "74"
+        and payload[1].is_on is True
+    )
+    light_26_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "dispatcher"
+        and isinstance(payload[1], OWNLightingEvent)
+        and payload[1].where == "26"
+        and payload[1].is_on is True
+    )
+    scene_stop_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "bus_event"
+        and payload[0] == "myhome_scene_event"
+        and payload[1].get("scenario") == 1
+        and payload[1].get("is_on") is False
+    )
+    light_22_idx = next(
+        i
+        for i, (kind, payload) in enumerate(timeline)
+        if kind == "dispatcher"
+        and isinstance(payload[1], OWNLightingEvent)
+        and payload[1].where == "22"
+        and payload[1].is_on is True
     )
 
-    # 2. Assert async_get_device_by_identifier was called for CEN unit 61 (no deprecation warning)
-    mock_dr.async_get_device_by_identifier.assert_any_call(
-        (DOMAIN, f"{gateway_handler.mac}-15-61"),
-        config_entry_id="entry_612",
-    )
-    # Ensure legacy deprecated async_get_device was NOT called
-    mock_dr.async_get_device.assert_not_called()
+    assert cen_press_idx < scene_start_idx
+    assert scene_start_idx < light_25_idx < scene_stop_idx
+    assert scene_start_idx < light_74_idx < scene_stop_idx
+    assert scene_start_idx < light_26_idx < scene_stop_idx
+    assert scene_stop_idx < light_22_idx
 
-    # 3. Assert CEN unit 61 was registered in device registry
+    # 2. Assert state progression:
+    # Lights 25, 74, 26 become active during Scenario 1 execution, and light 22 becomes active after scenario stop.
+    active_lights_during_scene: set[str] = set()
+    active_lights_after_scene: set[str] = set()
+    for idx, (kind, payload) in enumerate(timeline):
+        if kind == "dispatcher" and isinstance(payload[1], OWNLightingEvent) and payload[1].is_on is True:
+            where = str(payload[1].where)
+            if scene_start_idx < idx < scene_stop_idx:
+                active_lights_during_scene.add(where)
+            elif idx > scene_stop_idx:
+                active_lights_after_scene.add(where)
+
+    assert {"25", "74", "26"}.issubset(active_lights_during_scene)
+    assert "22" in active_lights_after_scene
+
+    # 3. Assert debouncing and deduplication:
+    # CEN unit 61 is registered exactly once in the device registry despite multiple queries and status frames.
     mock_dr.async_get_or_create.assert_called_once()
     kwargs = mock_dr.async_get_or_create.call_args.kwargs
     assert kwargs["name"] == "CEN Unit 61"
     assert kwargs["identifiers"] == {(DOMAIN, f"{gateway_handler.mac}-15-61")}
     assert kwargs["via_device_id"] == "gateway_device_612"
 
-    # 4. Assert myhome_scene_event was fired for both Scenario 1 start and stop
-    fire.assert_any_call(
-        "myhome_scene_event",
-        {
-            "scenario": 1,
-            "where": "1",
-            "state": 1,
-            "is_on": True,
-            "is_enabled": None,
-            "gateway_mac": gateway_handler.mac,
-            "entry_id": "entry_612",
-        },
+    # Deprecation-free device registry lookup via async_get_device_by_identifier
+    mock_dr.async_get_device_by_identifier.assert_any_call(
+        (DOMAIN, f"{gateway_handler.mac}-15-61"),
+        config_entry_id="entry_612",
     )
-    fire.assert_any_call(
-        "myhome_scene_event",
-        {
-            "scenario": 1,
-            "where": "1",
-            "state": 2,
-            "is_on": False,
-            "is_enabled": None,
-            "gateway_mac": gateway_handler.mac,
-            "entry_id": "entry_612",
-        },
-    )
+    mock_dr.async_get_device.assert_not_called()
+
+    # 4. Assert that replaying the authentic trace does not trigger motion sensor area sweeps
+    assert not gateway_handler._resync_timers
+    sent_requests = [str(call[0][0]) for call in gateway_handler.send_status_request.call_args_list]
+    assert "*#1*00##" not in sent_requests
+    assert "*#1*1##" not in sent_requests
 
 
 @pytest.mark.asyncio
@@ -361,4 +439,39 @@ def test_cen_device_registry_fallback_without_async_get_device_by_identifier(
 
     legacy_dr.async_get_device.assert_called()
     legacy_dr.async_get_or_create.assert_called_once()
+
+
+def test_cen_device_registry_strict_signature(
+    gateway_handler: MyHOMEGatewayHandler,
+) -> None:
+    """Ensure async_get_device_by_identifier matches the exact Home Assistant Core signature.
+
+    HA Core 2026.9+ DeviceRegistry.async_get_device_by_identifier signature:
+    (self, identifier: tuple[str, str], config_entry_id: str) -> DeviceEntry | None.
+    A strict stub class prevents MagicMock keyword-argument blindness.
+    """
+
+    class StrictDeviceRegistry:
+        def __init__(self) -> None:
+            self.calls: list[tuple[tuple[str, str], str]] = []
+            self.async_get_or_create = MagicMock()
+
+        def async_get_device_by_identifier(
+            self, identifier: tuple[str, str], config_entry_id: str
+        ) -> Any | None:
+            self.calls.append((identifier, config_entry_id))
+            return None
+
+    strict_dr = StrictDeviceRegistry()
+
+    with patch("homeassistant.helpers.device_registry.async_get", return_value=strict_dr):
+        # Numeric object with leading zero: checks both wire format and normalized format
+        gateway_handler._ensure_cen_device(15, "0512")
+
+    assert strict_dr.calls == [
+        ((DOMAIN, f"{gateway_handler.mac}-15-0512"), "entry_612"),
+        ((DOMAIN, f"{gateway_handler.mac}-15-512"), "entry_612"),
+    ]
+    strict_dr.async_get_or_create.assert_called_once()
+
 

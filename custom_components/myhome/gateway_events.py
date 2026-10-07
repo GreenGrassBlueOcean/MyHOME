@@ -604,7 +604,7 @@ class GatewayEventDispatcher:
                 scene_val: int | str = message.scenario
                 try:
                     scene_val = int(message.scenario)
-                except (ValueError, TypeError):  # pragma: no cover - defensive
+                except (ValueError, TypeError):
                     scene_val = message.scenario
 
                 scene_payload: dict[str, Any] = {
@@ -621,11 +621,11 @@ class GatewayEventDispatcher:
                 self.hass.bus.async_fire("myhome_scene_event", scene_payload)
                 dispatcher_send(self.hass, f"myhome_scene_event_{target_mac}", scene_payload)
 
-            self._logger.debug(
-                "%s %s",
-                self.handler.log_id,
-                message.human_readable_log,
-            )
+                self._logger.debug(
+                    "%s %s",
+                    self.handler.log_id,
+                    message.human_readable_log,
+                )
         else:
             self._logger.debug(
                 "%s Unsupported message type: `%s`",
