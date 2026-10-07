@@ -23,6 +23,7 @@ from OWNd.message import (
     OWNHeatingCommand,
     OWNLightingEvent,
     OWNMessage,
+    OWNSceneEvent,
 )
 from OWNd.profiles import GatewayProfile
 
@@ -1148,6 +1149,7 @@ async def test_gateway_cen_event_and_auto_registration(gateway_handler: MyHOMEGa
     """Test receiving OWNCENEvent dispatches bus event and registers CEN scenario device."""
     mock_dr = MagicMock()
     mock_dr.async_get_device.return_value = None
+    mock_dr.async_get_device_by_identifier.return_value = None
     gateway_handler.config_entry.entry_id = "test_entry_123"
     gateway_handler.device_registry_id = "gateway_device_123"
 
@@ -1206,6 +1208,7 @@ async def test_gateway_cenplus_event_and_auto_registration(gateway_handler: MyHO
     """Test receiving OWNCENPlusEvent dispatches bus event and registers CEN+ scenario device."""
     mock_dr = MagicMock()
     mock_dr.async_get_device.return_value = None
+    mock_dr.async_get_device_by_identifier.return_value = None
     gateway_handler.config_entry.entry_id = "test_entry_456"
     gateway_handler.device_registry_id = "gateway_device_456"
 
@@ -1313,6 +1316,45 @@ async def test_gateway_scenarioplus_event_and_auto_registration(gateway_handler:
                     "manufacturer": "BTicino",
                     "model": "CEN+ Scenario Plus Control",
                 }
+
+
+@pytest.mark.asyncio
+async def test_gateway_scene_event_dispatching(gateway_handler: MyHOMEGatewayHandler):
+    """Test receiving OWNSceneEvent dispatches myhome_scene_event bus event."""
+    gateway_handler.config_entry.entry_id = "test_entry_789"
+
+    scene_msg = MagicMock(spec=OWNSceneEvent)
+    scene_msg.scenario = "1"
+    scene_msg.where = "1"
+    scene_msg.state = 1
+    scene_msg.is_on = True
+    scene_msg.is_enabled = None
+    scene_msg.human_readable_log = "Scene 1 is started."
+
+    with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session.connect = AsyncMock(return_value={"Success": True})
+        mock_session.get_next = AsyncMock(side_effect=[scene_msg, asyncio.CancelledError()])
+        mock_session_class.return_value = mock_session
+
+        with patch.object(gateway_handler.hass.bus, "async_fire") as mock_fire:
+            try:
+                await gateway_handler.listening_loop()
+            except asyncio.CancelledError:
+                pass
+
+            mock_fire.assert_called_once_with(
+                "myhome_scene_event",
+                {
+                    "scenario": 1,
+                    "where": "1",
+                    "state": 1,
+                    "is_on": True,
+                    "is_enabled": None,
+                    "gateway_mac": gateway_handler.mac,
+                    "entry_id": "test_entry_789",
+                },
+            )
 
 
 @pytest.mark.asyncio

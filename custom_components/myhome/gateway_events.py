@@ -25,6 +25,7 @@ from OWNd.message import (
     OWNHeatingEvent,
     OWNLightingEvent,
     OWNMessage,
+    OWNSceneEvent,
 )
 
 try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#91)
@@ -126,12 +127,27 @@ class GatewayEventDispatcher:
             if obj_str.isdigit() and len(obj_str) > 1 and obj_str.startswith("0"):
                 norm_str = str(int(obj_str))
 
-            existing_wire_dev = device_registry.async_get_device(identifiers={wire_ident})
-            existing_norm_dev = (
-                device_registry.async_get_device(identifiers={(DOMAIN, f"{self.handler.mac}-{who}-{norm_str}")})
-                if norm_str is not None
-                else None
-            )
+            if hasattr(device_registry, "async_get_device_by_identifier"):
+                existing_wire_dev = device_registry.async_get_device_by_identifier(
+                    wire_ident, config_entry_id=config_entry.entry_id
+                )
+                existing_norm_dev = (
+                    device_registry.async_get_device_by_identifier(
+                        (DOMAIN, f"{self.handler.mac}-{who}-{norm_str}"),
+                        config_entry_id=config_entry.entry_id,
+                    )
+                    if norm_str is not None
+                    else None
+                )
+            else:
+                existing_wire_dev = device_registry.async_get_device(identifiers={wire_ident})
+                existing_norm_dev = (
+                    device_registry.async_get_device(
+                        identifiers={(DOMAIN, f"{self.handler.mac}-{who}-{norm_str}")}
+                    )
+                    if norm_str is not None
+                    else None
+                )
 
             # Prevent passing multiple identifiers if two separate devices already exist in the registry,
             # which would cause async_get_or_create to raise ValueError.
@@ -569,6 +585,46 @@ class GatewayEventDispatcher:
                 "%s Energy telemetry message: `%s`",
                 self.handler.log_id,
                 message,
+            )
+        elif isinstance(message, OWNSceneEvent):
+            target_mac = self.handler.mac
+            config_entry = getattr(self.handler, "config_entry", None)
+            target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
+
+            if getattr(self.handler, "is_standby", False):
+                primary_gw = self.handler._get_primary_gateway()
+                if primary_gw is not None and not primary_gw.is_connected and self.handler._profile_supports_who(17):
+                    target_mac = primary_gw.mac
+                    pri_entry = getattr(primary_gw, "config_entry", None)
+                    target_entry_id = getattr(pri_entry, "entry_id", None) if pri_entry else None
+                else:
+                    target_mac = None
+
+            if target_mac is not None and self._is_active_for_who(17):
+                scene_val: int | str = message.scenario
+                try:
+                    scene_val = int(message.scenario)
+                except (ValueError, TypeError):  # pragma: no cover - defensive
+                    scene_val = message.scenario
+
+                scene_payload: dict[str, Any] = {
+                    "scenario": scene_val,
+                    "where": str(message.where),
+                    "state": message.state,
+                    "is_on": message.is_on,
+                    "is_enabled": message.is_enabled,
+                    "gateway_mac": target_mac,
+                }
+                if target_entry_id and isinstance(target_entry_id, str):
+                    scene_payload["entry_id"] = target_entry_id
+
+                self.hass.bus.async_fire("myhome_scene_event", scene_payload)
+                dispatcher_send(self.hass, f"myhome_scene_event_{target_mac}", scene_payload)
+
+            self._logger.debug(
+                "%s %s",
+                self.handler.log_id,
+                message.human_readable_log,
             )
         else:
             self._logger.debug(
