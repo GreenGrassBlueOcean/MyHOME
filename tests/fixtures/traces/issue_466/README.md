@@ -499,3 +499,37 @@ Verbatim bus trace contributed by **@lionelser** on [#466 (comment 5938596974)](
 3. **Subsystem Scans**:
    - Outbound queries for automation (`*#2*0##`), thermoregulation (`*#4*0##`), sound (`*#16*0*5##`), burglar alarm (`*#5*0##`), energy (`*#18*51*51##`...`*#18*59*51##`), and diagnostic identity (`*#1013*0*1##`).
 
+---
+
+# #466 F454 Relative Step Cover Positioning & Motor Deadband Telemetry (WHERE 31)
+
+Verbatim bus trace contributed by **@anotherjulien** on [#466 (comment 6038376669)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-6038376669), exported from Home Assistant diagnostics (HA 2026.9.4, integration 2.0.0b14, OWNd 2.0.0b9, gateway firmware 2.0).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino F454
+- **Firmware**: 2.0
+- **Actuator Model / Motors**: Advanced cover actuator with Somfy Ilmo 50 WT tubular motors
+- **Actuator Address**: WHERE `31`
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `config_entry-myhome_F454_step_commands.json` | HA Diagnostic Download (500 frames: 130 tx / 370 rx) | Autonomous relative step positioning runs on WHERE `31` (10%, 2%, and 1% steps Up/Down), command echos (`*2*1000#...`), in-flight Dimension 10 status reports, autonomous stop frames without HA stop command, and periodic WHO 18 energy telemetry on meters 51-53. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Autonomous Relative Step Positioning (WHO 2)**:
+   - **10% Step Runs**:
+     - Down 10%: `*2*12#10#001*31##` -> echoed as `*2*1000#12#10#001#1*31##` -> in-flight Dimension 10 report `*#2*31*10*12*40*001*0##` (Moving Down from level 40) -> running event `*2*2*31##` -> stopped Dimension 10 report `*#2*31*10*10*30*001*0##` (level 30) -> autonomous stop frame `*2*0*31##` after ~2.04 s motor time.
+     - Up 10%: `*2*11#10#001*31##` -> in-flight Dimension 10 report `*#2*31*10*11*30*001*0##` (Moving Up from level 30) -> stopped Dimension 10 report `*#2*31*10*10*40*001*0##` (level 40) -> autonomous stop frame `*2*0*31##` after ~2.17 s motor time.
+   - **2% Step Runs**:
+     - Down 2%: `*2*12#2#001*31##` -> level 40 to 38 in ~370 ms runtime -> autonomous stop.
+     - Up 2%: `*2*11#2#001*31##` -> level 38 to 40 in ~355 ms runtime -> autonomous stop.
+   - **1% Step Runs & Motor Deadband Discovery**:
+     - Repeated 1% steps (`*2*12#1#001*31##` Down x3, then `*2*11#1#001*31##` Up x3) ran for ~130–210 ms each.
+     - Actuator relay clicked, but duration was too brief to overcome the mechanical deadband/inertia of the Somfy Ilmo 50 WT motors, causing 0 physical curtain movement despite the actuator's internal register updating its Dimension 10 level by 1% per pulse.
+
+
