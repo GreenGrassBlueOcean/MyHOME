@@ -13,6 +13,7 @@ from homeassistant.const import (
     CONF_NAME,
 )
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
     OWNAutomationEvent,
@@ -352,6 +353,189 @@ class TestMyHOMECoverEntity:
         # Unload / remove from hass cleans up tasks
         await basic_cover.async_will_remove_from_hass()
         assert basic_cover._stop_task is None
+
+    async def test_set_cover_position_end_stop_recalibration_and_deadband(
+        self, basic_cover, advanced_cover, caplog
+    ):
+        """Test hard end-stop recalibration (0% and 100%), deadband quantization, and reverse drift prevention."""
+        import logging
+
+        # 1. Setting position to 100 on basic cover calls async_open_cover even when already at 100 (recalibration)
+        basic_cover._gateway_handler.send.reset_mock()
+        basic_cover._attr_current_cover_position = 100
+        basic_cover._calibration_source = "default"
+        with caplog.at_level(logging.WARNING):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+        basic_cover._gateway_handler.send.assert_awaited_once()
+        assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*1*21##"
+        assert basic_cover._stop_task is None  # Runs freely to physical top limit
+        assert "Driving to 100% end-stop on uncalibrated cover" in caplog.text
+
+        # 2. Setting position to 0 on basic cover calls async_close_cover even when already at 0 (recalibration)
+        basic_cover._gateway_handler.send.reset_mock()
+        basic_cover._attr_current_cover_position = 0
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 0})
+        basic_cover._gateway_handler.send.assert_awaited_once()
+        assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*2*21##"
+        assert basic_cover._stop_task is None  # Runs freely to physical bottom limit
+        assert "Driving to 0% end-stop on uncalibrated cover" in caplog.text
+
+        # 3. Advanced cover enforces MIN_POSITION_DELTA = 2% on intermediate moves
+        advanced_cover._gateway_handler.send.reset_mock()
+        advanced_cover._attr_current_cover_position = 40
+        # +1% request is quantized to +2% (target 42)
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 41})
+        advanced_cover._gateway_handler.send.assert_awaited_once()
+        assert (
+            str(advanced_cover._gateway_handler.send.call_args[0][0])
+            == "*#2*22#4#02*#11#001*42##"
+        )
+
+        advanced_cover._gateway_handler.send.reset_mock()
+        advanced_cover._attr_current_cover_position = 40
+        # -1% request is quantized to -2% (target 38)
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 39})
+        advanced_cover._gateway_handler.send.assert_awaited_once()
+        assert (
+            str(advanced_cover._gateway_handler.send.call_args[0][0])
+            == "*#2*22#4#02*#11#001*38##"
+        )
+
+        advanced_cover._gateway_handler.send.reset_mock()
+        advanced_cover._attr_current_cover_position = 40
+        # 0% delta is a no-op
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 40})
+        advanced_cover._gateway_handler.send.assert_not_awaited()
+
+        # 4. Reverse drift prevention on basic cover:
+        # A 1% request is quantized to 2% and clamped to MIN_MOTOR_PULSE (0.25s).
+        # On a 5.0s travel cover, 0.25s moves 5% of physical travel.
+        # The estimator must advance to 55% (the achieved pulse), NOT 51% or 52%.
+        basic_cover._gateway_handler.send.reset_mock()
+        basic_cover._attr_current_cover_position = 50
+        basic_cover._travel_time_up = 5.0
+        slept_durations = []
+
+        async def fake_sleep(duration):
+            slept_durations.append(duration)
+
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 51})
+            assert basic_cover._stop_task is not None
+            await basic_cover._stop_task
+
+        assert any(0.24 <= d <= 0.26 for d in slept_durations), (
+            f"Run duration must be clamped to MIN_MOTOR_PULSE (0.25s), got: {slept_durations}"
+        )
+        assert basic_cover.current_cover_position == 55
+        assert basic_cover._start_position == 55
+
+        # 5. Calibrating cover raises HomeAssistantError
+        basic_cover._calibrating = True
+        with pytest.raises(HomeAssistantError, match="is being calibrated"):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 60})
+        basic_cover._calibrating = False
+
+    def test_quantize_position_delta(self):
+        """Verify quantize_position_delta logic and edge cases."""
+        from custom_components.myhome.cover_motion import (
+            MIN_POSITION_DELTA,
+            quantize_position_delta,
+        )
+
+        assert MIN_POSITION_DELTA == 2
+
+        # None current position returns clamped target
+        assert quantize_position_delta(None, 50) == 50
+        assert quantize_position_delta(None, -10) == 0
+        assert quantize_position_delta(None, 120) == 100
+
+        # Exact match returns current position
+        assert quantize_position_delta(50, 50) == 50
+
+        # Sub-deadband deltas expand to min_delta
+        assert quantize_position_delta(50, 51, min_delta=2) == 52
+        assert quantize_position_delta(50, 49, min_delta=2) == 48
+
+        # Delta already >= min_delta remains unquantized
+        assert quantize_position_delta(50, 55, min_delta=2) == 55
+        assert quantize_position_delta(50, 45, min_delta=2) == 45
+
+        # Boundary clamping
+        assert quantize_position_delta(99, 100, min_delta=2) == 100
+        assert quantize_position_delta(1, 0, min_delta=2) == 0
+        assert quantize_position_delta(50, 150, min_delta=2) == 100
+        assert quantize_position_delta(50, -20, min_delta=2) == 0
+
+    @pytest.mark.asyncio
+    async def test_cover_edge_cases_generation_and_translation(self, basic_cover):
+        """Test edge cases: is_translation, superseded generation in _on_written and _auto_stop."""
+        # 1. is_translation frame returns early in handle_event (line 1067)
+        msg = OWNEvent.parse("*2*1000#12#10#001#1*21##")
+        basic_cover.handle_event(msg)
+        assert basic_cover.is_opening is False
+        assert basic_cover.is_closing is False
+
+        # 2. _on_written when generation superseded (line 338)
+        fut = asyncio.get_running_loop().create_future()
+        basic_cover._track_write(fut)
+        basic_cover._run_generation += 1
+        fut.set_result(100.0)
+        await asyncio.sleep(0)
+
+        # 3. _auto_stop when generation superseded before sleep (line 992)
+        basic_cover._attr_current_cover_position = 50
+
+        async def fake_await_and_bump(written):
+            basic_cover._run_generation += 1
+            return 100.0
+
+        with patch.object(basic_cover, "_await_motion_anchor", side_effect=fake_await_and_bump):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 60})
+            if basic_cover._stop_task:
+                await basic_cover._stop_task
+
+        # 4. _auto_stop when generation superseded during sleep (line 995)
+        basic_cover._attr_current_cover_position = 50
+
+        async def fake_sleep_and_bump(duration):
+            basic_cover._run_generation += 1
+
+        with patch("asyncio.sleep", side_effect=fake_sleep_and_bump):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 60})
+            if basic_cover._stop_task:
+                await basic_cover._stop_task
+
+
+    def test_compute_run_duration(self):
+        """Verify compute_run_duration enforces the physical motor deadband floor."""
+        from custom_components.myhome.cover_motion import (
+            MIN_MOTOR_PULSE,
+            compute_run_duration,
+        )
+
+        # Zero diff or invalid travel time returns 0.0
+        assert compute_run_duration(0, 25.0) == 0.0
+        assert compute_run_duration(5, 0.0) == 0.0
+        assert compute_run_duration(5, -10.0) == 0.0
+
+        # 1% step on a 10s cover: nominal is 0.10s -> clamped to MIN_MOTOR_PULSE (0.25s)
+        assert compute_run_duration(1, 10.0) == MIN_MOTOR_PULSE
+
+        # 1% step on a 20s cover: nominal is 0.20s -> clamped to MIN_MOTOR_PULSE (0.25s)
+        assert compute_run_duration(1, 20.0) == MIN_MOTOR_PULSE
+
+        # Negative 1% step (closing) on 15s cover: nominal is 0.15s -> clamped to MIN_MOTOR_PULSE
+        assert compute_run_duration(-1, 15.0) == MIN_MOTOR_PULSE
+
+        # 10% step on 20s cover: nominal is 2.0s -> returns nominal 2.0s
+        assert compute_run_duration(10, 20.0) == 2.0
+        assert compute_run_duration(-10, 20.0) == 2.0
+
+        # Custom min_pulse parameter
+        assert compute_run_duration(1, 20.0, min_pulse=0.5) == 0.5
 
     def test_handle_event(self, basic_cover):
         # Opening event

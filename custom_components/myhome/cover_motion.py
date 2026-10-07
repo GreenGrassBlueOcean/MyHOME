@@ -19,6 +19,63 @@ MOTOR_START_DELAY: float = 0.55
 # the handshake on top.
 WRITE_TIMEOUT: float = 30.0
 
+# Minimum physical motor pulse duration (in seconds) required for an AC tubular
+# motor to overcome mechanical deadband. Tubular motors (Somfy Ilmo 50 WT, Elero,
+# Nice, BTicino) incorporate electromechanical brakes and high-ratio planetary
+# reduction gearboxes that require ~200-250 ms for relay contact settling,
+# electromagnetic brake release, and rotor inertia build-up before the drive
+# spindle can physically rotate.
+# On-wire traces and hardware testing under issue #466 (comment 6038376669) demonstrated
+# that pulses under ~0.2 s (such as 1% steps on a 15-20 s curtain) click the actuator
+# relay without moving the curtain (0 mm displacement), yet cause open-loop position
+# registers to increment, leading to cumulative desynchronization where a sequence of
+# 1% moves walks reported position from 0 to 100% while the shutter remains stationary.
+MIN_MOTOR_PULSE: float = 0.25
+
+# Minimum percentage delta for relative step commands to ensure physical movement.
+MIN_POSITION_DELTA: int = 2
+
+
+def quantize_position_delta(
+    curr_pos: int | None,
+    target_pos: int,
+    min_delta: int = MIN_POSITION_DELTA,
+) -> int:
+    """Ensure a position target differs from curr_pos by at least min_delta if not equal.
+
+    If 0 < |target_pos - curr_pos| < min_delta, expands the delta to min_delta
+    in the commanded direction, clamped to [0, 100]. This prevents sub-deadband
+    micro-steps from causing open-loop register desynchronization.
+    """
+    if curr_pos is None:
+        return max(0, min(100, target_pos))
+    diff = target_pos - curr_pos
+    if diff == 0:
+        return curr_pos
+    if 0 < abs(diff) < min_delta:
+        step = min_delta if diff > 0 else -min_delta
+        return max(0, min(100, curr_pos + step))
+    return max(0, min(100, target_pos))
+
+
+def compute_run_duration(
+    diff: int,
+    travel_time: float,
+    min_pulse: float = MIN_MOTOR_PULSE,
+) -> float:
+    """Calculate motor run duration for a position delta, clamped to the physical deadband floor.
+
+    Ensures the motor relay is energized for at least `min_pulse` seconds so the
+    tubular motor's electromagnetic brake can release and the rotor can engage,
+    preventing sub-deadband pulses from causing mathematical position drift without
+    physical movement.
+    """
+    if diff == 0 or travel_time <= 0:
+        return 0.0
+    travel_fraction = abs(diff) / 100.0
+    nominal_duration = travel_fraction * travel_time
+    return max(nominal_duration, min_pulse)
+
 
 def travel_for(travel_time_up: float, travel_time_down: float, opening: bool) -> float:
     """Return full-travel seconds for the given direction (motors are often slower going up)."""
