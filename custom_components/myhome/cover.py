@@ -945,32 +945,29 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if ATTR_POSITION not in kwargs:
             return
         target_position = kwargs[ATTR_POSITION]
-        curr_pos = self.current_cover_position if self.current_cover_position is not None else 50
 
         if self._advanced:
-            if target_position <= 0:
-                await self._gateway_handler.send(
-                    OWNAutomationCommand.lower_shutter(self._full_where)
-                )
-                return
+            current = self._attr_current_cover_position
+            if current is not None and 0 < target_position < 100:
+                # A 1% level change is a run too short to move the motor while
+                # the actuator still books it (#466, see MIN_POSITION_DELTA).
+                target_position = quantize_position_delta(current, target_position, MIN_POSITION_DELTA)
+                if target_position == current:
+                    return
+            # 0% and 100% are full runs: they end on the motor's limit switch
+            # and so put the actuator's own level back in step with the curtain,
+            # also when it already reports that end. The MH201 rejects the
+            # level command at 0% anyway.
             if target_position >= 100:
+                await self.async_open_cover()
+            elif target_position <= 0:
+                await self.async_close_cover()
+            else:
                 await self._gateway_handler.send(
                     OWNAutomationCommand.set_shutter_level(
-                        self._full_where, 100
+                        self._full_where, target_position
                     )
                 )
-                return
-            # Enforce minimum position delta floor on advanced actuators to ensure
-            # the internal relative step (*2*11#<STEP>#001*... / *2*12#...) clears the
-            # tubular motor's electromechanical brake deadband (~250 ms / 2%).
-            target_position = quantize_position_delta(curr_pos, target_position, MIN_POSITION_DELTA)
-            if target_position == curr_pos:
-                return
-            await self._gateway_handler.send(
-                OWNAutomationCommand.set_shutter_level(
-                    self._full_where, target_position
-                )
-            )
             return
 
         if self._calibrating:
@@ -981,48 +978,39 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 translation_placeholders={"entity_id": str(self.entity_id)},
             )
 
-        # Hard end-stop boundary recalibration for basic timed covers: Driving to
-        # 0% or 100% executes full travel (raise_shutter / lower_shutter) directly
-        # to physical limit switches or sill rather than calculating a fractional
-        # pulse. This runs even if the estimated or reported position already matches
-        # the boundary, enabling users and automations to heal a desynchronized cover.
+        # 0% and 100% are full runs, like the open/close buttons: the motor stops
+        # on its limit switch, which resets any drift in the estimate, also when
+        # the estimate already says 0% or 100%.
         if target_position >= 100:
-            if self._calibration_source == "default":
-                LOGGER.warning(
-                    "%s Driving to 100%% end-stop on uncalibrated cover %s: runs until motor limit switch triggers",
-                    self._gateway_handler.log_id,
-                    self._full_where,
-                )
             await self.async_open_cover()
             return
         if target_position <= 0:
-            if self._calibration_source == "default":
-                LOGGER.warning(
-                    "%s Driving to 0%% end-stop on uncalibrated cover %s: runs until motor limit switch triggers",
-                    self._gateway_handler.log_id,
-                    self._full_where,
-                )
             await self.async_close_cover()
             return
 
         self._cancel_stop_task()
-        target_position = quantize_position_delta(curr_pos, target_position, MIN_POSITION_DELTA)
+        curr_pos = self.current_cover_position if self.current_cover_position is not None else 50
         diff = target_position - curr_pos
         if diff == 0:
             return
 
-        travel_time = self._travel_for(diff > 0)
+        opening = diff > 0
+        travel_time = self._travel_for(opening)
         run_duration = compute_run_duration(diff, travel_time)
-
-        # Compute the actual position achieved by the clamped pulse duration so
-        # the estimator tracks the pulse that was physically run rather than
-        # introducing reverse drift.
-        actual_delta = round((run_duration / travel_time) * 100) if travel_time > 0 else abs(diff)
-        achieved_position = max(
-            0, min(100, curr_pos + (actual_delta if diff > 0 else -actual_delta))
+        # Where the model puts the cover when the run ends: the target, or
+        # further when MIN_MOTOR_PULSE stretched the run. A run that reaches an
+        # end becomes a full run to that end.
+        achieved_position = compute_freeze_position(
+            curr_pos, 0.0, run_duration, travel_time, opening, not opening, target_position
         )
+        if achieved_position >= 100:
+            await self.async_open_cover()
+            return
+        if achieved_position <= 0:
+            await self.async_close_cover()
+            return
 
-        written = await self._async_move("open" if diff > 0 else "close")
+        written = await self._async_move("open" if opening else "close")
         generation = self._run_generation
 
         async def _auto_stop() -> None:
@@ -1033,8 +1021,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 await asyncio.sleep(max(0.0, run_duration - (time.monotonic() - anchor)))
                 if generation != self._run_generation:
                     return
-                # By the model we are at the achieved position for the pulse run;
-                # re-anchor the run here and freeze the estimate.
+                # By the model we are at achieved_position now; the motor keeps
+                # running until the stop frame is written, so re-anchor the
+                # run here and let the stop's write time freeze the estimate
+                # (that position plus whatever the queue delay added).
                 self._start_position = achieved_position
                 self._attr_current_cover_position = achieved_position
                 self._move_start_time = time.monotonic()

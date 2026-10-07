@@ -172,18 +172,18 @@ def test_f454_step_commands_specific_frame_grammar() -> None:
 
 
 def test_f454_trace_motor_deadband_invariant() -> None:
-    """Verify empirical motor deadband thresholds from authentic on-wire trace timings.
+    """MIN_MOTOR_PULSE sits between the runs that did and did not move the motor.
 
-    Demonstrates by extracting timestamps directly from authentic on-wire frames:
-    1. 1% step commands produce relay pulses of 178-215 ms (and Dimension 10
-       telemetry active durations of 133-216 ms), all strictly below MIN_MOTOR_PULSE
-       (0.25 s). This triggers the motor deadband trap: relay clicks on/off without
-       overcoming mechanical brake friction, producing 0 mm of physical curtain motion.
-    2. 2% step commands produce relay pulses of 390-409 ms (and Dimension 10
-       active durations of 355-392 ms), all strictly above MIN_MOTOR_PULSE (0.25 s).
-       This overcomes brake resistance and produces real physical curtain movement.
-    3. quantize_position_delta and compute_run_duration enforce MIN_POSITION_DELTA = 2%
-       and MIN_MOTOR_PULSE = 0.25 s to safeguard against sub-deadband desynchronization.
+    Durations are the spacing of the bus status frames (start to stop status,
+    and the DIMENSION 10 moving/stopped telemetry), not the time the relay was
+    energised. The reporter heard the relay click without movement at 1%
+    (#466 comment 6038376669); 2% moved the curtain.
+    1. 1% steps: status runs of 178-215 ms (DIMENSION 10: 133-216 ms), all
+       shorter than MIN_MOTOR_PULSE.
+    2. 2% steps: status runs of 390-409 ms (DIMENSION 10: 355-392 ms);
+       MIN_MOTOR_PULSE is no longer than the longest of them, so the floor is a
+       run known to move this motor.
+    3. 2% (MIN_POSITION_DELTA) on this 20.4 s motor is not stretched by the floor.
     """
     from custom_components.myhome.cover_motion import (
         MIN_MOTOR_PULSE,
@@ -249,40 +249,31 @@ def test_f454_trace_motor_deadband_invariant() -> None:
                 elif step_pct == 2:
                     dim10_pulses_2pct.append(duration)
 
-    # 1. Authentic 1% step commands produce durations strictly < MIN_MOTOR_PULSE (0.25 s)
-    assert len(relay_pulses_1pct) == 6, f"Expected 6 1% relay pulses, found {len(relay_pulses_1pct)}"
-    assert all(d < MIN_MOTOR_PULSE for d in relay_pulses_1pct), (
-        f"All 1% relay pulses must be < {MIN_MOTOR_PULSE}s, got: {relay_pulses_1pct}"
-    )
+    # 1. 1% steps (no movement): every run is shorter than the floor
+    assert len(relay_pulses_1pct) == 6, f"Expected 6 1% status runs, found {len(relay_pulses_1pct)}"
     assert 0.175 <= min(relay_pulses_1pct) and max(relay_pulses_1pct) <= 0.220
+    assert max(relay_pulses_1pct) < MIN_MOTOR_PULSE, relay_pulses_1pct
 
-    assert len(dim10_pulses_1pct) == 6, f"Expected 6 1% dim10 pulses, found {len(dim10_pulses_1pct)}"
-    assert all(d < MIN_MOTOR_PULSE for d in dim10_pulses_1pct), (
-        f"All 1% dim10 pulses must be < {MIN_MOTOR_PULSE}s, got: {dim10_pulses_1pct}"
-    )
+    assert len(dim10_pulses_1pct) == 6, f"Expected 6 1% dim10 runs, found {len(dim10_pulses_1pct)}"
     assert 0.130 <= min(dim10_pulses_1pct) and max(dim10_pulses_1pct) <= 0.220
+    assert max(dim10_pulses_1pct) < MIN_MOTOR_PULSE, dim10_pulses_1pct
 
-    # 2. Authentic 2% step commands produce durations strictly > MIN_MOTOR_PULSE (0.25 s)
-    assert len(relay_pulses_2pct) == 2, f"Expected 2 2% relay pulses, found {len(relay_pulses_2pct)}"
-    assert all(d > MIN_MOTOR_PULSE for d in relay_pulses_2pct), (
-        f"All 2% relay pulses must be > {MIN_MOTOR_PULSE}s, got: {relay_pulses_2pct}"
-    )
+    # 2. 2% steps (movement): the floor is no longer than a run that moved the motor
+    assert len(relay_pulses_2pct) == 2, f"Expected 2 2% status runs, found {len(relay_pulses_2pct)}"
     assert 0.380 <= min(relay_pulses_2pct) and max(relay_pulses_2pct) <= 0.415
+    assert MIN_MOTOR_PULSE <= max(relay_pulses_2pct), relay_pulses_2pct
 
-    assert len(dim10_pulses_2pct) == 2, f"Expected 2 2% dim10 pulses, found {len(dim10_pulses_2pct)}"
-    assert all(d > MIN_MOTOR_PULSE for d in dim10_pulses_2pct), (
-        f"All 2% dim10 pulses must be > {MIN_MOTOR_PULSE}s, got: {dim10_pulses_2pct}"
-    )
+    assert len(dim10_pulses_2pct) == 2, f"Expected 2 2% dim10 runs, found {len(dim10_pulses_2pct)}"
     assert 0.350 <= min(dim10_pulses_2pct) and max(dim10_pulses_2pct) <= 0.400
 
-    # 3. Guardrails: quantize_position_delta expands sub-deadband intermediate moves
+    # 3. A 1% change is widened to the 2% that moved this motor; a 1% timed run
+    # is stretched to the floor, a 2% one (0.408 s) is not.
     assert MIN_POSITION_DELTA == 2
     assert quantize_position_delta(curr_pos=40, target_pos=41) == 42
     assert quantize_position_delta(curr_pos=40, target_pos=39) == 38
     assert quantize_position_delta(curr_pos=40, target_pos=40) == 40
     assert quantize_position_delta(curr_pos=40, target_pos=45) == 45
 
-    # 4. compute_run_duration clamps any sub-deadband pulse to MIN_MOTOR_PULSE
     full_travel_time = 20.4
     assert compute_run_duration(1, full_travel_time) == MIN_MOTOR_PULSE
     assert compute_run_duration(2, full_travel_time) == pytest.approx(0.408)

@@ -19,20 +19,21 @@ MOTOR_START_DELAY: float = 0.55
 # the handshake on top.
 WRITE_TIMEOUT: float = 30.0
 
-# Minimum physical motor pulse duration (in seconds) required for an AC tubular
-# motor to overcome mechanical deadband. Tubular motors (Somfy Ilmo 50 WT, Elero,
-# Nice, BTicino) incorporate electromechanical brakes and high-ratio planetary
-# reduction gearboxes that require ~200-250 ms for relay contact settling,
-# electromagnetic brake release, and rotor inertia build-up before the drive
-# spindle can physically rotate.
-# On-wire traces and hardware testing under issue #466 (comment 6038376669) demonstrated
-# that pulses under ~0.2 s (such as 1% steps on a 15-20 s curtain) click the actuator
-# relay without moving the curtain (0 mm displacement), yet cause open-loop position
-# registers to increment, leading to cumulative desynchronization where a sequence of
-# 1% moves walks reported position from 0 to 100% while the shutter remains stationary.
-MIN_MOTOR_PULSE: float = 0.25
+# Shortest motor run we schedule for a timed cover (#466). A tubular motor needs
+# a moment after the relay closes before the curtain moves. On an F454 with
+# Somfy Ilmo 50 WT motors (20.4 s travel) 1% steps ran 0.18-0.22 s between the
+# start and stop status frames and the relay clicked without moving the curtain,
+# while 2% steps (0.39-0.41 s) moved it (#466 comment 6038376669). So the
+# threshold lies somewhere in 0.22-0.39 s for that motor; the floor is the
+# shortest run known to move it. Other motors may differ.
+MIN_MOTOR_PULSE: float = 0.4
 
-# Minimum percentage delta for relative step commands to ensure physical movement.
+# Smallest level change sent to an advanced actuator (#466). The actuator turns
+# a level change into a timed run of its own, so a 1% change is the same
+# too-short run as above. 2% was enough on the 20.4 s motor in that trace; we
+# do not know the actuator's travel time, so a faster motor may need more. The
+# trace used the step frames (*2*12#1#001*WHERE##), not the level frames
+# (*#2*WHERE*#11#001*LEVEL##) we send: their behaviour is inferred, not captured.
 MIN_POSITION_DELTA: int = 2
 
 
@@ -41,11 +42,11 @@ def quantize_position_delta(
     target_pos: int,
     min_delta: int = MIN_POSITION_DELTA,
 ) -> int:
-    """Ensure a position target differs from curr_pos by at least min_delta if not equal.
+    """Widen a level change smaller than ``min_delta`` to ``min_delta``.
 
-    If 0 < |target_pos - curr_pos| < min_delta, expands the delta to min_delta
-    in the commanded direction, clamped to [0, 100]. This prevents sub-deadband
-    micro-steps from causing open-loop register desynchronization.
+    If 0 < |target_pos - curr_pos| < min_delta the target moves to min_delta
+    from curr_pos in the commanded direction, clamped to [0, 100]. The result
+    can be 0 or 100: callers route those to a full run.
     """
     if curr_pos is None:
         return max(0, min(100, target_pos))
@@ -63,12 +64,10 @@ def compute_run_duration(
     travel_time: float,
     min_pulse: float = MIN_MOTOR_PULSE,
 ) -> float:
-    """Calculate motor run duration for a position delta, clamped to the physical deadband floor.
+    """Return the run time for a position change, at least ``min_pulse`` seconds.
 
-    Ensures the motor relay is energized for at least `min_pulse` seconds so the
-    tubular motor's electromagnetic brake can release and the rotor can engage,
-    preventing sub-deadband pulses from causing mathematical position drift without
-    physical movement.
+    A run shorter than the motor's start-up time clicks the relay without
+    moving the curtain while the estimate still advances (see MIN_MOTOR_PULSE).
     """
     if diff == 0 or travel_time <= 0:
         return 0.0
