@@ -532,4 +532,43 @@ Verbatim bus trace contributed by **@anotherjulien** on [#466 (comment 603837666
      - Repeated 1% steps (`*2*12#1#001*31##` Down x3, then `*2*11#1#001*31##` Up x3) ran for ~130–210 ms each.
      - Actuator relay clicked, but duration was too brief to overcome the mechanical deadband/inertia of the Somfy Ilmo 50 WT motors, causing 0 physical curtain movement despite the actuator's internal register updating its Dimension 10 level by 1% per pulse.
 
+---
+
+# #466 BTicino MH200 F422 Secondary Bus Timed Covers & Plant Verification
+
+Authentic on-wire bus trace recorded on a physical **BTicino MH200** (firmware 2.1.0) testing 10 motorized covers on secondary private bus `02` connected via an **F422 bus interface** (`WHERE = XX#4#02`), local bus cover 85, 35 physical lighting points, 8 burglar alarm zones, and 8 sound diffusion zones.
+
+## Hardware Profile
+
+- **Gateway**: BTicino MH200 (1st Generation Scenario Programmer)
+- **Firmware**: 2.1.0
+- **WHO 13 Device Type Code**: `4` (MH200)
+- **WHO 1013 Object Model**: `4`
+- **Bus Interface**: BTicino F422 (Bus 02)
+- **Connection**: TCP OpenWebNet (Port 20000)
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `myhome_trace_MH200_f422_timed_covers.json` | Bus Monitor Trace (425 frames: 412 rx / 13 tx) | Complete plant trace recording F422 secondary bus 02 cover status query (`*#2*0#4#02##`), 10 stopped cover endpoints (`*2*0*XX#4#02##`), local bus cover 85, point-to-point queries, Dimension 10 query confirming standard timed relay actuator profile (no reply), 35 lighting points with discrete brightness levels (WHAT 7, 9, 10), 8 burglar alarm zones (`*5*11*#1##` .. `#8##`), and 8 sound diffusion zones with 2 sources. |
+
+## Subsystems Verified (MH200 F422)
+
+1. **WHO 2 (Automation / Covers)**:
+   - **F422 Secondary Bus Addressing (`XX#4#02`)**: Bus scan `*#2*0#4#02##` discovers all 10 cover endpoints on private bus `02`: `11#4#02`, `21#4#02`, `12#4#02`, `22#4#02`, `13#4#02`, `14#4#02`, `15#4#02`, `16#4#02`, `18#4#02`, `19#4#02`.
+   - **Local Bus Cover**: WHERE `85` reports stopped state on main bus (`*2*0*85##`).
+   - **Standard Timed Relay Profile**: Point-to-point query `*#2*11#4#02##` returns `*2*0*11#4#02##`, while Dimension 10 position query `*#2*11#4#02*10##` returns no reply, confirming standard relay actuator operation (F411U2).
+
+2. **WHO 1 (Lighting)**:
+   - Status sweep covering 35 lighting endpoints with discrete brightness levels (WHAT 7, 9, 10) and live toggling events (`*1*1*51##`, `*1*0*51##`).
+
+3. **WHO 5 (Burglar Alarm)**:
+   - Multi-partition query `*#5*0##` returning empty-where partition states and all 8 zone statuses (`*5*11*#1##` through `*5*11*#8##`).
+
+4. **WHO 16 (Sound Diffusion)**:
+   - Sound system scan `*#16*0*5##` returning 8 audio zones (`21`, `22`, `23`, `14`, `35`, `36`, `17`, `18`) and 2 sound sources (`101`, `102`).
+
+5. **WHO 13 & WHO 1013 (Gateway Identity)**:
+   - Model code 4 (MH200), Firmware 2.1.0 (`*#13**16*2*1*0##`), and Object Model 4 (`*#1013**1*4##`).
 
