@@ -101,6 +101,20 @@ class TestBuildTimedTurnOnCommand:
         cmd_huge = build_timed_turn_on_command("21", hours=300, minutes=90, seconds=90)
         assert str(cmd_huge).startswith("*#1*21*#2*255*")
 
+    def test_fallback_when_ownlightingcommand_factories_missing(self, monkeypatch):
+        """Verify graceful string-parsing fallback when OWNd lacks b11 builders."""
+        monkeypatch.delattr(OWNLightingCommand, "switch_on_timed", raising=False)
+        monkeypatch.delattr(OWNLightingCommand, "set_variable_timer", raising=False)
+
+        cmd_preset = build_timed_turn_on_command("21", duration=60)
+        assert str(cmd_preset) == "*1*11*21##"
+        assert isinstance(cmd_preset, OWNLightingCommand)
+
+        cmd_custom = build_timed_turn_on_command("21", duration=45)
+        assert str(cmd_custom) == "*#1*21*#2*0*0*45##"
+        assert isinstance(cmd_custom, OWNLightingCommand)
+
+
 
 # ── 2. MyHOMELight Timed Turn-on Tests ────────────────────────────────────────
 
