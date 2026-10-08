@@ -45,6 +45,12 @@ from OWNd.message import (
     OWNHeatingEvent,
 )
 
+try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#94)
+    from OWNd.message import MESSAGE_TYPE_SEASON, SEASON_HEATING
+except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 reports WHAT 1/0 as hvac_mode
+    MESSAGE_TYPE_SEASON = "hvac_season"
+    SEASON_HEATING = "heating"
+
 from .const import (
     BUS_ROUTING,
     CONF_CENTRAL,
@@ -77,6 +83,14 @@ _PROTECTION_FRAME_WINDOW = 2.0
 _ZONE_CONTEXT_MODES = {"heating": HVACMode.HEAT, "cooling": HVACMode.COOL, "automatic": HVACMode.AUTO}
 _ZONE_STATES_ON = ("setpoint", "comfort", "eco")
 _ZONE_STATES_OFF = ("protection", "off")
+
+# Mode digit of a setpoint write (*#4*W*#14*TTTT*M##). Legrand WHO 4 p. 8 and
+# p. 23 define M = 1 heating, 2 conditioning, 3 generic; BTicino's own client
+# always writes 3 (libqtdevices probe_device.cpp:122, thermal_device.cpp:134)
+# and the mhs1 / F454 firmware forwards 1, 2 and 3 as three different bus
+# codes (90/91/92 for a zone, C1 12/22/02 for the central unit). Writing generic
+# mode 3 in async_set_temperature keeps the plant's existing season.
+SETPOINT_WRITE_MODE = CLIMATE_MODE_AUTO
 
 
 async def async_setup_entry(
@@ -328,6 +342,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             self._enable_fan_mode()
 
         self._attr_current_temperature: float | None = None
+        self._season: str | None = None
         self._attr_current_humidity: float | None = None
         self._target_temperature: float | None = None
         self._local_offset: float = 0
@@ -358,6 +373,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             "local_target_temperature": self._local_target_temperature,
             "knob_pos": self._knob_pos,
         }
+        if self._season is not None:
+            attrs["season"] = self._season
         if self._fan:
             attrs["fan_mode"] = self._attr_fan_mode
             if self._running_fan_speed is not None:
@@ -594,33 +611,14 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if self.hass is not None:
                 self.async_write_ha_state()
             return
-        if self._attr_hvac_mode == HVACMode.HEAT:
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_temperature(
-                    where=self._where,
-                    temperature=target_temperature,
-                    mode=CLIMATE_MODE_HEAT,
-                    standalone=self._standalone,
-                )
+        await self._gateway_handler.send(
+            OWNHeatingCommand.set_temperature(
+                where=self._where,
+                temperature=target_temperature,
+                mode=SETPOINT_WRITE_MODE,
+                standalone=self._standalone,
             )
-        elif self._attr_hvac_mode == HVACMode.COOL:
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_temperature(
-                    where=self._where,
-                    temperature=target_temperature,
-                    mode=CLIMATE_MODE_COOL,
-                    standalone=self._standalone,
-                )
-            )
-        else:
-            await self._gateway_handler.send(
-                OWNHeatingCommand.set_temperature(
-                    where=self._where,
-                    temperature=target_temperature,
-                    mode=CLIMATE_MODE_AUTO,
-                    standalone=self._standalone,
-                )
-            )
+        )
 
     def _dimension_3_is_protection(self, message: OWNHeatingEvent) -> bool:
         """Whether a dimension 12/14 frame may be a protection setpoint rather than the nominal one.
@@ -750,6 +748,44 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._local_target_temperature - self._local_offset
                     if self._local_target_temperature is not None
                     else None
+                )
+        elif message.message_type == MESSAGE_TYPE_SEASON:
+            # *4*1*Z## / *4*0*Z## is the zone operation mode frame: the zone
+            # (or the central unit) runs in the heating / conditioning season
+            # (Legrand WHO 4 v2.0.0 p. 5, 13, 16, 19, 63). OWNd decodes it as
+            # ``season``; it is not an operating-mode change. A zone that is
+            # AUTO, HEAT or COOL keeps its mode (BTicino's client keeps a zone
+            # in automatic on it, libqtdevices probe_device.cpp:240-253); a
+            # zone that was OFF or not yet known is running again, so it takes
+            # the season's mode. For a central unit the season is the plant
+            # mode Home Assistant shows.
+            self._season = message.season
+            season_mode = HVACMode.HEAT if message.season == SEASON_HEATING else HVACMode.COOL
+            prev_mode = self._attr_hvac_mode
+            if self._central or self._attr_hvac_mode in (None, HVACMode.OFF):
+                if season_mode in self._attr_hvac_modes:
+                    LOGGER.debug("%s %s", self._gateway_handler.log_id, message.human_readable_log)
+                    self._attr_hvac_mode = season_mode
+                    if self._attr_hvac_action == HVACAction.OFF:
+                        self._attr_hvac_action = HVACAction.IDLE
+            else:
+                LOGGER.debug(
+                    "%s %s (season only, zone stays %s)",
+                    self._gateway_handler.log_id,
+                    message.human_readable_log,
+                    self._attr_hvac_mode,
+                )
+            if (
+                prev_mode == HVACMode.OFF
+                and self._attr_hvac_mode != HVACMode.OFF
+                and self._target_temperature is not None
+            ):
+                self._local_target_temperature = self._target_temperature + self._local_offset
+            if self._central and self.hass is not None and self._attr_hvac_mode is not None:
+                async_dispatcher_send(
+                    self.hass,
+                    f"myhome_central_mode_{self._gateway_handler.mac}",
+                    self._attr_hvac_mode,
                 )
         elif message.message_type == MESSAGE_TYPE_MODE:
             prev_mode = self._attr_hvac_mode

@@ -204,14 +204,14 @@ async def test_climate_set_temperature(hass):
     climate._attr_hvac_mode = HVACMode.HEAT
     await climate.async_set_temperature(temperature=23.0)
     gateway.send.assert_called_once()
-    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0230*1##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0230*3##"
     gateway.send.reset_mock()
 
     # Set temperature when in COOL mode
     climate._attr_hvac_mode = HVACMode.COOL
     await climate.async_set_temperature(temperature=24.0)
     gateway.send.assert_called_once()
-    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0240*2##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0240*3##"
     gateway.send.reset_mock()
 
     # Set temperature when in AUTO mode
@@ -386,7 +386,7 @@ async def test_climate_edge_cases_and_properties(hass):
     climate._attr_hvac_mode = HVACMode.HEAT
     await climate.async_set_temperature()
     gateway.send.assert_called_once()
-    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0210*1##"
+    assert str(gateway.send.call_args[0][0]) == "*#4*1*#14*0210*3##"
 
 
 async def test_climate_handle_events_mode_and_target_transitions(hass):
