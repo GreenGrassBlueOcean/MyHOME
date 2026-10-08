@@ -1,4 +1,5 @@
 """Tests for OWNLightingEvent and OWNLightingCommand protocol translation."""
+import pytest
 from OWNd.message import (
     MESSAGE_TYPE_ILLUMINANCE,
     MESSAGE_TYPE_MOTION,
@@ -175,3 +176,71 @@ class TestLightingCommandGeneration:
     def test_command_parse_who1(self):
         cmd = OWNCommand.parse("*1*1*21##")
         assert isinstance(cmd, OWNLightingCommand)
+
+    def test_switch_on_timed(self):
+        cmd = OWNLightingCommand.switch_on_timed("21", 11)
+        assert str(cmd) == "*1*11*21##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+        with pytest.raises(ValueError, match="timer WHAT must be between 11 and 18"):
+            OWNLightingCommand.switch_on_timed("21", 10)
+
+    def test_set_variable_timer(self):
+        cmd = OWNLightingCommand.set_variable_timer("21", 1, 30, 45)
+        assert str(cmd) == "*#1*21*#2*1*30*45##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+        with pytest.raises(ValueError, match="hours 0..255, minutes and seconds 0..59"):
+            OWNLightingCommand.set_variable_timer("21", 256, 0, 0)
+        with pytest.raises(ValueError, match="hours 0..255, minutes and seconds 0..59"):
+            OWNLightingCommand.set_variable_timer("21", 0, 60, 0)
+        with pytest.raises(ValueError, match="hours 0..255, minutes and seconds 0..59"):
+            OWNLightingCommand.set_variable_timer("21", 0, 0, 60)
+
+    def test_get_variable_timer(self):
+        cmd = OWNLightingCommand.get_variable_timer("21")
+        assert str(cmd) == "*#1*21*2##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+    def test_set_brightness_preset(self):
+        cmd = OWNLightingCommand.set_brightness_preset("21", 5)
+        assert str(cmd) == "*1*5*21##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+        with pytest.raises(ValueError, match="preset must be between 2 and 10"):
+            OWNLightingCommand.set_brightness_preset("21", 1)
+        with pytest.raises(ValueError, match="preset must be between 2 and 10"):
+            OWNLightingCommand.set_brightness_preset("21", 11)
+
+    def test_step_up(self):
+        cmd = OWNLightingCommand.step_up("21")
+        assert str(cmd) == "*1*30*21##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+        cmd_delta = OWNLightingCommand.step_up("21", delta=20, speed=1)
+        assert str(cmd_delta) == "*1*30#20#1*21##"
+        assert isinstance(cmd_delta, OWNLightingCommand)
+
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_up("21", delta=0)
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_up("21", delta=101)
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_up("21", delta=10, speed=256)
+
+    def test_step_down(self):
+        cmd = OWNLightingCommand.step_down("21")
+        assert str(cmd) == "*1*31*21##"
+        assert isinstance(cmd, OWNLightingCommand)
+
+        cmd_delta = OWNLightingCommand.step_down("21", delta=10, speed=2)
+        assert str(cmd_delta) == "*1*31#10#2*21##"
+        assert isinstance(cmd_delta, OWNLightingCommand)
+
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_down("21", delta=0)
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_down("21", delta=101)
+        with pytest.raises(ValueError, match="delta must be 1..100 and speed 0..255"):
+            OWNLightingCommand.step_down("21", delta=10, speed=256)
+

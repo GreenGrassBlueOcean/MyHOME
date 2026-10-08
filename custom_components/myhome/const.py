@@ -503,7 +503,7 @@ def build_timed_turn_on_command(
     seconds: float = 0,
 ) -> Any:
     """Build OpenWebNet hardware timer command for WHO=1."""
-    from OWNd.message import OWNCommand
+    from OWNd.message import OWNLightingCommand
 
     total_seconds = float(duration if duration is not None else 0.0)
     total_seconds += (int(hours) * 3600) + (int(minutes) * 60) + float(seconds)
@@ -514,13 +514,11 @@ def build_timed_turn_on_command(
     rounded_secs = round(total_seconds, 1)
     if rounded_secs in PRESET_TIMERS:
         what = PRESET_TIMERS[rounded_secs]
-        frame = f"*1*{what}*{where}##"
-    else:
-        int_secs = int(round(total_seconds))
-        h = max(0, min(255, int_secs // 3600))
-        m = max(0, min(59, (int_secs % 3600) // 60))
-        s = max(0, min(59, int_secs % 60))
-        frame = f"*#1*{where}*#2*{h}*{m}*{s}##"
+        return OWNLightingCommand.switch_on_timed(where, what)
 
-    parsed = OWNCommand.parse(frame)
-    return parsed if parsed is not None else OWNCommand(frame)
+    int_secs = int(round(total_seconds))
+    h = max(0, min(255, int_secs // 3600))
+    m = max(0, min(59, (int_secs % 3600) // 60))
+    s = max(0, min(59, int_secs % 60))
+    return OWNLightingCommand.set_variable_timer(where, h, m, s)
+
