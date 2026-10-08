@@ -114,6 +114,27 @@ class TestBuildTimedTurnOnCommand:
         assert str(cmd_custom) == "*#1*21*#2*0*0*45##"
         assert isinstance(cmd_custom, OWNLightingCommand)
 
+    def test_builder_when_ownlightingcommand_factories_present(self, monkeypatch):
+        """Verify factory path when OWNd has b11 builders."""
+        monkeypatch.setattr(
+            OWNLightingCommand,
+            "switch_on_timed",
+            classmethod(lambda cls, where, what: OWNLightingCommand(f"*1*{what}*{where}##")),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            OWNLightingCommand,
+            "set_variable_timer",
+            classmethod(lambda cls, where, h, m, s: OWNLightingCommand(f"*#1*{where}*#2*{h}*{m}*{s}##")),
+            raising=False,
+        )
+
+        cmd_preset = build_timed_turn_on_command("21", duration=60)
+        assert str(cmd_preset) == "*1*11*21##"
+
+        cmd_custom = build_timed_turn_on_command("21", duration=45)
+        assert str(cmd_custom) == "*#1*21*#2*0*0*45##"
+
 
 
 # ── 2. MyHOMELight Timed Turn-on Tests ────────────────────────────────────────
