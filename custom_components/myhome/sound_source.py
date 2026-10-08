@@ -37,7 +37,8 @@ here rather than normalised away.
 
 Frequencies are documented as "expressed in Hz ... composed by 6 digits", but
 every example in the same document uses kHz (``107000`` is 107.00 MHz). This
-module follows the examples, as the Encyclopedia does.
+module follows the examples, as the Encyclopedia does. It does not zero-pad
+below 100 MHz: an F500N took ``*#16*101*#6*0*96200##`` (#427).
 
 Scope
 -----
@@ -287,7 +288,8 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz:06d}##")
+            # Not zero-padded: the F500N took `*#16*101*#6*0*96200##` (#427).
+            OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz}##")
         )
         self._frequency_khz = kilohertz
         self._station = None
