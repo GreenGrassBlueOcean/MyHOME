@@ -192,15 +192,17 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         """
         self._register_availability_listener()
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*101*{self._where}##")
+            OWNSoundCommand.start_rds(self._where)
         )
 
     async def async_update(self) -> None:
         """Request the tuner's frequency, station and RDS text."""
-        for dimension in (6, 7, 8):
-            await self._gateway_handler.send_status_request(
-                OWNSoundCommand(f"*#16*{self._where}*{dimension}##")
-            )
+        for cmd in (
+            OWNSoundCommand.request_frequency(self._where),
+            OWNSoundCommand.request_track(self._where),
+            OWNSoundCommand.request_rds(self._where),
+        ):
+            await self._gateway_handler.send_status_request(cmd)
 
     # ── Commands ──────────────────────────────────────────────────────────────
 
@@ -219,25 +221,25 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     async def async_media_next_track(self) -> None:
         """Advance to the next station."""
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*6001*{self._where}##")
+            OWNSoundCommand.next_track(self._where)
         )
 
     async def async_media_previous_track(self) -> None:
         """Return to the previous station."""
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*6101*{self._where}##")
+            OWNSoundCommand.previous_track(self._where)
         )
 
     async def async_seek_up(self) -> None:
         """Seek forward to the next receivable FM frequency."""
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*5000*{self._where}##")
+            OWNSoundCommand.seek_up(self._where)
         )
 
     async def async_seek_down(self) -> None:
         """Seek backward to the previous receivable FM frequency."""
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*16*5100*{self._where}##")
+            OWNSoundCommand.seek_down(self._where)
         )
 
     async def async_select_source(self, source: str) -> None:
@@ -271,7 +273,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*#16*{self._where}*#7*{station}##")
+            OWNSoundCommand.select_track(self._where, station)
         )
         self._station = station
         if station > self._station_count:
@@ -296,7 +298,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 },
             )
         await self._gateway_handler.send(
-            OWNSoundCommand(f"*#16*{self._where}*#6*0*{kilohertz:06d}##")
+            OWNSoundCommand.set_frequency(self._where, kilohertz)
         )
         self._frequency_khz = kilohertz
         self._station = None
@@ -368,13 +370,6 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
                 )
         step_forward = getattr(message, "track_step_forward", None)
         step_backward = getattr(message, "track_step_backward", None)
-        raw_what = getattr(message, "what", getattr(message, "_what", None))
-        what_val = raw_what if isinstance(raw_what, int) else None
-
-        if step_forward is None and what_val is not None and 6001 <= what_val <= 6015:
-            step_forward = what_val - 6000
-        if step_backward is None and what_val is not None and 6101 <= what_val <= 6115:
-            step_backward = what_val - 6100
 
         if isinstance(step_forward, int):
             if self._station is not None:
