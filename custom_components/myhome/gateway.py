@@ -428,6 +428,34 @@ class MyHOMEGatewayHandler:
         return firmware
 
     @property
+    def supports_zone_status(self) -> bool:
+        """Whether the gateway supports point-to-point zone status queries (*#4*Z##).
+
+        In OpenWebNet WHO=4, point-to-point zone status queries (*#4*Z##) are NOT part of the
+        standard SCS bus protocol. Physical gateways (F455, F454, MH200N, MH202, etc.) forward
+        the request to the SCS bus, where physical thermostats (LN4691, 3550) ignore it, causing
+        a 10-second command session timeout per zone (#674).
+        Only MyHomeServer1 intercepts *#4*Z## in software and replies from its internal cache (#649).
+        """
+        norm = self.model.upper()
+        return not any(
+            k in norm
+            for k in (
+                "F455",
+                "F454",
+                "MH200",
+                "MH201",
+                "MH202",
+                "F452",
+                "F453",
+                "F458",
+                "F459",
+                "F461",
+                "H4684",
+            )
+        )
+
+    @property
     def profile(self) -> Any:
         """Return gateway profile."""
         return self.gateway.profile

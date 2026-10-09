@@ -359,6 +359,17 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_hvac_action: HVACAction | None = None
 
+        if not self._central and not self._gateway_supports_zone_status:
+            self._poll_on_add = False
+        elif self._central and self._where not in ("#0", "0"):
+            self._poll_on_add = False
+
+    @property
+    def _gateway_supports_zone_status(self) -> bool:
+        """Whether the gateway supports point-to-point zone status queries (*#4*Z##)."""
+        gateway = getattr(self, "_gateway_handler", None)
+        return bool(getattr(gateway, "supports_zone_status", True))
+
     def _enable_fan_mode(self) -> None:
         """Dynamically enable fan mode support if not already enabled."""
         if self._central:
@@ -426,6 +437,14 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             # 4-zone central units (#0#1) do not participate in point-to-point status polling;
             # bus captures confirm querying #0#1 times out on plants without a physical 4-zone unit (#629).
             # They receive setpoints via commands (*#4*#0#1*#14*T*M##), broadcast events, or restored state.
+            return
+        if not self._central and not self._gateway_supports_zone_status:
+            # Physical SCS gateways (F455, F454, MH200N, MH202, etc.) do not support
+            # dimension-less status requests (*#4*Z##) for regular zones (1-99). The request
+            # is forwarded to the SCS bus where physical thermostats have no handler for it,
+            # resulting in a 10-second command session timeout per zone (#674).
+            # Only MyHomeServer1 intercepts *#4*Z## in software and replies from its cache (#649).
+            # Physical plants receive all zone telemetry spontaneously via the startup sweep (*#4*0##).
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)

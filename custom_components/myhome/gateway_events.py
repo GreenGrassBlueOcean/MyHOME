@@ -348,6 +348,8 @@ class GatewayEventDispatcher:
                     message,
                 )
         elif isinstance(message, OWNHeatingCommand) and message.dimension is not None and message.dimension == 14 and self._is_active_for_who(4):
+            if not getattr(self.handler, "supports_zone_status", True):
+                return
             where_str = cast(str, message.where)
             where = where_str[1:] if where_str.startswith("#") else where_str
             self._logger.debug(

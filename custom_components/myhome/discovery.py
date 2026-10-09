@@ -285,8 +285,10 @@ def message_has_state(entity: MyHOMEEntity, message: Any) -> bool:
         return getattr(message, "is_on", None) is not None
 
     # Heating zone: mode, setpoint and temperature arrive in separate frames, so a
-    # temperature-only frame must not cancel the poll for the rest.
+    # temperature-only frame must not cancel the poll for the rest on gateways that support it.
     if isinstance(entity, ClimateEntity):
+        if not getattr(entity, "_gateway_supports_zone_status", True):
+            return True
         return False
 
     # Switch / binary device
