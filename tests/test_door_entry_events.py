@@ -12,6 +12,7 @@ except ImportError:  # pragma: no cover
 from pytest_homeassistant_custom_component.common import async_capture_events
 
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
+from custom_components.myhome.gateway_events import GatewayEventDispatcher
 
 
 async def test_gateway_fires_doorbell_events(hass: HomeAssistant):
@@ -174,6 +175,13 @@ async def test_doorbell_only_for_entrance_panel_calls(hass: HomeAssistant):
         await gateway._process_message(OWNEvent.parse(f"*8*1#{kind}#4*74##"))
     assert [event.data["event"] for event in captured] == ["call"] * 4
     assert {event.data["where"] for event in captured} == {"74"}
+
+
+def test_unreadable_call_kind_is_none():
+    """A call kind that is not a number (from the library or the raw parameters) reads as None."""
+    assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind="x")) is None
+    assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, _what_param=["x"])) is None
+    assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, _what_param=[])) is None
 
 
 async def test_doorbell_ignores_library_call_flags_for_who8(hass: HomeAssistant):

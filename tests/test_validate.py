@@ -31,6 +31,7 @@ from custom_components.myhome.const import (
 from custom_components.myhome.validate import (
     Area,
     BusInterface,
+    DoorEntryWhere,
     General,
     Group,
     MacAddress,
@@ -784,6 +785,9 @@ class TestLockSchemaValidation:
         for where in ("0", "4100"):
             with pytest.raises(Invalid, match="cannot use general"):
                 lock_schema({"lock1": {CONF_WHO: "6", CONF_WHERE: where, CONF_NAME: "General Lock"}})
+
+    def test_door_entry_where_repr(self):
+        assert repr(DoorEntryWhere("custom door msg")) == "DoorEntryWhere(msg='custom door msg')"
 
     def test_who6_group_rejected(self):
         with pytest.raises(Invalid):
