@@ -17,6 +17,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from OWNd.message import (
     OWNEvent,
+    OWNMessage,
     OWNSoundEvent,
 )
 
@@ -5041,8 +5042,9 @@ async def test_issue_669_intercom_video_stream_volume_ducking_leaves_amplifiers_
     """#669: Video intercom audio ducking and volume restoration frames must keep OFF zones OFF.
 
     Authentic frames from issue #669 trace where starting intercom stream broadcasts
-    Dimension 1 volume reports (*#16*WHERE*1*1##) and stream stop restores volume
-    (*#16*41*1*6##, *#16*61*1*7##). Amplifiers must remain MediaPlayerState.OFF.
+    Dimension 1 volume reports (*#16*WHERE*1*1##, *#22*3#AREA#POINT*1*1##) and stream
+    stop restores volume (*#16*41*1*6##, *#22*3#4#1*1*6##, etc.).
+    Amplifiers must remain MediaPlayerState.OFF across both dialects.
     """
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.streamer": 2})
@@ -5073,18 +5075,35 @@ async def test_issue_669_intercom_video_stream_volume_ducking_leaves_amplifiers_
         z._attr_state = MediaPlayerState.OFF
         zones[where] = z
 
-    # 1. Video intercom stream starts: matrix ducks all amplifiers to volume 1
+    def _target_where(raw: str) -> str:
+        """Resolve amplifier WHERE from WHO 16 (*#16*EA*...) or WHO 22 (*#22*3#A#P*...)."""
+        if raw.startswith("*#16*"):
+            return raw.split("*")[2]
+        if raw.startswith("*#22*3#"):
+            _, area, point = raw.split("*")[2].split("#")
+            return f"{area}{point}"
+        raise ValueError(f"Unrecognized frame: {raw}")
+
+    # 1. Video intercom stream starts: matrix ducks all amplifiers to volume 1.
+    # The authentic MH202 trace (#669) interleaves WHO 22 status frames (*#22*3#A#P*1*1##)
+    # with classic WHO 16 volume reports (*#16*AP*1*1##).
     stream_start_frames = [
+        "*#22*3#4#1*1*1##",
         "*#16*41*1*1##",
+        "*#22*3#3#1*1*1##",
         "*#16*31*1*1##",
         "*#16*61*1*1##",
+        "*#22*3#6#1*1*1##",
+        "*#22*3#5#1*1*1##",
         "*#16*51*1*1##",
         "*#16*71*1*1##",
+        "*#22*3#7#1*1*1##",
+        "*#22*3#8#1*1*1##",
         "*#16*81*1*1##",
     ]
     for raw in stream_start_frames:
         msg = OWNSoundEvent.parse(raw)
-        where = msg.where
+        where = _target_where(raw)
         zones[where].handle_event(msg)
 
     await hass.async_block_till_done()
@@ -5098,16 +5117,21 @@ async def test_issue_669_intercom_video_stream_volume_ducking_leaves_amplifiers_
     # Group leader was unaffected
     assert leader.group_members is None
 
-    # 2. Video intercom stream stops: matrix restores volumes (*6*9**## camera off)
+    # 2. Video intercom stream stops: matrix restores volumes (*6*9**## camera off).
+    # Interleaved WHO 16 and WHO 22 restoration frames across the zones.
     stream_stop_frames = [
+        "*#22*3#5#1*1*0##",
         "*#16*51*1*0##",
         "*#16*31*1*1##",
+        "*#22*3#3#1*1*1##",
         "*#16*41*1*6##",
+        "*#22*3#4#1*1*6##",
+        "*#22*3#6#1*1*7##",
         "*#16*61*1*7##",
     ]
     for raw in stream_stop_frames:
         msg = OWNSoundEvent.parse(raw)
-        where = msg.where
+        where = _target_where(raw)
         zones[where].handle_event(msg)
 
     await hass.async_block_till_done()
@@ -5128,4 +5152,36 @@ async def test_issue_669_intercom_video_stream_volume_ducking_leaves_amplifiers_
     for where, z in zones.items():
         assert z.state == MediaPlayerState.OFF
         assert pool.get_leader(z.entity_id) is None
+
+
+@pytest.mark.asyncio
+async def test_who22_volume_reports_do_not_wake_amplifiers(hass, mock_gateway):
+    """Confirm WHO 22 volume status reports do not wake OFF amplifiers or bypass guards.
+
+    In systems with intercom and sound diffusion, ducking and volume restoration frames
+    are broadcast in both WHO 16 and WHO 22 dialects.
+    - If parsed as OWNSoundEvent and dispatched to an amplifier entity (Area 3, Point 6),
+      it updates volume without waking or auto-joining.
+    - On the live gateway bus, OWNMessage.parse produces an OWNEvent (WHO=22) which is
+      safely ignored by PlatformDiscovery (who="16", event_type=OWNSoundEvent).
+    """
+    _runtime, pool, leader, zone36 = await _setup_streaming_environment(hass, mock_gateway)
+    assert zone36.state == MediaPlayerState.OFF
+
+    # 1. Direct handle_event on amplifier entity with parsed WHO 22 sound event (Area 3, Point 6)
+    msg22 = OWNSoundEvent.parse("*#22*3#3#6*1*20##")
+    zone36.handle_event(msg22)
+    await hass.async_block_till_done()
+
+    assert zone36._attr_state == MediaPlayerState.OFF
+    assert zone36.volume_level == pytest.approx(20 / 31.0)
+    assert pool.get_leader("media_player.audio_zone_36") is None
+    assert leader.group_members is None
+    assert zone36.state == MediaPlayerState.OFF
+
+    # 2. Live bus frame parsing via OWNMessage.parse produces an OWNEvent (WHO=22)
+    # which is not an OWNSoundEvent, confirming the gateway discovery filtering.
+    live_msg = OWNMessage.parse("*#22*3#3#6*1*20##")
+    assert not isinstance(live_msg, OWNSoundEvent)
+
 
