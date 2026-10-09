@@ -4310,8 +4310,8 @@ async def test_wall_button_power_on_auto_joins_active_streaming_group(hass, mock
 
 
 @pytest.mark.asyncio
-async def test_wall_button_volume_up_powers_on_and_auto_joins(hass, mock_gateway):
-    """Scenario 2: Zone 36 initially OFF receives absolute volume > 0, wakes to ON and auto-joins."""
+async def test_volume_status_report_when_off_updates_level_without_waking(hass, mock_gateway):
+    """Scenario 2: Zone 36 initially OFF receives Dimension 1 volume report, updates volume without waking or joining."""
     _runtime, pool, leader, zone36 = await _setup_streaming_environment(hass, mock_gateway)
     assert zone36.state == MediaPlayerState.OFF
 
@@ -4319,10 +4319,11 @@ async def test_wall_button_volume_up_powers_on_and_auto_joins(hass, mock_gateway
     zone36.handle_event(msg)
     await hass.async_block_till_done()
 
-    assert zone36._attr_state == MediaPlayerState.ON
+    assert zone36._attr_state == MediaPlayerState.OFF
     assert zone36.volume_level == pytest.approx(20 / 31.0)
-    assert leader.group_members == ["media_player.living_room", "media_player.audio_zone_36"]
-    assert zone36.state == MediaPlayerState.PLAYING
+    assert pool.get_leader("media_player.audio_zone_36") is None
+    assert leader.group_members is None
+    assert zone36.state == MediaPlayerState.OFF
 
 
 @pytest.mark.asyncio
@@ -5031,3 +5032,100 @@ async def test_mute_volume_remembers_previous_volume(hass, player):
 
         await player.async_mute_volume(False)
         set_vol.assert_called_with(0.8)
+
+
+@pytest.mark.asyncio
+async def test_issue_669_intercom_video_stream_volume_ducking_leaves_amplifiers_off(
+    hass, mock_gateway
+):
+    """#669: Video intercom audio ducking and volume restoration frames must keep OFF zones OFF.
+
+    Authentic frames from issue #669 trace where starting intercom stream broadcasts
+    Dimension 1 volume reports (*#16*WHERE*1*1##) and stream stop restores volume
+    (*#16*41*1*6##, *#16*61*1*7##). Amplifiers must remain MediaPlayerState.OFF.
+    """
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+    hass.states.async_set("media_player.streamer", MediaPlayerState.PLAYING)
+
+    base_options = {
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_DEFAULTS: {"3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2},
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    # An active streaming leader playing in living room (zone 21)
+    leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
+    leader._options = lambda: dict(base_options)
+    leader._gateway_handler.config_entry.options = dict(base_options)
+    leader._attr_state = MediaPlayerState.ON
+    leader._attr_source = "Cambridge"
+    await pool.claim("media_player.living_room", preferred_source=2)
+    leader._active_decoder = "media_player.streamer"
+
+    # Six amplifier zones that are currently OFF in the house
+    zones = {}
+    for where in ("31", "41", "51", "61", "71", "81"):
+        z = _create_test_zone(hass, mock_gateway, runtime, where, f"media_player.zone_{where}")
+        z._options = lambda: dict(base_options)
+        z._gateway_handler.config_entry.options = dict(base_options)
+        z._attr_state = MediaPlayerState.OFF
+        zones[where] = z
+
+    # 1. Video intercom stream starts: matrix ducks all amplifiers to volume 1
+    stream_start_frames = [
+        "*#16*41*1*1##",
+        "*#16*31*1*1##",
+        "*#16*61*1*1##",
+        "*#16*51*1*1##",
+        "*#16*71*1*1##",
+        "*#16*81*1*1##",
+    ]
+    for raw in stream_start_frames:
+        msg = OWNSoundEvent.parse(raw)
+        where = msg.where
+        zones[where].handle_event(msg)
+
+    await hass.async_block_till_done()
+
+    # Verify all 6 amplifiers remain OFF, volume level is updated to 1/31, and none joined the stream
+    for where, z in zones.items():
+        assert z.state == MediaPlayerState.OFF, f"Zone {where} woke to {z.state} on volume ducking"
+        assert z.volume_level == pytest.approx(1 / 31.0)
+        assert pool.get_leader(z.entity_id) is None
+
+    # Group leader was unaffected
+    assert leader.group_members is None
+
+    # 2. Video intercom stream stops: matrix restores volumes (*6*9**## camera off)
+    stream_stop_frames = [
+        "*#16*51*1*0##",
+        "*#16*31*1*1##",
+        "*#16*41*1*6##",
+        "*#16*61*1*7##",
+    ]
+    for raw in stream_stop_frames:
+        msg = OWNSoundEvent.parse(raw)
+        where = msg.where
+        zones[where].handle_event(msg)
+
+    await hass.async_block_till_done()
+
+    # Verify amplifiers remain OFF with updated restored volume levels
+    assert zones["51"].state == MediaPlayerState.OFF
+    assert zones["51"].volume_level == pytest.approx(0.0)
+
+    assert zones["31"].state == MediaPlayerState.OFF
+    assert zones["31"].volume_level == pytest.approx(1 / 31.0)
+
+    assert zones["41"].state == MediaPlayerState.OFF
+    assert zones["41"].volume_level == pytest.approx(6 / 31.0)
+
+    assert zones["61"].state == MediaPlayerState.OFF
+    assert zones["61"].volume_level == pytest.approx(7 / 31.0)
+
+    for where, z in zones.items():
+        assert z.state == MediaPlayerState.OFF
+        assert pool.get_leader(z.entity_id) is None
+

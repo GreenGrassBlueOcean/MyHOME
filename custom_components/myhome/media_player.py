@@ -981,7 +981,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
             except (ValueError, TypeError):
                 pass
 
-        if not message.is_off and (is_volume_up or (message.volume is not None and message.volume > 0)):
+        if not message.is_off and is_volume_up:
             if self._attr_state != MediaPlayerState.ON or self._parked:
                 self._cancel_pending_off()
                 self._parked = False
