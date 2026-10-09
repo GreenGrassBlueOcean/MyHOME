@@ -302,14 +302,51 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
         sent_cmd = mock_handler.send.call_args[0][0]
         assert str(sent_cmd) == expected_str
 
-    mock_handler.send.reset_mock()
-    await hass.services.async_call(
-        DOMAIN,
-        "send_scenario_plus_command",
-        {"gateway": gw_mac, "where": "11", "action": "invalid"},
-        blocking=True,
-    )
-    mock_handler.send.assert_not_called()
+    # Verify typed OWNScenarioPlusCommand branch when present in OWNd
+    from unittest.mock import patch
+
+    class MockScenarioPlusCommand:
+        @classmethod
+        def turn_on(cls, where: str) -> str:
+            return f"*25*11#0*{where}##"
+
+        @classmethod
+        def turn_off(cls, where: str) -> str:
+            return f"*25*12*{where}##"
+
+        @classmethod
+        def increase(cls, where: str) -> str:
+            return f"*25*13#0#5*{where}##"
+
+        @classmethod
+        def decrease(cls, where: str) -> str:
+            return f"*25*14#0#5*{where}##"
+
+        @classmethod
+        def stop(cls, where: str) -> str:
+            return f"*25*15*{where}##"
+
+    with patch("OWNd.message.OWNScenarioPlusCommand", MockScenarioPlusCommand, create=True):
+        for action, expected_str in expected_frames.items():
+            mock_handler.send.reset_mock()
+            await hass.services.async_call(
+                DOMAIN,
+                "send_scenario_plus_command",
+                {"gateway": gw_mac, "where": "11", "action": action},
+                blocking=True,
+            )
+            assert mock_handler.send.call_count == 1
+            sent_cmd = mock_handler.send.call_args[0][0]
+            assert str(sent_cmd) == expected_str
+
+        mock_handler.send.reset_mock()
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "where": "11", "action": "invalid"},
+            blocking=True,
+        )
+        mock_handler.send.assert_not_called()
 
     await hass.services.async_call(
         DOMAIN,
@@ -324,4 +361,5 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
         {"gateway": gw_mac, "action": "on"},
         blocking=True,
     )
+
 

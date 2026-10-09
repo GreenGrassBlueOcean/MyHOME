@@ -24,13 +24,6 @@ from OWNd.message import (
     OWNLightingEvent,
     OWNMessage,
 )
-
-try:
-    from OWNd.message import OWNScenarioPlusEvent
-except ImportError:  # pragma: no cover
-    class OWNScenarioPlusEvent:  # type: ignore[no-redef]
-        pass
-
 from OWNd.profiles import GatewayProfile
 
 from custom_components.myhome.const import (
@@ -53,6 +46,7 @@ from custom_components.myhome.const import (
     DOMAIN,
 )
 from custom_components.myhome.gateway import MyHOMEGatewayHandler
+from custom_components.myhome.gateway_events import OWNScenarioPlusEvent
 
 
 @pytest.fixture

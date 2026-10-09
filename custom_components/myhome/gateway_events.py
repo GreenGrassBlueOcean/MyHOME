@@ -30,7 +30,7 @@ from OWNd.message import (
 try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#91)
     from OWNd.message import OWNScenarioPlusEvent
 except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 fallback
-    class OWNScenarioPlusEvent:  # type: ignore[no-redef]
+    class OWNScenarioPlusEvent(OWNMessage):  # type: ignore[no-redef]
         pass
 
 from .const import (

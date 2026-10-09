@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -228,26 +228,41 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         try:
             from OWNd.message import OWNScenarioPlusCommand
-        except ImportError:  # pragma: no cover
-            _LOGGER.error("OWNd does not support scenario plus commands.")
-            return
+        except ImportError:  # pragma: no cover - fallback when OWNd unreleased
+            OWNScenarioPlusCommand = None  # type: ignore[assignment,misc]
 
-        cmd: OWNScenarioPlusCommand | None = None
-        if action == "on":
-            cmd = OWNScenarioPlusCommand.turn_on(where)
-        elif action == "off":
-            cmd = OWNScenarioPlusCommand.turn_off(where)
-        elif action == "increase":
-            cmd = OWNScenarioPlusCommand.increase(where)
-        elif action == "decrease":
-            cmd = OWNScenarioPlusCommand.decrease(where)
-        elif action == "stop":
-            cmd = OWNScenarioPlusCommand.stop(where)
+        cmd: Any = None
+        if OWNScenarioPlusCommand is not None:
+            if action == "on":
+                cmd = OWNScenarioPlusCommand.turn_on(where)
+            elif action == "off":
+                cmd = OWNScenarioPlusCommand.turn_off(where)
+            elif action == "increase":
+                cmd = OWNScenarioPlusCommand.increase(where)
+            elif action == "decrease":
+                cmd = OWNScenarioPlusCommand.decrease(where)
+            elif action == "stop":
+                cmd = OWNScenarioPlusCommand.stop(where)
+            else:
+                _LOGGER.error("Unknown scenario plus action `%s`.", action)
+                return
         else:
-            _LOGGER.error("Unknown scenario plus action `%s`.", action)
-            return
+            action_frames = {
+                "on": f"*25*11#0*{where}##",
+                "off": f"*25*12*{where}##",
+                "increase": f"*25*13#0#5*{where}##",
+                "decrease": f"*25*14#0#5*{where}##",
+                "stop": f"*25*15*{where}##",
+            }
+            if action not in action_frames:
+                _LOGGER.error("Unknown scenario plus action `%s`.", action)
+                return
+            from OWNd.message import OWNCommand
 
-        await handler.send(cmd)
+            cmd = OWNCommand.parse(action_frames[action])
+
+        if cmd is not None:
+            await handler.send(cmd)
 
     hass.services.async_register(DOMAIN, SERVICE_SYNC_TIME, handle_sync_time)
     hass.services.async_register(DOMAIN, SERVICE_SEND_MESSAGE, handle_send_message)
