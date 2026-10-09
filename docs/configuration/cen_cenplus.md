@@ -18,6 +18,7 @@ BTicino / Legrand pushbuttons operate in either **CEN** (`WHO = 15`) or **CEN+**
 | **Release Long Press** | `WHAT = 2` | `WHAT = 24` |
 | **Rotary Dials** | Supported via vendor extensions | Supported (CW/CCW slow & fast) |
 | **Dry Contact Status** | N/A | `WHAT = 31` (Closed), `WHAT = 32` (Opened) |
+| **Scenario Plus Actions** | N/A | `WHAT = 11..15` (`on`, `off`, `increase`, `decrease`, `stop`) |
 
 ---
 
@@ -180,3 +181,8 @@ Enabling **Generate Events** in the **Options Flow** additionally fires every bu
 | **CEN+ Start Long** | 25 | `*25*22#<BUTTON>*<WHERE>##` | `*25*22#1*21##` |
 | **CEN+ Still Held** (repeats ~0.5 s) | 25 | `*25*23#<BUTTON>*<WHERE>##` | `*25*23#1*21##` |
 | **CEN+ Release** | 25 | `*25*24#<BUTTON>*<WHERE>##` | `*25*24#1*21##` |
+| **Scenario Plus On** | 25 | `*25*11#0*<WHERE>##` | `*25*11#0*11##` |
+| **Scenario Plus Off** | 25 | `*25*12*<WHERE>##` | `*25*12*11##` |
+| **Scenario Plus Increase** | 25 | `*25*13#0#5*<WHERE>##` | `*25*13#0#5*11##` |
+| **Scenario Plus Decrease** | 25 | `*25*14#0#5*<WHERE>##` | `*25*14#0#5*11##` |
+| **Scenario Plus Stop** | 25 | `*25*15*<WHERE>##` | `*25*15*11##` |

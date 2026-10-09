@@ -1448,6 +1448,73 @@ async def test_standby_failover_cen_event_bridged_to_primary(hass: HomeAssistant
 
 
 @pytest.mark.asyncio
+async def test_standby_failover_scenarioplus_event_bridged_to_primary(hass: HomeAssistant) -> None:
+    """Test that Scenario Plus events on standby during failover are bridged with primary MAC and entry ID (#459)."""
+    from homeassistant.core import callback
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+    from custom_components.myhome.gateway_events import OWNScenarioPlusEvent
+
+    entry_pri, gw_pri = _create_mock_gateway(
+        hass, "00:03:50:aa:bb:01", topology=TOPOLOGY_SHARED, role=ROLE_PRIMARY
+    )
+    entry_sb, gw_sb = _create_mock_gateway(
+        hass,
+        "00:03:50:aa:bb:02",
+        topology=TOPOLOGY_SHARED,
+        role=ROLE_STANDBY,
+        primary_gateway="00:03:50:aa:bb:01",
+    )
+
+    gw_pri.is_connected = False
+    gw_pri._available = False
+    gw_sb.is_connected = True
+    gw_sb._available = True
+
+    sp_events = []
+    dispatched_events = []
+
+    @callback
+    def _on_sp_event(e: Any) -> None:
+        sp_events.append(e)
+
+    @callback
+    def _on_dispatched(payload: Any) -> None:
+        dispatched_events.append(payload)
+
+    unsub_bus = hass.bus.async_listen("myhome_scenario_plus_event", _on_sp_event)
+    unsub_disp = async_dispatcher_connect(
+        hass,
+        f"myhome_scenario_plus_event_{gw_pri.mac}",
+        _on_dispatched,
+    )
+
+    msg = MagicMock(spec=OWNScenarioPlusEvent)
+    msg.object = "12"
+    msg.action = "on"
+    msg.human_readable_log = "Scenario plus 12: on."
+    await gw_sb._process_message(msg)
+
+    assert len(sp_events) == 1
+    assert sp_events[0].data["gateway_mac"] == gw_pri.mac
+    assert sp_events[0].data["entry_id"] == entry_pri.entry_id
+    assert sp_events[0].data["object"] == 12
+    assert sp_events[0].data["action"] == "on"
+
+    assert len(dispatched_events) == 1
+    assert dispatched_events[0]["gateway_mac"] == gw_pri.mac
+    assert dispatched_events[0]["entry_id"] == entry_pri.entry_id
+
+    # If primary recovers, standby Scenario Plus events are suppressed (not bridged)
+    gw_pri.is_connected = True
+    await gw_sb._process_message(msg)
+    assert len(sp_events) == 1
+
+    unsub_bus()
+    unsub_disp()
+
+
+@pytest.mark.asyncio
 async def test_secondary_gateway_event_delegation_filtering(hass: HomeAssistant) -> None:
     """Test that secondary gateway only processes events for its delegated WHOs (#459)."""
     from OWNd.message import OWNAutomationEvent, OWNLightingEvent

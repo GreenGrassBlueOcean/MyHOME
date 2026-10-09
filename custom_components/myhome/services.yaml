@@ -213,3 +213,35 @@ tuner_seek_down:
     entity:
       domain: media_player
       integration: myhome
+
+send_scenario_plus_command:
+  name: Send scenario plus command
+  description: Send a WHO 25 scenario plus command (on, off, increase, decrease, stop) to an addressed scenario plus object.
+  fields:
+    gateway:
+      name: Gateway
+      description: The gateway's MAC address (optional; defaults to primary gateway).
+      example: "00:03:50:00:00:01"
+      selector:
+        text:
+    where:
+      name: Where
+      description: The scenario plus object address on the bus.
+      required: true
+      example: "11"
+      selector:
+        text:
+    action:
+      name: Action
+      description: The scenario plus action to execute (on, off, increase, decrease, or stop; step/speed for increase/decrease is fixed per protocol).
+      required: true
+      example: "on"
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+            - "increase"
+            - "decrease"
+            - "stop"
+
