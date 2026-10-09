@@ -173,6 +173,9 @@ SOFTWARE_TRANSITION_MAX_STEPS = 25
 RESYNC_DEBOUNCE_S = 0.5
 RESYNC_LEADING_WINDOW_S = 1.5
 
+# Pacing delay between member commands during scope cover fan-out (prevents F422 buffer overflow)
+PACED_FANOUT_DELAY = 0.3
+
 # ── Multi-Gateway & Shared Bus Support (Issue #453) ─────────────────────────
 CONF_BUS_TOPOLOGY = "bus_topology"
 TOPOLOGY_STANDALONE = "standalone"
