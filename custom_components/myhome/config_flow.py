@@ -1060,13 +1060,12 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             if session_limit is not None and int(user_input[CONF_WORKER_COUNT]) > session_limit:
                 errors[CONF_WORKER_COUNT] = "worker_count_above_gateway_limit"
 
-            if CONF_IGNORED_ADDRESSES in user_input:
-                ignored_raw = user_input.get(CONF_IGNORED_ADDRESSES)
-                parsed_ignored, is_valid = validate_ignored_addresses(ignored_raw)
-                if not is_valid:
-                    errors[CONF_IGNORED_ADDRESSES] = "invalid_ignored_address"
-                else:
-                    self.options[CONF_IGNORED_ADDRESSES] = parsed_ignored  # type: ignore
+            ignored_raw = user_input.get(CONF_IGNORED_ADDRESSES, "")
+            parsed_ignored, is_valid = validate_ignored_addresses(ignored_raw)
+            if not is_valid:
+                errors[CONF_IGNORED_ADDRESSES] = "invalid_ignored_address"
+            else:
+                self.options[CONF_IGNORED_ADDRESSES] = parsed_ignored  # type: ignore
 
             if not errors:
                 self.options.update({CONF_WORKER_COUNT: user_input[CONF_WORKER_COUNT]})  # type: ignore
@@ -1213,7 +1212,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     if isinstance(self.options.get(CONF_IGNORED_ADDRESSES), list)  # type: ignore
                     else str(self.options.get(CONF_IGNORED_ADDRESSES) or "")  # type: ignore
                 },
-            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            ): vol.Maybe(selector.TextSelector(selector.TextSelectorConfig(multiline=True))),
         }
 
         # Matrix source names 1–4 (F441M inputs S1–S4)
