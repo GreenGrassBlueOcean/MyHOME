@@ -146,6 +146,13 @@ class TestSensorsCoverage:
             mock_gateway.send_status_request.assert_called_once()
             assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#18*51*113##"
 
+        # Test async_update fallback when builders are absent
+        with patch.object(OWNEnergyCommand, "get_instant_power", None, create=True), patch.object(OWNEnergyCommand, "request_active_power", None, create=True):
+            mock_gateway.send_status_request.reset_mock()
+            await sensor.async_update()
+            mock_gateway.send_status_request.assert_called_once()
+            assert str(mock_gateway.send_status_request.call_args[0][0]) == "*#18*51*113##"
+
         # Test start_sending_instant_power fallback when builder is absent
         with patch.object(OWNEnergyCommand, "start_sending_instant_power", None):
             mock_gateway.send.reset_mock()
@@ -166,6 +173,24 @@ class TestSensorsCoverage:
             await sensor.async_stop_sending_instant_power()
             assert sensor._is_streaming_active() is False
             mock_gateway.send.assert_called_once_with(stop_cmd)
+
+        # Test async_stop_sending_instant_power fallback when builder is absent
+        with patch.object(OWNEnergyCommand, "stop_sending_instant_power", None):
+            sensor._streaming_until = time.monotonic() + 100.0
+            mock_gateway.send.reset_mock()
+            await sensor.async_stop_sending_instant_power()
+            assert sensor._is_streaming_active() is False
+            mock_gateway.send.assert_called_once()
+            assert str(mock_gateway.send.call_args[0][0]) == "*#18*51*#1200#1*0##"
+
+        # Test async_stop_sending_instant_power fallback when builder returns None
+        with patch.object(OWNEnergyCommand, "stop_sending_instant_power", create=True, return_value=None):
+            sensor._streaming_until = time.monotonic() + 100.0
+            mock_gateway.send.reset_mock()
+            await sensor.async_stop_sending_instant_power()
+            assert sensor._is_streaming_active() is False
+            mock_gateway.send.assert_called_once()
+            assert str(mock_gateway.send.call_args[0][0]) == "*#18*51*#1200#1*0##"
 
         # handle_event: auto_update_interval with positive interval
         auto_interval_msg = MagicMock()

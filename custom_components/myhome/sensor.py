@@ -47,7 +47,7 @@ from OWNd.message import (
 
 try:
     from OWNd.message import MESSAGE_TYPE_AUTO_UPDATE_INTERVAL
-except ImportError:
+except ImportError:  # pragma: no cover - fallback for OWNd < 2.0.0b11
     MESSAGE_TYPE_AUTO_UPDATE_INTERVAL = "auto_update_interval"
 from voluptuous import (
     All,
