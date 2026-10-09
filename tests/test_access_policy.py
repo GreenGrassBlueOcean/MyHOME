@@ -354,6 +354,29 @@ async def test_pin_reply_and_lockout(hass: HomeAssistant):
     await h.ctrl.async_shutdown()
 
 
+async def test_pin_approval_without_any_reply_text_is_not_a_failed_attempt(hass: HomeAssistant):
+    """A client that returns no text (no input shown) must not burn PIN attempts or lock the user out."""
+    parent = await _user(hass, "Parent")
+    calls = async_mock_service(hass, "notify", "mobile_app_parent")
+    h = Harness(hass, _config(parent.id, pin_code="2468"))
+    hass.states.async_set(SENSOR, STATE_OFF)
+
+    for _ in range(5):
+        await h.ctrl.async_request(Intent.OPEN, Context(user_id=parent.id))
+        await _press(hass, _approve_action(calls)["action"], parent.id)
+        await hass.async_block_till_done()
+        assert "no PIN received" in calls[-1].data["message"]
+    assert h.pulses == []
+    assert h.ctrl._failed_pins == {}
+
+    # Still no lockout: the right PIN works straight away
+    await h.ctrl.async_request(Intent.OPEN, Context(user_id=parent.id))
+    await _press(hass, _approve_action(calls)["action"], parent.id, reply_text="2468")
+    await hass.async_block_till_done()
+    assert h.pulses == [(Intent.OPEN, Effect.OPEN)]
+    await h.ctrl.async_shutdown()
+
+
 # ── Close policy ────────────────────────────────────────────────────────
 
 

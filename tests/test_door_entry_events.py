@@ -1,5 +1,5 @@
 """Tests for Door Entry (WHO=6) doorbell events and gateway handling."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -137,3 +137,76 @@ async def test_gateway_logs_door_entry_events(hass: HomeAssistant):
             gateway.log_id,
             call_event.human_readable_log,
         )
+
+
+def _doorbell_gateway(hass: HomeAssistant) -> MyHOMEGatewayHandler:
+    config_entry = MagicMock()
+    config_entry.data = {"host": "192.168.1.100", "port": 20000, "password": "open", "mac": "00:03:50:00:77:78"}
+    config_entry.options = {}
+    config_entry.entry_id = "test_doorbell_kinds_entry"
+    gateway = MyHOMEGatewayHandler(hass, config_entry)
+    gateway.generate_events = False
+    return gateway
+
+
+async def test_doorbell_only_for_entrance_panel_calls(hass: HomeAssistant):
+    """WHO 8 WHAT 1 starts any call: only the entrance panels (kinds 1-4) ring the door."""
+    gateway = _doorbell_gateway(hass)
+    captured = async_capture_events(hass, "myhome_doorbell_event")
+
+    # Handset to handset (kind 6) and a pager broadcast (kind 14) are not a visitor
+    for frame in ("*8*1#6#2*74##", "*8*1#6#4#73*74##", "*8*1#14#2*4##"):
+        await gateway._process_message(OWNEvent.parse(frame))
+    # A call whose kind cannot be read fails closed
+    for frame in ("*8*1*74##", "*8*1#x#4*74##"):
+        message = OWNEvent.parse(frame)
+        if message is not None:
+            await gateway._process_message(message)
+    assert captured == []
+
+    for kind in (1, 2, 3, 4):
+        await gateway._process_message(OWNEvent.parse(f"*8*1#{kind}#4*74##"))
+    assert [event.data["event"] for event in captured] == ["call"] * 4
+    assert {event.data["where"] for event in captured} == {"74"}
+
+
+async def test_doorbell_ignores_library_call_flags_for_who8(hass: HomeAssistant):
+    """Older OWNd flags every WHO 8 WHAT 1 as an incoming call; the call kind still decides."""
+    gateway = _doorbell_gateway(hass)
+    captured = async_capture_events(hass, "myhome_doorbell_event")
+
+    internal = OWNEvent.parse("*8*1#6#2*74##")
+    internal.is_call = True  # type: ignore[attr-defined]
+    internal.is_incoming_call = True  # type: ignore[attr-defined]
+    await gateway._process_message(internal)
+    assert captured == []
+
+
+async def test_doorbell_fires_once_on_a_shared_bus(hass: HomeAssistant):
+    """Only the gateway that owns the subsystem announces the ring; the other one stays silent."""
+    gateway = _doorbell_gateway(hass)
+    captured = async_capture_events(hass, "myhome_doorbell_event")
+    dispatched: list[dict] = []
+
+    @callback
+    def record(payload):
+        dispatched.append(payload)
+
+    unsub = async_dispatcher_connect(hass, f"myhome_doorbell_event_{gateway.mac}", record)
+
+    try:
+        with patch.object(MyHOMEGatewayHandler, "delegated_away_whos", new_callable=PropertyMock, return_value={6, 8}):
+            await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
+            await gateway._process_message(OWNEvent.parse("*6*6*1##"))
+        assert captured == []
+        assert dispatched == []
+
+        with patch.object(MyHOMEGatewayHandler, "is_standby", new_callable=PropertyMock, return_value=True):
+            await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
+        assert captured == []
+
+        await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
+        assert len(captured) == 1
+        assert len(dispatched) == 1
+    finally:
+        unsub()

@@ -70,8 +70,8 @@ DOMAIN_METADATA: dict[str, dict[str, str]] = {
     "lock": {
         "label": "**`lock`**",
         "capabilities": (
-            "Momentary electric door strikes (`WHO=1`) with constant-time PIN authentication and auto-relock; "
-            "native video door entry strikes (`WHO=6`)"
+            "Native video door entry strikes (`WHO=6`, configured in `myhome.yaml`) with constant-time PIN "
+            "authentication and auto-relock"
         ),
     },
     "climate": {
