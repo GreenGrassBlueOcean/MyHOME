@@ -148,10 +148,8 @@ def test_ha_container(
             temp_manifest_path.write_text(json.dumps(temp_manifest, indent=2), encoding="utf-8")
 
         config_yaml = temp_dir / "configuration.yaml"
-        skip_pip = "homeassistant:\n  skip_pip_packages:\n    - OWNd\n" if use_dev_ownd else ""
         config_yaml.write_text(
             "default_config:\n"
-            f"{skip_pip}"
             "logger:\n"
             "  default: info\n"
             "  logs:\n"
