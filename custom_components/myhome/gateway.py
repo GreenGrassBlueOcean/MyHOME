@@ -314,9 +314,9 @@ class MyHOMEGatewayHandler:
         """Event set when the event session is established."""
         return self._event_runner._event_session_ready
 
-    def _ensure_cen_device(self, who: int, object_id: int | str) -> None:
+    def _ensure_cen_device(self, who: int, object_id: int | str, model: str | None = None) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
-        self._event_dispatcher.ensure_cen_device(who, object_id)
+        self._event_dispatcher.ensure_cen_device(who, object_id, model=model)
 
     @property
     def identification_source(self) -> str:

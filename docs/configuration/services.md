@@ -258,12 +258,15 @@ target:
 
 Sends a WHO 25 scenario plus command (`on`, `off`, `increase`, `decrease`, or `stop`) to an addressed scenario plus object on the SCS bus.
 
+> [!NOTE]
+> For `increase` and `decrease` actions, step and speed parameters are fixed to standard Legrand protocol defaults (`#0#5`, as confirmed by physical gateway traces); they are not user-configurable in this service.
+
 ### Fields
 | Parameter | Type | Required | Description | Example |
 | :--- | :---: | :---: | :--- | :--- |
 | `gateway` | string | No | The MAC address of the target gateway (defaults to primary). | `"00:03:50:20:00:01"` |
 | `where` | string | **Yes** | The scenario plus object address on the bus. | `"11"` |
-| `action` | string | **Yes** | The scenario plus action (`on`, `off`, `increase`, `decrease`, `stop`). | `"on"` |
+| `action` | string | **Yes** | The scenario plus action (`on`, `off`, `increase`, `decrease`, `stop`). Step and speed for `increase`/`decrease` are fixed to standard defaults (`#0#5`). | `"on"` |
 
 ### Example YAML Call
 ```yaml

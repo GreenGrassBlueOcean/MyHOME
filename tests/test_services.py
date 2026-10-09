@@ -313,6 +313,7 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
             blocking=True,
         )
     assert exc_fallback.value.translation_key == "scenario_plus_unknown_action"
+    assert exc_fallback.value.translation_placeholders == {"action": "invalid_fallback"}
     mock_handler.send.assert_not_called()
 
     # Verify typed OWNScenarioPlusCommand branch when present in OWNd
@@ -361,6 +362,7 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
                 blocking=True,
             )
         assert exc_typed.value.translation_key == "scenario_plus_unknown_action"
+        assert exc_typed.value.translation_placeholders == {"action": "invalid"}
         mock_handler.send.assert_not_called()
 
     with pytest.raises(ServiceValidationError) as exc_gw:
@@ -371,6 +373,7 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
             blocking=True,
         )
     assert exc_gw.value.translation_key == "scenario_plus_gateway_not_found"
+    assert exc_gw.value.translation_placeholders == {"gateway": "00:03:50:99:99:99"}
 
     with pytest.raises(ServiceValidationError) as exc_where:
         await hass.services.async_call(
@@ -401,6 +404,7 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
                 blocking=True,
             )
         assert exc_parse.value.translation_key == "scenario_plus_command_invalid"
+        assert exc_parse.value.translation_placeholders == {"where": "11", "action": "on"}
 
 
 async def test_send_scenario_plus_command_no_gateways(hass: HomeAssistant) -> None:

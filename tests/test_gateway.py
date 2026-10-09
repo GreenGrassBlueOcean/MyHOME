@@ -1311,7 +1311,7 @@ async def test_gateway_scenarioplus_event_and_auto_registration(gateway_handler:
                     "identifiers": {(DOMAIN, f"{gateway_handler.mac}-25-15")},
                     "name": "CEN+ Unit 15",
                     "manufacturer": "BTicino",
-                    "model": "CEN+ Scenario Control",
+                    "model": "CEN+ Scenario Plus Control",
                 }
 
 

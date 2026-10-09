@@ -240,7 +240,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
         where = str(where_raw).strip()
 
-        action = str(call.data.get(ATTR_ACTION, "")).lower().strip()
+        action = str(call.data.get(ATTR_ACTION) or "").lower().strip()
         allowed_actions = ("on", "off", "increase", "decrease", "stop")
         if action not in allowed_actions:
             raise ServiceValidationError(

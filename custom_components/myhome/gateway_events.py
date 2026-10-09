@@ -81,7 +81,12 @@ class GatewayEventDispatcher:
         """Return the registered CEN device set."""
         return self._cen_devices
 
-    def ensure_cen_device(self, who: int, object_id: int | str) -> None:
+    def ensure_cen_device(
+        self,
+        who: int,
+        object_id: int | str,
+        model: str | None = None,
+    ) -> None:
         """Ensure CEN/CEN+ scenario unit is registered in device registry."""
         if getattr(self.handler, "is_standby", False) or not self._is_active_for_who(who):
             # Standby gateways never register devices on their own config entry,
@@ -147,7 +152,7 @@ class GatewayEventDispatcher:
                 identifiers=identifiers,
                 name=dev_name,
                 manufacturer="BTicino",
-                model=f"{type_name} Scenario Control",
+                model=model or f"{type_name} Scenario Control",
                 **via_kwargs,
             )
             self._cen_devices.add(device_key)
@@ -450,7 +455,8 @@ class GatewayEventDispatcher:
                     target_mac = None
 
             if target_mac is not None and self._is_active_for_who(25):
-                self.handler._ensure_cen_device(25, raw_obj)
+                if raw_obj:
+                    self.handler._ensure_cen_device(25, raw_obj, model="CEN+ Scenario Plus Control")
                 scenarioplus_payload: dict[str, Any] = {
                     "object": obj_val,
                     "action": getattr(message, "action", None),

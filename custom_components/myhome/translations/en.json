@@ -340,7 +340,7 @@
         },
         "action": {
           "name": "Action",
-          "description": "The scenario plus action to execute (on, off, increase, decrease, or stop)."
+          "description": "The scenario plus action to execute (on, off, increase, decrease, or stop; step/speed for increase/decrease is fixed per protocol)."
         }
       }
     }
