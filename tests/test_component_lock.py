@@ -69,6 +69,10 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
                             CONF_WHERE: "2",
                             CONF_NAME: "Side Gate Lock",
                         },
+                        "0": {
+                            CONF_WHERE: "0",
+                            CONF_NAME: "General Lock",
+                        },
                     }
                 },
             }
@@ -83,10 +87,13 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
     reg_1 = MagicMock()
     reg_1.domain = Platform.LOCK
     reg_1.unique_id = f"{mac}-6-1"
+    reg_light = MagicMock()  # another subsystem's entry is never restored as a lock
+    reg_light.domain = Platform.LOCK
+    reg_light.unique_id = f"{mac}-1-7"
 
     with (
         patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er),
-        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1]),
+        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1, reg_light]),
     ):
         added_entities = []
 
@@ -96,7 +103,7 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
         attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, fake_add_entities)
 
-        # Restored (1) + Configured from YAML (2) = 2 locks
+        # Restored (1) + Configured from YAML (2) = 2 locks; the general WHERE 0 is not a lock
         assert len(added_entities) == 2
         assert any(e._where == "1" for e in added_entities)
         assert any(e._where == "2" for e in added_entities)
@@ -197,6 +204,11 @@ class TestMyHOMELockEntity:
         future = dt_util.utcnow() + timedelta(seconds=DEFAULT_LOCK_DURATION + 0.1)
         async_fire_time_changed(hass, future)
 
+        assert lock_entity.is_locked is True
+
+    def test_handle_event_translation_ignored_by_lock(self, lock_entity):
+        """A translated frame is not a release of this strike."""
+        lock_entity.handle_event(MagicMock(who=6, _what=10, is_lock_open=True, is_translation=True))
         assert lock_entity.is_locked is True
 
     def test_handle_event_call_ignored_by_lock(self, lock_entity):
