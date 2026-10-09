@@ -1,4 +1,5 @@
 """Tests for OWNLightingEvent and OWNLightingCommand protocol translation."""
+
 import pytest
 from OWNd.message import (
     MESSAGE_TYPE_ILLUMINANCE,

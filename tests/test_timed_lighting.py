@@ -99,7 +99,8 @@ class TestBuildTimedTurnOnCommand:
     def test_clamping_ranges(self):
         """Verify hours are clamped to 255, minutes to 59, seconds to 59."""
         cmd_huge = build_timed_turn_on_command("21", hours=300, minutes=90, seconds=90)
-        assert str(cmd_huge).startswith("*#1*21*#2*255*")
+        assert str(cmd_huge) == "*#1*21*#2*255*31*30##"
+        assert isinstance(cmd_huge, OWNLightingCommand)
 
     def test_fallback_when_ownlightingcommand_factories_missing(self, monkeypatch):
         """Verify graceful string-parsing fallback when OWNd lacks b11 builders."""
@@ -116,24 +117,21 @@ class TestBuildTimedTurnOnCommand:
 
     def test_builder_when_ownlightingcommand_factories_present(self, monkeypatch):
         """Verify factory path when OWNd has b11 builders."""
-        monkeypatch.setattr(
-            OWNLightingCommand,
-            "switch_on_timed",
-            classmethod(lambda cls, where, what: OWNLightingCommand(f"*1*{what}*{where}##")),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            OWNLightingCommand,
-            "set_variable_timer",
-            classmethod(lambda cls, where, h, m, s: OWNLightingCommand(f"*#1*{where}*#2*{h}*{m}*{s}##")),
-            raising=False,
-        )
+        mock_switch = MagicMock(return_value=OWNLightingCommand("*1*11*21##"))
+        mock_variable = MagicMock(return_value=OWNLightingCommand("*#1*21*#2*0*0*45##"))
+
+        monkeypatch.setattr(OWNLightingCommand, "switch_on_timed", mock_switch, raising=False)
+        monkeypatch.setattr(OWNLightingCommand, "set_variable_timer", mock_variable, raising=False)
 
         cmd_preset = build_timed_turn_on_command("21", duration=60)
         assert str(cmd_preset) == "*1*11*21##"
+        assert isinstance(cmd_preset, OWNLightingCommand)
+        mock_switch.assert_called_once_with("21", 11)
 
         cmd_custom = build_timed_turn_on_command("21", duration=45)
         assert str(cmd_custom) == "*#1*21*#2*0*0*45##"
+        assert isinstance(cmd_custom, OWNLightingCommand)
+        mock_variable.assert_called_once_with("21", 0, 0, 45)
 
 
 
