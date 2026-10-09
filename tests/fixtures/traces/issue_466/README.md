@@ -631,4 +631,41 @@ Authentic on-wire bus trace captured and contributed by **@xtimmy86x** on [PR #6
      - Dimension 51 (Totalizer): `*#18*51*51*35098267##` (35,098,267 Wh), `*#18*53*51*18915332##`, `*#18*54*51*2186911##`, `*#18*55*51*3033954##`
      - Dimension 54 (Current day partial consumption): `*#18*51*54*13165##` (13,165 Wh), `*#18*53*54*7919##`, `*#18*54*54*1179##`, `*#18*55*54*1916##`
 
+---
+
+# #466 BTicino MyHomeServer1 WHO 25 Scenario Plus Trace & Bus Echo (`*25*11#0*11##`)
+
+Verbatim bus trace contributed by **@TheDarkWizard** on [#466 (comment 6085724930)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-6085724930) in response to the community call for real-world WHO 25 scenario plus traces ([#466 (comment 6085158753)](https://github.com/OpenWebNet-HA/MyHOME/issues/466#issuecomment-6085158753)), exported from Home Assistant diagnostics (HA 2026.9.4, integration 2.0.0b14, OWNd 2.0.0b9, gateway firmware 2.87.13).
+
+## Hardware Profile
+
+- **Gateway Model**: BTicino MyHomeServer1
+- **Firmware**: 2.87.13
+- **Connection**: TCP OpenWebNet (Port 20000)
+- **Profile**: `MyHomeServer1Profile`
+
+## Contributed Files
+
+| File | Type | Description |
+|---|---|---|
+| `config_entry-myhome_MyHomeServer1_who25_scenario_plus.json` | HA Diagnostic Download (500 frames: 6 tx / 494 rx) | Authentic physical plant capture confirming gateway acceptance, SCS bus transmission, and OpenWebNet monitor echo of WHO 25 Scheduled Scenario PLUS command `*25*11#0*11##`, interleaved with WHO 18 Dimension 113 power readings on meters 51 and 52, WHO 4 climate reports, and WHO 1 lighting status. Originally uploaded as `Cen&Cen+CallToAction.json`. |
+
+## Sequence of Actions Recorded & Subsystems Verified
+
+1. **Scheduled Scenario PLUS (WHO 25)**:
+   - Command transmitted from Home Assistant: `[tx] *25*11#0*11##` (`2026-10-09T17:14:12.215385+00:00`).
+   - Gateway acknowledges and puts `B1 01 93 00` onto the physical SCS bus, echoing back on the monitor session: `[rx] *25*11#0*11##` (`2026-10-09T17:14:12.298174+00:00`) exactly 82.8 ms later.
+   - Immediate status inquiry: `[tx] *#25*11##` (`2026-10-09T17:14:12.300230+00:00`).
+   - OFF command attempt with parameter `#0`: `[tx] *25*12#0*11##` (`2026-10-09T17:14:39.916800+00:00`). Note that in the OpenWebNet protocol and `bt_luci` firmware, OFF takes no `#0` parameter (`*25*12*WHERE##`), explaining the absence of a monitor echo for this variant.
+
+2. **Energy Management (WHO 18)**:
+   - 424 frames of active power measurements (`*#18*51*113*<watts>##` on meter 51 and `*#18*52*113*<watts>##` on meter 52).
+
+3. **Thermoregulation (WHO 4)**:
+   - 63 frames reporting thermoregulation dimension 60 setpoints and status across zones (`*#4*1*60*49##`, `*#4*2*60*49##`, `*#4*5*60*49##`, etc.).
+
+4. **Lighting (WHO 1)**:
+   - 9 frames reporting actuator lighting status (`*1*0*0014##`, `*1*0*0016##`, etc.).
+
+
 
