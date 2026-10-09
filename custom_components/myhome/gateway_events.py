@@ -27,6 +27,12 @@ from OWNd.message import (
     OWNMessage,
 )
 
+try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#91)
+    from OWNd.message import OWNScenarioPlusEvent
+except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 fallback
+    class OWNScenarioPlusEvent:  # type: ignore[no-redef]
+        pass
+
 from .const import (
     CONF_LONG_PRESS,
     CONF_LONG_PRESS_REPEAT,
@@ -415,6 +421,44 @@ class GatewayEventDispatcher:
                     cenplus_payload["entry_id"] = target_entry_id
                 self.hass.bus.async_fire("myhome_cenplus_event", cenplus_payload)
                 dispatcher_send(self.hass, f"myhome_cenplus_event_{target_mac}", cenplus_payload)
+            self._logger.debug(
+                "%s %s",
+                self.handler.log_id,
+                message.human_readable_log,
+            )
+        elif isinstance(message, OWNScenarioPlusEvent):
+            raw_obj = str(message.object)
+            clean_obj = raw_obj.split("#")[0]
+            try:
+                obj_val: int | str = int(clean_obj)
+            except (ValueError, TypeError):  # pragma: no cover - defensive
+                obj_val = raw_obj
+
+            target_mac: str | None = self.handler.mac
+            config_entry = getattr(self.handler, "config_entry", None)
+            target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
+
+            if getattr(self.handler, "is_standby", False):
+                primary_gw = self.handler._get_primary_gateway()
+                if primary_gw is not None and not primary_gw.is_connected and self.handler._profile_supports_who(25):
+                    target_mac = primary_gw.mac
+                    pri_entry = getattr(primary_gw, "config_entry", None)
+                    target_entry_id = getattr(pri_entry, "entry_id", None) if pri_entry else None
+                else:
+                    target_mac = None
+
+            if target_mac is not None and self._is_active_for_who(25):
+                self.handler._ensure_cen_device(25, raw_obj)
+                scenarioplus_payload: dict[str, Any] = {
+                    "object": obj_val,
+                    "action": getattr(message, "action", None),
+                    "where": raw_obj,
+                    "gateway_mac": target_mac,
+                }
+                if target_entry_id and isinstance(target_entry_id, str):
+                    scenarioplus_payload["entry_id"] = target_entry_id
+                self.hass.bus.async_fire("myhome_scenario_plus_event", scenarioplus_payload)
+                dispatcher_send(self.hass, f"myhome_scenario_plus_event_{target_mac}", scenarioplus_payload)
             self._logger.debug(
                 "%s %s",
                 self.handler.log_id,

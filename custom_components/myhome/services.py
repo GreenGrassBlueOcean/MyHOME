@@ -10,9 +10,12 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
+    ATTR_ACTION,
     ATTR_GATEWAY,
     ATTR_MESSAGE,
+    ATTR_WHERE,
     DOMAIN,
+    SERVICE_SEND_SCENARIO_PLUS_COMMAND,
     SERVICE_STOP_COVER_CALIBRATION,
 )
 from .data import get_runtime_data
@@ -207,7 +210,47 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         gateway = call.data.get(ATTR_GATEWAY, None)
         await async_stop_cover_calibration(hass, gateway_mac=gateway)
 
+    async def handle_send_scenario_plus_command(call: ServiceCall) -> None:
+        """Handle sending a scenario plus command."""
+        where = call.data.get(ATTR_WHERE)
+        action = str(call.data.get(ATTR_ACTION, "")).lower()
+        gateway = call.data.get(ATTR_GATEWAY, None)
+        if gateway is not None:
+            gateway = dr.format_mac(gateway)
+        handler = _get_gateway_handler(hass, gateway)
+        if handler is None:
+            _LOGGER.error("Gateway `%s` not found for scenario plus command.", gateway)
+            return
+
+        if where is None:
+            _LOGGER.error("No where/object specified for scenario plus command.")
+            return
+
+        try:
+            from OWNd.message import OWNScenarioPlusCommand
+        except ImportError:  # pragma: no cover
+            _LOGGER.error("OWNd does not support scenario plus commands.")
+            return
+
+        cmd: OWNScenarioPlusCommand | None = None
+        if action == "on":
+            cmd = OWNScenarioPlusCommand.turn_on(where)
+        elif action == "off":
+            cmd = OWNScenarioPlusCommand.turn_off(where)
+        elif action == "increase":
+            cmd = OWNScenarioPlusCommand.increase(where)
+        elif action == "decrease":
+            cmd = OWNScenarioPlusCommand.decrease(where)
+        elif action == "stop":
+            cmd = OWNScenarioPlusCommand.stop(where)
+        else:
+            _LOGGER.error("Unknown scenario plus action `%s`.", action)
+            return
+
+        await handler.send(cmd)
+
     hass.services.async_register(DOMAIN, SERVICE_SYNC_TIME, handle_sync_time)
     hass.services.async_register(DOMAIN, SERVICE_SEND_MESSAGE, handle_send_message)
     hass.services.async_register(DOMAIN, SERVICE_SWEEP_BUS, handle_sweep_bus)
     hass.services.async_register(DOMAIN, SERVICE_STOP_COVER_CALIBRATION, handle_stop_cover_calibration)
+    hass.services.async_register(DOMAIN, SERVICE_SEND_SCENARIO_PLUS_COMMAND, handle_send_scenario_plus_command)

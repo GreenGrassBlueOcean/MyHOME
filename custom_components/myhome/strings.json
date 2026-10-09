@@ -325,6 +325,24 @@
     "tuner_seek_down": {
       "name": "Tuner seek down",
       "description": "Seek backward to the previous receivable FM radio frequency on an F500 tuner source."
+    },
+    "send_scenario_plus_command": {
+      "name": "Send scenario plus command",
+      "description": "Send a WHO 25 scenario plus command (on, off, increase, decrease, stop) to an addressed scenario plus object.",
+      "fields": {
+        "gateway": {
+          "name": "Gateway",
+          "description": "The gateway's MAC address (optional; defaults to primary gateway)."
+        },
+        "where": {
+          "name": "Where",
+          "description": "The scenario plus object address on the bus."
+        },
+        "action": {
+          "name": "Action",
+          "description": "The scenario plus action to execute (on, off, increase, decrease, or stop)."
+        }
+      }
     }
   },
   "issues": {

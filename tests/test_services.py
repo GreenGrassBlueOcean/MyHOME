@@ -269,3 +269,59 @@ async def test_stop_cover_calibration_service_forwards_gateway(hass: HomeAssista
     with patch("custom_components.myhome.cover.async_stop_cover_calibration", AsyncMock(return_value=True)) as stop:
         await hass.services.async_call(DOMAIN, "stop_cover_calibration", {ATTR_GATEWAY: "00:03:50:aa:bb:cc"}, blocking=True)
     stop.assert_awaited_once_with(hass, gateway_mac="00:03:50:aa:bb:cc")
+
+
+async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_gateway) -> None:
+    """Test send_scenario_plus_command service sends expected frames for all actions."""
+    from unittest.mock import AsyncMock
+
+    await async_setup_services(hass)
+
+    mock_handler = MagicMock()
+    mock_handler.send = AsyncMock()
+    gw_mac = "00:03:50:aa:bb:cc"
+    attach_gateway(gw_mac, mock_handler)
+
+    expected_frames = {
+        "on": "*25*11#0*11##",
+        "off": "*25*12*11##",
+        "increase": "*25*13#0#5*11##",
+        "decrease": "*25*14#0#5*11##",
+        "stop": "*25*15*11##",
+    }
+
+    for action, expected_str in expected_frames.items():
+        mock_handler.send.reset_mock()
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "where": "11", "action": action},
+            blocking=True,
+        )
+        assert mock_handler.send.call_count == 1
+        sent_cmd = mock_handler.send.call_args[0][0]
+        assert str(sent_cmd) == expected_str
+
+    mock_handler.send.reset_mock()
+    await hass.services.async_call(
+        DOMAIN,
+        "send_scenario_plus_command",
+        {"gateway": gw_mac, "where": "11", "action": "invalid"},
+        blocking=True,
+    )
+    mock_handler.send.assert_not_called()
+
+    await hass.services.async_call(
+        DOMAIN,
+        "send_scenario_plus_command",
+        {"gateway": "00:03:50:99:99:99", "where": "11", "action": "on"},
+        blocking=True,
+    )
+
+    await hass.services.async_call(
+        DOMAIN,
+        "send_scenario_plus_command",
+        {"gateway": gw_mac, "action": "on"},
+        blocking=True,
+    )
+

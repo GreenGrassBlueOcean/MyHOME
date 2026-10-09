@@ -11,6 +11,8 @@ DOMAIN = "myhome"
 
 ATTR_GATEWAY = "gateway"
 ATTR_MESSAGE = "message"
+ATTR_WHERE = "where"
+ATTR_ACTION = "action"
 INTEGRATION_VERSION = "2.0.0b15"
 # hass.data[DOMAIN] key holding the OWNd version resolved off the event loop
 DATA_OWND_VERSION = "_ownd_version"
@@ -107,6 +109,7 @@ SERVICE_CALIBRATE_COVER = "calibrate_cover"
 SERVICE_STOP_COVER_CALIBRATION = "stop_cover_calibration"
 SERVICE_SET_COVER_TRAVEL_TIME = "set_cover_travel_time"
 SERVICE_RESET_COVER_TRAVEL_TIME = "reset_cover_travel_time"
+SERVICE_SEND_SCENARIO_PLUS_COMMAND = "send_scenario_plus_command"
 EVENT_COVER_CALIBRATION = "myhome_cover_calibration"
 CALIBRATION_RUN_TIMEOUT = 180.0  # s to wait for the actuator's stop status per run
 CALIBRATION_MIN_RUN = 1.0        # s: anything shorter is not a full travel

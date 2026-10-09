@@ -24,6 +24,13 @@ from OWNd.message import (
     OWNLightingEvent,
     OWNMessage,
 )
+
+try:
+    from OWNd.message import OWNScenarioPlusEvent
+except ImportError:  # pragma: no cover
+    class OWNScenarioPlusEvent:  # type: ignore[no-redef]
+        pass
+
 from OWNd.profiles import GatewayProfile
 
 from custom_components.myhome.const import (
@@ -1257,6 +1264,58 @@ async def test_gateway_cenplus_event_and_auto_registration(gateway_handler: MyHO
                     "config_entry_id": "test_entry_456",
                     "identifiers": {(DOMAIN, f"{gateway_handler.mac}-25-12")},
                     "name": "CEN+ Unit 12",
+                    "manufacturer": "BTicino",
+                    "model": "CEN+ Scenario Control",
+                }
+
+
+@pytest.mark.asyncio
+async def test_gateway_scenarioplus_event_and_auto_registration(gateway_handler: MyHOMEGatewayHandler):
+    """Test receiving OWNScenarioPlusEvent dispatches bus event and registers CEN+ scenario device."""
+    mock_dr = MagicMock()
+    mock_dr.async_get_device.return_value = None
+    gateway_handler.config_entry.entry_id = "test_entry_789"
+    gateway_handler.device_registry_id = "gateway_device_789"
+
+    scenarioplus_msg = MagicMock(spec=OWNScenarioPlusEvent)
+    scenarioplus_msg.object = "15"
+    scenarioplus_msg.action = "on"
+    scenarioplus_msg.human_readable_log = "Scenario plus 15: on."
+
+    with patch("custom_components.myhome.gateway.OWNEventSession") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session.connect = AsyncMock(return_value={"Success": True})
+        mock_session.get_next = AsyncMock(side_effect=[scenarioplus_msg, asyncio.CancelledError()])
+        mock_session_class.return_value = mock_session
+
+        with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr):
+            with patch.object(gateway_handler.hass.bus, "async_fire") as mock_fire:
+                try:
+                    await gateway_handler.listening_loop()
+                except asyncio.CancelledError:
+                    pass
+
+                # Check bus event fired
+                mock_fire.assert_called_once_with(
+                    "myhome_scenario_plus_event",
+                    {
+                        "object": 15,
+                        "action": "on",
+                        "where": "15",
+                        "gateway_mac": gateway_handler.mac,
+                        "entry_id": "test_entry_789",
+                    },
+                )
+
+                # Check device registry auto-registration
+                mock_dr.async_get_or_create.assert_called_once()
+                kwargs = mock_dr.async_get_or_create.call_args.kwargs
+                via = {k: kwargs.pop(k) for k in ("via_device", "via_device_id") if k in kwargs}
+                assert via == {"via_device_id": "gateway_device_789"}
+                assert kwargs == {
+                    "config_entry_id": "test_entry_789",
+                    "identifiers": {(DOMAIN, f"{gateway_handler.mac}-25-15")},
+                    "name": "CEN+ Unit 15",
                     "manufacturer": "BTicino",
                     "model": "CEN+ Scenario Control",
                 }
