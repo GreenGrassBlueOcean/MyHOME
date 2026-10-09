@@ -335,6 +335,24 @@
     "tuner_seek_down": {
       "name": "Tuner seek down",
       "description": "Seek backward to the previous receivable FM radio frequency on an F500 tuner source."
+    },
+    "send_scenario_plus_command": {
+      "name": "Send scenario plus command",
+      "description": "Send a WHO 25 scenario plus command (on, off, increase, decrease, stop) to an addressed scenario plus object.",
+      "fields": {
+        "gateway": {
+          "name": "Gateway",
+          "description": "The gateway's MAC address (optional; defaults to primary gateway)."
+        },
+        "where": {
+          "name": "Where",
+          "description": "The scenario plus object address on the bus."
+        },
+        "action": {
+          "name": "Action",
+          "description": "The scenario plus action to execute (on, off, increase, decrease, or stop; step/speed for increase/decrease is fixed per protocol)."
+        }
+      }
     }
   },
   "issues": {
@@ -514,6 +532,21 @@
     },
     "seek_not_supported": {
       "message": "{entity_id}: seek is only supported on tuner source entities"
+    },
+    "scenario_plus_gateway_not_found": {
+      "message": "Gateway \"{gateway}\" not found for scenario plus command"
+    },
+    "scenario_plus_no_gateway": {
+      "message": "No active MyHOME gateways found"
+    },
+    "scenario_plus_missing_where": {
+      "message": "No where/object specified for scenario plus command"
+    },
+    "scenario_plus_unknown_action": {
+      "message": "Unknown scenario plus action \"{action}\""
+    },
+    "scenario_plus_command_invalid": {
+      "message": "Could not build scenario plus command for where \"{where}\" and action \"{action}\""
     }
   },
   "entity": {

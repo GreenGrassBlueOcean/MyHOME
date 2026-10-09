@@ -92,6 +92,11 @@ _ZONE_STATES_OFF = ("protection", "off")
 # mode 3 in async_set_temperature keeps the plant's existing season.
 SETPOINT_WRITE_MODE = CLIMATE_MODE_AUTO
 
+# Core 2026.11 renames the ClimateEntity temperature API to native_* and logs the
+# old names as deprecated (unsupported from 2027.11). Older cores, down to the
+# minimum 2026.3, only read the old names; MyHOMEClimate bridges them while they do.
+_NATIVE_TEMPERATURE_API = hasattr(ClimateEntity, "native_temperature_unit")
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -312,7 +317,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._standalone = False if (self._where in ("#0", "#0#1") or central) else standalone
         self._central = True if self._where in ("#0", "#0#1") else central
 
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_precision = 0.1
         self._attr_target_temperature_step = 0.5
         self._attr_min_temp = 5
@@ -341,7 +346,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         if fan and not self._central:
             self._enable_fan_mode()
 
-        self._attr_current_temperature: float | None = None
+        self._attr_native_current_temperature: float | None = None
         self._season: str | None = None
         self._attr_current_humidity: float | None = None
         self._target_temperature: float | None = None
@@ -353,6 +358,17 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_hvac_action: HVACAction | None = None
+
+        if not self._central and not self._gateway_supports_zone_status:
+            self._poll_on_add = False
+        elif self._central and self._where not in ("#0", "0"):
+            self._poll_on_add = False
+
+    @property
+    def _gateway_supports_zone_status(self) -> bool:
+        """Whether the gateway supports point-to-point zone status queries (*#4*Z##)."""
+        gateway = getattr(self, "_gateway_handler", None)
+        return bool(getattr(gateway, "supports_zone_status", True))
 
     def _enable_fan_mode(self) -> None:
         """Dynamically enable fan mode support if not already enabled."""
@@ -421,6 +437,14 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             # 4-zone central units (#0#1) do not participate in point-to-point status polling;
             # bus captures confirm querying #0#1 times out on plants without a physical 4-zone unit (#629).
             # They receive setpoints via commands (*#4*#0#1*#14*T*M##), broadcast events, or restored state.
+            return
+        if not self._central and not self._gateway_supports_zone_status:
+            # Physical SCS gateways (F455, F454, MH200N, MH202, etc.) do not support
+            # dimension-less status requests (*#4*Z##) for regular zones (1-99). The request
+            # is forwarded to the SCS bus where physical thermostats have no handler for it,
+            # resulting in a 10-second command session timeout per zone (#674).
+            # Only MyHomeServer1 intercepts *#4*Z## in software and replies from its cache (#649).
+            # Physical plants receive all zone telemetry spontaneously via the startup sweep (*#4*0##).
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
@@ -523,11 +547,25 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self.async_write_ha_state()
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         if self._local_target_temperature is not None:
             return self._local_target_temperature
         else:
             return self._target_temperature
+
+    if not _NATIVE_TEMPERATURE_API:
+        # Core < 2026.11 has no native_* temperature API: serve the names it reads.
+        @property  # type: ignore[misc, unused-ignore]
+        def temperature_unit(self) -> str:
+            return self._attr_native_temperature_unit
+
+        @property  # type: ignore[misc, unused-ignore]
+        def current_temperature(self) -> float | None:
+            return self._attr_native_current_temperature
+
+        @property  # type: ignore[misc, unused-ignore]
+        def target_temperature(self) -> float | None:
+            return self.native_target_temperature
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
@@ -689,7 +727,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._gateway_handler.log_id,
                 message.human_readable_log,
             )
-            self._attr_current_temperature = message.main_temperature
+            self._attr_native_current_temperature = message.main_temperature
         elif message.message_type == MESSAGE_TYPE_MAIN_HUMIDITY:
             LOGGER.debug(
                 "%s %s",
@@ -944,9 +982,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     elif self._attr_hvac_mode == HVACMode.AUTO:
                         if (
                             self._target_temperature is not None
-                            and self._attr_current_temperature is not None
+                            and self._attr_native_current_temperature is not None
                         ):
-                            if self._attr_current_temperature < self._target_temperature:
+                            if self._attr_native_current_temperature < self._target_temperature:
                                 self._attr_hvac_action = HVACAction.HEATING
                             else:
                                 self._attr_hvac_action = HVACAction.COOLING

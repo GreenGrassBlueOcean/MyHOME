@@ -2499,3 +2499,120 @@ async def test_options_flow_ignored_addresses(hass: HomeAssistant) -> None:
     ignored_key = [k for k in schema if str(k) == CONF_IGNORED_ADDRESSES or getattr(k, "schema", None) == CONF_IGNORED_ADDRESSES][0]
     assert ignored_key.description["suggested_value"] == "1/74\n1/74#4#01"
 
+    # Verify that an invalid non-empty address produces a validation error and does NOT
+    # clear or modify the previously configured addresses
+    result_invalid_reopen = await hass.config_entries.options.async_configure(
+        result_reopen["flow_id"],
+        user_input={
+            "command_worker_count": 1,
+            "generate_events": False,
+            "address": "192.168.1.135",
+            "password": "pass",
+            CONF_IGNORED_ADDRESSES: "not_valid_here",
+        },
+    )
+    assert result_invalid_reopen["type"] == FlowResultType.FORM
+    assert result_invalid_reopen["errors"][CONF_IGNORED_ADDRESSES] == "invalid_ignored_address"
+    assert entry.options[CONF_IGNORED_ADDRESSES] == ["1/74", "1/74#4#01"]
+
+    # Test clearing ignored addresses with empty string (#612)
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result_cleared = await hass.config_entries.options.async_configure(
+            result_reopen["flow_id"],
+            user_input={
+                "command_worker_count": 1,
+                "generate_events": False,
+                "address": "192.168.1.135",
+                "password": "pass",
+                CONF_IGNORED_ADDRESSES: "",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result_cleared["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_IGNORED_ADDRESSES] == []
+
+    # Re-open options flow: verify suggested_value is now empty
+    with patch("custom_components.myhome.config_flow.find_gateways"):
+        result_reopen_empty = await hass.config_entries.options.async_init(entry.entry_id)
+
+    schema_empty = result_reopen_empty["data_schema"].schema
+    ignored_key_empty = [k for k in schema_empty if str(k) == CONF_IGNORED_ADDRESSES or getattr(k, "schema", None) == CONF_IGNORED_ADDRESSES][0]
+    assert ignored_key_empty.description["suggested_value"] == ""
+
+    # Re-populate with 1/61 to test omitted key behavior (HA frontend strips cleared optional fields)
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        await hass.config_entries.options.async_configure(
+            result_reopen_empty["flow_id"],
+            user_input={
+                "command_worker_count": 1,
+                "generate_events": False,
+                "address": "192.168.1.135",
+                "password": "pass",
+                CONF_IGNORED_ADDRESSES: "1/61",
+            },
+        )
+        await hass.async_block_till_done()
+    assert entry.options[CONF_IGNORED_ADDRESSES] == ["1/61"]
+
+    # Re-open and clear by omitting CONF_IGNORED_ADDRESSES from user_input (#612)
+    with patch("custom_components.myhome.config_flow.find_gateways"):
+        result_reopen_omit = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result_omitted = await hass.config_entries.options.async_configure(
+            result_reopen_omit["flow_id"],
+            user_input={
+                "command_worker_count": 1,
+                "generate_events": False,
+                "address": "192.168.1.135",
+                "password": "pass",
+                # CONF_IGNORED_ADDRESSES omitted
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result_omitted["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_IGNORED_ADDRESSES] == []
+
+    # Test submitting None (supported via vol.Maybe)
+    with patch("custom_components.myhome.config_flow.find_gateways"):
+        result_reopen_none = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result_none = await hass.config_entries.options.async_configure(
+            result_reopen_none["flow_id"],
+            user_input={
+                "command_worker_count": 1,
+                "generate_events": False,
+                "address": "192.168.1.135",
+                "password": "pass",
+                CONF_IGNORED_ADDRESSES: None,
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result_none["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_IGNORED_ADDRESSES] == []
+
+    # Test submitting a single comma: the UI workaround shared with users before the fix
+    # to clear the field without triggering the frontend key-omission behavior (#612)
+    with patch("custom_components.myhome.config_flow.find_gateways"):
+        result_reopen_comma = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result_comma = await hass.config_entries.options.async_configure(
+            result_reopen_comma["flow_id"],
+            user_input={
+                "command_worker_count": 1,
+                "generate_events": False,
+                "address": "192.168.1.135",
+                "password": "pass",
+                CONF_IGNORED_ADDRESSES: ",",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result_comma["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_IGNORED_ADDRESSES] == []
+

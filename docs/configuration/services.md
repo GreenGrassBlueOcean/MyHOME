@@ -20,6 +20,7 @@ This document provides a comprehensive reference for all custom services registe
 | [`myhome.reset_cover_travel_time`](#10-myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
 | [`myhome.tuner_seek_up`](#11-myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
 | [`myhome.tuner_seek_down`](#12-myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
+| [`myhome.send_scenario_plus_command`](#13-myhomesend_scenario_plus_command) | Gateway | Send a WHO 25 scenario plus command (on, off, increase, decrease, stop). |
 
 ---
 
@@ -269,3 +270,28 @@ action: myhome.tuner_seek_down
 target:
   entity_id: media_player.audio_source_1
 ```
+
+---
+
+## 13. `myhome.send_scenario_plus_command`
+
+Sends a WHO 25 scenario plus command (`on`, `off`, `increase`, `decrease`, or `stop`) to an addressed scenario plus object on the SCS bus.
+
+> [!NOTE]
+> For `increase` and `decrease` actions, step and speed parameters are fixed to standard Legrand protocol defaults (`#0#5`, as confirmed by physical gateway traces); they are not user-configurable in this service.
+
+### Fields
+| Parameter | Type | Required | Description | Example |
+| :--- | :---: | :---: | :--- | :--- |
+| `gateway` | string | No | The MAC address of the target gateway (defaults to primary). | `"00:03:50:20:00:01"` |
+| `where` | string | **Yes** | The scenario plus object address on the bus. | `"11"` |
+| `action` | string | **Yes** | The scenario plus action (`on`, `off`, `increase`, `decrease`, `stop`). Step and speed for `increase`/`decrease` are fixed to standard defaults (`#0#5`). | `"on"` |
+
+### Example YAML Call
+```yaml
+action: myhome.send_scenario_plus_command
+data:
+  where: "11"
+  action: "on"
+```
+

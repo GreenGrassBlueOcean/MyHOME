@@ -11,6 +11,8 @@ DOMAIN = "myhome"
 
 ATTR_GATEWAY = "gateway"
 ATTR_MESSAGE = "message"
+ATTR_WHERE = "where"
+ATTR_ACTION = "action"
 INTEGRATION_VERSION = "2.0.0b15"
 # hass.data[DOMAIN] key holding the OWNd version resolved off the event loop
 DATA_OWND_VERSION = "_ownd_version"
@@ -107,6 +109,7 @@ SERVICE_CALIBRATE_COVER = "calibrate_cover"
 SERVICE_STOP_COVER_CALIBRATION = "stop_cover_calibration"
 SERVICE_SET_COVER_TRAVEL_TIME = "set_cover_travel_time"
 SERVICE_RESET_COVER_TRAVEL_TIME = "reset_cover_travel_time"
+SERVICE_SEND_SCENARIO_PLUS_COMMAND = "send_scenario_plus_command"
 EVENT_COVER_CALIBRATION = "myhome_cover_calibration"
 CALIBRATION_RUN_TIMEOUT = 180.0  # s to wait for the actuator's stop status per run
 CALIBRATION_MIN_RUN = 1.0        # s: anything shorter is not a full travel
@@ -172,6 +175,9 @@ SOFTWARE_TRANSITION_MAX_STEPS = 25
 # Debounce window for reactive group / area / general broadcast re-sync (issue #368)
 RESYNC_DEBOUNCE_S = 0.5
 RESYNC_LEADING_WINDOW_S = 1.5
+
+# Pacing delay between member commands during scope cover fan-out (prevents F422 buffer overflow)
+PACED_FANOUT_DELAY = 0.3
 
 # ── Multi-Gateway & Shared Bus Support (Issue #453) ─────────────────────────
 CONF_BUS_TOPOLOGY = "bus_topology"
@@ -503,7 +509,7 @@ def build_timed_turn_on_command(
     seconds: float = 0,
 ) -> Any:
     """Build OpenWebNet hardware timer command for WHO=1."""
-    from OWNd.message import OWNCommand
+    from OWNd.message import OWNCommand, OWNLightingCommand
 
     total_seconds = float(duration if duration is not None else 0.0)
     total_seconds += (int(hours) * 3600) + (int(minutes) * 60) + float(seconds)
@@ -514,13 +520,20 @@ def build_timed_turn_on_command(
     rounded_secs = round(total_seconds, 1)
     if rounded_secs in PRESET_TIMERS:
         what = PRESET_TIMERS[rounded_secs]
-        frame = f"*1*{what}*{where}##"
-    else:
-        int_secs = int(round(total_seconds))
-        h = max(0, min(255, int_secs // 3600))
-        m = max(0, min(59, (int_secs % 3600) // 60))
-        s = max(0, min(59, int_secs % 60))
-        frame = f"*#1*{where}*#2*{h}*{m}*{s}##"
+        if hasattr(OWNLightingCommand, "switch_on_timed"):
+            return OWNLightingCommand.switch_on_timed(where, what)
+        frame = f"*1*{what}*{where}##"  # pragma: no cover - fallback on released OWNd 2.0.0b10
+        parsed = OWNCommand.parse(frame)  # pragma: no cover
+        return parsed if parsed is not None else OWNCommand(frame)  # pragma: no cover
 
-    parsed = OWNCommand.parse(frame)
-    return parsed if parsed is not None else OWNCommand(frame)
+    int_secs = int(round(total_seconds))
+    h = max(0, min(255, int_secs // 3600))
+    m = max(0, min(59, (int_secs % 3600) // 60))
+    s = max(0, min(59, int_secs % 60))
+    if hasattr(OWNLightingCommand, "set_variable_timer"):
+        return OWNLightingCommand.set_variable_timer(where, h, m, s)
+    frame = f"*#1*{where}*#2*{h}*{m}*{s}##"  # pragma: no cover - fallback on released OWNd 2.0.0b10
+    parsed = OWNCommand.parse(frame)  # pragma: no cover
+    return parsed if parsed is not None else OWNCommand(frame)  # pragma: no cover
+
+

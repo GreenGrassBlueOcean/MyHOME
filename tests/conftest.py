@@ -200,7 +200,12 @@ class PatchedHomeAssistantSnapshotSerializer(HomeAssistantSnapshotSerializer):
                 from homeassistant.util.read_only_dict import ReadOnlyDict
                 # HA 2026 uses StrEnum attribute keys; snapshots compare the
                 # public state names and values, regardless of the key class.
-                attrs = ReadOnlyDict({str(key): value for key, value in attrs.items()})
+                attrs = {str(key): value for key, value in attrs.items()}
+                # HA 2026.11 adds temperature_unit to climate state; older
+                # cores omit it, so keep it out of the snapshot.
+                if data.domain == "climate":
+                    attrs.pop("temperature_unit", None)
+                attrs = ReadOnlyDict(attrs)
                 res["attributes"] = attrs
             if isinstance(attrs, dict) and "supported_features" in attrs:
                 feat = attrs["supported_features"]

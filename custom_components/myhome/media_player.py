@@ -981,7 +981,13 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
             except (ValueError, TypeError):
                 pass
 
-        if not message.is_off and (is_volume_up or (message.volume is not None and message.volume > 0)):
+        # Physical volume-up rocker commands (*16*1001*WHERE## .. *16*1015*WHERE##)
+        # wake an unpowered amplifier and auto-join the active streaming group (#579).
+        # Dimension 1 volume status reports (*#16*WHERE*1*<volume>##, WHO 22 mirror
+        # *#22*3#A#P*1*<volume>##) must NEVER wake an amplifier (#669), as amplifiers
+        # retain configured volume while OFF and hardware audio ducking during intercom
+        # video streams broadcasts volume status frames across all zones.
+        if not message.is_off and is_volume_up:
             if self._attr_state != MediaPlayerState.ON or self._parked:
                 self._cancel_pending_off()
                 self._parked = False
