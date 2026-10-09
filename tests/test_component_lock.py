@@ -21,13 +21,10 @@ try:
         OWNDoorEntryEvent,
     )
 except ImportError:  # pragma: no cover
-    from custom_components.myhome.lock import (
-        OWNDoorEntryCommand,
-        OWNDoorEntryEvent,
-    )
+    from custom_components.myhome.gateway_events import OWNDoorEntryEvent
+    from custom_components.myhome.lock import OWNDoorEntryCommand
 from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
-    async_fire_time_changed_exact,
 )
 
 from custom_components.myhome.const import (
@@ -59,8 +56,8 @@ def mock_gateway():
     return gw
 
 
-async def test_lock_setup_restores_and_discovers(hass: HomeAssistant, mock_gateway):
-    """Test lock platform setup: restoring from registry, configuring from YAML, and bus discovery."""
+async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, mock_gateway):
+    """Locks come from the registry and myhome.yaml only; bus traffic never creates one."""
     mac = mock_gateway.mac
     hass.data = {
         DOMAIN: {
@@ -104,23 +101,20 @@ async def test_lock_setup_restores_and_discovers(hass: HomeAssistant, mock_gatew
         assert any(e._where == "1" for e in added_entities)
         assert any(e._where == "2" for e in added_entities)
 
-        # Bus event: lock open on where 3 -> should be discovered
+        # A lock release seen on the bus must NOT create a lock: the entity would have
+        # no code, so anyone with dashboard access could open the door.
         lock_open_msg = OWNEvent.parse("*6*10*3##")
         assert isinstance(lock_open_msg, (OWNDoorEntryEvent, OWNEvent))
         async_dispatcher_send(hass, f"myhome_message_{mac}", lock_open_msg)
-        assert len(added_entities) == 3
-        assert any(e._where == "3" for e in added_entities)
+        await hass.async_block_till_done()
+        assert len(added_entities) == 2
+        assert not any(e._where == "3" for e in added_entities)
 
-        # Incoming call event -> must NOT create a lock entity
-        call_msg = OWNEvent.parse("*6*6*4##")
-        assert isinstance(call_msg, (OWNDoorEntryEvent, OWNEvent))
-        async_dispatcher_send(hass, f"myhome_message_{mac}", call_msg)
-        assert len(added_entities) == 3
-
-        # Broadcast lock or invalid address -> must NOT create a lock entity
-        broadcast_msg = OWNEvent.parse("*6*10*4100##")
-        async_dispatcher_send(hass, f"myhome_message_{mac}", broadcast_msg)
-        assert len(added_entities) == 3
+        # Neither do calls nor the broadcast address
+        for frame in ("*6*6*4##", "*6*10*4100##", "*6*22*5##"):
+            async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse(frame))
+        await hass.async_block_till_done()
+        assert len(added_entities) == 2
 
         # Unload
         attach_runtime(hass, config_entry)
@@ -251,131 +245,42 @@ async def test_setup_and_unload_missing_runtime(hass: HomeAssistant):
     assert await async_unload_entry(hass, mock_entry) is True
 
 
-async def test_impulse_lock_who1_code_and_pulse(hass: HomeAssistant, mock_gateway):
-    """Test WHO=1 impulse lock with security code and momentary auto-off."""
+async def test_lock_code_is_required_and_checked_in_constant_time(hass: HomeAssistant, mock_gateway):
+    """A lock with a code refuses a missing or wrong code and sends nothing."""
     with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
         lock = MyHOMELock(
             hass=hass,
-            name="Impulse Gate Lock",
+            name="Front Door Lock",
             entity_name=None,
-            device_id="25",
-            who="1",
-            where="25",
+            device_id="4001#2",
+            who="6",
+            where="4001#2",
             interface=None,
             manufacturer="BTicino",
-            model="Impulse Lock",
+            model="Door Entry Lock",
             gateway=mock_gateway,
             code="1234",
-            pulse_duration=0.5,
         )
         lock.hass = hass
-        lock.entity_id = "lock.impulse_gate_lock"
+        lock.entity_id = "lock.front_door_lock"
         lock.async_write_ha_state = MagicMock()
 
         assert lock.code_format == r"^\d+$"
-        assert lock.is_locked is True
+        for bad in ({}, {"code": "9999"}):
+            with pytest.raises(ServiceValidationError, match="Invalid code"):
+                await lock.async_unlock(**bad)
+        mock_gateway.send.assert_not_called()
 
-        # Invalid code raises ServiceValidationError
-        with pytest.raises(ServiceValidationError, match="Invalid code"):
-            await lock.async_unlock(code="9999")
-
-        # Valid code unlocks and pulses relay with WHAT 18 hardware timed pulse
         await lock.async_unlock(code="1234")
-        assert mock_gateway.send.call_count == 1
-        cmd = mock_gateway.send.call_args[0][0]
-        assert str(cmd) == "*1*18*25##"
+        assert str(mock_gateway.send.call_args[0][0]) == "*6*10*4001#2##"
         assert lock.is_locked is False
-
-        # Advance 0.6s -> auto relock
-        future = dt_util.utcnow() + timedelta(seconds=0.6)
-        async_fire_time_changed(hass, future)
-        await hass.async_block_till_done()
-        assert lock.is_locked is True
-
-        # Handle event: *1*1*25## unlocks momentarily
-        event_msg = OWNEvent.parse("*1*1*25##")
-        lock.handle_event(event_msg)
-        assert lock.is_locked is False
-
-        # Advance 0.6s -> auto relock
-        future = dt_util.utcnow() + timedelta(seconds=0.6)
-        async_fire_time_changed(hass, future)
-        await hass.async_block_till_done()
-        assert lock.is_locked is True
-
-        # Custom duration uses software timer
-        lock._pulse_duration = 1.0
-        await lock.async_unlock(code="1234")
-        assert lock._pulse_off_unsub is not None
-        await lock.async_unlock(code="1234")
-        assert lock._pulse_off_unsub is not None
-
-        # Removal while pulse is pending immediately turns relay off (lock.py:345-346)
-        mock_gateway.send.reset_mock()
-        await lock.async_will_remove_from_hass()
-        assert lock._pulse_off_unsub is None
-        assert mock_gateway.send.call_count == 1
-        assert str(mock_gateway.send.call_args[0][0]) == "*1*0*25##"
-
-        # Handle event with translation flag returns early (lock.py:306)
-        trans_msg = MagicMock(is_translation=True)
-        lock.handle_event(trans_msg)
+        lock._cancel_auto_relock()
 
 
-async def test_lock_setup_who1_and_bus_discovery_branches(hass: HomeAssistant, mock_gateway):
-    """Cover build_who1, accept_who6 bus discovery with is_lock_open, and accept_who1 from registry."""
-    mac = mock_gateway.mac
-    hass.data.setdefault(DOMAIN, {})[mac] = {
-        "entity": mock_gateway,
-        CONF_PLATFORMS: {
-            PLATFORM: {
-                "26": {
-                    "who": "1",
-                    CONF_WHERE: "26",
-                    CONF_NAME: "Side Gate Impulse Lock",
-                    "code": "4321",
-                    "pulse_duration": 1.0,
-                },
-            }
-        },
-    }
-
-    config_entry = MagicMock()
-    config_entry.data = {"mac": mac}
-    config_entry.entry_id = "lock_who1_entry"
-    added = []
-
-    mock_er = MagicMock()
-    reg_who1 = MagicMock()
-    reg_who1.domain = Platform.LOCK
-    reg_who1.unique_id = f"{mac}-1-28"
-
-    with (
-        patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er),
-        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_who1]),
-    ):
-        attach_runtime(hass, config_entry)
-        await async_setup_entry(hass, config_entry, added.extend)
-
-        # 1. Restored who: 1 from registry (accept_who1 registry branch: lock.py:159)
-        # 2. Configured who: 1 from YAML (build_who1: lock.py:120-129)
-        assert len(added) == 2
-        assert any(e._who == "1" and e._where == "26" for e in added)
-        assert any(e._who == "1" and e._where == "28" for e in added)
-
-        # 3. Bus discovery: accept_who6 with is_lock_open message (lock.py:152)
-        bus_msg = OWNEvent.parse("*6*10*27##")
-        async_dispatcher_send(hass, f"myhome_message_{mac}", bus_msg)
-        assert len(added) == 3
-        assert any(e._where == "27" for e in added)
-
-
-async def test_lock_confirmed_write_future_and_off_failure(hass: HomeAssistant, mock_gateway):
-    """Test write_fut await paths and exception handling in timed OFF and removal."""
-    # 1. WHO 6 unlock with awaitable write_fut
-
+async def test_lock_confirmed_write_future(hass: HomeAssistant, mock_gateway):
+    """The unlock waits for the gateway's write confirmation."""
     with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
-        lock_who6 = MyHOMELock(
+        lock = MyHOMELock(
             hass=hass,
             name="Front Door Lock",
             entity_name=None,
@@ -387,88 +292,14 @@ async def test_lock_confirmed_write_future_and_off_failure(hass: HomeAssistant, 
             model="Door Entry Lock",
             gateway=mock_gateway,
         )
-        lock_who6.hass = hass
-        lock_who6.entity_id = "lock.front_door_lock"
-        lock_who6.async_write_ha_state = MagicMock()
-        lock_who6.async_schedule_update_ha_state = MagicMock()
+        lock.hass = hass
+        lock.entity_id = "lock.front_door_lock"
+        lock.async_write_ha_state = MagicMock()
 
-    fut_who6 = asyncio.Future()
-    fut_who6.set_result(0.05)
-    mock_gateway.send.return_value = fut_who6
-    await lock_who6.async_unlock()
-    assert fut_who6.done()
-    lock_who6._cancel_auto_relock()
-
-    # 2. WHO 1 lock with WHAT 18 and awaitable write_fut
-    with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
-        lock_who1 = MyHOMELock(
-            hass=hass,
-            name="Impulse Lock",
-            entity_name=None,
-            device_id="1-25",
-            who="1",
-            where="25",
-            interface=None,
-            pulse_duration=0.5,
-            code=None,
-            manufacturer="BTicino",
-            model="Relay Lock",
-            gateway=mock_gateway,
-        )
-        lock_who1.hass = hass
-        lock_who1.entity_id = "lock.impulse_lock"
-        lock_who1.async_write_ha_state = MagicMock()
-
-    fut_who1 = asyncio.Future()
-    fut_who1.set_result(0.05)
-    mock_gateway.send.return_value = fut_who1
-    await lock_who1.async_unlock()
-    assert fut_who1.done()
-    lock_who1._cancel_auto_relock()
-
-    # 3. WHO 1 custom duration with awaitable write_fut and timed OFF
-    lock_who1._pulse_duration = 1.0
-    fut_on = asyncio.Future()
-    fut_on.set_result(0.05)
-    mock_gateway.send.side_effect = None
-    mock_gateway.send.return_value = fut_on
-    await lock_who1.async_unlock()
-    assert fut_on.done()
-    assert lock_who1._pulse_off_unsub is not None
-
-    # Advance timer to trigger _send_off
-    fut_off = asyncio.Future()
-    fut_off.set_result(0.05)
-    mock_gateway.send.return_value = fut_off
-    async_fire_time_changed_exact(hass, dt_util.utcnow() + timedelta(seconds=1.2))
-    await hass.async_block_till_done()
-    assert fut_off.done()
-    lock_who1._cancel_auto_relock()
-
-    # 4. WHO 1 custom duration with OFF send failure
-    lock_who1._pulse_duration = 1.0
-    mock_gateway.send.return_value = None
-    await lock_who1.async_unlock()
-    mock_gateway.send.side_effect = RuntimeError("OFF send error")
-    async_fire_time_changed_exact(hass, dt_util.utcnow() + timedelta(seconds=1.2))
-    await hass.async_block_till_done()
-    assert lock_who1._pulse_off_unsub is None
-    lock_who1._cancel_auto_relock()
-
-    # 5. Removal fail-safe with awaitable write_fut and exception handling
-    fut_rem = asyncio.Future()
-    fut_rem.set_result(0.05)
-    mock_gateway.send.side_effect = None
-    mock_gateway.send.return_value = fut_rem
-    lock_who1._pulse_off_unsub = MagicMock()
-    await lock_who1.async_will_remove_from_hass()
-    assert fut_rem.done()
-
-    mock_gateway.send.side_effect = RuntimeError("Removal send error")
-    lock_who1._pulse_off_unsub = MagicMock()
-    await lock_who1.async_will_remove_from_hass()
-    lock_who1._cancel_auto_relock()
-
-
-
-
+    fut = asyncio.Future()
+    fut.set_result(0.05)
+    mock_gateway.send.return_value = fut
+    await lock.async_unlock()
+    assert fut.done()
+    lock._cancel_auto_relock()
+    await lock.async_will_remove_from_hass()

@@ -57,12 +57,12 @@ Legend: ✅ supported · 👁️ read-only · ⚙️ via a service, not an entit
 | Tilt | ❌ | Slat commands are parsed by OWNd but not exposed. |
 | Echo suppression | ✅ | The gateway's relay of our own command is not mistaken for a keypad press. |
 
-### `lock` (WHO 1 / WHO 6)
+### `lock` (WHO 6)
 
 | Function | Status | Notes |
 | :--- | :---: | :--- |
-| Impulse lock (WHO 1) | ✅ | Momentary electric strikes (door buzzers) with optional constant-time PIN authentication and auto-relock. (Never use lock for motorized gates or garage doors). |
-| Door entry lock (WHO 6) | ✅ | Door entry strikes and doorbell call event triggers (WHO 6 / WHO 8). |
+| Door entry lock (WHO 6) | ✅ | Door entry strikes from `myhome.yaml` with optional constant-time PIN authentication and auto-relock. Never created from bus traffic; `who: 1` relays are rejected (motorized gates and garage doors are impulse covers). |
+| Doorbell event (WHO 6 / WHO 8) | ✅ | `myhome_doorbell_event` for an entrance panel ringing (WHO 8 call kinds 1-4, WHO 6 call), not for handset-to-handset calls or pager broadcasts. Fired by the gateway that owns the subsystem only. The WHO 6 chime (WHAT 20) is unverified: it is not in the published WHO 6 table and has no capture. |
 
 ### `climate` (WHO 4)
 

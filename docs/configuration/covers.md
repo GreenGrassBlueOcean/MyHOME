@@ -323,13 +323,76 @@ Because monostable relays only send a momentary pulse (`open` / `stop` / `close`
 3. **Biometric Phone Unlock Requirement**:
    Actionable push notifications to the Companion App enforce `authenticationRequired: true` (iOS FaceID/TouchID, Android biometrics/screen lock). The phone must be actively unlocked by the authorized approver.
 4. **Fail-Closed Sensor Direction Checks**:
-   A pulse is classified as a pure **OPEN** *only* when the ground-truth state sensor (`closed_sensor_entity_id`) proves the door is closed. In all other states, the pulse is classified as **MAY_CLOSE**, requiring:
+   A pulse is classified as a pure **OPEN** *only* when the ground-truth state sensor (`state_sensor`, a binary sensor that is `off` when the door is closed and `on` otherwise) proves the door is closed. In all other states, the pulse is classified as **MAY_CLOSE**, requiring:
    - Verified active safety devices within `safety_check_days`.
    - The user to be on site (`person` entity reports `home`) or visual confirmation via a camera snapshot.
    - Any external close-block switch to report `off`.
    - Any missing, unavailable, or non-binary sensor state immediately fails closed.
 5. **Audible / Visual Pre-Warning & Watchdog**:
-   Before a close pulse, an optional pre-warning flasher (`prewarn_light`) triggers for `prewarn_seconds`. If a physical wall button is pressed during this countdown, the movement is aborted. After the pulse, an anti-stuck watchdog monitors motion: if the expected state is not reached within `travel_time + watchdog_margin`, a latching fault is asserted with **zero automatic retries**.
+   Before a close pulse, an optional pre-warning flasher (`prewarn_light`) triggers for `prewarn_seconds`. After the pulse, an anti-stuck watchdog monitors motion: if the expected state is not reached within `travel_time + watchdog_margin`, a latching fault is asserted with **zero automatic retries**.
+6. **A Wall Button Starts the Gate, It Does Not Stop It**:
+   A press of the wall button (or any other keypad on the bus) closes the relay and energizes the motor by itself; Home Assistant only sees the resulting `*1*1*WHERE##` frame afterwards. When such a frame arrives during an approval request or the pre-warning countdown, Home Assistant therefore *drops its own pending request* so that no second pulse follows and stops or reverses the gate. The movement the button started is not aborted. Use the hardware's own stop input or the remote control for an emergency stop.
+
+### ⚙️ Configuring an Impulse Cover
+
+An impulse cover needs `who: 1`, a single point-to-point `where` and, to be of any use, an `access:` block. **Without `access:` (or with an empty `allowed_users`) every open, close and stop request is refused** with `AccessDenied` and a warning is logged at start-up: the policy is fail-closed.
+
+```yaml
+# /config/myhome.yaml
+00:03:50:XX:XX:XX:
+  cover:
+    garage_door:
+      who: 1
+      type: impulse_relay            # optional; only valid together with who: 1
+      where: "71"                    # one relay, never a general, area or group address
+      name: Garage door
+      device_class: garage           # garage or gate (default gate)
+      state_sensor: binary_sensor.garage_door_closed   # off = closed, on = not closed
+      travel_time: 25                # seconds, for the dashboard estimate and the watchdog
+      pulse_duration: 0.5            # seconds the relay is closed (0.2 - 2.0)
+      min_cycle_time: 5              # seconds between two pulses (1 - 120)
+      pin_code: "1234"               # optional second factor, asked on the phone
+      access:
+        allowed_users:               # Home Assistant user ids
+          - 1a2b3c4d5e6f47a8b9c0d1e2f3a4b5c6
+        approvers:                   # one notify service per allowed user
+          1a2b3c4d5e6f47a8b9c0d1e2f3a4b5c6: notify.mobile_app_phone
+        remote_close: at_home        # never (default), at_home or with_camera
+        camera: camera.driveway      # needed for remote_close: with_camera
+        safety_devices_verified: 2026-09-01   # date you last tested photocells and force limiter
+        safety_check_days: 31
+        prewarn_light: light.driveway_flasher
+        prewarn_seconds: 5
+        close_block_entity: input_boolean.gate_close_block
+        watchdog_margin: 10          # seconds added to travel_time before a fault is latched
+        approval_timeout: 60
+```
+
+| Key | Meaning |
+| :--- | :--- |
+| `state_sensor` | Binary sensor of the ground-truth position. Without it every pulse is treated as one that can close the door. |
+| `pulse_duration` | Relay pulse in seconds. `0.5` uses the timed WHAT 18 command where the installed OWNd has it, and ON followed by OFF otherwise. |
+| `min_cycle_time` | Deadband after a pulse that reached the bus. A failed send does not start it. |
+| `pin_code` | PIN asked in the notification. A reply that carries no text is refused without counting as a wrong attempt. |
+| `access.*` | See the flow above: `allowed_users`, `approvers`, `remote_close`, `camera`, `safety_devices_verified`, `safety_check_days`, `prewarn_light`, `prewarn_seconds`, `close_block_entity`, `watchdog_margin`, `approval_timeout`. |
+
+> [!NOTE]
+> `type: impulse_relay` together with `who: 2` (and `type: shutter` or `standard` together with `who: 1`) is rejected when the configuration is validated; it used to fall back to an ordinary shutter silently.
+
+### 🔒 Configuring a Door Strike Lock
+
+```yaml
+00:03:50:XX:XX:XX:
+  lock:
+    front_door:
+      who: 6                         # the only value; WHO 1 relays are covers
+      where: "4001"                  # 4000-4095 style endpoints; append #2 on a riser installation: "4001#2"
+      name: Front door
+      code: "1234"                   # optional; asked on every unlock
+      pulse_duration: 0.5            # seconds until the lock shows locked again
+```
+
+Locks exist only when they are configured here (or were created earlier and are restored from the registry). A lock release seen on the bus never creates a lock entity, because such an entity would carry no code.
 
 ### ⚠️ Strict Distinction: Covers vs. Locks
 
@@ -356,7 +419,7 @@ Because monostable relays only send a momentary pulse (`open` / `stop` / `close`
 | Physical Device | Required Entity Platform | Why |
 | :--- | :--- | :--- |
 | **Motorized Gates & Garage Doors** | `cover` (`type: impulse_relay`) | Heavy kinetic machinery with kinetic entrapment/crush risk. Must use `AccessController` with sensor validation and pre-warning. **Never configure a motorized gate or garage as a `lock`**. |
-| **Pedestrian Door Strikes** | `lock` (`platform: lock`) | Low-mass momentary electric door buzzers (elettroserrature) that release a pedestrian latch for 1–3 seconds. |
+| **Pedestrian Door Strikes** | `lock:` block, `who: 6` only | Low-mass momentary electric door buzzers (elettroserrature) on a WHO 6 entrance panel that release a pedestrian latch. A `lock` cannot be a WHO 1 relay: that would bypass the access policy of a gate, so `who: 1` is rejected there. |
 
 ---
 

@@ -504,7 +504,15 @@ class AccessController:
             return
         if self.config.pin_code is not None:
             reply = event.data.get("reply_text", event.data.get("textInput"))
-            if not _same(str(reply) if reply is not None else None, self.config.pin_code):
+            if reply is None:
+                # The app returned no text at all (no input shown, or a client that
+                # ignores `behavior: textInput`): nothing was guessed, so it is no failed
+                # attempt and cannot lock the approver out. Nothing moves either way.
+                self._settle()
+                self._spawn(self._notify(pending.notify_service, f"{self._name}: no PIN received, nothing moved"))
+                LOGGER.warning("%s: approval carried no PIN text; the notification app did not offer text input", self._name)
+                return
+            if not _same(str(reply), self.config.pin_code):
                 self._register_failed_pin(pending.user_id)
                 self._settle()
                 self._spawn(self._notify(pending.notify_service, f"{self._name}: wrong PIN, nothing moved"))

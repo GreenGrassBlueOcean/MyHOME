@@ -1343,6 +1343,7 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         self._attr_assumed_state = state_sensor is None
 
         self._last_pulse_time: float = -1e9
+        self._pulse_in_flight = False
         self._pulse_off_cancel: CALLBACK_TYPE | None = None
         self._travel_timer_cancel: CALLBACK_TYPE | None = None
 
@@ -1375,6 +1376,12 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         """Register listeners when added to Home Assistant."""
         await super().async_added_to_hass()
         self._access.hass = self.hass
+        if not self._access.config.allowed_users:
+            LOGGER.warning(
+                "%s: no `access:` block with allowed_users and approvers, so every open, close and stop "
+                "request is refused. See the Impulse Covers section of the covers documentation.",
+                self._display_name,
+            )
         if self._state_sensor and self.hass is not None:
             @callback
             def _sensor_state_changed(event: Any) -> None:
@@ -1409,28 +1416,33 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
     async def _async_send_impulse(self) -> bool:
         """Send the momentary pulse with confirmed delivery to the bus."""
         now = time.monotonic()
-        if now - self._last_pulse_time < self._min_cycle_time:
+        if self._pulse_in_flight or now - self._last_pulse_time < self._min_cycle_time:
             LOGGER.warning(
                 "%s: Command dropped (within %.1fs deadband lockout)",
                 self._display_name,
                 self._min_cycle_time,
             )
             return False
-        self._last_pulse_time = now
 
         if self._pulse_off_cancel is not None:
             self._pulse_off_cancel()
             self._pulse_off_cancel = None
 
+        # The deadband starts only once the gateway confirmed the write: a failed send
+        # must not lock the user out for min_cycle_time with nothing on the bus. The
+        # in-flight flag keeps a second request and our own echo out meanwhile.
+        self._pulse_in_flight = True
         try:
-            if self._pulse_duration == 0.5:
+            if self._pulse_duration == 0.5 and hasattr(OWNLightingCommand, "switch_on_timed"):
                 # Use WHAT 18: Timed ON for 0.5 seconds (official WHO 1 specification).
                 # The physical actuator automatically turns off after 0.5s in hardware,
                 # preventing the relay from ever staying latched if Home Assistant terminates.
+                # (OWNd releases up to 2.0.0b10 lack the builder: they take the ON/OFF path.)
                 cmd = OWNLightingCommand.switch_on_timed(self._full_where, 18)
                 write_fut = await self._gateway_handler.send(cmd)
                 if inspect.isawaitable(write_fut):
                     await write_fut
+                self._last_pulse_time = time.monotonic()
                 return True
 
             # Custom duration: send ON, await confirmed write to the bus, then schedule OFF
@@ -1438,6 +1450,7 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             write_fut = await self._gateway_handler.send(cmd_on)
             if inspect.isawaitable(write_fut):
                 await write_fut
+            self._last_pulse_time = time.monotonic()
 
             @callback
             def _turn_off(_now: Any = None) -> None:
@@ -1472,6 +1485,8 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
                 err,
             )
             return False
+        finally:
+            self._pulse_in_flight = False
 
     async def _async_pulse(self, intent: Intent, effect: Effect) -> bool:
         """Pulse the relay for an approved request and show the expected motion.
@@ -1537,12 +1552,20 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         if not is_on:
             return  # Ignore *1*0*... release frames (such as the 5-minute delayed hardware timer)
 
-        # Echo window: ignore frames arriving within 1.0s of our own command
-        if time.monotonic() - self._last_pulse_time < 1.0:
+        # Echo window: ignore frames arriving while our own command is on its way
+        # or within 1.0s after it
+        if self._pulse_in_flight or time.monotonic() - self._last_pulse_time < 1.0:
             return
 
+        # The button has already closed the relay and started the motor: pressing it
+        # never aborts anything. Only Home Assistant's own pending request or
+        # pre-warning is dropped, so no second pulse follows and stops or reverses it.
         if self._access.cancel("wall button pressed"):
-            LOGGER.info("%s: wall button pressed; pending request or warning cancelled", self._display_name)
+            LOGGER.info(
+                "%s: wall button pressed - the gate/door has already been actuated; "
+                "pending request or pre-warning cancelled so no second pulse follows",
+                self._display_name,
+            )
 
         if self._state_sensor is None:
             if self._attr_is_closed or self._attr_is_closing:

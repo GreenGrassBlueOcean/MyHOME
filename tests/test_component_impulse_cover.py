@@ -54,6 +54,8 @@ from custom_components.myhome.cover import (
 )
 from tests.conftest import attach_runtime
 
+PULSE_FRAME = "*1*18*22##" if hasattr(OWNLightingCommand, "switch_on_timed") else "*1*1*22##"
+
 
 @pytest.fixture
 def mock_gateway():
@@ -165,11 +167,12 @@ async def test_impulse_cover_open_and_close_cycle(hass: HomeAssistant, impulse_g
     # 1. Pulse open
     assert await impulse_gate._async_pulse(Intent.OPEN, Effect.OPEN) is True
 
-    # Hardware-timed WHAT 18 command sent immediately (actuator shuts off after 0.5s)
+    # Hardware-timed WHAT 18 command sent immediately (actuator shuts off after 0.5s);
+    # OWNd releases without the builder send a plain ON and switch it off in software.
     assert mock_gateway.send.call_count == 1
     on_cmd = mock_gateway.send.call_args[0][0]
     assert isinstance(on_cmd, OWNLightingCommand)
-    assert str(on_cmd) == "*1*18*22##"
+    assert str(on_cmd) == PULSE_FRAME
     assert impulse_gate.is_opening is True
     assert impulse_gate.is_closed is False
 
@@ -188,7 +191,7 @@ async def test_impulse_cover_open_and_close_cycle(hass: HomeAssistant, impulse_g
 
     assert mock_gateway.send.call_count == 1
     on_cmd = mock_gateway.send.call_args[0][0]
-    assert str(on_cmd) == "*1*18*22##"
+    assert str(on_cmd) == PULSE_FRAME
     assert impulse_gate.is_closing is True
 
     # Finish closing travel (10s)
@@ -598,3 +601,70 @@ async def test_impulse_cover_confirmed_write_future_and_off_failure(hass: HomeAs
 
 
 
+
+
+async def test_impulse_cover_pulse_falls_back_without_timed_on(hass: HomeAssistant, impulse_gate, mock_gateway, monkeypatch):
+    """Released OWNd 2.0.0b10 has no OWNLightingCommand.switch_on_timed: ON, then OFF after the pulse."""
+    monkeypatch.delattr(OWNLightingCommand, "switch_on_timed", raising=False)
+
+    assert await impulse_gate._async_send_impulse() is True
+    assert [str(call.args[0]) for call in mock_gateway.send.call_args_list] == ["*1*1*22##"]
+
+    async_fire_time_changed_exact(hass, dt_util.utcnow() + timedelta(seconds=0.6))
+    await hass.async_block_till_done()
+    assert [str(call.args[0]) for call in mock_gateway.send.call_args_list] == ["*1*1*22##", "*1*0*22##"]
+
+
+async def test_impulse_cover_failed_send_does_not_start_deadband(hass: HomeAssistant, impulse_gate, mock_gateway):
+    """A pulse that never reached the bus must not lock the user out for min_cycle_time."""
+    mock_gateway.send.side_effect = RuntimeError("Socket disconnected")
+    assert await impulse_gate._async_send_impulse() is False
+    assert impulse_gate._last_pulse_time == -1e9
+
+    mock_gateway.send.side_effect = None
+    assert await impulse_gate._async_send_impulse() is True
+    assert impulse_gate._last_pulse_time > 0
+
+    # The confirmed pulse does start it
+    assert await impulse_gate._async_send_impulse() is False
+
+
+async def test_impulse_cover_failed_awaited_write_does_not_start_deadband(hass: HomeAssistant, impulse_gate, mock_gateway):
+    """The write future failing (timeout) counts as a failed send, too."""
+    fut = asyncio.get_running_loop().create_future()
+    fut.set_exception(TimeoutError("no ACK"))
+    mock_gateway.send.return_value = fut
+    assert await impulse_gate._async_send_impulse() is False
+    assert impulse_gate._last_pulse_time == -1e9
+
+
+async def test_impulse_cover_in_flight_pulse_blocks_second_request_and_echo(hass: HomeAssistant, impulse_gate, mock_gateway):
+    """While the write is pending a second request is dropped and the echo is not a wall button."""
+    release = asyncio.Event()
+
+    async def slow_send(cmd, *args, **kwargs):
+        await release.wait()
+
+    mock_gateway.send.side_effect = slow_send
+    first = asyncio.create_task(impulse_gate._async_send_impulse())
+    await asyncio.sleep(0)
+    assert impulse_gate._pulse_in_flight is True
+
+    assert await impulse_gate._async_send_impulse() is False
+
+    impulse_gate._attr_is_closed = True
+    impulse_gate.handle_event(OWNEvent.parse("*1*1*22##"))
+    assert impulse_gate.is_opening is False
+
+    release.set()
+    assert await first is True
+    assert impulse_gate._pulse_in_flight is False
+
+
+def test_impulse_cover_wall_button_log_says_the_gate_already_moved(impulse_gate, caplog):
+    """A wall button press starts the gate; only Home Assistant's own request is dropped."""
+    impulse_gate._access.cancel = MagicMock(return_value=True)
+    with caplog.at_level("INFO"):
+        impulse_gate.handle_event(OWNEvent.parse("*1*1*22##"))
+    impulse_gate._access.cancel.assert_called_once()
+    assert "already been actuated" in caplog.text

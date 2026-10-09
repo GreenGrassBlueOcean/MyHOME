@@ -1,9 +1,8 @@
-"""Support for MyHome locks (door entry electric strikes WHO=6 and impulse locks WHO=1)."""
+"""Support for MyHome locks (door entry electric strikes, WHO=6)."""
 from __future__ import annotations
 
 import hmac
 import inspect
-from collections.abc import Callable
 from typing import Any
 
 from homeassistant.components.lock import (  # type: ignore[attr-defined, unused-ignore]
@@ -22,16 +21,10 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
-from OWNd.message import (
-    OWNCommand,
-    OWNLightingCommand,
-)
+from OWNd.message import OWNCommand
 
 try:
-    from OWNd.message import (
-        OWNDoorEntryCommand,
-        OWNDoorEntryEvent,
-    )
+    from OWNd.message import OWNDoorEntryCommand
 except ImportError:  # pragma: no cover - fallback on released OWNd 2.0.0b10
     class OWNDoorEntryCommand:  # type: ignore[no-redef]
         """Fallback stub when running on released OWNd lacking WHO 6 commands."""
@@ -42,17 +35,12 @@ except ImportError:  # pragma: no cover - fallback on released OWNd 2.0.0b10
             parsed = OWNCommand.parse(frame)
             return parsed if parsed is not None else OWNCommand(frame)
 
-    class OWNDoorEntryEvent:  # type: ignore[no-redef]
-        """Fallback stub when running on released OWNd lacking WHO 6 events."""
-        pass
-
 from .const import (
     CONF_DEVICE_MODEL,
     CONF_ENTITY_NAME,
     CONF_MANUFACTURER,
     CONF_PULSE_DURATION,
     CONF_WHO,
-    DEFAULT_PULSE_DURATION,
     LOGGER,
 )
 from .data import get_runtime_data
@@ -76,7 +64,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> bool:
-    """Set up the locks of a gateway: registry entries, then myhome.yaml, then bus discovery."""
+    """Set up the locks of a gateway: registry entries, then myhome.yaml."""
     runtime = get_runtime_data(config_entry)
     if runtime is None or PLATFORM not in runtime.platforms:
         return True
@@ -84,16 +72,13 @@ async def async_setup_entry(
     mac = config_entry.data[CONF_MAC]
     gateway = runtime.gateway
 
-    def lock_registry_address(target_who: str) -> Callable[[er.RegistryEntry], Address | None]:
-        def address_of(entry: er.RegistryEntry) -> Address | None:
-            who, device_id = parse_unique_id(entry.unique_id or "", gateway.mac, mac)
-            entry_who = who if who is not None else "6"
-            if entry_who != target_who:
-                return None
-            return Address.from_device_id(device_id)
-        return address_of
+    def registry_address(entry: er.RegistryEntry) -> Address | None:
+        who, device_id = parse_unique_id(entry.unique_id or "", gateway.mac, mac)
+        if (who if who is not None else "6") != "6":
+            return None
+        return Address.from_device_id(device_id)
 
-    def build_who6(ctx: DeviceContext) -> MyHOMELock:
+    def build(ctx: DeviceContext) -> MyHOMELock:
         cfg = ctx.cfg
         name_val = cfg.get(CONF_NAME)
         name = str(name_val) if name_val else f"Lock {ctx.suffix}"
@@ -101,14 +86,8 @@ async def async_setup_entry(
         entity_name = str(raw_entity_name) if raw_entity_name is not None else None
         manufacturer = str(cfg.get(CONF_MANUFACTURER, "BTicino"))
         model = str(cfg.get(CONF_DEVICE_MODEL, "Door Entry Lock"))
-        code = (
-            str(cfg[CONF_CODE])
-            if CONF_CODE in cfg
-            else (str(cfg["code"]) if "code" in cfg else None)
-        )
-        pulse = float(
-            cfg.get(CONF_PULSE_DURATION, cfg.get("pulse_duration", DEFAULT_LOCK_DURATION))
-        )
+        code = str(cfg[CONF_CODE]) if CONF_CODE in cfg else None
+        pulse = float(cfg.get(CONF_PULSE_DURATION, DEFAULT_LOCK_DURATION))
         return MyHOMELock(
             hass=hass,
             name=name,
@@ -124,74 +103,27 @@ async def async_setup_entry(
             gateway=runtime.gateway,
         )
 
-    def build_who1(ctx: DeviceContext) -> MyHOMELock:
-        cfg = ctx.cfg
-        name_val = cfg.get(CONF_NAME)
-        name = str(name_val) if name_val else f"Impulse Lock {ctx.suffix}"
-        raw_entity_name = cfg.get(CONF_ENTITY_NAME)
-        entity_name = str(raw_entity_name) if raw_entity_name is not None else None
-        manufacturer = str(cfg.get(CONF_MANUFACTURER, "BTicino"))
-        model = str(cfg.get(CONF_DEVICE_MODEL, "Impulse Relay Lock"))
-        code = str(cfg[CONF_CODE]) if CONF_CODE in cfg else (str(cfg["code"]) if "code" in cfg else None)
-        pulse = float(cfg.get(CONF_PULSE_DURATION, cfg.get("pulse_duration", DEFAULT_PULSE_DURATION)))
-        return MyHOMELock(
-            hass=hass,
-            name=name,
-            entity_name=entity_name,
-            device_id=ctx.key,
-            who=ctx.who,
-            where=ctx.address.where,
-            interface=ctx.address.interface,
-            code=code,
-            pulse_duration=pulse,
-            manufacturer=manufacturer,
-            model=model,
-            gateway=runtime.gateway,
-        )
-
-    def accept_who6(ctx: DeviceContext) -> bool:
+    def accept(ctx: DeviceContext) -> bool:
         if ctx.address.where in ("4100", "0", ""):
             return False
         if ctx.source == "yaml":
             return str(ctx.cfg.get(CONF_WHO, "6")) == "6"
-        if ctx.source == "bus":
-            msg = ctx.message
-            return bool(
-                getattr(msg, "is_lock_open", False)
-                or (getattr(msg, "who", None) == 6 and getattr(msg, "_what", None) in (10, 22))
-            )
         return True
 
-    def accept_who1(ctx: DeviceContext) -> bool:
-        if ctx.source == "yaml":
-            return str(ctx.cfg.get(CONF_WHO, "6")) == "1"
-        return True
-
+    # Locks come only from myhome.yaml and the entity registry, never from bus traffic:
+    # a lock release seen on the bus would otherwise add a code-less entity that anyone
+    # with dashboard access can unlock.
     PlatformDiscovery(
         hass,
         config_entry,
         async_add_entities,
         platform=PLATFORM,
         who="6",
-        event_type=OWNDoorEntryEvent if getattr(OWNDoorEntryEvent, "__module__", "") != __name__ else None,
-        build=build_who6,
-        announce=True,
-        registry_address=lock_registry_address("6"),
-        accept=accept_who6,
-        known_keys=lambda ctx: [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where],
-    ).start(listen=True)
-
-    PlatformDiscovery(
-        hass,
-        config_entry,
-        async_add_entities,
-        platform=PLATFORM,
-        who="1",
         event_type=None,
-        build=build_who1,
+        build=build,
         announce=True,
-        registry_address=lock_registry_address("1"),
-        accept=accept_who1,
+        registry_address=registry_address,
+        accept=accept,
         known_keys=lambda ctx: [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where],
     ).start(listen=False)
 
@@ -212,7 +144,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
 
 
 class MyHOMELock(MyHOMEEntity, LockEntity):
-    """Representation of a MyHOME door entry electric lock strike (WHO=6) or impulse lock (WHO=1)."""
+    """Representation of a MyHOME door entry electric lock strike (WHO=6)."""
 
     _poll_on_add = False
     _attr_supported_features = LockEntityFeature.OPEN
@@ -253,7 +185,6 @@ class MyHOMELock(MyHOMEEntity, LockEntity):
             self._attr_code_format = r"^\d+$"
         self._attr_is_locked = True
         self._relock_unsub: CALLBACK_TYPE | None = None
-        self._pulse_off_unsub: CALLBACK_TYPE | None = None
 
         self._attr_extra_state_attributes = {
             "where": self._where,
@@ -275,53 +206,11 @@ class MyHOMELock(MyHOMEEntity, LockEntity):
             if code is None or not hmac.compare_digest(str(code), str(self._code)):
                 raise ServiceValidationError(f"Invalid code for {self._display_name}")
 
-        if self._who == "1":
-            if self._pulse_off_unsub is not None:
-                self._pulse_off_unsub()
-                self._pulse_off_unsub = None
-
-            if self._pulse_duration == 0.5:
-                cmd = OWNLightingCommand.switch_on_timed(self._full_where, 18)
-                write_fut = await self._gateway_handler.send(cmd)
-                if inspect.isawaitable(write_fut):
-                    await write_fut
-            else:
-                cmd_on = OWNLightingCommand.switch_on(self._full_where)
-                write_fut = await self._gateway_handler.send(cmd_on)
-                if inspect.isawaitable(write_fut):
-                    await write_fut
-
-                @callback
-                def _turn_off(_now: Any = None) -> None:
-                    self._pulse_off_unsub = None
-                    if self.hass is not None:
-
-                        async def _send_off() -> None:
-                            try:
-                                fut = await self._gateway_handler.send(
-                                    OWNLightingCommand.switch_off(self._full_where)
-                                )
-                                if inspect.isawaitable(fut):
-                                    await fut
-                            except Exception as err:
-                                LOGGER.error(
-                                    "%s: Failed to send OFF pulse to gateway: %s",
-                                    self._display_name,
-                                    err,
-                                )
-
-                        self.hass.async_create_task(_send_off())
-
-                if self.hass is not None:
-                    self._pulse_off_unsub = async_call_later(
-                        self.hass, self._pulse_duration, _turn_off
-                    )
-        else:
-            write_fut = await self._gateway_handler.send(
-                OWNDoorEntryCommand.open_lock(self._full_where)
-            )
-            if inspect.isawaitable(write_fut):
-                await write_fut
+        write_fut = await self._gateway_handler.send(
+            OWNDoorEntryCommand.open_lock(self._full_where)
+        )
+        if inspect.isawaitable(write_fut):
+            await write_fut
 
         self._attr_is_locked = False
         self.async_write_ha_state()
@@ -341,20 +230,13 @@ class MyHOMELock(MyHOMEEntity, LockEntity):
         )
         if getattr(message, "is_translation", None) is True:
             return
-        if self._who == "1":
-            is_on = getattr(message, "is_on", False) or getattr(message, "_what", None) == 1
-            if is_on:
-                self._attr_is_locked = False
-                self._publish_state()
-                self._schedule_auto_relock()
-        else:
-            is_lock_open = getattr(message, "is_lock_open", False) or (
-                getattr(message, "who", None) == 6 and getattr(message, "_what", None) in (10, 22)
-            )
-            if is_lock_open:
-                self._attr_is_locked = False
-                self._publish_state()
-                self._schedule_auto_relock()
+        is_lock_open = getattr(message, "is_lock_open", False) or (
+            getattr(message, "who", None) == 6 and getattr(message, "_what", None) in (10, 22)
+        )
+        if is_lock_open:
+            self._attr_is_locked = False
+            self._publish_state()
+            self._schedule_auto_relock()
 
     @callback
     def _schedule_auto_relock(self) -> None:
@@ -378,20 +260,4 @@ class MyHOMELock(MyHOMEEntity, LockEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         self._cancel_auto_relock()
-        if self._pulse_off_unsub is not None:
-            self._pulse_off_unsub()
-            self._pulse_off_unsub = None
-            if self._who == "1":
-                try:
-                    write_fut = await self._gateway_handler.send(
-                        OWNLightingCommand.switch_off(self._full_where)
-                    )
-                    if inspect.isawaitable(write_fut):
-                        await write_fut
-                except Exception as err:
-                    LOGGER.warning(
-                        "%s: Failed to send OFF pulse to gateway on removal: %s",
-                        self._display_name,
-                        err,
-                    )
         await super().async_will_remove_from_hass()

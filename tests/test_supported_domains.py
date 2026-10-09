@@ -46,7 +46,7 @@ def test_extract_who_mapping():
     assert mapping["light"] == "WHO=1"
     assert mapping["switch"] == "WHO=1"
     assert mapping["cover"] == "WHO=1 / WHO=2"
-    assert mapping["lock"] == "WHO=1 / WHO=6"
+    assert mapping["lock"] == "WHO=6"
     assert mapping["climate"] == "WHO=4"
     assert mapping["alarm_control_panel"] == "WHO=5"
     assert mapping["binary_sensor"] == "WHO=1 / 9 / 25"

@@ -58,6 +58,9 @@ from .const import (
 if TYPE_CHECKING:
     from .gateway import MyHOMEGatewayHandler
 
+# WHO 8 call kinds of the entrance panels PE1..PE4 (6: handset to handset, 14: pager).
+ENTRANCE_PANEL_KINDS = frozenset({1, 2, 3, 4})
+
 
 class GatewayEventDispatcher:
     """Dispatches bus and integration events from gateway monitor frames."""
@@ -190,6 +193,18 @@ class GatewayEventDispatcher:
             self._logger.debug("Could not auto-register %s device %s: %s", who, object_id, err)
 
     _ensure_cen_device = ensure_cen_device
+
+    @staticmethod
+    def _intercom_call_kind(message: OWNMessage) -> int | None:
+        """Call kind of a WHO 8 call (`*8*1#<kind>#<mm>*<where>##`), or None when unreadable."""
+        kind = getattr(message, "call_kind", None)
+        if kind is None:
+            params = getattr(message, "_what_param", None) or []
+            kind = params[0] if params else None
+        try:
+            return int(kind) if kind is not None else None
+        except (TypeError, ValueError):
+            return None
 
     def _is_active_for_who(self, who: int | None) -> bool:
         """Return True if this gateway is the active owner for this WHO subsystem."""
@@ -579,12 +594,24 @@ class GatewayEventDispatcher:
             who = getattr(message, "who", None)
             what = getattr(message, "_what", None)
             where_val = getattr(message, "where", "")
-            is_who8_call = who == 8 and what == 1
+            # WHO 8 WHAT 1 starts any call session. Only the entrance panels ring the
+            # door; handset-to-handset calls (kind 6) and pager broadcasts (kind 14)
+            # must not, and a kind that cannot be read fails closed. Older OWNd
+            # releases flag every WHAT 1 as an incoming call, so WHO 8 never trusts
+            # the library's is_call / is_incoming_call.
+            is_who8_call = who == 8 and what == 1 and self._intercom_call_kind(message) in ENTRANCE_PANEL_KINDS
             is_broadcast = getattr(message, "is_broadcast_call", who == 6 and what == 6 and str(where_val) == "4100")
+            # WHO 6 WHAT 20 is not in the published WHO 6 table (WHAT 0, 6, 9, 10, 11, 12,
+            # 18, 22) and no bus capture of it exists in this repository: unverified.
             is_chime = getattr(message, "is_chime", who == 6 and what == 20)
-            is_incoming = getattr(message, "is_incoming_call", (who == 6 and what == 6) or is_who8_call)
-            is_call = getattr(message, "is_call", is_incoming or is_chime or is_who8_call)
-            if is_call:
+            if who == 8:
+                is_call = is_who8_call
+            else:
+                is_incoming = getattr(message, "is_incoming_call", who == 6 and what == 6)
+                is_call = getattr(message, "is_call", is_incoming or is_chime)
+            # On a shared bus every gateway sees the same frame; only the active owner
+            # of the subsystem may announce it or each ring fires once per gateway.
+            if is_call and self._is_active_for_who(who):
                 event_name = (
                     "broadcast_call"
                     if is_broadcast

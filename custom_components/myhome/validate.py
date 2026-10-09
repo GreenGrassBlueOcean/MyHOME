@@ -489,15 +489,10 @@ cover_schema = MyHomeDeviceSchema(
                 ]
             ),
             Optional(CONF_TYPE): In([TYPE_IMPULSE_RELAY, "shutter", "standard"]),
-            Optional("type"): In([TYPE_IMPULSE_RELAY, "shutter", "standard"]),
             Optional(CONF_PIN_CODE): Coerce(str),
-            Optional("pin_code"): Coerce(str),
             Optional(CONF_STATE_SENSOR): cv.entity_id,
-            Optional("state_sensor"): cv.entity_id,
             Optional(CONF_PULSE_DURATION, default=0.5): All(Coerce(float), Range(min=0.2, max=2.0)),
-            Optional("pulse_duration", default=0.5): All(Coerce(float), Range(min=0.2, max=2.0)),
             Optional(CONF_MIN_CYCLE_TIME, default=5.0): All(Coerce(float), Range(min=1.0, max=120.0)),
-            Optional("min_cycle_time", default=5.0): All(Coerce(float), Range(min=1.0, max=120.0)),
             Optional(CONF_ACCESS): access_schema,
             Optional(CONF_ADVANCED_SHUTTER, default=False): Boolean(),
             Optional("advanced_shutter", default=False): Boolean(),
@@ -525,6 +520,11 @@ def _validate_impulse_covers(data: dict[str, typing.Any]) -> dict[str, typing.An
     """An impulse cover pulses exactly one relay; access settings only apply to impulse covers."""
     for device, cfg in data.items():
         is_impulse = str(cfg.get(CONF_WHO)) == "1"
+        cover_type = cfg.get(CONF_TYPE)
+        if cover_type == TYPE_IMPULSE_RELAY and not is_impulse:
+            raise Invalid(f"{device}: type: {TYPE_IMPULSE_RELAY} needs who: 1 (a WHO 2 shutter has no impulse relay)")
+        if is_impulse and cover_type in ("shutter", "standard"):
+            raise Invalid(f"{device}: who: 1 is an impulse relay; type: {cover_type} only applies to who: 2")
         if is_impulse:
             try:
                 PointToPoint()(str(cfg[CONF_WHERE]))
@@ -661,20 +661,33 @@ alarm_control_panel_schema = MyHomeDeviceSchema(
     }
 )
 
+class DoorEntryWhere:
+    """WHERE of a WHO 6 door entry endpoint: digits, with ``#2`` appended on a riser installation."""
+
+    def __init__(self, msg: str | None = None) -> None:
+        self.msg = msg
+
+    def __call__(self, v: typing.Any) -> typing.Any:
+        if isinstance(v, str) and re.fullmatch(r"\d{1,4}(#2)?", v):
+            return v
+        raise Invalid(f"Invalid door entry WHERE {v}, it must be 1-4 digits, optionally followed by #2 (riser).")
+
+    def __repr__(self) -> str:
+        return "DoorEntryWhere(msg=%r)" % self.msg
+
+
 lock_schema = MyHomeDeviceSchema(
     {
         Required(str): {
-            Optional(CONF_WHO, default="6"): In(["1", "6"]),
-            Required(CONF_WHERE): All(Coerce(str), Any(General(), Area(), Group(), PointToPoint(), SpecialWhere())),  # type: ignore
+            # Only door entry strikes. A WHO 1 relay can be a motorized gate, and a lock
+            # would let it bypass the cover's access policy, so there is no `who: 1` here.
+            Optional(CONF_WHO, default="6"): "6",
+            Required(CONF_WHERE): All(Coerce(str), DoorEntryWhere()),
             Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_CODE): Coerce(str),
-            Optional("code"): Coerce(str),
             Optional(CONF_PULSE_DURATION, default=0.5): All(
-                Coerce(float), Range(min=0.1, max=10.0)
-            ),
-            Optional("pulse_duration", default=0.5): All(
                 Coerce(float), Range(min=0.1, max=10.0)
             ),
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
@@ -685,23 +698,11 @@ lock_schema = MyHomeDeviceSchema(
 
 
 def _validate_locks(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """An impulse lock pulses exactly one relay (point-to-point); door entry locks require valid entrance addresses."""
+    """A door entry lock needs a single entrance address, never general, area or broadcast."""
     for device, cfg in data.items():
-        who = str(cfg.get(CONF_WHO, "6"))
         where = str(cfg.get(CONF_WHERE, ""))
-        if who == "1":
-            try:
-                PointToPoint()(where)
-            except Invalid as err:
-                raise Invalid(
-                    f"{device}: an impulse lock (who: 1) requires a point-to-point <WHERE>; "
-                    "a general ('0'), area, or group address would pulse multiple relays or all lights at once"
-                ) from err
-        elif who == "6":
-            if where in ("0", "") or where.startswith("#"):
-                raise Invalid(
-                    f"{device}: a door entry lock (who: 6) cannot use general ('0') or group ('#') addressing"
-                )
+        if where in ("0", "4100"):
+            raise Invalid(f"{device}: a door entry lock cannot use general ('0') or broadcast ('4100') addressing")
     return data
 
 
