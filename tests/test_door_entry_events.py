@@ -111,6 +111,12 @@ async def test_gateway_fires_doorbell_events(hass: HomeAssistant):
         }
         assert len(dispatcher_payloads) == 4
         assert dispatcher_payloads[3] == captured_events[3].data
+
+        # 6. Internal handset call and pager broadcast are not doorbell rings
+        for raw in ("*8*1#6#2#11*16##", "*8*1#14#2#11*4##"):
+            await gateway._process_message(OWNEvent.parse(raw))
+        assert len(captured_events) == 4
+        assert len(dispatcher_payloads) == 4
     finally:
         unsub()
 
