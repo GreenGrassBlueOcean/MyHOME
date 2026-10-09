@@ -12,13 +12,14 @@ This document provides a comprehensive reference for all custom services registe
 | [`myhome.turn_on_timed`](#2-myhometurn_on_timed) | `light`, `switch` | Turn on an actuator with a hardware-offloaded SCS timer that turns off automatically even if Home Assistant reboots. |
 | [`myhome.sync_time`](#3-myhomesync_time) | Gateway | Synchronize the gateway internal clock with Home Assistant's local time. |
 | [`myhome.start_sending_instant_power`](#4-myhomestart_sending_instant_power) | `sensor` | Request a temporary continuous stream of instant power readings from an energy meter. |
-| [`myhome.sweep_bus`](#5-myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
-| [`myhome.calibrate_cover`](#6-myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
-| [`myhome.stop_cover_calibration`](#7-myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
-| [`myhome.set_cover_travel_time`](#8-myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
-| [`myhome.reset_cover_travel_time`](#9-myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
-| [`myhome.tuner_seek_up`](#10-myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
-| [`myhome.tuner_seek_down`](#11-myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
+| [`myhome.stop_sending_instant_power`](#5-myhomestop_sending_instant_power) | `sensor` | Stop automatic instant power draw updates for a sensor. |
+| [`myhome.sweep_bus`](#6-myhomesweep_bus) | Gateway | Actively poll status across all subsystems to populate diagnostic buffers. |
+| [`myhome.calibrate_cover`](#7-myhomecalibrate_cover) | `cover` | Measure a timed cover's up and down travel times on the bus and store them. |
+| [`myhome.stop_cover_calibration`](#8-myhomestop_cover_calibration) | Gateway | Stop the running calibration and cancel queued ones. |
+| [`myhome.set_cover_travel_time`](#9-myhomeset_cover_travel_time) | `cover` | Store stopwatch-measured travel times without driving the cover. |
+| [`myhome.reset_cover_travel_time`](#10-myhomereset_cover_travel_time) | `cover` | Forget measured / manual travel times; back to YAML or the default. |
+| [`myhome.tuner_seek_up`](#11-myhometuner_seek_up) | `media_player` | Seek forward to the next receivable FM radio frequency on an F500 tuner. |
+| [`myhome.tuner_seek_down`](#12-myhometuner_seek_down) | `media_player` | Seek backward to the previous receivable FM radio frequency on an F500 tuner. |
 
 ---
 
@@ -100,7 +101,7 @@ By default, MyHOME energy meters (F520, F521, F522, F523) transmit energy readin
 | Parameter | Type | Required | Description | Example |
 | :--- | :---: | :---: | :--- | :--- |
 | `entity_id` | string | **Yes** | The power sensor entity ID. | `"sensor.general_power"` |
-| `duration` | integer | **Yes** | Duration in seconds to keep streaming. | `60` |
+| `duration` | integer | **Yes** | Duration in minutes to keep streaming (0 to stop). | `60` |
 
 ### Example YAML Call
 ```yaml
@@ -112,7 +113,25 @@ data:
 
 ---
 
-## 5. `myhome.sweep_bus`
+## 5. `myhome.stop_sending_instant_power`
+
+Stops active high-frequency instant power streaming from an energy meter, returning the meter to its default periodic transmission mode.
+
+### Fields
+| Parameter | Type | Required | Description | Example |
+| :--- | :---: | :---: | :--- | :--- |
+| `entity_id` | string | **Yes** | The power sensor entity ID. | `"sensor.general_power"` |
+
+### Example YAML Call
+```yaml
+action: myhome.stop_sending_instant_power
+data:
+  entity_id: "sensor.heat_pump_power"
+```
+
+---
+
+## 6. `myhome.sweep_bus`
 
 Actively queries status across all configured subsystems (lighting, automation, thermoregulation, and gateway diagnostics). It is used to refresh entity states and populate the in-band **Bus Monitor** with fresh data for troubleshooting.
 
@@ -128,7 +147,7 @@ action: myhome.sweep_bus
 
 ---
 
-## 6. `myhome.calibrate_cover`
+## 7. `myhome.calibrate_cover`
 
 Measures a timed cover's travel times **on the bus** and stores them, replacing the guessed `travel_time`. The cover is driven fully **up** (so its position is known), then fully **down** (timed), then fully **up** again (timed). Covers of one gateway are calibrated **one at a time** — a single-session gateway cannot drive two motors reliably and overlapping runs would confuse the timing. The shutter moves for about three full travels; do not run it while the shutter must stay put.
 
@@ -156,7 +175,7 @@ target:
 
 ---
 
-## 7. `myhome.stop_cover_calibration`
+## 8. `myhome.stop_cover_calibration`
 
 Stops the calibration that is running and cancels every cover still queued behind it. The moving cover receives a stop command, its calibration event reports `phase: failed` with *Calibration stopped by user*, and nothing is stored. Without a `gateway` every gateway's queue is cleared. Also available as an entity service on any cover (targets that cover's gateway).
 
@@ -172,7 +191,7 @@ action: myhome.stop_cover_calibration
 
 ---
 
-## 8. `myhome.set_cover_travel_time`
+## 9. `myhome.set_cover_travel_time`
 
 Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch and pass them here. `travel_time` fills whichever direction has no explicit value; note that `travel_time_down` on its own also sets the up time (the two are assumed equal unless `travel_time_up` is given), whereas `travel_time_up` on its own leaves the stored down time untouched — pass both when you only want to change one. Values must lie between 1 s and 180 s; anything else is rejected before the entity is touched. The result is stored exactly like a measured calibration (`calibration_source: manual`).
 
@@ -199,7 +218,7 @@ data:
 
 ---
 
-## 9. `myhome.reset_cover_travel_time`
+## 10. `myhome.reset_cover_travel_time`
 
 Forgets the measured or manually set travel times of a timed cover. The cover returns to the `travel_time` from `myhome.yaml` when one is configured, otherwise to the 25 s default, and `calibration_source` reports `yaml` / `default` again.
 
@@ -217,7 +236,7 @@ target:
 
 ---
 
-## 10. `myhome.tuner_seek_up`
+## 11. `myhome.tuner_seek_up`
 
 Commands an F500 / F500N sound source tuner entity (`WHERE` 101–109) to seek forward (`*16*5000*10S##`) to the next receivable FM radio frequency on the SCS bus.
 
@@ -235,7 +254,7 @@ target:
 
 ---
 
-## 11. `myhome.tuner_seek_down`
+## 12. `myhome.tuner_seek_down`
 
 Commands an F500 / F500N sound source tuner entity (`WHERE` 101–109) to seek backward (`*16*5100*10S##`) to the previous receivable FM radio frequency on the SCS bus.
 

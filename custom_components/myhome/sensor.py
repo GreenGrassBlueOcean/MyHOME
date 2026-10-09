@@ -79,6 +79,7 @@ PARALLEL_UPDATES = 0
 SCAN_INTERVAL = timedelta(seconds=300)
 
 SERVICE_SEND_INSTANT_POWER = "start_sending_instant_power"
+SERVICE_STOP_SENDING_INSTANT_POWER = "stop_sending_instant_power"
 
 ATTR_DURATION = "duration"
 ATTR_DATE = "date"
@@ -149,8 +150,13 @@ async def async_setup_entry(
         if platform is not None:
             platform.async_register_entity_service(
                 SERVICE_SEND_INSTANT_POWER,
-                as_any({Optional(ATTR_DURATION): All(Coerce(int), Range(min=1, max=255))}),
+                as_any({Optional(ATTR_DURATION): All(Coerce(int), Range(min=0, max=255))}),
                 "start_sending_instant_power",
+            )
+            platform.async_register_entity_service(
+                SERVICE_STOP_SENDING_INSTANT_POWER,
+                {},
+                "async_stop_sending_instant_power",
             )
 
     discovery_for: dict[str, PlatformDiscovery] = {}

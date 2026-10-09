@@ -219,7 +219,17 @@
         },
         "duration": {
           "name": "Durée",
-          "description": "Pendant combien de temps la puissance instantanée va-t-elle être automatiquement envoyée."
+          "description": "Pendant combien de temps la puissance instantanée va-t-elle être automatiquement envoyée en minutes (0 pour arrêter)."
+        }
+      }
+    },
+    "stop_sending_instant_power": {
+      "name": "Arrêter d'envoyer la puissance instantanée",
+      "description": "Arrêter les mises à jour automatiques de la puissance instantanée d'un capteur.",
+      "fields": {
+        "entity_id": {
+          "name": "Entitée",
+          "description": "Nom(s) des entitées qui vont arrêter d'envoyer la puissance instantanée."
         }
       }
     },

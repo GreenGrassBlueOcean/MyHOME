@@ -395,13 +395,14 @@ Without `members` the entity is `assumed_state`: Home Assistant shows separate O
 
 ### ⚡ Custom Services
 
-The integration registers three specialized services under the `myhome` domain:
+The integration registers specialized services under the `myhome` domain:
 
 | Service | Fields | Description |
 |---|---|---|
 | **`myhome.send_message`** | `gateway` *(optional)*<br>`message` *(required)* | Send an arbitrary, validated OpenWebNet frame (e.g. `*1*0*0##`) directly to the SCS bus. Useful for scripts, custom diagnostic probes, and testing. |
 | **`myhome.sync_time`** | `gateway` *(optional)* | Synchronizes the gateway's internal real-time clock with Home Assistant's local time using standard OpenWebNet date/time frames (WHO=13). |
-| **`myhome.start_sending_instant_power`** | `entity_id` *(required)*<br>`duration` *(required)* | Requests high-frequency instant active power telemetry (W) from energy management counters (WHO=18) for `duration` seconds. |
+| **`myhome.start_sending_instant_power`** | `entity_id` *(required)*<br>`duration` *(required)* | Requests high-frequency instant active power telemetry (W) from energy management counters (WHO=18) for `duration` minutes. |
+| **`myhome.stop_sending_instant_power`** | `entity_id` *(required)* | Stops high-frequency instant active power telemetry from energy management counters (WHO=18). |
 
 ---
 

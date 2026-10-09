@@ -123,7 +123,7 @@ Buttons 0–31 per device; every trigger carries the gateway MAC so multi-gatewa
 
 ## Services
 
-All services are documented in the [Services Reference](services.md): `send_message`, `turn_on_timed`, `sync_time`, `start_sending_instant_power`, `sweep_bus`, `calibrate_cover`, `stop_cover_calibration`, `set_cover_travel_time`, `reset_cover_travel_time`.
+All services are documented in the [Services Reference](services.md): `send_message`, `turn_on_timed`, `sync_time`, `start_sending_instant_power`, `stop_sending_instant_power`, `sweep_bus`, `calibrate_cover`, `stop_cover_calibration`, `set_cover_travel_time`, `reset_cover_travel_time`, `tuner_seek_up`, `tuner_seek_down`.
 
 ## Diagnostics and tooling
 
