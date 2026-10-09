@@ -178,3 +178,46 @@ async def test_frames_of_other_kinds_create_no_sensor(hass):
     async_dispatcher_send(hass, f"myhome_message_{MAC}", energy)
     await hass.async_block_till_done()
     assert sensor_entries(hass, entry) == []
+
+
+async def test_sensor_restoration_permits_device_entity_id_regeneration(hass):
+    """Restored sensors do not assign entity_id or pollute suggested_object_id (#676)."""
+    entry = await setup_gateway(hass)
+    await dispatch(hass, "*#18*51*113*100##")
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+
+    power = ent_reg.async_get_entity_id("sensor", DOMAIN, f"{MAC}-18-51-power")
+    assert power == "sensor.meter_51_power"
+    assert ent_reg.async_get(power).suggested_object_id is None
+
+    # Reload to exercise entity restoration from the registry.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.data[DOMAIN][MAC][CONF_ENTITY]._on_event_connection_state_change(True)
+    await hass.async_block_till_done()
+
+    # The existing entity ID is preserved and suggested_object_id remains None.
+    power_entry = ent_reg.async_get(power)
+    assert power_entry.entity_id == "sensor.meter_51_power"
+    assert power_entry.suggested_object_id is None
+
+    # Rename device and verify Core's "Recreate entity IDs" proposes the updated name.
+    dev_reg.async_update_device(power_entry.device_id, name_by_user="Assorbimento casa")
+    assert ent_reg.async_regenerate_entity_id(power_entry) == "sensor.assorbimento_casa_power"
+
+    # Recovery: an entry polluted with suggested_object_id heals on the next reload.
+    ent_reg._async_update_entity(power, suggested_object_id="meter_51_power")
+    assert ent_reg.async_get(power).suggested_object_id == "meter_51_power"
+    assert ent_reg.async_regenerate_entity_id(ent_reg.async_get(power)) == "sensor.meter_51_power"
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.data[DOMAIN][MAC][CONF_ENTITY]._on_event_connection_state_change(True)
+    await hass.async_block_till_done()
+
+    healed_entry = ent_reg.async_get(power)
+    assert healed_entry.suggested_object_id is None
+    assert ent_reg.async_regenerate_entity_id(healed_entry) == "sensor.assorbimento_casa_power"
+
