@@ -30,7 +30,7 @@ from OWNd.message import (
 try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#91)
     from OWNd.message import OWNScenarioPlusEvent
 except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 fallback
-    class OWNScenarioPlusEvent(OWNMessage):  # type: ignore[no-redef]
+    class OWNScenarioPlusEvent(OWNMessage):  # type: ignore[misc,no-redef]
         pass
 
 from .const import (
@@ -430,11 +430,11 @@ class GatewayEventDispatcher:
             raw_obj = str(message.object)
             clean_obj = raw_obj.split("#")[0]
             try:
-                obj_val: int | str = int(clean_obj)
+                obj_val = int(clean_obj)
             except (ValueError, TypeError):  # pragma: no cover - defensive
                 obj_val = raw_obj
 
-            target_mac: str | None = self.handler.mac
+            target_mac = self.handler.mac
             config_entry = getattr(self.handler, "config_entry", None)
             target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
 

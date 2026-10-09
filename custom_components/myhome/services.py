@@ -229,7 +229,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             from OWNd.message import OWNScenarioPlusCommand
         except ImportError:  # pragma: no cover - fallback when OWNd unreleased
-            OWNScenarioPlusCommand = None  # type: ignore[assignment,misc]
+            OWNScenarioPlusCommand = None
 
         cmd: Any = None
         if OWNScenarioPlusCommand is not None:
