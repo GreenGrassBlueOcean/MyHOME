@@ -427,7 +427,9 @@ class GatewayEventDispatcher:
                 message.human_readable_log,
             )
         elif isinstance(message, OWNScenarioPlusEvent):
-            raw_obj = str(message.object)
+            raw_obj = str(message.object) if getattr(message, "object", None) is not None else ""
+            if not raw_obj and getattr(message, "where", None) is not None:  # pragma: no cover - defensive
+                raw_obj = str(message.where)
             clean_obj = raw_obj.split("#")[0]
             try:
                 obj_val = int(clean_obj)

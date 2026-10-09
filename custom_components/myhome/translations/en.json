@@ -522,6 +522,21 @@
     },
     "seek_not_supported": {
       "message": "{entity_id}: seek is only supported on tuner source entities"
+    },
+    "scenario_plus_gateway_not_found": {
+      "message": "Gateway \"{gateway}\" not found for scenario plus command"
+    },
+    "scenario_plus_no_gateway": {
+      "message": "No active MyHOME gateways found"
+    },
+    "scenario_plus_missing_where": {
+      "message": "No where/object specified for scenario plus command"
+    },
+    "scenario_plus_unknown_action": {
+      "message": "Unknown scenario plus action \"{action}\""
+    },
+    "scenario_plus_command_invalid": {
+      "message": "Could not build scenario plus command for where \"{where}\" and action \"{action}\""
     }
   },
   "entity": {

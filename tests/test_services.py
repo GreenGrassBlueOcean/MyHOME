@@ -1,7 +1,9 @@
 """Test services module directly."""
 from unittest.mock import MagicMock
 
+import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.myhome.const import (
     ATTR_GATEWAY,
@@ -303,12 +305,14 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
         assert str(sent_cmd) == expected_str
 
     mock_handler.send.reset_mock()
-    await hass.services.async_call(
-        DOMAIN,
-        "send_scenario_plus_command",
-        {"gateway": gw_mac, "where": "11", "action": "invalid_fallback"},
-        blocking=True,
-    )
+    with pytest.raises(ServiceValidationError) as exc_fallback:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "where": "11", "action": "invalid_fallback"},
+            blocking=True,
+        )
+    assert exc_fallback.value.translation_key == "scenario_plus_unknown_action"
     mock_handler.send.assert_not_called()
 
     # Verify typed OWNScenarioPlusCommand branch when present in OWNd
@@ -349,26 +353,67 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
             assert str(sent_cmd) == expected_str
 
         mock_handler.send.reset_mock()
+        with pytest.raises(ServiceValidationError) as exc_typed:
+            await hass.services.async_call(
+                DOMAIN,
+                "send_scenario_plus_command",
+                {"gateway": gw_mac, "where": "11", "action": "invalid"},
+                blocking=True,
+            )
+        assert exc_typed.value.translation_key == "scenario_plus_unknown_action"
+        mock_handler.send.assert_not_called()
+
+    with pytest.raises(ServiceValidationError) as exc_gw:
         await hass.services.async_call(
             DOMAIN,
             "send_scenario_plus_command",
-            {"gateway": gw_mac, "where": "11", "action": "invalid"},
+            {"gateway": "00:03:50:99:99:99", "where": "11", "action": "on"},
             blocking=True,
         )
-        mock_handler.send.assert_not_called()
+    assert exc_gw.value.translation_key == "scenario_plus_gateway_not_found"
 
-    await hass.services.async_call(
-        DOMAIN,
-        "send_scenario_plus_command",
-        {"gateway": "00:03:50:99:99:99", "where": "11", "action": "on"},
-        blocking=True,
-    )
+    with pytest.raises(ServiceValidationError) as exc_where:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "action": "on"},
+            blocking=True,
+        )
+    assert exc_where.value.translation_key == "scenario_plus_missing_where"
 
-    await hass.services.async_call(
-        DOMAIN,
-        "send_scenario_plus_command",
-        {"gateway": gw_mac, "action": "on"},
-        blocking=True,
-    )
+    with pytest.raises(ServiceValidationError) as exc_blank:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "where": "   ", "action": "on"},
+            blocking=True,
+        )
+    assert exc_blank.value.translation_key == "scenario_plus_missing_where"
+
+    # Command parse failure in fallback branch
+    with patch("OWNd.message.OWNScenarioPlusCommand", None, create=True), \
+         patch("OWNd.message.OWNCommand.parse", return_value=None):
+        with pytest.raises(ServiceValidationError) as exc_parse:
+            await hass.services.async_call(
+                DOMAIN,
+                "send_scenario_plus_command",
+                {"gateway": gw_mac, "where": "11", "action": "on"},
+                blocking=True,
+            )
+        assert exc_parse.value.translation_key == "scenario_plus_command_invalid"
+
+
+async def test_send_scenario_plus_command_no_gateways(hass: HomeAssistant) -> None:
+    """Test send_scenario_plus_command raises ServiceValidationError when no gateways are configured."""
+    await async_setup_services(hass)
+
+    with pytest.raises(ServiceValidationError) as exc_no_gw:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"where": "11", "action": "on"},
+            blocking=True,
+        )
+    assert exc_no_gw.value.translation_key == "scenario_plus_no_gateway"
 
 

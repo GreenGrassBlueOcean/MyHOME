@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
@@ -212,19 +213,42 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_send_scenario_plus_command(call: ServiceCall) -> None:
         """Handle sending a scenario plus command."""
-        where = call.data.get(ATTR_WHERE)
-        action = str(call.data.get(ATTR_ACTION, "")).lower()
         gateway = call.data.get(ATTR_GATEWAY, None)
         if gateway is not None:
             gateway = dr.format_mac(gateway)
         handler = _get_gateway_handler(hass, gateway)
         if handler is None:
-            _LOGGER.error("Gateway `%s` not found for scenario plus command.", gateway)
-            return
+            if gateway is not None:
+                raise ServiceValidationError(
+                    f"Gateway '{gateway}' not found for scenario plus command",
+                    translation_domain=DOMAIN,
+                    translation_key="scenario_plus_gateway_not_found",
+                    translation_placeholders={"gateway": str(gateway)},
+                )
+            raise ServiceValidationError(
+                "No active MyHOME gateways found",
+                translation_domain=DOMAIN,
+                translation_key="scenario_plus_no_gateway",
+            )
 
-        if where is None:
-            _LOGGER.error("No where/object specified for scenario plus command.")
-            return
+        where_raw = call.data.get(ATTR_WHERE)
+        if where_raw is None or not str(where_raw).strip():
+            raise ServiceValidationError(
+                "No where/object specified for scenario plus command",
+                translation_domain=DOMAIN,
+                translation_key="scenario_plus_missing_where",
+            )
+        where = str(where_raw).strip()
+
+        action = str(call.data.get(ATTR_ACTION, "")).lower().strip()
+        allowed_actions = ("on", "off", "increase", "decrease", "stop")
+        if action not in allowed_actions:
+            raise ServiceValidationError(
+                f"Unknown scenario plus action '{action}'",
+                translation_domain=DOMAIN,
+                translation_key="scenario_plus_unknown_action",
+                translation_placeholders={"action": action},
+            )
 
         try:
             from OWNd.message import OWNScenarioPlusCommand
@@ -243,9 +267,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 cmd = OWNScenarioPlusCommand.decrease(where)
             elif action == "stop":
                 cmd = OWNScenarioPlusCommand.stop(where)
-            else:
-                _LOGGER.error("Unknown scenario plus action `%s`.", action)
-                return
         else:
             action_frames = {
                 "on": f"*25*11#0*{where}##",
@@ -254,15 +275,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 "decrease": f"*25*14#0#5*{where}##",
                 "stop": f"*25*15*{where}##",
             }
-            if action not in action_frames:
-                _LOGGER.error("Unknown scenario plus action `%s`.", action)
-                return
             from OWNd.message import OWNCommand
 
             cmd = OWNCommand.parse(action_frames[action])
 
-        if cmd is not None:
-            await handler.send(cmd)
+        if cmd is None:
+            raise ServiceValidationError(
+                f"Could not build scenario plus command for where '{where}' and action '{action}'",
+                translation_domain=DOMAIN,
+                translation_key="scenario_plus_command_invalid",
+                translation_placeholders={"where": where, "action": action},
+            )
+
+        await handler.send(cmd)
 
     hass.services.async_register(DOMAIN, SERVICE_SYNC_TIME, handle_sync_time)
     hass.services.async_register(DOMAIN, SERVICE_SEND_MESSAGE, handle_send_message)
