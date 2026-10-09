@@ -1060,6 +1060,9 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
             if session_limit is not None and int(user_input[CONF_WORKER_COUNT]) > session_limit:
                 errors[CONF_WORKER_COUNT] = "worker_count_above_gateway_limit"
 
+            # Home Assistant frontend (ha-selector-text / ha-form) omits non-required
+            # fields from user_input when cleared. Defaulting to "" ensures self.options
+            # is cleared to [] rather than preserving stale addresses (#612).
             ignored_raw = user_input.get(CONF_IGNORED_ADDRESSES, "")
             parsed_ignored, is_valid = validate_ignored_addresses(ignored_raw)
             if not is_valid:
