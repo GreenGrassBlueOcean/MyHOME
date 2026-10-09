@@ -452,6 +452,7 @@ class MyHOMEGatewayHandler:
                 "F459",
                 "F461",
                 "H4684",
+                "L4684",
             )
         )
 

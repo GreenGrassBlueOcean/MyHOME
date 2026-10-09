@@ -65,7 +65,7 @@ async def test_f455_climate_trace_replay_without_exceptions(hass: HomeAssistant)
     assert len(raw_frames) == 67
     assert trace_data["total_timeouts"] == 16
 
-    mac = "00:03:50:AA:11:22"
+    mac = "00:03:50:aa:11:22"
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -113,7 +113,7 @@ async def test_f455_climate_trace_replay_without_exceptions(hass: HomeAssistant)
             whos_seen.add(str(msg.who))
 
         # Replay frame through the gateway event bus
-        async_dispatcher_send(hass, f"{DOMAIN}_{mac}_event", msg)
+        async_dispatcher_send(hass, f"myhome_message_{handler.mac}", msg)
         replayed += 1
 
     await hass.async_block_till_done()
@@ -123,24 +123,24 @@ async def test_f455_climate_trace_replay_without_exceptions(hass: HomeAssistant)
     # Verify key climate zone state updates from the trace replay
     # Zone 35: Temp 19.6 °C, Target 10.0 °C, Heat mode (*4*1*35##)
     state_35 = hass.states.get("climate.climate_zone_35")
-    if state_35 is not None:
-        assert state_35.attributes.get("current_temperature") == 19.6
-        assert state_35.attributes.get("temperature") == 10.0
-        assert state_35.state == HVACMode.HEAT
+    assert state_35 is not None, "Zone 35 climate entity must be created via bus discovery"
+    assert state_35.attributes.get("current_temperature") == 19.6
+    assert state_35.attributes.get("temperature") == 10.0
+    assert state_35.state == HVACMode.HEAT
 
     # Zone 34: Temp 18.7 °C, Target 10.0 °C, Heat mode (*4*1*34##)
     state_34 = hass.states.get("climate.climate_zone_34")
-    if state_34 is not None:
-        assert state_34.attributes.get("current_temperature") == 18.7
-        assert state_34.attributes.get("temperature") == 10.0
-        assert state_34.state == HVACMode.HEAT
+    assert state_34 is not None, "Zone 34 climate entity must be created via bus discovery"
+    assert state_34.attributes.get("current_temperature") == 18.7
+    assert state_34.attributes.get("temperature") == 10.0
+    assert state_34.state == HVACMode.HEAT
 
     # Zone 36: Temp 19.3 °C, Target 10.0 °C, Heat mode (*4*1*36##)
     state_36 = hass.states.get("climate.climate_zone_36")
-    if state_36 is not None:
-        assert state_36.attributes.get("current_temperature") == 19.3
-        assert state_36.attributes.get("temperature") == 10.0
-        assert state_36.state == HVACMode.HEAT
+    assert state_36 is not None, "Zone 36 climate entity must be created via bus discovery"
+    assert state_36.attributes.get("current_temperature") == 19.3
+    assert state_36.attributes.get("temperature") == 10.0
+    assert state_36.state == HVACMode.HEAT
 
 
 @pytest.mark.asyncio
@@ -214,7 +214,11 @@ def test_gateway_supports_zone_status_property(hass: HomeAssistant) -> None:
     handler.gateway.model_name = "MH202"
     assert handler.supports_zone_status is False
 
-    # 5. MyHomeServer1
+    # 5. L4684
+    handler.gateway.model_name = "L4684"
+    assert handler.supports_zone_status is False
+
+    # 6. MyHomeServer1
     handler.gateway.model_name = "MyHomeServer1"
     assert handler.supports_zone_status is True
 

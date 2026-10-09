@@ -6,7 +6,7 @@ Captured live on 2026-10-09 between 20:31:20 and 20:34:11 UTC. In MyHOME, physic
 ## Hardware & Plant Profile
 
 - **Gateway Model**: Legrand F455 (Basic Web Server / OpenWebNet IP Gateway)
-- **IP Address**: 192.168.1.136 (port 20000)
+- **IP Address**: 192.0.2.136 (port 20000)
 - **Model Name**: `F455` (WHO=1013 OBJECT_MODEL `8` / catalog 003594)
 - **Architecture**: Embedded hardware gateway bridging IP to physical SCS bus. Does not run the Server MyHOME_Up daemon.
 - **Plant Topology**:
