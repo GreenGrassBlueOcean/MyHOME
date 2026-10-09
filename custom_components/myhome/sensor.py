@@ -164,9 +164,6 @@ async def async_setup_entry(
 
         return accept
 
-    def entity_id_of(ctx: DeviceContext) -> str | None:
-        return ctx.registry_entry.entity_id if ctx.registry_entry is not None else None
-
     # ── WHO 18: energy meters ───────────────────────────────────────────
     def energy_registry_address(entry: er.RegistryEntry) -> Address | None:
         prefix = f"{gateway.mac}-18-"
@@ -223,7 +220,6 @@ async def async_setup_entry(
                 entity_specific_id=measurement, device_class=SensorDeviceClass.ENERGY,
                 manufacturer=None, model=None, gateway=gateway,
             )
-        sensor.entity_id = entity_id_of(ctx)  # type: ignore[assignment]
         return sensor
 
     def energy_known_keys(ctx: DeviceContext) -> list[str]:
@@ -289,7 +285,6 @@ async def async_setup_entry(
             # yaml-era ids are `{mac}-1-{where}-illuminance`; a rebuilt id would orphan
             # the registry entry and create a duplicate.
             sensor._attr_unique_id = ctx.registry_entry.unique_id
-        sensor.entity_id = entity_id_of(ctx)  # type: ignore[assignment]
         return sensor
 
     # ── WHO 4: temperature probes ───────────────────────────────────────
@@ -322,7 +317,6 @@ async def async_setup_entry(
             hass=hass, device_id=f"4-{primary}", who="4", where=primary, name=name,
             device_class=SensorDeviceClass.TEMPERATURE, manufacturer="BTicino", model="Temperature Probe", gateway=gateway,
         )
-        sensor.entity_id = entity_id_of(ctx)  # type: ignore[assignment]
         return sensor
 
     def known_keys(ctx: DeviceContext) -> list[str]:
