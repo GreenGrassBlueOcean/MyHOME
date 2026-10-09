@@ -193,7 +193,10 @@ async def test_async_setup_entry_temperature_illuminance_and_legacy_power(mock_h
             assert any(isinstance(s, MyHOMEIlluminanceSensor) for s in added)
             assert any(isinstance(s, MyHOMEPowerSensor) for s in added)
 
-            mock_platform.async_register_entity_service.assert_called_once()
+            assert mock_platform.async_register_entity_service.call_count == 2
+            registered = [call[0][0] for call in mock_platform.async_register_entity_service.call_args_list]
+            assert "start_sending_instant_power" in registered
+            assert "stop_sending_instant_power" in registered
     finally:
         entity_platform.current_platform.reset(platform_token)
 

@@ -44,6 +44,11 @@ from OWNd.message import (
     OWNLightingCommand,
     OWNLightingEvent,
 )
+
+try:
+    from OWNd.message import MESSAGE_TYPE_AUTO_UPDATE_INTERVAL
+except ImportError:  # pragma: no cover - fallback for OWNd < 2.0.0b11
+    MESSAGE_TYPE_AUTO_UPDATE_INTERVAL = "auto_update_interval"
 from voluptuous import (
     All,
     Coerce,
@@ -74,6 +79,7 @@ PARALLEL_UPDATES = 0
 SCAN_INTERVAL = timedelta(seconds=300)
 
 SERVICE_SEND_INSTANT_POWER = "start_sending_instant_power"
+SERVICE_STOP_SENDING_INSTANT_POWER = "stop_sending_instant_power"
 
 ATTR_DURATION = "duration"
 ATTR_DATE = "date"
@@ -144,8 +150,13 @@ async def async_setup_entry(
         if platform is not None:
             platform.async_register_entity_service(
                 SERVICE_SEND_INSTANT_POWER,
-                as_any({Optional(ATTR_DURATION): All(Coerce(int), Range(min=1, max=255))}),
+                as_any({Optional(ATTR_DURATION): All(Coerce(int), Range(min=0, max=255))}),
                 "start_sending_instant_power",
+            )
+            platform.async_register_entity_service(
+                SERVICE_STOP_SENDING_INSTANT_POWER,
+                {},
+                "async_stop_sending_instant_power",
             )
 
     discovery_for: dict[str, PlatformDiscovery] = {}
@@ -503,14 +514,48 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
             if str(self._where).startswith("7") and not str(self._where).endswith("#0")
             else str(self._where)
         )
-        cmd = OWNCommand.parse(f"*#18*{where}*1200##")
+        builder = getattr(OWNEnergyCommand, "get_instant_power", None) or getattr(
+            OWNEnergyCommand, "request_active_power", None
+        )
+        if builder is not None:
+            cmd = builder(where)
+        else:
+            cmd = OWNCommand.parse(f"*#18*{where}*113##")
         if cmd is not None:
             await self._gateway_handler.send_status_request(cmd)
 
     @callback
     def handle_event(self, message: OWNEnergyEvent) -> None:
         """Handle an event message."""
-        if message.message_type not in [MESSAGE_TYPE_ACTIVE_POWER]:
+        msg_type = getattr(message, "message_type", None)
+        dim = getattr(message, "dimension", None)
+
+        if msg_type in (MESSAGE_TYPE_AUTO_UPDATE_INTERVAL, "auto_update_interval") or dim == 1200:
+            interval = getattr(message, "update_interval", None)
+            if interval is None:
+                dim_vals = getattr(
+                    message,
+                    "dimension_values",
+                    getattr(message, "_dimension_value", []),
+                )
+                try:
+                    interval = int(dim_vals[0]) if dim_vals else 0
+                except (ValueError, IndexError):
+                    interval = 0
+
+            LOGGER.debug(
+                "%s %s (interval=%s)",
+                self._gateway_handler.log_id,
+                message.human_readable_log,
+                interval,
+            )
+            if interval > 0:
+                self._streaming_until = time.monotonic() + (interval * 60)
+            else:
+                self._streaming_until = 0.0
+            return None
+
+        if msg_type not in [MESSAGE_TYPE_ACTIVE_POWER]:
             return True  # type: ignore
 
         LOGGER.debug(
@@ -522,15 +567,39 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
         self._publish_state()
         return None
 
-    async def start_sending_instant_power(self, duration: int) -> None:
+    async def start_sending_instant_power(self, duration: int = 65) -> None:
         """Request automatic instant power."""
         if duration > 0:
             self._streaming_until = time.monotonic() + (duration * 60)
         else:
             self._streaming_until = 0.0
-        await self._gateway_handler.send(
-            OWNEnergyCommand.start_sending_instant_power(self._where, duration)
-        )
+        builder = getattr(OWNEnergyCommand, "start_sending_instant_power", None)
+        if builder is not None:
+            cmd = builder(self._where, duration)
+        else:
+            where = (
+                f"{self._where}#0"
+                if str(self._where).startswith("7") and not str(self._where).endswith("#0")
+                else str(self._where)
+            )
+            cmd = OWNCommand.parse(f"*#18*{where}*#1200#1*{duration}##")
+        if cmd is not None:
+            await self._gateway_handler.send(cmd)
+
+    async def async_stop_sending_instant_power(self) -> None:
+        """Stop automatic instant power streaming."""
+        builder = getattr(OWNEnergyCommand, "stop_sending_instant_power", None)
+        if builder is not None:
+            self._streaming_until = 0.0
+            cmd = builder(self._where)
+            if cmd is not None:
+                await self._gateway_handler.send(cmd)
+                return
+        await self.start_sending_instant_power(0)
+
+    async def stop_sending_instant_power(self) -> None:
+        """Alias for async_stop_sending_instant_power."""
+        await self.async_stop_sending_instant_power()
 
 
 class MyHOMEEnergySensor(MyHOMEEntity, SensorEntity):
