@@ -56,7 +56,7 @@ Understanding the technical differences between **Legacy Stable (v0.9.4)** and *
 | **CEN / CEN+ Scenarios** | Raw event listeners; required external blueprints | **8 native UI device triggers** with string-preserved addressing (`"0001"`), MAC isolation, Living Now wire-address tolerance |
 | **Diagnostics & Health** | Raw logs only | **Self-clearing HA Repair issues (`repairs.py`)**, native HA Diagnostics (`diagnostics.py`) with automatic redaction |
 | **Lovelace Frontend** | ❌ None | **Built-in `<myhome-openwebnet-bus-monitor>` card** with live streaming feed and syntax-validated frame injector |
-| **License** | **AGPL-3.0** (per repository `LICENSE`) | **AGPL-3.0** (transition to **Apache-2.0** tracked in PR #555 to align with Home Assistant Core) |
+| **License** | **AGPL-3.0** (per `master` repository [`LICENSE`](LICENSE)) | **Apache-2.0** (per published `2.0.0b15` release / [`LICENSE`](https://github.com/OpenWebNet-HA/MyHOME/blob/v2-phase1-architecture/LICENSE), aligning with Home Assistant Core) |
 
 ---
 
@@ -93,32 +93,43 @@ The modernization from legacy to V2 established an extensive automated testing a
 Open the **Terminal** in your Home Assistant sidebar and paste:
 
 ```bash
-cd /config/custom_components
-# Move any legacy in-place backup out of custom_components to prevent loader crashes:
-[ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old
+if cd /config/custom_components; then
+    # Move any legacy in-place backup out of custom_components to prevent loader crashes:
+    [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old
 
-# Download and extract into a temporary directory first to verify archive integrity:
-TMP_DIR=$(mktemp -d)
-if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && \
-   unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
-   [ -f "$TMP_DIR/myhome/manifest.json" ]; then
-    # Backup existing installation outside custom_components:
-    [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
-    # Replace installation safely:
-    rm -rf myhome
-    mv "$TMP_DIR/myhome" myhome
-    rm -rf "$TMP_DIR"
-    echo "Installation verified. Restarting Home Assistant..."
-    ha core restart
+    # Download and extract into a temporary directory first to verify archive integrity:
+    TMP_DIR=$(mktemp -d)
+    if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && \
+       unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
+       [ -f "$TMP_DIR/myhome/manifest.json" ]; then
+        BACKUP_OK=1
+        if [ -d myhome ]; then
+            rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup || BACKUP_OK=0
+        fi
+
+        if [ "$BACKUP_OK" -eq 1 ]; then
+            if rm -rf myhome && mv "$TMP_DIR/myhome" myhome; then
+                rm -rf "$TMP_DIR"
+                echo "Installation verified. Restarting Home Assistant..."
+                ha core restart
+            else
+                echo "Error: Replacement failed. Recovery files preserved in $TMP_DIR and /config/myhome_backup."
+            fi
+        else
+            echo "Error: Backup failed. Existing installation left intact. Recovery files preserved in $TMP_DIR."
+        fi
+    else
+        echo "Error: Download or extraction verification failed. Existing installation left intact."
+        rm -rf "$TMP_DIR"
+    fi
 else
-    echo "Error: Download or extraction verification failed. Existing installation left intact."
-    rm -rf "$TMP_DIR"
+    echo "Error: Failed to navigate to /config/custom_components. Directory does not exist."
 fi
 ```
 
 *(For **Home Assistant Container / Docker**, run on your Docker host:)*
 ```bash
-docker exec -it homeassistant bash -c 'cd /config/custom_components && [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old; TMP_DIR=$(mktemp -d) && if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && [ -f "$TMP_DIR/myhome/manifest.json" ]; then [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup; rm -rf myhome && mv "$TMP_DIR/myhome" myhome && rm -rf "$TMP_DIR"; echo "Installation verified."; else echo "Download or extraction verification failed; installation untouched."; rm -rf "$TMP_DIR"; exit 1; fi' && docker restart homeassistant
+docker exec -it homeassistant bash -c 'cd /config/custom_components || { echo "Error: /config/custom_components not found."; exit 1; }; [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old; TMP_DIR=$(mktemp -d); if ! wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip || ! unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" || [ ! -f "$TMP_DIR/myhome/manifest.json" ]; then echo "Error: Download or extraction verification failed. Existing installation left intact."; rm -rf "$TMP_DIR"; exit 1; fi; if [ -d myhome ]; then rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup || { echo "Error: Backup failed. Existing installation left intact. Recovery files preserved in $TMP_DIR."; exit 1; }; fi; if ! (rm -rf myhome && mv "$TMP_DIR/myhome" myhome); then echo "Error: Replacement failed. Recovery files preserved in $TMP_DIR and /config/myhome_backup."; exit 1; fi; rm -rf "$TMP_DIR" && echo "Installation verified. Restarting container..."' && docker restart homeassistant
 ```
 
 #### Method 2: Manual Installation (Archive / Samba)
@@ -146,20 +157,37 @@ If you prefer proven production stability or wish to wait for the final `v2.0.0`
 * **Via HACS (Default)**: Search for **MyHOME** in HACS and click **Download** (keep *Show beta versions* disabled). HACS will automatically install **v0.9.4**.
 * **Via Terminal & SSH**:
   ```bash
-  cd /config/custom_components
-  TMP_DIR=$(mktemp -d)
-  if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/0.9.4/myhome.zip && \
-     unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
-     [ -f "$TMP_DIR/myhome/manifest.json" ]; then
-      [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
-      rm -rf myhome
-      mv "$TMP_DIR/myhome" myhome
-      rm -rf "$TMP_DIR"
-      echo "Installation verified. Restarting Home Assistant..."
-      ha core restart
+  if cd /config/custom_components; then
+      # Move any legacy in-place backup out of custom_components to prevent loader crashes:
+      [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old
+
+      # Download and extract into a temporary directory first to verify archive integrity:
+      TMP_DIR=$(mktemp -d)
+      if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/0.9.4/myhome.zip && \
+         unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
+         [ -f "$TMP_DIR/myhome/manifest.json" ]; then
+          BACKUP_OK=1
+          if [ -d myhome ]; then
+              rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup || BACKUP_OK=0
+          fi
+
+          if [ "$BACKUP_OK" -eq 1 ]; then
+              if rm -rf myhome && mv "$TMP_DIR/myhome" myhome; then
+                  rm -rf "$TMP_DIR"
+                  echo "Installation verified. Restarting Home Assistant..."
+                  ha core restart
+              else
+                  echo "Error: Replacement failed. Recovery files preserved in $TMP_DIR and /config/myhome_backup."
+              fi
+          else
+              echo "Error: Backup failed. Existing installation left intact. Recovery files preserved in $TMP_DIR."
+          fi
+      else
+          echo "Error: Download or extraction verification failed. Existing installation left intact."
+          rm -rf "$TMP_DIR"
+      fi
   else
-      echo "Error: Download or extraction verification failed. Existing installation left intact."
-      rm -rf "$TMP_DIR"
+      echo "Error: Failed to navigate to /config/custom_components. Directory does not exist."
   fi
   ```
 * **Configuration Guide for v0.9.4**: Entity definitions on legacy 0.9.4 use manual YAML configuration. Refer to the [Legacy v0.9.4 Configuration Guide](https://github.com/anotherjulien/MyHOME/wiki/Configuration).
@@ -267,5 +295,5 @@ Special thanks to:
 
 ## 📄 License
 
-* **Current `master` & Stable Releases**: Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
-* **V2 Architecture Transition**: A transition to the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) (aligning with Home Assistant Core) is currently tracked in [PR #555](https://github.com/OpenWebNet-HA/MyHOME/pull/555) with contributor consents.
+* **Current `master` & Stable Releases (v0.9.4)**: Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+* **Modern Beta Releases (v2.0.0b15) & V2 Architecture**: Licensed under the [Apache License 2.0](https://github.com/OpenWebNet-HA/MyHOME/blob/v2-phase1-architecture/LICENSE) (aligning with Home Assistant Core).
