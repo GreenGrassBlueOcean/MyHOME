@@ -17,17 +17,63 @@ Modern, async-native Home Assistant integration for **BTicino / Legrand MyHOME**
 
 Maintained by the **[OpenWebNet-HA](https://github.com/OpenWebNet-HA)** community organisation.
 
-[📦 Quick Installation](#-installation) • [🏛️ Supported Hardware](#️-supported-hardware--gateways) • [🌟 Key Features](#-modern-v2-features) • [📚 Full Documentation](https://openwebnet-ha.github.io/MyHOME/beta/) • [💬 Discussions](https://github.com/OpenWebNet-HA/MyHOME/discussions) • [🗺️ Stable v2.0.0 PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)
+[⚖️ Version Comparison](#️-version-comparison-legacy-stable-vs-modern-beta) • [🧪 Testing & Reliability](#-testing--quality-comparison) • [📦 Installation](#-installation) • [🏛️ Supported Hardware](#️-supported-hardware--gateways) • [🌟 Key Features](#-modern-v2-features) • [📚 Full Documentation](https://openwebnet-ha.github.io/MyHOME/beta/) • [🗺️ Stable v2.0.0 PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)
 
 ---
 
 > [!IMPORTANT]
 > ### 🛡️ Current Stable Status vs. Active V2 Beta
 >
-> - **Current Stable Release ([v0.9.4](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4))**: The baseline release on `master` for users seeking production stability or running older Home Assistant cores (< 2026.3 / Python < 3.14). HACS installs this version by default when pre-releases are not enabled.
+> - **Current Stable Release ([v0.9.4](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4))**: The baseline release on `master` for users seeking production stability or running legacy Home Assistant versions (< 2026.3 / Python < 3.14). HACS installs this version by default when pre-releases are not enabled.
 > - **Active Field-Testing Beta ([v2.0.0b15](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15))**: Modernized async-native architecture, declarative gateway profiles, hardware timers, audio streaming proxy, central climate coordination, and 100% test coverage. Recommended for Home Assistant ≥ 2026.3.
 > - **Roadmap to Stable v2.0.0**: Once community field-testing on the beta line is concluded, **[PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)** will merge the V2 architecture directly into `master`, making it the official stable default for all users.
 > - **Zero-Friction Migration**: Upgrading to V2 safely preserves all existing device names, custom entity IDs (`light.living_room`), and gateway configurations. Unique IDs migrate automatically (`MAC-WHERE` → `MAC-WHO-WHERE`).
+
+---
+
+## ⚖️ Version Comparison: Legacy Stable vs. Modern Beta
+
+Understanding the technical differences between **Legacy Stable (v0.9.4)** and **Modern Beta (v2.0.0b15)**:
+
+| Feature / Architecture | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` on `v2-phase1-architecture`) |
+| :--- | :--- | :--- |
+| **Home Assistant Core** | Pre-2026.3 legacy cores (Python 3.11–3.13) | **Core ≥ 2026.3** (Python 3.14, async-native) |
+| **IoT Class** | `local_polling` | **`local_push`** (sub-millisecond bus telemetry push) |
+| **Protocol Engine** | `OWNd==0.7.48` | **`OWNd==2.0.0b11`** (strongly-typed PEP 561, HMAC-SHA256, protocol-aligned) |
+| **Quality Scale** | Unranked legacy structure | **🏆 Platinum Tier (54/54 rules satisfied/exempt)** |
+| **Type Safety** | Untyped | **100% `mypy --strict` compliance** across all 42 modules |
+| **State Storage** | Global `hass.data[DOMAIN]` dictionaries | Strongly-typed **`entry.runtime_data`** (`MyHOMERuntimeData`) |
+| **Device Discovery** | Requires manual YAML (`myhome.yaml`) | **Zero-config Dynamic Bus Auto-Discovery** (with optional YAML support) |
+| **Gateway Profiles** | Fixed, hardcoded socket pacing | **12 Declarative Profiles** (tuned workers, inter-frame delays & queue pacing) |
+| **Supported Transports** | TCP Network Gateways only | **TCP IP + USB/Serial (Legrand 3578 / OpenZigBee)** |
+| **Multi-Gateway Plants** | ❌ Single gateway only (cross-talk on multi-GW) | **Namespaced routing, plant isolation & warm-standby failover** |
+| **Command Queue** | FIFO queue (user commands blocked behind sweeps) | **Multi-tier Priority Queue** (user actions prioritized over polls) |
+| **Lighting (`WHO=1`)** | Basic On/Off relays & stepped dimming | **Hardware staircase bus timers**, smooth software fades, **DALI DT8 Tunable White (2000K–6535K)**, DALI feature locks, declared groups |
+| **Covers (`WHO=2`)** | Basic Open / Close / Stop | State tracking, position-reporting actuators, **interactive travel-time calibration engine**, centralized shutter buttons |
+| **Climate (`WHO=4`)** | Basic zone thermostats | **Central Unit 3550 (`#0`) & 4695 (`#0#1`) master coordination**, fancoil 3-speed modes, probe (`PZZ`) & pump (`0#N`) separation |
+| **Sound System (`WHO=16`)** | ❌ Not supported | **Full audio matrix (F441/F441M)**, multi-room grouping, **Dynamic Streaming Proxy** (Music Assistant / Spotify Connect), tuner entities (F500), anti-hiss auto-off |
+| **Burglar Alarm (`WHO=5`)** | ❌ Not supported | **Dedicated `alarm_control_panel`** (3485/3486 central units), partition states, broadcast sync |
+| **CEN / CEN+ Scenarios** | Raw event listeners; required external blueprints | **8 native UI device triggers** with string-preserved addressing (`"0001"`), MAC isolation, Living Now wire-address tolerance |
+| **Diagnostics & Health** | Raw logs only | **Self-clearing HA Repair issues (`repairs.py`)**, native HA Diagnostics (`diagnostics.py`) with automatic redaction |
+| **Lovelace Frontend** | ❌ None | **Built-in `<myhome-openwebnet-bus-monitor>` card** with live streaming feed and syntax-validated frame injector |
+| **License** | GPL-3.0-or-later | **Apache License 2.0** (aligned with Home Assistant Core) |
+
+---
+
+## 🧪 Testing & Quality Comparison
+
+The modernization from legacy to V2 established an enterprise-grade automated testing and verification foundation:
+
+| Testing Dimension | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` on `v2-phase1-architecture`) |
+| :--- | :--- | :--- |
+| **Automated Tests** | **0 tests** (no pytest suite or test files in repository) | **3,600+ automated unit & integration tests** |
+| **Statement Coverage** | **0%** tracked | **Strict 100.0% statement coverage** across all modules |
+| **Branch Coverage** | Untracked | Enforced via automated zero-tolerance coverage gates in CI |
+| **Trace Replay Engine** | ❌ None (testing required live physical hardware) | **Automated CI replay of authentic on-wire traces** from real European installations (F454, F455, F461, MH200, MH200N, MH201, MH202, MyHomeServer1, H4890, Living Now controls) |
+| **Golden Frame Corpus** | ❌ None | **OpenWebNet Golden Corpus** with hundreds of multi-authority calibrated frame test fixtures across 11 subsystems |
+| **Snapshot Testing** | ❌ None | **5 Syrupy snapshot suites** verifying diagnostics exports, entity registry schemas, and state trees |
+| **CI Automation** | 2 workflows (`hassfest`, basic `validate`) | **10 comprehensive CI workflows** (unit tests, coverage, type checking, Ruff linting, PyPI packaging, HA standards validator, anti-drift sentinel) |
+| **Anti-Drift Sentinels** | ❌ None | **Automated sentinel (`scripts/sync_documentation.py`)** guaranteeing documentation, tables, and code never diverge |
 
 ---
 
