@@ -21,7 +21,7 @@ blueprint:
         text:
     language:
       name: "Notification Language"
-      description: "Language for push notifications and action buttons (English, Italiano, Nederlands, Deutsch, Français)."
+      description: "Language for push notifications (English, Italiano, Nederlands, Deutsch, Français)."
       default: "en"
       selector:
         select:
@@ -111,7 +111,6 @@ variables:
       closed_msg: "The door/gate is now safely and fully closed."
       left_open_title: "⚠️ Alert: {{ cover_name }} is open!"
       left_open_msg: "The door/gate has been left open for more than {{ open_minutes }} minutes."
-      close_action: "🔒 Close Now"
     it:
       opening_title: "🚪 {{ cover_name }} si sta aprendo"
       opening_msg: "La porta/cancello è in movimento verso l'apertura."
@@ -121,7 +120,6 @@ variables:
       closed_msg: "La porta/cancello è ora completamente e sicuramente chiusa."
       left_open_title: "⚠️ Attenzione: {{ cover_name }} è aperta!"
       left_open_msg: "La porta/cancello è rimasta aperta per più di {{ open_minutes }} minuti."
-      close_action: "🔒 Chiudi ora"
     nl:
       opening_title: "🚪 {{ cover_name }} wordt geopend"
       opening_msg: "De deur/poort is in beweging richting open."
@@ -131,7 +129,6 @@ variables:
       closed_msg: "De deur/poort is nu veilig en volledig gesloten."
       left_open_title: "⚠️ Opgelet: {{ cover_name }} staat open!"
       left_open_msg: "De deur/poort staat al langer dan {{ open_minutes }} minuten open."
-      close_action: "🔒 Sluit Nu"
     de:
       opening_title: "🚪 {{ cover_name }} wird geöffnet"
       opening_msg: "Das Tor/die Tür öffnet sich."
@@ -141,7 +138,6 @@ variables:
       closed_msg: "Das Tor/die Tür ist jetzt sicher und vollständig geschlossen."
       left_open_title: "⚠️ Achtung: {{ cover_name }} ist offen!"
       left_open_msg: "Das Tor/die Tür steht seit mehr als {{ open_minutes }} Minuten offen."
-      close_action: "🔒 Jetzt schließen"
     fr:
       opening_title: "🚪 {{ cover_name }} est en cours d'ouverture"
       opening_msg: "La porte/le portail est en mouvement vers l'ouverture."
@@ -151,7 +147,6 @@ variables:
       closed_msg: "La porte/le portail est maintenant bien et totalement fermé."
       left_open_title: "⚠️ Attention: {{ cover_name }} est ouvert!"
       left_open_msg: "La porte/le portail est ouvert depuis plus de {{ open_minutes }} minutes."
-      close_action: "🔒 Fermer maintenant"
   dict: "{{ i18n[lang] if lang in i18n else i18n['en'] }}"
 
 action:
@@ -211,7 +206,3 @@ action:
               message: "{{ dict.left_open_msg }}"
               data:
                 tag: "myhome_door_left_open_{{ cover_entity }}"
-                actions:
-                  - action: "MYHOME_CLOSE_LEFT_OPEN_{{ cover_entity }}"
-                    title: "{{ dict.close_action }}"
-                    destructive: true
