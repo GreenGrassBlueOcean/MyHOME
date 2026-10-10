@@ -278,3 +278,61 @@ def test_determine_power_transition_routing_and_status_frames():
 def test_calculate_auto_off_delay(state_val, expected_delay):
     """Test delay computation across all media player states."""
     assert calculate_auto_off_delay(state_val) == expected_delay
+
+
+def test_is_dimension_1_volume_report_string_dimension():
+    """String dimension '1' (e.g. from JSON trace) must be recognized."""
+    msg = MagicMock(spec=[], dimension="1", volume=None, what=None, is_off=False)
+    assert is_dimension_1_volume_report(msg) is True
+
+    # Invalid dimension string
+    msg_inv = MagicMock(spec=[], dimension="not_an_int", volume=None, what=None, is_off=False)
+    assert is_dimension_1_volume_report(msg_inv) is False
+
+
+def test_is_volume_rocker_down_when_is_off_is_true():
+    """If a message has is_off=True, it cannot be considered a volume down rocker."""
+    msg = MagicMock()
+    msg.is_off = True
+    msg.what = 1101
+    assert is_volume_rocker_down(msg) is False
+
+
+def test_determine_power_transition_dimension_1_overrides_spurious_is_on():
+    """Even if a malformed/mocked frame carries is_on=True, dimension 1 takes precedence."""
+    msg = MagicMock(dimension=1, volume=10, is_on=True, is_off=False, is_source_event=False)
+    assert (
+        determine_power_transition(
+            msg,
+            current_state=MediaPlayerState.OFF,
+            is_parked=False,
+            is_wake_echo=False,
+        )
+        == PowerTransition.NO_CHANGE
+    )
+
+
+@pytest.mark.parametrize(
+    "what_val",
+    [1000, 1016, 1100, 1116, 2001, 2101, 5000, 5001, 6001, 9999],
+)
+def test_determine_power_transition_non_power_what_codes(what_val):
+    """Non-standard rocker or audio parameter WHAT codes never change power state."""
+    msg = MagicMock(
+        is_source_event=False,
+        is_on=False,
+        is_off=False,
+        what=what_val,
+        dimension=None,
+        volume=None,
+    )
+    assert (
+        determine_power_transition(
+            msg,
+            current_state=MediaPlayerState.OFF,
+            is_parked=False,
+            is_wake_echo=False,
+        )
+        == PowerTransition.NO_CHANGE
+    )
+

@@ -62,10 +62,10 @@ def is_volume_rocker_up(message: Any) -> bool:
     In BTicino systems, tapping volume-up on a wall control powers on an unpowered
     amplifier (#579).
     """
-    if getattr(message, "is_off", False):
+    if getattr(message, "is_off", False) is True:
         return False
     what = getattr(message, "what", getattr(message, "_what", None))
-    if what is None:
+    if not isinstance(what, (int, str)):
         return False
     try:
         val = int(what)
@@ -80,8 +80,10 @@ def is_volume_rocker_down(message: Any) -> bool:
     Frames *16*1101*WHERE## to *16*1115*WHERE## (step -1 to -15).
     Volume-down steps adjust the volume level but MUST NOT power on an amplifier.
     """
+    if getattr(message, "is_off", False) is True:
+        return False
     what = getattr(message, "what", getattr(message, "_what", None))
-    if what is None:
+    if not isinstance(what, (int, str)):
         return False
     try:
         val = int(what)
@@ -101,9 +103,14 @@ def is_dimension_1_volume_report(message: Any) -> bool:
     These reports MUST NEVER change the amplifier power state (#669).
     """
     dimension = getattr(message, "dimension", getattr(message, "_dimension", None))
-    if dimension == 1:
-        return True
-    if getattr(message, "volume", None) is not None and not is_volume_rocker_up(message):
+    if isinstance(dimension, (int, str)):
+        try:
+            if int(dimension) == 1:
+                return True
+        except (ValueError, TypeError):
+            pass
+    vol = getattr(message, "volume", None)
+    if isinstance(vol, (int, float, str)) and not is_volume_rocker_up(message):
         return True
     return False
 
@@ -117,26 +124,38 @@ def determine_power_transition(
     """Determine the power state transition for an incoming bus message.
 
     Rules:
-    1. Source device events (*16*3*10S##, *16*13*10S##) relate to external source
+    1. Dimension 1 volume status reports (*#16*WHERE*1*<vol>##, *#22*3#A#P*1*<vol>##)
+       report volume levels and must NEVER modify amplifier power state (#669, #682).
+    2. Volume-down rocker commands (*16*1101..1115*WHERE##) step volume down only
+       and must never wake an amplifier.
+    3. Source device events (*16*3*10S##, *16*13*10S##) relate to external source
        interfaces and never modify room amplifier power state.
-    2. Explicit OFF frames (*16*13*WHERE## / *16*10*WHERE##):
+    4. Explicit OFF frames (*16*13*WHERE## / *16*10*WHERE##):
        - If within the wake echo window: WAKE_ECHO_OFF (ignored).
        - If the zone is currently parked: PARKED_CONFIRM_OFF (physical confirmation,
          preserves group membership).
        - Otherwise: REAL_OFF (powers off, initiates coordinated teardown or handover).
-    3. Explicit ON frames (*16*3*WHERE## / *16*0*WHERE##):
+    5. Explicit ON frames (*16*3*WHERE## / *16*0*WHERE##):
        - WAKE_ON (sets state ON, cancels pending off, triggers auto-join).
-    4. Physical volume-up rocker commands (*16*1001*WHERE## .. *16*1015*WHERE##):
+    6. Physical volume-up rocker commands (*16*1001*WHERE## .. *16*1015*WHERE##):
        - WAKE_ON (wakes an unpowered or parked amplifier, triggers auto-join).
-    5. All other frames — including Dimension 1 volume status reports, matrix routing
-       frames (*16*3*1ES##), Dimension 5 status responses, and volume-down commands:
+    7. All other frames — including matrix routing frames (*16*3*1ES##), Dimension 5
+       status responses, and unrecognised frames:
        - NO_CHANGE (must NEVER turn an off amplifier on).
     """
-    # 1. Source device events never affect amplifier zone power
+    # 1. Dimension 1 volume status reports never alter power state (#669, #682)
+    if is_dimension_1_volume_report(message):
+        return PowerTransition.NO_CHANGE
+
+    # 2. Volume-down rocker commands step volume only and must never wake an amplifier
+    if is_volume_rocker_down(message):
+        return PowerTransition.NO_CHANGE
+
+    # 3. Source device events never affect amplifier zone power
     if getattr(message, "is_source_event", False):
         return PowerTransition.NO_CHANGE
 
-    # 2. Explicit OFF frames
+    # 4. Explicit OFF frames
     if getattr(message, "is_off", False):
         if is_wake_echo:
             return PowerTransition.WAKE_ECHO_OFF
@@ -144,15 +163,15 @@ def determine_power_transition(
             return PowerTransition.PARKED_CONFIRM_OFF
         return PowerTransition.REAL_OFF
 
-    # 3. Explicit ON frames
+    # 5. Explicit ON frames
     if getattr(message, "is_on", False):
         return PowerTransition.WAKE_ON
 
-    # 4. Physical volume-up rocker command wakes amplifier
+    # 6. Physical volume-up rocker command wakes amplifier
     if is_volume_rocker_up(message):
         return PowerTransition.WAKE_ON
 
-    # 5. Non-power frames (volume reports, routing, status queries)
+    # 7. Non-power frames (routing, status queries, high/low tones, etc.)
     return PowerTransition.NO_CHANGE
 
 

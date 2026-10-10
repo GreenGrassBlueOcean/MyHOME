@@ -210,3 +210,65 @@ async def test_mh202_trace_full_dispatcher_pipeline(hass, mock_gateway):
     # Zone 41 stayed off, restored to volume 6
     assert zone41.state == MediaPlayerState.OFF
     assert zone41.volume_level == pytest.approx(6 / 31.0)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_intercom_ducking_during_wake_pending_window(hass, mock_gateway):
+    """Intercom call arrives while an amplifier is in the middle of a wake-up sequence.
+
+    Tests the critical edge case where an unpowered amplifier receives a turn_on command
+    (initiating wake sequence and arming the 3.0s wake-echo window), and during this window
+    an intercom ducking frame (*#16*41*1*1##) arrives, followed by the wake echo OFF
+    (*16*13*41##), the wake ON (*16*3*41##), and finally intercom restoration (*#16*41*1*6##).
+
+    Expected:
+    1. Ducking adjusts volume without aborting the wake sequence.
+    2. Echo OFF is ignored as self-echo within the wake window.
+    3. Wake ON confirms amplifier is active.
+    4. Intercom restoration updates volume to 6/31.0 and amplifier remains ON.
+    """
+    import time
+
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(hass, {"media_player.streamer": 2})
+    runtime.decoder_pool = pool
+
+    base_options = {
+        CONF_SOURCE_NAME.format(2): "Cambridge",
+        CONF_SOURCE_DEFAULTS: {"4": 2},
+    }
+    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+
+    zone = _create_test_zone(hass, mock_gateway, runtime, "41", "media_player.zone_41")
+    zone._options = lambda: dict(base_options)
+    zone._gateway_handler.config_entry.options = dict(base_options)
+    zone._attr_state = MediaPlayerState.OFF
+
+    # Simulate wake sequence initiation
+    zone._wake_off_sent_at = time.monotonic()
+    zone._attr_state = MediaPlayerState.ON
+    assert zone._is_wake_echo() is True
+
+    # 1. Door entry ducking arrives during wake echo window
+    duck_frame = OWNSoundEvent.parse("*#16*41*1*1##")
+    zone.handle_event(duck_frame)
+    assert zone.state == MediaPlayerState.ON
+    assert zone.volume_level == pytest.approx(1 / 31.0)
+
+    # 2. Gateway echoes the wake sequence's initial OFF frame
+    echo_off = OWNSoundEvent.parse("*16*13*41##")
+    zone.handle_event(echo_off)
+    # Must NOT turn off the amplifier
+    assert zone.state == MediaPlayerState.ON
+
+    # 3. Gateway confirms wake sequence ON frame
+    wake_on = OWNSoundEvent.parse("*16*3*41##")
+    zone.handle_event(wake_on)
+    assert zone.state == MediaPlayerState.ON
+
+    # 4. Intercom call ends and restoration frame arrives
+    restore_frame = OWNSoundEvent.parse("*#16*41*1*6##")
+    zone.handle_event(restore_frame)
+    assert zone.state == MediaPlayerState.ON
+    assert zone.volume_level == pytest.approx(6 / 31.0)
+
