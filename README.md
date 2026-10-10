@@ -6,12 +6,12 @@
 [![HACS Validation](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/validate.yml/badge.svg)](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/validate.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
-[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Platinum%20(54%2F54)-brightgreen.svg)](https://openwebnet-ha.github.io/MyHOME/beta/)
-[![Tests](https://img.shields.io/badge/tests-3%2C600%2B%20passing-brightgreen.svg)](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/test-coverage.yaml)
+[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Platinum%20(54%2F54%20Self--Assessed)-brightgreen.svg)](https://openwebnet-ha.github.io/MyHOME/beta/)
+[![Tests](https://img.shields.io/badge/tests-3%2C464%20passing-brightgreen.svg)](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/test-coverage.yaml)
 [![Coverage](https://img.shields.io/badge/coverage-100.0%25-brightgreen.svg)](https://app.codecov.io/gh/OpenWebNet-HA/MyHOME/tree/v2-phase1-architecture)
 [![Documentation](https://img.shields.io/badge/Docs-openwebnet--ha.github.io%2FMyHOME-blue.svg)](https://openwebnet-ha.github.io/MyHOME/beta/)
 [![Discussions](https://img.shields.io/badge/Discussions-Join-blue?logo=github)](https://github.com/OpenWebNet-HA/MyHOME/discussions)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/OpenWebNet-HA/MyHOME/blob/v2-phase1-architecture/LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 
 Modern, async-native Home Assistant integration for **BTicino / Legrand MyHOME** SCS bus systems connected via OpenWebNet IP & Serial gateways.
 
@@ -24,8 +24,8 @@ Maintained by the **[OpenWebNet-HA](https://github.com/OpenWebNet-HA)** communit
 > [!IMPORTANT]
 > ### 🛡️ Current Stable Status vs. Active V2 Beta
 >
-> - **Current Stable Release ([v0.9.4](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4))**: The baseline release on `master` for users seeking production stability or running legacy Home Assistant versions (< 2026.3 / Python < 3.14). HACS installs this version by default when pre-releases are not enabled.
-> - **Active Field-Testing Beta ([v2.0.0b15](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15))**: Modernized async-native architecture, declarative gateway profiles, hardware timers, audio streaming proxy, central climate coordination, and 100% test coverage. Recommended for Home Assistant ≥ 2026.3.
+> - **Current Stable Release ([v0.9.4](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4))**: The baseline release on `master` for users seeking proven production stability. Fully compatible with Home Assistant 2026.9 and earlier. HACS installs this version by default when pre-releases are not enabled.
+> - **Active Field-Testing Beta ([v2.0.0b15](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15))**: Modernized async-native architecture, declarative gateway profiles, hardware timers, audio streaming proxy, central climate coordination, and 100% test statement coverage (3,464 tests in release). Built for Home Assistant ≥ 2026.3 (Python 3.14).
 > - **Roadmap to Stable v2.0.0**: Once community field-testing on the beta line is concluded, **[PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)** will merge the V2 architecture directly into `master`, making it the official stable default for all users.
 > - **Zero-Friction Migration**: Upgrading to V2 safely preserves all existing device names, custom entity IDs (`light.living_room`), and gateway configurations. Unique IDs migrate automatically (`MAC-WHERE` → `MAC-WHO-WHERE`).
 
@@ -35,12 +35,12 @@ Maintained by the **[OpenWebNet-HA](https://github.com/OpenWebNet-HA)** communit
 
 Understanding the technical differences between **Legacy Stable (v0.9.4)** and **Modern Beta (v2.0.0b15)**:
 
-| Feature / Architecture | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` on `v2-phase1-architecture`) |
+| Feature / Architecture | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` published release / `v2-phase1-architecture` dev branch) |
 | :--- | :--- | :--- |
-| **Home Assistant Core** | Pre-2026.3 legacy cores (Python 3.11–3.13) | **Core ≥ 2026.3** (Python 3.14, async-native) |
-| **IoT Class** | `local_polling` | **`local_push`** (sub-millisecond bus telemetry push) |
-| **Protocol Engine** | `OWNd==0.7.48` | **`OWNd==2.0.0b11`** (strongly-typed PEP 561, HMAC-SHA256, protocol-aligned) |
-| **Quality Scale** | Unranked legacy structure | **🏆 Platinum Tier (54/54 rules satisfied/exempt)** |
+| **Home Assistant Core** | Compatible with HA 2026.9 and earlier | **Core ≥ 2026.3** (leveraging modern Python 3.14 async-native architecture) |
+| **IoT Class** | `local_polling` | **`local_push`** (real-time bus event stream push) |
+| **Protocol Engine** | `OWNd==0.7.48` | **`OWNd==2.0.0b10`** (`v2.0.0b15` release; `2.0.0b11+` in development branch; typed PEP 561, HMAC-SHA256) |
+| **Quality Scale** | Unranked legacy structure | **🏆 Platinum Tier (54/54 self-assessed rules satisfied/exempt in `quality_scale.yaml`)** — formal tier awarded upon upstream core review |
 | **Type Safety** | Untyped | **100% `mypy --strict` compliance** across all 42 modules |
 | **State Storage** | Global `hass.data[DOMAIN]` dictionaries | Strongly-typed **`entry.runtime_data`** (`MyHOMERuntimeData`) |
 | **Device Discovery** | Requires manual YAML (`myhome.yaml`) | **Zero-config Dynamic Bus Auto-Discovery** (with optional YAML support) |
@@ -56,24 +56,24 @@ Understanding the technical differences between **Legacy Stable (v0.9.4)** and *
 | **CEN / CEN+ Scenarios** | Raw event listeners; required external blueprints | **8 native UI device triggers** with string-preserved addressing (`"0001"`), MAC isolation, Living Now wire-address tolerance |
 | **Diagnostics & Health** | Raw logs only | **Self-clearing HA Repair issues (`repairs.py`)**, native HA Diagnostics (`diagnostics.py`) with automatic redaction |
 | **Lovelace Frontend** | ❌ None | **Built-in `<myhome-openwebnet-bus-monitor>` card** with live streaming feed and syntax-validated frame injector |
-| **License** | GPL-3.0-or-later | **Apache License 2.0** (aligned with Home Assistant Core) |
+| **License** | **AGPL-3.0** (per repository `LICENSE`) | **AGPL-3.0** (transition to **Apache-2.0** tracked in PR #555 to align with Home Assistant Core) |
 
 ---
 
 ## 🧪 Testing & Quality Comparison
 
-The modernization from legacy to V2 established an enterprise-grade automated testing and verification foundation:
+The modernization from legacy to V2 established an extensive automated testing and verification foundation (real-world validation across diverse physical gateways remains an ongoing community effort):
 
-| Testing Dimension | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` on `v2-phase1-architecture`) |
+| Testing Dimension | Legacy Stable (`v0.9.4` on `master`) | Modern Beta (`v2.0.0b15` published release / `v2-phase1-architecture` dev branch) |
 | :--- | :--- | :--- |
-| **Automated Tests** | **0 tests** (no pytest suite or test files in repository) | **3,600+ automated unit & integration tests** |
+| **Automated Tests** | **0 tests** (no pytest suite or test files in repository) | **3,464 automated tests** in `v2.0.0b15` (3,600+ on active development branch) |
 | **Statement Coverage** | **0%** tracked | **Strict 100.0% statement coverage** across all modules |
 | **Branch Coverage** | Untracked | Enforced via automated zero-tolerance coverage gates in CI |
 | **Trace Replay Engine** | ❌ None (testing required live physical hardware) | **Automated CI replay of authentic on-wire traces** from real European installations (F454, F455, F461, MH200, MH200N, MH201, MH202, MyHomeServer1, H4890, Living Now controls) |
 | **Golden Frame Corpus** | ❌ None | **OpenWebNet Golden Corpus** with hundreds of multi-authority calibrated frame test fixtures across 11 subsystems |
 | **Snapshot Testing** | ❌ None | **5 Syrupy snapshot suites** verifying diagnostics exports, entity registry schemas, and state trees |
 | **CI Automation** | 2 workflows (`hassfest`, basic `validate`) | **10 comprehensive CI workflows** (unit tests, coverage, type checking, Ruff linting, PyPI packaging, HA standards validator, anti-drift sentinel) |
-| **Anti-Drift Sentinels** | ❌ None | **Automated sentinel (`scripts/sync_documentation.py`)** guaranteeing documentation, tables, and code never diverge |
+| **Anti-Drift Sentinels** | ❌ None | **Automated sentinel (`scripts/sync_documentation.py`)** continuously validating documentation, tables, and code alignment |
 
 ---
 
@@ -86,9 +86,9 @@ The modernization from legacy to V2 established an enterprise-grade automated te
 ### 🚀 Installing the Active Beta (v2.0.0b15 — Recommended for HA ≥ 2026.3)
 
 > [!TIP]
-> **Recommended Beta Install Method**: In **HACS 2.0+**, pre-release toggle switches can get stuck in an *"unavailable"* loop due to upstream registry caching, or show validation warnings before PR #232 merges. Using **Method 1 (Terminal & SSH)** below takes less than 10 seconds, is 100% reliable, and completely preserves your configuration and entity IDs.
+> **Recommended Beta Install Method**: In **HACS 2.0+**, pre-release toggle switches can get stuck in an *"unavailable"* loop due to upstream registry caching, or show validation warnings before PR #232 merges. Using **Method 1 (Terminal & SSH)** below provides a direct, verified installation that safely preserves your configuration and entity IDs.
 
-#### Method 1: One-Liner via Terminal & SSH Add-on (⭐ Recommended)
+#### Method 1: Verified Script via Terminal & SSH Add-on (⭐ Recommended)
 
 Open the **Terminal** in your Home Assistant sidebar and paste:
 
@@ -96,20 +96,29 @@ Open the **Terminal** in your Home Assistant sidebar and paste:
 cd /config/custom_components
 # Move any legacy in-place backup out of custom_components to prevent loader crashes:
 [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old
-# Create a safety backup in /config (outside custom_components) before updating:
-[ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
-# Download and install the latest v2.0.0b15 release:
-rm -rf myhome
-wget -O myhome_beta.zip https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip
-unzip -q myhome_beta.zip -d myhome
-rm myhome_beta.zip
-ha core restart
+
+# Download and extract into a temporary directory first to verify archive integrity:
+TMP_DIR=$(mktemp -d)
+if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && \
+   unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
+   [ -f "$TMP_DIR/myhome/manifest.json" ]; then
+    # Backup existing installation outside custom_components:
+    [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
+    # Replace installation safely:
+    rm -rf myhome
+    mv "$TMP_DIR/myhome" myhome
+    rm -rf "$TMP_DIR"
+    echo "Installation verified. Restarting Home Assistant..."
+    ha core restart
+else
+    echo "Error: Download or extraction verification failed. Existing installation left intact."
+    rm -rf "$TMP_DIR"
+fi
 ```
 
 *(For **Home Assistant Container / Docker**, run on your Docker host:)*
 ```bash
-docker exec -it homeassistant bash -c 'cd /config/custom_components && [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old; [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup; rm -rf myhome && wget -O myhome_beta.zip https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && unzip -q myhome_beta.zip -d myhome && rm myhome_beta.zip'
-docker restart homeassistant
+docker exec -it homeassistant bash -c 'cd /config/custom_components && [ -d myhome.backup ] && mv myhome.backup /config/myhome_backup_old; TMP_DIR=$(mktemp -d) && if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip && unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && [ -f "$TMP_DIR/myhome/manifest.json" ]; then [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup; rm -rf myhome && mv "$TMP_DIR/myhome" myhome && rm -rf "$TMP_DIR"; echo "Installation verified."; else echo "Download or extraction verification failed; installation untouched."; rm -rf "$TMP_DIR"; exit 1; fi' && docker restart homeassistant
 ```
 
 #### Method 2: Manual Installation (Archive / Samba)
@@ -132,18 +141,26 @@ docker restart homeassistant
 
 ### 🛡️ Installing or Staying on Current Stable (v0.9.4)
 
-If you prefer production stability, wish to wait for the final `v2.0.0` stable merge, or run Home Assistant older than 2026.3:
+If you prefer proven production stability or wish to wait for the final `v2.0.0` stable merge:
 
 * **Via HACS (Default)**: Search for **MyHOME** in HACS and click **Download** (keep *Show beta versions* disabled). HACS will automatically install **v0.9.4**.
 * **Via Terminal & SSH**:
   ```bash
   cd /config/custom_components
-  [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
-  rm -rf myhome
-  wget -O myhome_stable.zip https://github.com/OpenWebNet-HA/MyHOME/releases/download/0.9.4/myhome.zip
-  unzip -q myhome_stable.zip -d myhome
-  rm myhome_stable.zip
-  ha core restart
+  TMP_DIR=$(mktemp -d)
+  if wget -O "$TMP_DIR/myhome.zip" https://github.com/OpenWebNet-HA/MyHOME/releases/download/0.9.4/myhome.zip && \
+     unzip -q "$TMP_DIR/myhome.zip" -d "$TMP_DIR/myhome" && \
+     [ -f "$TMP_DIR/myhome/manifest.json" ]; then
+      [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
+      rm -rf myhome
+      mv "$TMP_DIR/myhome" myhome
+      rm -rf "$TMP_DIR"
+      echo "Installation verified. Restarting Home Assistant..."
+      ha core restart
+  else
+      echo "Error: Download or extraction verification failed. Existing installation left intact."
+      rm -rf "$TMP_DIR"
+  fi
   ```
 * **Configuration Guide for v0.9.4**: Entity definitions on legacy 0.9.4 use manual YAML configuration. Refer to the [Legacy v0.9.4 Configuration Guide](https://github.com/anotherjulien/MyHOME/wiki/Configuration).
 
@@ -250,4 +267,5 @@ Special thanks to:
 
 ## 📄 License
 
-Licensed under the [Apache License 2.0](https://github.com/OpenWebNet-HA/MyHOME/blob/v2-phase1-architecture/LICENSE), the same license as Home Assistant Core.
+* **Current `master` & Stable Releases**: Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+* **V2 Architecture Transition**: A transition to the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) (aligning with Home Assistant Core) is currently tracked in [PR #555](https://github.com/OpenWebNet-HA/MyHOME/pull/555) with contributor consents.
