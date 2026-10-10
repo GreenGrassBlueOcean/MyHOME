@@ -503,7 +503,11 @@ class AccessController:
             LOGGER.info("%s: request denied on the phone", self._name)
             return
         if self.config.pin_code is not None:
-            reply = event.data.get("reply_text", event.data.get("textInput"))
+            reply = event.data.get("reply_text")
+            if reply is None:
+                reply = event.data.get("textInput")
+            if reply is None:
+                reply = event.data.get("reply")
             if reply is None:
                 # The app returned no text at all (no input shown, or a client that
                 # ignores `behavior: textInput`): nothing was guessed, so it is no failed
