@@ -954,7 +954,6 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
         else:
             transition = determine_power_transition(
                 message=message,
-                current_state=self._attr_state,
                 is_parked=self._parked,
                 is_wake_echo=self._is_wake_echo(),
             )

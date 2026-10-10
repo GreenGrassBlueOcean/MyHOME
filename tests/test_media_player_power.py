@@ -105,7 +105,6 @@ def test_determine_power_transition_source_events():
     msg = MagicMock(is_source_event=True, is_on=True, is_off=False)
     transition = determine_power_transition(
         message=msg,
-        current_state=MediaPlayerState.OFF,
         is_parked=False,
         is_wake_echo=False,
     )
@@ -120,7 +119,6 @@ def test_determine_power_transition_off_frames():
     assert (
         determine_power_transition(
             off_msg,
-            current_state=MediaPlayerState.ON,
             is_parked=False,
             is_wake_echo=True,
         )
@@ -131,7 +129,6 @@ def test_determine_power_transition_off_frames():
     assert (
         determine_power_transition(
             off_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=True,
             is_wake_echo=False,
         )
@@ -142,7 +139,6 @@ def test_determine_power_transition_off_frames():
     assert (
         determine_power_transition(
             off_msg,
-            current_state=MediaPlayerState.ON,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -156,7 +152,6 @@ def test_determine_power_transition_on_frames():
     assert (
         determine_power_transition(
             on_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -175,7 +170,6 @@ def test_determine_power_transition_rocker_up():
     assert (
         determine_power_transition(
             rocker_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -190,7 +184,6 @@ def test_determine_power_transition_dimension_1_volume_report_never_wakes():
     assert (
         determine_power_transition(
             duck_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -202,7 +195,6 @@ def test_determine_power_transition_dimension_1_volume_report_never_wakes():
     assert (
         determine_power_transition(
             restore_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -213,7 +205,6 @@ def test_determine_power_transition_dimension_1_volume_report_never_wakes():
     assert (
         determine_power_transition(
             restore_msg,
-            current_state=MediaPlayerState.ON,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -222,10 +213,30 @@ def test_determine_power_transition_dimension_1_volume_report_never_wakes():
 
 
 def test_is_dimension_1_volume_report_fallback():
-    """Verify fallback where dimension is unset but volume is present."""
-    msg = MagicMock(spec=[], volume=10, what=None)
+    """Verify fallback where dimension is unset but scalar volume is present."""
+    # When dimension is None and not on/off or rocker, scalar volume is treated as volume report
+    msg = MagicMock(spec=[], dimension=None, volume=10, what=None, is_off=False, is_on=False)
     assert is_dimension_1_volume_report(msg) is True
 
+    # If dimension is explicitly something else (e.g. 5, 2, 8), presence of volume does NOT make it Dim 1
+    msg_other_dim = MagicMock(spec=[], dimension=5, volume=10, what=None, is_off=False, is_on=False)
+    assert is_dimension_1_volume_report(msg_other_dim) is False
+
+    # String non-1 dimension does NOT trigger fallback
+    msg_other_dim_str = MagicMock(spec=[], dimension="5", volume=10, what=None, is_off=False, is_on=False)
+    assert is_dimension_1_volume_report(msg_other_dim_str) is False
+
+    # If dimension is None, but message is explicitly ON or OFF, fallback does not match
+    msg_on = MagicMock(spec=[], dimension=None, volume=10, what=None, is_on=True, is_off=False)
+    assert is_dimension_1_volume_report(msg_on) is False
+    msg_off = MagicMock(spec=[], dimension=None, volume=10, what=None, is_on=False, is_off=True)
+    assert is_dimension_1_volume_report(msg_off) is False
+
+    # If dimension is None, but message is a rocker command, fallback does not match
+    msg_rocker_up = MagicMock(spec=[], dimension=None, volume=10, what=1001, is_on=False, is_off=False)
+    assert is_dimension_1_volume_report(msg_rocker_up) is False
+    msg_rocker_down = MagicMock(spec=[], dimension=None, volume=10, what=1101, is_on=False, is_off=False)
+    assert is_dimension_1_volume_report(msg_rocker_down) is False
 
 
 def test_determine_power_transition_routing_and_status_frames():
@@ -235,7 +246,6 @@ def test_determine_power_transition_routing_and_status_frames():
     assert (
         determine_power_transition(
             vol_down,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -247,7 +257,6 @@ def test_determine_power_transition_routing_and_status_frames():
     assert (
         determine_power_transition(
             status_msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -304,7 +313,6 @@ def test_determine_power_transition_dimension_1_overrides_spurious_is_on():
     assert (
         determine_power_transition(
             msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )
@@ -329,7 +337,6 @@ def test_determine_power_transition_non_power_what_codes(what_val):
     assert (
         determine_power_transition(
             msg,
-            current_state=MediaPlayerState.OFF,
             is_parked=False,
             is_wake_echo=False,
         )

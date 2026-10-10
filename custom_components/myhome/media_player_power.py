@@ -100,24 +100,34 @@ def is_dimension_1_volume_report(message: Any) -> bool:
     BTicino amplifiers retain their configured volume in hardware registers even
     when turned OFF. During video intercom door entry calls, the matrix broadcasts
     hardware audio ducking and volume restoration frames for all zones in the house.
-    These reports MUST NEVER change the amplifier power state (#669).
+    These reports MUST NEVER change the amplifier power state (#669, #682).
     """
     dimension = getattr(message, "dimension", getattr(message, "_dimension", None))
     if isinstance(dimension, (int, str)):
         try:
-            if int(dimension) == 1:
-                return True
+            return int(dimension) == 1
         except (ValueError, TypeError):
-            pass
+            return False
+
+    # Fallback for synthetic test fixtures / partial mock events where `volume`
+    # is populated on an event object that omits the dimension attribute.
+    # To guard against suppressing legitimate transitions on future event models:
+    # 1. Do not match if the message explicitly signals ON or OFF.
+    # 2. Do not match if it is a volume rocker command.
     vol = getattr(message, "volume", None)
-    if isinstance(vol, (int, float, str)) and not is_volume_rocker_up(message):
+    if (
+        isinstance(vol, (int, float, str))
+        and not getattr(message, "is_on", False)
+        and not getattr(message, "is_off", False)
+        and not is_volume_rocker_up(message)
+        and not is_volume_rocker_down(message)
+    ):
         return True
     return False
 
 
 def determine_power_transition(
     message: Any,
-    current_state: MediaPlayerState | None,
     is_parked: bool,
     is_wake_echo: bool,
 ) -> PowerTransition:
