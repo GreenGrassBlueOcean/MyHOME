@@ -1,6 +1,7 @@
 # MyHOME — OpenWebNet Integration for Home Assistant
 
-[![Latest Release](https://img.shields.io/github/v/release/OpenWebNet-HA/MyHOME?include_prereleases&label=release&logo=github)](https://github.com/OpenWebNet-HA/MyHOME/releases)
+[![Current Stable](https://img.shields.io/badge/stable-v0.9.4-blue.svg)](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4)
+[![Active Beta](https://img.shields.io/badge/beta-v2.0.0b15-orange.svg)](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15)
 [![Validate with hassfest](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/hassfest.yml/badge.svg)](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/hassfest.yml)
 [![HACS Validation](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/validate.yml/badge.svg)](https://github.com/OpenWebNet-HA/MyHOME/actions/workflows/validate.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
@@ -16,32 +17,32 @@ Modern, async-native Home Assistant integration for **BTicino / Legrand MyHOME**
 
 Maintained by the **[OpenWebNet-HA](https://github.com/OpenWebNet-HA)** community organisation.
 
-[📦 Quick Installation](#-quick-installation-v200b15-beta) • [🏛️ Supported Hardware](#️-supported-hardware--gateways) • [🌟 Key Features](#-modern-v2-features) • [📚 Full Documentation](https://openwebnet-ha.github.io/MyHOME/beta/) • [💬 Discussions](https://github.com/OpenWebNet-HA/MyHOME/discussions) • [🗺️ V2 Roadmap & PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)
+[📦 Quick Installation](#-installation) • [🏛️ Supported Hardware](#️-supported-hardware--gateways) • [🌟 Key Features](#-modern-v2-features) • [📚 Full Documentation](https://openwebnet-ha.github.io/MyHOME/beta/) • [💬 Discussions](https://github.com/OpenWebNet-HA/MyHOME/discussions) • [🗺️ Stable v2.0.0 PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)
 
 ---
 
 > [!IMPORTANT]
-> ### 🚀 Active Field-Testing Beta: v2.0.0b15
+> ### 🛡️ Current Stable Status vs. Active V2 Beta
 >
-> The integration is currently in active field testing across the community as **[v2.0.0b15](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15)** before being merged into `master` for the official stable `v2.0.0` release ([PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)).
->
-> - **Core Requirement**: Requires **Home Assistant 2026.3 or newer** (Python 3.14). Older cores remain on legacy releases.
-> - **Zero-Friction Upgrade**: Upgrading safely preserves all existing device names, custom entity IDs (`light.living_room`), and gateway configurations. Unique IDs migrate automatically (`MAC-WHERE` → `MAC-WHO-WHERE`).
-> - **100% Statement Coverage**: Backed by **3,600+ automated unit & trace-replay tests** verified against authentic on-wire captures from physical installations across Europe.
-> - **Get Started Today**: Follow the [10-second Quick Installation](#-quick-installation-v200b15-beta) below to install or update.
+> - **Current Stable Release ([v0.9.4](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/0.9.4))**: The baseline release on `master` for users seeking production stability or running older Home Assistant cores (< 2026.3 / Python < 3.14). HACS installs this version by default when pre-releases are not enabled.
+> - **Active Field-Testing Beta ([v2.0.0b15](https://github.com/OpenWebNet-HA/MyHOME/releases/tag/2.0.0b15))**: Modernized async-native architecture, declarative gateway profiles, hardware timers, audio streaming proxy, central climate coordination, and 100% test coverage. Recommended for Home Assistant ≥ 2026.3.
+> - **Roadmap to Stable v2.0.0**: Once community field-testing on the beta line is concluded, **[PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)** will merge the V2 architecture directly into `master`, making it the official stable default for all users.
+> - **Zero-Friction Migration**: Upgrading to V2 safely preserves all existing device names, custom entity IDs (`light.living_room`), and gateway configurations. Unique IDs migrate automatically (`MAC-WHERE` → `MAC-WHO-WHERE`).
 
 ---
 
-## 📦 Quick Installation (v2.0.0b15 Beta)
-
-> [!TIP]
-> **Recommended Install Method**: In **HACS 2.0+**, pre-release toggle switches can get stuck in an *"unavailable"* loop due to upstream registry caching, or show validation warnings before PR #232 merges. Using **Method 1 (Terminal & SSH)** below takes less than 10 seconds, is 100% reliable, and completely preserves your configuration and entity IDs.
+## 📦 Installation
 
 > [!CAUTION]
 > **⚠️ Never store backup copies inside `/config/custom_components/` (e.g. `myhome.backup`)!**  
-> Home Assistant automatically discovers **all** subdirectories containing `manifest.json` under `custom_components`. Backups inside this folder cause startup crashes (`Unable to import component: No module named 'custom_components.myhome.backup'`). Keep backups **outside** in `/config/myhome_backup/`.
+> Home Assistant automatically discovers **all** subdirectories containing `manifest.json` under `custom_components`. Backups inside this folder cause startup crashes (`Unable to import component: No module named 'custom_components.myhome.backup'`). Always keep backups **outside** in `/config/myhome_backup/`.
 
-### Method 1: One-Liner via Terminal & SSH Add-on (⭐ Recommended)
+### 🚀 Installing the Active Beta (v2.0.0b15 — Recommended for HA ≥ 2026.3)
+
+> [!TIP]
+> **Recommended Beta Install Method**: In **HACS 2.0+**, pre-release toggle switches can get stuck in an *"unavailable"* loop due to upstream registry caching, or show validation warnings before PR #232 merges. Using **Method 1 (Terminal & SSH)** below takes less than 10 seconds, is 100% reliable, and completely preserves your configuration and entity IDs.
+
+#### Method 1: One-Liner via Terminal & SSH Add-on (⭐ Recommended)
 
 Open the **Terminal** in your Home Assistant sidebar and paste:
 
@@ -65,9 +66,7 @@ docker exec -it homeassistant bash -c 'cd /config/custom_components && [ -d myho
 docker restart homeassistant
 ```
 
----
-
-### Method 2: Manual Installation (Archive / Samba)
+#### Method 2: Manual Installation (Archive / Samba)
 
 1. Download the release package:  
    👉 **[Download myhome.zip (v2.0.0b15)](https://github.com/OpenWebNet-HA/MyHOME/releases/download/2.0.0b15/myhome.zip)** (or browse all [GitHub Releases](https://github.com/OpenWebNet-HA/MyHOME/releases))
@@ -75,15 +74,32 @@ docker restart homeassistant
 3. Extract `myhome.zip` directly into `/config/custom_components/myhome/` (overwriting existing files).
 4. Restart Home Assistant (**Settings → System → Restart**).
 
----
-
-### Method 3: HACS (Custom Repository)
+#### Method 3: HACS (Custom Repository)
 
 1. In Home Assistant, open **HACS → Integrations**.
 2. Click the top-right menu (`⋮`) → **Custom repositories**.
 3. Add repository URL: `https://github.com/OpenWebNet-HA/MyHOME` with type **Integration**.
 4. Open the **MyHOME** card in HACS, click `⋮` → **Redownload**, ensure **Show beta versions** is toggled ON, select **`2.0.0b15`**, and click **Download**.
 5. Restart Home Assistant.
+
+---
+
+### 🛡️ Installing or Staying on Current Stable (v0.9.4)
+
+If you prefer production stability, wish to wait for the final `v2.0.0` stable merge, or run Home Assistant older than 2026.3:
+
+* **Via HACS (Default)**: Search for **MyHOME** in HACS and click **Download** (keep *Show beta versions* disabled). HACS will automatically install **v0.9.4**.
+* **Via Terminal & SSH**:
+  ```bash
+  cd /config/custom_components
+  [ -d myhome ] && rm -rf /config/myhome_backup && cp -r myhome /config/myhome_backup
+  rm -rf myhome
+  wget -O myhome_stable.zip https://github.com/OpenWebNet-HA/MyHOME/releases/download/0.9.4/myhome.zip
+  unzip -q myhome_stable.zip -d myhome
+  rm myhome_stable.zip
+  ha core restart
+  ```
+* **Configuration Guide for v0.9.4**: Entity definitions on legacy 0.9.4 use manual YAML configuration. Refer to the [Legacy v0.9.4 Configuration Guide](https://github.com/anotherjulien/MyHOME/wiki/Configuration).
 
 ---
 
