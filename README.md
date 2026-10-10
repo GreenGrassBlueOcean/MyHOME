@@ -284,12 +284,26 @@ This integration is developed and maintained by the **[OpenWebNet-HA](https://gi
 - **Issue Tracker & Traces**: [GitHub Issues](https://github.com/OpenWebNet-HA/MyHOME/issues)
 - **Phase 1 & 2 Pull Request**: [PR #232](https://github.com/OpenWebNet-HA/MyHOME/pull/232)
 
-Special thanks to:
-* **[@anotherjulien](https://github.com/anotherjulien)** for creating the original MyHOME integration.
-* **[@GreenGrassBlueOcean](https://github.com/GreenGrassBlueOcean)** for the modernized v2 architecture, gateway profiles, streaming proxy, and test suite.
-* **[@GianlucaCh](https://github.com/GianlucaCh)** for contributing the comprehensive 15-manual BTicino/Legrand specification archive and WHO 24 specs.
-* **[@xtimmy86x](https://github.com/xtimmy86x)** for the frontend administration panel and hardware diagnostics.
-* All community testers whose authentic on-wire traces keep our CI test suite grounded in real hardware.
+### Core Integration & Architecture
+* **[@anotherjulien](https://github.com/anotherjulien)** for creating the original MyHOME integration and laying the protocol foundations.
+* **[@GreenGrassBlueOcean](https://github.com/GreenGrassBlueOcean)** for the modernized v2 architecture, declarative gateway profiles, streaming proxy, and automated test suite.
+* **[@GianlucaCh](https://github.com/GianlucaCh)** for preserving and contributing the comprehensive 15-manual BTicino/Legrand specification archive (`OWN DOC.zip`) and WHO 24 specs.
+* **[@xtimmy86x](https://github.com/xtimmy86x)** for the frontend administration panel, hardware diagnostics, and passive heating schedule traces.
+* **[@Interstellar0verdrive](https://github.com/Interstellar0verdrive)** for frontend panel enhancements, cover calibration UI, badges, and visual polish.
+* **[@fedem95](https://github.com/fedem95)** for MH201 reliability, idle session reconnects, CEN+ hold logic, Italian translations, and physical plant fixtures.
+* **[@mantovanellimatteo](https://github.com/mantovanellimatteo)**, **[@lyubomirtraykov](https://github.com/lyubomirtraykov)**, and **Cedric Rohou** for key bugfixes, DALI DT8 ballasts, and platform extensions.
+
+### Hardware Traces & Real-World Validation
+Special gratitude to the community members whose authentic on-wire bus captures ground our 3,464+ CI tests in real hardware:
+* **[@TheDarkWizard](https://github.com/TheDarkWizard)** for MyHomeServer1 automation command-translation echoes and WHO 4 heating/cooling Home+Control traces ([#378](https://github.com/OpenWebNet-HA/MyHOME/issues/378), [#429](https://github.com/OpenWebNet-HA/MyHOME/issues/429)).
+* **[@f18m](https://github.com/f18m)** (Francesco Montorsi) for MyHomeServer1 & LN-4660M2 centralized shutter and advanced automation traces ([#445](https://github.com/OpenWebNet-HA/MyHOME/issues/445)).
+* **[@lionelser](https://github.com/lionelser)** for Legrand F455 Basic Gateway full bus sweep, modular dimmers, and pushbutton captures ([#466](https://github.com/OpenWebNet-HA/MyHOME/issues/466)).
+* **[@gdluck](https://github.com/gdluck)** for MyHomeServer1 live climate heating/cooling season switching, timed relays, and probe traces ([#649](https://github.com/OpenWebNet-HA/MyHOME/pull/649)).
+* **[@ricdijk](https://github.com/ricdijk)** for BTicino F454 WHO 4 99-zone central unit (`#0`) status captures ([#629](https://github.com/OpenWebNet-HA/MyHOME/issues/629)).
+* **[@wave68runner](https://github.com/wave68runner)** for MH200N + MyHomeServer1 dual-gateway 4-digit CEN scenario traces ([#624](https://github.com/OpenWebNet-HA/MyHOME/issues/624)).
+* **[@caiosweet](https://github.com/caiosweet)** for BTicino MH200N full bus sweep and climate probe knob offset cycle captures ([#466](https://github.com/OpenWebNet-HA/MyHOME/issues/466)).
+* **[@nicolacavallo84](https://github.com/nicolacavallo84)** for shared-bus dual gateway captures (MHS1 + H4890) and H4890 WHO 25 dry contacts ([#453](https://github.com/OpenWebNet-HA/MyHOME/issues/453), [#466](https://github.com/OpenWebNet-HA/MyHOME/issues/466)).
+* **[@gimprota76](https://github.com/gimprota76)** (Giovanni) for BTicino F454 burglar alarm (WHO 5) and auxiliary channel (WHO 9) traces ([#311](https://github.com/OpenWebNet-HA/MyHOME/issues/311)).
 
 ---
 
