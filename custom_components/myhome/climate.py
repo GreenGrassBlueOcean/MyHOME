@@ -739,6 +739,8 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             self._attr_hvac_action = HVACAction.OFF
             self._actuator_states.clear()
             self._holiday_days = None
+            self._program = None
+            self._scenario = None
             return
         if state not in _ZONE_STATES_ON:
             return

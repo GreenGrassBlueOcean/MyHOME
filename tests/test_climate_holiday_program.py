@@ -175,6 +175,21 @@ def test_holiday_cleared_on_normal_mode_or_off(mock_gateway, mock_entity_base_in
     assert climate.extra_state_attributes.get("program") is None
 
 
+def test_zone_state_off_clears_all_holiday_attributes(mock_gateway, mock_entity_base_init):
+    """A dimension-7 OFF/protection zone state clears program, holiday_days and scenario."""
+    climate = _climate(mock_gateway, central=False, where="01")
+    climate._program = 2
+    climate._holiday_days = 5
+    climate._scenario = 3
+
+    climate._apply_zone_state(MagicMock(zone_state="off"))
+
+    assert climate.hvac_mode == HVACMode.OFF
+    assert climate.extra_state_attributes.get("program") is None
+    assert climate.extra_state_attributes.get("holiday_days") is None
+    assert climate.extra_state_attributes.get("scenario") is None
+
+
 async def test_restore_last_state_preserves_holiday_attributes(mock_gateway, mock_entity_base_init):
     """Restoring state restores program and holiday_days."""
     climate = _climate(mock_gateway, central=True, where="#0")
