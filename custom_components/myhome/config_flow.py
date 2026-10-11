@@ -66,6 +66,7 @@ from .const import (
     CONF_SSDP_LOCATION,
     CONF_SSDP_ST,
     CONF_TRANSITION_MODE,
+    CONF_TUNER_PICTURES,
     CONF_UDN,
     CONF_WORKER_COUNT,
     DEFAULT_AUTO_JOIN_STREAMING,
@@ -1093,6 +1094,7 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     self.options[name_key] = str(user_input.get(name_key, "") or "").strip()  # type: ignore
                     tuner_key = CONF_SOURCE_TUNER.format(i)
                     self.options[tuner_key] = bool(user_input.get(tuner_key, False))  # type: ignore
+                self.options[CONF_TUNER_PICTURES] = str(user_input.get(CONF_TUNER_PICTURES) or "").strip()  # type: ignore
 
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
@@ -1215,6 +1217,10 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     if isinstance(self.options.get(CONF_IGNORED_ADDRESSES), list)  # type: ignore
                     else str(self.options.get(CONF_IGNORED_ADDRESSES) or "")  # type: ignore
                 },
+            ): vol.Maybe(selector.TextSelector(selector.TextSelectorConfig(multiline=True))),
+            vol.Optional(
+                CONF_TUNER_PICTURES,
+                description={"suggested_value": str(self.options.get(CONF_TUNER_PICTURES) or "")},  # type: ignore
             ): vol.Maybe(selector.TextSelector(selector.TextSelectorConfig(multiline=True))),
         }
 
