@@ -363,6 +363,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
 
         self._attr_native_current_temperature: float | None = None
         self._season: str | None = None
+        self._program: int | None = None
+        self._holiday_days: int | None = None
+        self._scenario: int | None = None
         self._attr_current_humidity: float | None = None
         self._target_temperature: float | None = None
         self._local_offset: float = 0
@@ -406,6 +409,12 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         }
         if self._season is not None:
             attrs["season"] = self._season
+        if self._program is not None:
+            attrs["program"] = self._program
+        if self._holiday_days is not None:
+            attrs["holiday_days"] = self._holiday_days
+        if self._scenario is not None:
+            attrs["scenario"] = self._scenario
         if self._fan:
             attrs["fan_mode"] = self._attr_fan_mode
             if self._running_fan_speed is not None:
@@ -436,6 +445,21 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if target_temp is not None:
                 try:
                     self._target_temperature = float(target_temp)
+                except (ValueError, TypeError):
+                    pass
+            if "program" in last_state.attributes:
+                try:
+                    self._program = int(last_state.attributes["program"])
+                except (ValueError, TypeError):
+                    pass
+            if "holiday_days" in last_state.attributes:
+                try:
+                    self._holiday_days = int(last_state.attributes["holiday_days"])
+                except (ValueError, TypeError):
+                    pass
+            if "scenario" in last_state.attributes:
+                try:
+                    self._scenario = int(last_state.attributes["scenario"])
                 except (ValueError, TypeError):
                     pass
             if "fan_mode" in last_state.attributes or bool(
@@ -714,6 +738,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
             self._actuator_states.clear()
+            self._holiday_days = None
             return
         if state not in _ZONE_STATES_ON:
             return
@@ -842,6 +867,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
         elif message.message_type == MESSAGE_TYPE_MODE:
             prev_mode = self._attr_hvac_mode
+            self._program = getattr(message, "program", None)
+            self._holiday_days = getattr(message, "holiday_days", None)
+            self._scenario = getattr(message, "scenario", None)
             if message.mode == CLIMATE_MODE_AUTO and HVACMode.AUTO in self._attr_hvac_modes:
                 LOGGER.debug(
                     "%s %s",
@@ -892,6 +920,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._attr_hvac_mode,
                 )
         elif message.message_type == MESSAGE_TYPE_MODE_TARGET:
+            self._program = getattr(message, "program", None)
+            self._holiday_days = getattr(message, "holiday_days", None)
+            self._scenario = getattr(message, "scenario", None)
             if message.mode == CLIMATE_MODE_AUTO and HVACMode.AUTO in self._attr_hvac_modes:
                 LOGGER.debug(
                     "%s %s",
@@ -929,12 +960,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
                 self._actuator_states.clear()
-            self._target_temperature = message.set_temperature
-            self._local_target_temperature = (
-                self._target_temperature + self._local_offset
-                if self._target_temperature is not None
-                else None
-            )
+            if message.set_temperature is not None and message.set_temperature >= 0:
+                self._target_temperature = message.set_temperature
+                self._local_target_temperature = (
+                    self._target_temperature + self._local_offset
+                )
             if self._central and self.hass is not None and self._attr_hvac_mode is not None:
                 async_dispatcher_send(
                     self.hass,
