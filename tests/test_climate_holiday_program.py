@@ -70,11 +70,16 @@ def _climate(mock_gateway, central=False, where="01"):
     return c
 
 
-def _parse_or_mock(raw: str, mode: str, program: int | None = None, holiday_days: int | None = None):
+def _parse_or_mock(
+    raw: str, mode: str, program: int | None = None, holiday_days: int | None = None
+):
     """Parse raw frame if current OWNd supports it, or supply expected typed event."""
     try:
         ev = OWNEvent.parse(raw)
-        if getattr(ev, "program", None) is not None or getattr(ev, "holiday_days", None) is not None:
+        if (
+            getattr(ev, "program", None) is not None
+            or getattr(ev, "holiday_days", None) is not None
+        ):
             return ev
     except Exception:
         pass
@@ -86,7 +91,9 @@ def _parse_or_mock(raw: str, mode: str, program: int | None = None, holiday_days
     ev.scenario = None
     ev.where = "#0"
     ev.zone = 0
-    ev.human_readable_log = f"Zone #0 mode is {mode}, program={program}, holiday_days={holiday_days}."
+    ev.human_readable_log = (
+        f"Zone #0 mode is {mode}, program={program}, holiday_days={holiday_days}."
+    )
     return ev
 
 
@@ -183,6 +190,22 @@ async def test_restore_last_state_preserves_holiday_attributes(mock_gateway, moc
     assert climate.extra_state_attributes.get("program") == 2
     assert climate.extra_state_attributes.get("holiday_days") == 5
     assert climate.extra_state_attributes.get("scenario") == 1
+
+
+async def test_restore_last_state_invalid_holiday_attributes(mock_gateway, mock_entity_base_init):
+    """Restoring invalid holiday attributes handles ValueError/TypeError gracefully."""
+    climate = _climate(mock_gateway, central=True, where="#0")
+
+    last_state = State(
+        "climate.test",
+        "heat",
+        attributes={"program": "invalid", "holiday_days": "invalid", "scenario": "invalid"},
+    )
+    await climate.async_restore_last_state(last_state)
+
+    assert climate.extra_state_attributes.get("program") is None
+    assert climate.extra_state_attributes.get("holiday_days") is None
+    assert climate.extra_state_attributes.get("scenario") is None
 
 
 def test_negative_setpoint_rejected_on_mode_target(mock_gateway, mock_entity_base_init):
