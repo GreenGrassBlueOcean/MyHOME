@@ -336,8 +336,6 @@ def _wheres_overlap(first: str, second: str) -> bool:
         return True
     base_a, if_a = _split_where(first)
     base_b, if_b = _split_where(second)
-    if if_a == if_b and base_a == base_b:
-        return True
     compatible = if_a is None or if_b is None or if_a == if_b
 
     def _is_scope(base: str) -> bool:
@@ -478,9 +476,8 @@ class _PriorityQueueStorage:
         end = len(self._commands)
         if not isinstance(item, dict) or not _is_cover_stop(item.get("message")):
             return end
-        stop_where = _cover_where(item["message"])
-        if stop_where is None:
-            return end
+        # ``_is_cover_stop`` guarantees a parsed frame, hence a WHERE.
+        stop_where = str(_cover_where(item["message"]))
         for index in range(end - 1, -1, -1):
             queued = self._commands[index]
             queued_where = _cover_where(queued.get("message")) if isinstance(queued, dict) else None

@@ -750,6 +750,7 @@ def _order(storage: _PriorityQueueStorage) -> list[str]:
         ("*#2*11##", False),
         ("*#2*11*#10*50##", False),
         ("*1*0*11##", False),
+        ("*2*0##", False),
     ],
 )
 def test_is_cover_stop(raw: str, is_stop: bool) -> None:
