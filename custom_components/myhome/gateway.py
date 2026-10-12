@@ -237,6 +237,9 @@ class MyHOMEGatewayHandler:
         self.device_health = DeviceHealth(self)
         self.device_registry_id = None
         self.broadcast_resync = broadcast_resync
+        # A WHO 4 central unit (WHERE #0 / #0#N) is configured or has spoken on this bus. Zones
+        # that do not say whether they are standalone follow it (see climate.MyHOMEClimate).
+        self.has_central_unit = False
 
         # Identity evidence, recorded as observed and exported in diagnostics, the
         # WebSocket info payload and every trace (see identification()). What the
