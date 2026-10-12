@@ -166,3 +166,22 @@ def test_entity_picture_follows_the_live_frequency(hass, gateway):
     assert tuner.entity_picture == "/local/radio/one.png"
     tuner.handle_who22_event(_frame("5", ["2", "1"], 5, "1", "8950"))
     assert tuner.entity_picture is None  # an unlisted station shows no picture
+
+def test_a_non_numeric_dimension_is_ignored(tuner):
+    tuner.handle_who22_event(_frame("5", ["2", "1"], "abc", "1", "9620"))
+    assert tuner.extra_state_attributes == {}
+
+
+def test_a_frame_without_an_address_is_placed_nowhere():
+    assert who22_source_id(SimpleNamespace(who="22", where=None)) is None
+
+
+def test_source_id_reads_the_private_where_param_of_older_owndiffusion():
+    frame = SimpleNamespace(who="22", where="5", _where_param=["2", "3"])
+    assert who22_source_id(frame) == 3
+
+
+def test_the_listener_ignores_frames_of_other_whos(hass, gateway):
+    tuner = _tuner(hass, gateway)
+    who22_tuner_listener([tuner])(_frame("5", ["2", "1"], 5, "1", "9620", who="16"))
+    assert tuner.extra_state_attributes == {}

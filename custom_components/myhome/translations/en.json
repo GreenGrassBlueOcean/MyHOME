@@ -169,7 +169,7 @@
           "delegated_whos": "Secondary role only: subsystems whose new devices this gateway discovers. Devices the primary already has stay on the primary.",
           "auto_join_streaming": "Automatically join an active streaming group when turning on a room or adjusting volume from a physical wall control.",
           "ignored_addresses": "Permanently ignore listed addresses (e.g. 1/74, 1/74#4#01): skips discovery, entities and fault tracking. Separate multiple entries with newlines or commas.",
-          "tuner_pictures": "One <MHz>=<url> per line (e.g. 96.2=/local/radio/one.png): the picture shown while a tuner is on that frequency. Your own images; none are bundled.",
+          "tuner_pictures": "One MHz=URL per line (e.g. 96.2=/local/radio/one.png): the picture shown while a tuner is on that frequency. Your own images; none are bundled.",
           "command_worker_count": "Recommended for the {model}: {session_default}. It accepts at most {session_limit} command session(s), and each one plus the event session uses one of its few connections, which the Legrand/BTicino app and other clients need too. Raise it only if commands queue up."
         }
       }

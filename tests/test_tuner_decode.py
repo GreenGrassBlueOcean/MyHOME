@@ -163,3 +163,7 @@ def test_tuner_pictures_skip_a_bad_line_not_the_list(line: str) -> None:
 def test_tuner_pictures_empty() -> None:
     assert parse_tuner_pictures(None) == {}
     assert parse_tuner_pictures("") == {}
+
+@pytest.mark.parametrize(("raw", "expected"), [("96200", 96200), ("abc", None), ("962000", None)])
+def test_who16_frequency_is_validated(raw: str, expected: int | None) -> None:
+    assert frequency_khz_from_who16(raw) == expected
