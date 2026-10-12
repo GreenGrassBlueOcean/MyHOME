@@ -606,6 +606,16 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             return self._standalone_config
         return getattr(self._gateway_handler, "has_central_unit", False) is not True
 
+    def _remember_season(self, message: Any) -> None:
+        """Keep the season a mode frame carries (``*4*102*#0##`` heating, ``*4*202*#0##`` conditioning).
+
+        OWNd decodes the off state of a central unit per season (OWNd#97); an older
+        OWNd gives no season and the last known one stays (#699).
+        """
+        season = getattr(message, "season", None)
+        if isinstance(season, str):
+            self._season = season
+
     def _raise_unresponsive_issue(self) -> None:
         self._report_fault(FaultKind.UNRESPONSIVE)
 
@@ -986,6 +996,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
         elif message.message_type == MESSAGE_TYPE_MODE:
             prev_mode = self._attr_hvac_mode
+            self._remember_season(message)
             # OWNd releases without MESSAGE_TYPE_SEASON decode the zone operation mode
             # frame *4*1*Z## / *4*0*Z## as a plain heat / cool mode; it still tells the
             # season the thermostat runs in, which the fan coil poll needs.
@@ -1045,6 +1056,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._attr_hvac_mode,
                 )
         elif message.message_type == MESSAGE_TYPE_MODE_TARGET:
+            self._remember_season(message)
             self._program = getattr(message, "program", None)
             self._holiday_days = getattr(message, "holiday_days", None)
             self._scenario = getattr(message, "scenario", None)
