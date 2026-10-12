@@ -1094,7 +1094,11 @@ class MyhomeOptionsFlowHandler(OptionsFlowWithReload):
                     self.options[name_key] = str(user_input.get(name_key, "") or "").strip()  # type: ignore
                     tuner_key = CONF_SOURCE_TUNER.format(i)
                     self.options[tuner_key] = bool(user_input.get(tuner_key, False))  # type: ignore
-                self.options[CONF_TUNER_PICTURES] = str(user_input.get(CONF_TUNER_PICTURES) or "").strip()  # type: ignore
+                # Written only once set (or already stored), so an untouched form leaves the
+                # options identical and a connection-only change still triggers its reload.
+                pictures = str(user_input.get(CONF_TUNER_PICTURES) or "").strip()
+                if pictures or CONF_TUNER_PICTURES in self.options:  # type: ignore[operator]
+                    self.options[CONF_TUNER_PICTURES] = pictures  # type: ignore
 
                 for i in range(1, CONF_DECODER_SLOTS + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
