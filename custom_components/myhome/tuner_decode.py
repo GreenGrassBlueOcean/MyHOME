@@ -7,7 +7,7 @@ the compound source address ``5#2#S``):
 ======================  ====================  ==========================
 Fact                    WHO=16 (source 10S)   WHO=22 (source 5#2#S)
 ======================  ====================  ==========================
-Frequency               dim 6, ``0*<KHZ>``    dim 5, ``1*<10 kHz units>``
+Frequency               dim 6, ``0*<KHZ>``    dim 5, ``1*<10/100 kHz>``
 Frequency and preset    -                     dim 11, ``1*<units>*<N>``
 Stored station          dim 7, ``0*<N>``      dim 6, ``<N>``
 RDS programme service   dim 8, 8 ASCII codes  dim 10, 8 ASCII codes
@@ -29,10 +29,14 @@ from dataclasses import dataclass
 FM_MIN_KHZ = 87500
 FM_MAX_KHZ = 108000
 
-#: A WHO=22 frequency is reported in units of 10 kHz (``9620`` is 96.20 MHz).
-WHO22_FREQUENCY_UNIT_KHZ = 10
+#: A WHO=22 frequency is reported in 10 kHz units on an MH200N (``9620`` is
+#: 96.20 MHz) and in 100 kHz units on a MyHomeServer1 (``1015`` is 101.5 MHz).
+#: The two FM ranges (8750..10800 and 875..1080) do not overlap, so the value
+#: itself says which unit it is in.
+WHO22_FREQUENCY_UNITS_KHZ = (10, 100)
 
-#: The RDS programme service name is exactly this many characters.
+#: An RDS programme service name is at most this many characters. A
+#: MyHomeServer1 sends shorter chunks (``RADIO`` is five codes).
 RDS_LENGTH = 8
 
 
@@ -69,11 +73,14 @@ def _is_fm(kilohertz: int) -> bool:
 
 
 def frequency_khz_from_who22(raw: str) -> int | None:
-    """Convert a WHO=22 frequency (10 kHz units) to kHz, ``None`` outside FM."""
+    """Convert a WHO=22 frequency (10 or 100 kHz units) to kHz, ``None`` outside FM."""
     if not str(raw).isdigit():
         return None
-    kilohertz = int(raw) * WHO22_FREQUENCY_UNIT_KHZ
-    return kilohertz if _is_fm(kilohertz) else None
+    for unit in WHO22_FREQUENCY_UNITS_KHZ:
+        kilohertz = int(raw) * unit
+        if _is_fm(kilohertz):
+            return kilohertz
+    return None
 
 
 def frequency_khz_from_who16(raw: str) -> int | None:
@@ -87,10 +94,10 @@ def frequency_khz_from_who16(raw: str) -> int | None:
 def decode_rds_frame(values: Sequence[str]) -> TunerReport | None:
     """Decode a dimension-8 / dimension-10 RDS frame.
 
-    A frame that is not exactly eight codes is a bus glitch (traces show
+    A frame of no codes or of more than eight is a bus glitch (traces show
     12-code frames) and yields ``None`` so it cannot corrupt state.
     """
-    if len(values) != RDS_LENGTH:
+    if not 0 < len(values) <= RDS_LENGTH:
         return None
     text = rds_text(values)
     return TunerReport(rds=text, rds_blank=text is None)

@@ -7,6 +7,9 @@ agree on every fact they share.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from custom_components.myhome.tuner_decode import (
@@ -38,7 +41,7 @@ def _values(frame: str) -> tuple[int, list[str]]:
         ("*#22*5#2#1*5*1*10350##", 103500),
     ],
 )
-def test_who22_frequency_is_in_ten_khz_units(frame: str, khz: int) -> None:
+def test_who22_frequency_in_ten_khz_units(frame: str, khz: int) -> None:
     dimension, values = _values(frame)
     assert decode_who22_tuner(dimension, values) == TunerReport(frequency_khz=khz)
 
@@ -167,3 +170,65 @@ def test_tuner_pictures_empty() -> None:
 @pytest.mark.parametrize(("raw", "expected"), [("96200", 96200), ("abc", None), ("962000", None)])
 def test_who16_frequency_is_validated(raw: str, expected: int | None) -> None:
     assert frequency_khz_from_who16(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# MyHomeServer1 + F500, contributed by @bboykaos in OpenWebNet-HA/OWNd#103
+# (tests/fixtures/traces/who22_myhomeserver1_f500_h4562). Hand-transcribed.
+# ---------------------------------------------------------------------------
+
+_MHS1_TRACES = (
+    Path(__file__).parent / "fixtures" / "traces" / "who22_myhomeserver1_f500_h4562"
+)
+
+
+def _mhs1_tuner_frames() -> list[str]:
+    raws: list[str] = []
+    for trace in sorted(_MHS1_TRACES.glob("trace*.json")):
+        for frame in json.loads(trace.read_text(encoding="utf-8"))["frames"]:
+            if frame["raw"].startswith("*#22*5#2#"):
+                raws.append(frame["raw"])
+    return raws
+
+
+@pytest.mark.parametrize(
+    ("frame", "khz", "preset"),
+    [
+        ("*#22*5#2#1*11*1*1015*5##", 101500, 5),
+        ("*#22*5#2#1*11*1*933*1##", 93300, 1),
+        ("*#22*5#2#1*11*1*911*2##", 91100, 2),
+        ("*#22*5#2#1*11*1*995*3##", 99500, 3),
+    ],
+)
+def test_who22_frequency_in_hundred_khz_units(frame: str, khz: int, preset: int) -> None:
+    """A MyHomeServer1 reports ``1015`` for 101.5 MHz, an MH200N ``10150``."""
+    dimension, values = _values(frame)
+    assert decode_who22_tuner(dimension, values) == TunerReport(
+        frequency_khz=khz, preset=preset
+    )
+
+
+def test_the_two_who22_units_cannot_be_confused() -> None:
+    """875..1080 and 8750..10800 do not overlap, so the value picks the unit."""
+    assert frequency_khz_from_who22("1015") == frequency_khz_from_who22("10150") == 101500
+    assert frequency_khz_from_who22("875") == FM_MIN_KHZ
+    assert frequency_khz_from_who22("1080") == FM_MAX_KHZ
+    assert frequency_khz_from_who22("874") is None
+    assert frequency_khz_from_who22("1081") is None
+    assert frequency_khz_from_who22("8749") is None
+    assert frequency_khz_from_who22("10801") is None
+
+
+def test_a_five_code_rds_chunk_is_text_not_a_glitch() -> None:
+    """The MyHomeServer1 sends ``RADIO`` as five codes, not eight."""
+    dimension, values = _values("*#22*5#2#1*10*82*65*68*73*79##")
+    assert decode_who22_tuner(dimension, values) == TunerReport(rds="RADIO")
+    assert decode_rds_frame([]) is None
+
+
+def test_every_tuner_frame_of_the_myhomeserver1_trace_decodes() -> None:
+    frames = _mhs1_tuner_frames()
+    assert len(frames) == 6
+    for raw in frames:
+        dimension, values = _values(raw)
+        assert decode_who22_tuner(dimension, values) is not None, raw
