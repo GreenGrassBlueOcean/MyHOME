@@ -148,7 +148,7 @@ async def async_setup_entry(
             heating=cfg.get(CONF_HEATING_SUPPORT, True),
             cooling=cfg.get(CONF_COOLING_SUPPORT, True),
             fan=cfg.get(CONF_FAN_SUPPORT, False),
-            standalone=cfg.get(CONF_STANDALONE, not is_central),
+            standalone=cfg.get(CONF_STANDALONE),
             central=is_central,
             manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
             model=cfg.get(CONF_DEVICE_MODEL, default_model),
@@ -303,7 +303,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         heating: bool,
         cooling: bool,
         fan: bool,
-        standalone: bool,
+        standalone: bool | None,
         central: bool,
         manufacturer: str,
         model: str,
@@ -329,8 +329,11 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             f"{self._where}#4#{self._interface}" if self._interface is not None else self._where
         )
 
-        self._standalone = False if (self._where in ("#0", "#0#1") or central) else standalone
         self._central = True if self._where in ("#0", "#0#1") else central
+        # None: not configured. A zone then follows the plant, see the standalone property.
+        self._standalone_config = False if self._central else standalone
+        if self._central:
+            gateway.has_central_unit = True
 
         self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_precision = 0.1
@@ -517,6 +520,18 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             self._clear_unresponsive_issue()
             self._publish_state()
 
+    @property
+    def _standalone(self) -> bool:
+        """Whether setpoints and modes are addressed as ``Z`` (thermostat alone) or ``#Z``.
+
+        A configured value wins. Otherwise a zone is standalone unless its plant has a
+        central unit: behind a 99-zone central the gateway rejects ``*#4*Z*#14*...`` and
+        wants ``*#4*#Z*#14*...`` (#697).
+        """
+        if self._standalone_config is not None:
+            return self._standalone_config
+        return getattr(self._gateway_handler, "has_central_unit", False) is not True
+
     def _raise_unresponsive_issue(self) -> None:
         self._report_fault(FaultKind.UNRESPONSIVE)
 
@@ -529,7 +544,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         if target_hass is not None:
             if self._central:
                 self._clear_unresponsive_issue()
-            elif not self._standalone:
+            elif self._standalone_config is not True:
                 self.async_on_remove(
                     async_dispatcher_connect(
                         target_hass,
