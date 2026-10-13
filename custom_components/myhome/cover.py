@@ -71,6 +71,7 @@ from .cover_calibration import (
 )
 from .cover_motion import (
     ECHO_WINDOW,
+    END_SETTLE_MARGIN,
     MIN_POSITION_DELTA,
     MOTOR_START_DELAY,
     WRITE_TIMEOUT,
@@ -940,6 +941,45 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self.async_write_ha_state()
         return written
 
+    async def _async_run_to_end(self, opening: bool) -> None:
+        """Run a timed cover to its limit switch and settle the state on a timer.
+
+        No stop frame is sent: the motor stops itself. The actuator's own stop
+        status can come long after the curtain arrived (its timer, ~60 s seen on
+        a MyHOMEServer1) or not at all on a gateway that does not relay it, so
+        the entity would stay opening/closing. Once the travel time plus
+        END_SETTLE_MARGIN has passed, publish the end position; the real stop
+        status, if it comes, finds nothing left to change.
+        """
+        travel_time = self._travel_for(opening)
+        written = await self._async_move("open" if opening else "close")
+        generation = self._run_generation
+
+        async def _settle() -> None:
+            try:
+                anchor = await self._await_motion_anchor(written)
+                if generation != self._run_generation:
+                    return  # a newer command or a real stop superseded this run
+                await asyncio.sleep(max(0.0, travel_time + END_SETTLE_MARGIN - (time.monotonic() - anchor)))
+                if generation != self._run_generation:
+                    return
+                self._attr_current_cover_position = 100 if opening else 0
+                self._start_position = self._attr_current_cover_position
+                self._move_start_time = None
+                self._run_started_at = None
+                self._motion_started_at = None
+                self._attr_is_opening = False
+                self._attr_is_closing = False
+                self._attr_is_closed = not opening
+                self._refresh_travel_attributes()
+                self._publish_state()
+            except HomeAssistantError as err:
+                LOGGER.error("%s End-of-run settle aborted for %s: %s", self._gateway_handler.log_id, self._full_where, err)
+            except asyncio.CancelledError:
+                pass
+
+        self._stop_task = asyncio.create_task(_settle())  # type: ignore
+
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
         if ATTR_POSITION not in kwargs:
@@ -948,9 +988,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
         if self._advanced:
             current = self._attr_current_cover_position
-            if current is not None and 0 < target_position < 100:
+            moving = bool(self._attr_is_opening or self._attr_is_closing)
+            if current is not None and not moving and 0 < target_position < 100:
                 # A 1% level change is a run too short to move the motor while
                 # the actuator still books it (#466, see MIN_POSITION_DELTA).
+                # Not while it runs: it then reports the level it started from,
+                # so the widening and the early return would compare against
+                # a stale level and drop a retarget (40 -> 80, then 40).
                 target_position = quantize_position_delta(current, target_position, MIN_POSITION_DELTA)
                 if target_position == current:
                     return
@@ -982,10 +1026,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         # on its limit switch, which resets any drift in the estimate, also when
         # the estimate already says 0% or 100%.
         if target_position >= 100:
-            await self.async_open_cover()
+            await self._async_run_to_end(True)
             return
         if target_position <= 0:
-            await self.async_close_cover()
+            await self._async_run_to_end(False)
             return
 
         self._cancel_stop_task()
@@ -1004,10 +1048,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             curr_pos, 0.0, run_duration, travel_time, opening, not opening, target_position
         )
         if achieved_position >= 100:
-            await self.async_open_cover()
+            await self._async_run_to_end(True)
             return
         if achieved_position <= 0:
-            await self.async_close_cover()
+            await self._async_run_to_end(False)
             return
 
         written = await self._async_move("open" if opening else "close")

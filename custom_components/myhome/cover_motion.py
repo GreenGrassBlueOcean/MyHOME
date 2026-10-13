@@ -36,6 +36,11 @@ MIN_MOTOR_PULSE: float = 0.4
 # (*#2*WHERE*#11#001*LEVEL##) we send: their behaviour is inferred, not captured.
 MIN_POSITION_DELTA: int = 2
 
+# Slack after the stored travel time before a timed full run (0% / 100%) is
+# reported as arrived. No stop frame is sent for those runs, and the actuator's
+# own stop status may come a minute late or never (#466 review, MyHOMEServer1).
+END_SETTLE_MARGIN: float = 2.0
+
 
 def quantize_position_delta(
     curr_pos: int | None,

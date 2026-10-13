@@ -33,6 +33,7 @@ from custom_components.myhome.cover import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.myhome.cover_motion import END_SETTLE_MARGIN
 from custom_components.myhome.router import FrameRouter
 from tests.conftest import attach_runtime
 
@@ -363,14 +364,14 @@ class TestMyHOMECoverEntity:
         await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
         basic_cover._gateway_handler.send.assert_awaited_once()
         assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*1*21##"
-        assert basic_cover._stop_task is None
+        basic_cover._cancel_stop_task()  # the settle timer, not a stop frame (see the settle test)
 
         basic_cover._gateway_handler.send.reset_mock()
         basic_cover._attr_current_cover_position = 0
         await basic_cover.async_set_cover_position(**{ATTR_POSITION: 0})
         basic_cover._gateway_handler.send.assert_awaited_once()
         assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*2*21##"
-        assert basic_cover._stop_task is None
+        basic_cover._cancel_stop_task()
 
         # 2. Same on an advanced cover that already reports the end.
         advanced_cover._gateway_handler.send.reset_mock()
@@ -409,6 +410,25 @@ class TestMyHOMECoverEntity:
         await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 1})
         advanced_cover._gateway_handler.send.assert_awaited_once()
         assert str(advanced_cover._gateway_handler.send.call_args[0][0]) == "*2*2*22#4#02##"
+
+        # 4b. While the actuator runs it reports the level it started from: a
+        # retarget must go out as asked, not be widened or dropped against it.
+        advanced_cover._gateway_handler.send.reset_mock()
+        advanced_cover._attr_current_cover_position = 40
+        advanced_cover._attr_is_opening = True  # running 40 -> 80
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 40})
+        advanced_cover._gateway_handler.send.assert_awaited_once()
+        assert (
+            str(advanced_cover._gateway_handler.send.call_args[0][0])
+            == "*#2*22#4#02*#11#001*40##"
+        )
+        advanced_cover._gateway_handler.send.reset_mock()
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 41})
+        assert (
+            str(advanced_cover._gateway_handler.send.call_args[0][0])
+            == "*#2*22#4#02*#11#001*41##"
+        )
+        advanced_cover._attr_is_opening = False
 
         # 5. Unknown level (shutterLevel 255): nothing to widen from, the target goes as is.
         advanced_cover._gateway_handler.send.reset_mock()
@@ -451,7 +471,7 @@ class TestMyHOMECoverEntity:
         await basic_cover.async_set_cover_position(**{ATTR_POSITION: 99})
         basic_cover._gateway_handler.send.assert_awaited_once()
         assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*1*21##"
-        assert basic_cover._stop_task is None
+        basic_cover._cancel_stop_task()
 
         basic_cover.handle_event(OWNEvent.parse("*2*0*21##"))
         basic_cover._gateway_handler.send.reset_mock()
@@ -460,13 +480,79 @@ class TestMyHOMECoverEntity:
         await basic_cover.async_set_cover_position(**{ATTR_POSITION: 1})
         basic_cover._gateway_handler.send.assert_awaited_once()
         assert str(basic_cover._gateway_handler.send.call_args[0][0]) == "*2*2*21##"
-        assert basic_cover._stop_task is None
+        basic_cover._cancel_stop_task()
 
         # 8. Calibrating cover raises HomeAssistantError
         basic_cover._calibrating = True
         with pytest.raises(HomeAssistantError, match="is being calibrated"):
             await basic_cover.async_set_cover_position(**{ATTR_POSITION: 60})
         basic_cover._calibrating = False
+
+    async def test_full_run_settles_without_actuator_stop_status(self, basic_cover):
+        """0%/100% settle on a timer when the actuator's stop status is late or never relayed (#466)."""
+        basic_cover._gateway_handler.send.reset_mock()
+        basic_cover._attr_current_cover_position = 50
+        basic_cover._start_position = 50
+        slept: list[float] = []
+
+        async def fake_sleep(duration):
+            slept.append(duration)
+
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+            assert basic_cover.is_opening is True
+            await basic_cover._stop_task
+
+        # Only the direction frame: no stop is written, the motor ends on its limit switch.
+        assert [str(c.args[0]) for c in basic_cover._gateway_handler.send.await_args_list] == ["*2*1*21##"]
+        assert any(d > END_SETTLE_MARGIN for d in slept), slept
+        assert basic_cover.is_opening is False
+        assert basic_cover.is_closed is False
+        assert basic_cover.current_cover_position == 100
+        assert basic_cover._start_position == 100
+
+        # Same towards 0%.
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 0})
+            await basic_cover._stop_task
+        assert basic_cover.is_closing is False
+        assert basic_cover.is_closed is True
+        assert basic_cover.current_cover_position == 0
+
+        # The actuator's own stop status arriving first (or a newer command) wins.
+        basic_cover._attr_current_cover_position = 50
+        basic_cover._start_position = 50
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+            task = basic_cover._stop_task
+            basic_cover._run_generation += 1  # superseded
+            await task
+        assert basic_cover.is_opening is True  # not settled by the stale timer
+        basic_cover._cancel_stop_task()
+
+        # ... also when the stop status lands during the wait.
+        async def sleep_and_bump(duration):
+            basic_cover._run_generation += 1
+
+        with patch("asyncio.sleep", side_effect=sleep_and_bump):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+            await basic_cover._stop_task
+        assert basic_cover.is_opening is True
+        basic_cover._cancel_stop_task()
+
+        # A direction frame that never reached the bus is logged, not raised from the task.
+        with patch.object(
+            basic_cover, "_await_motion_anchor", side_effect=HomeAssistantError("delivery failed")
+        ):
+            await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+            await basic_cover._stop_task
+
+        # Cancelling the timer ends it quietly.
+        await basic_cover.async_set_cover_position(**{ATTR_POSITION: 100})
+        task = basic_cover._stop_task
+        await asyncio.sleep(0)
+        task.cancel()
+        await task
 
     def test_quantize_position_delta(self):
         """Verify quantize_position_delta logic and edge cases."""
