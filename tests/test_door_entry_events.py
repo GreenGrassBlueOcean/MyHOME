@@ -184,14 +184,15 @@ def test_unreadable_call_kind_is_none():
     assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, _what_param=[])) is None
 
 
-async def test_doorbell_ignores_library_call_flags_for_who8(hass: HomeAssistant):
+async def test_doorbell_ignores_library_call_flags_for_who8(hass: HomeAssistant, monkeypatch):
     """Older OWNd flags every WHO 8 WHAT 1 as an incoming call; the call kind still decides."""
     gateway = _doorbell_gateway(hass)
     captured = async_capture_events(hass, "myhome_doorbell_event")
 
     internal = OWNEvent.parse("*8*1#6#2*74##")
-    internal.is_call = True  # type: ignore[attr-defined]
-    internal.is_incoming_call = True  # type: ignore[attr-defined]
+    # The flags are read-only properties on current OWNd: replace them on the class for this test.
+    monkeypatch.setattr(type(internal), "is_call", True, raising=False)
+    monkeypatch.setattr(type(internal), "is_incoming_call", True, raising=False)
     await gateway._process_message(internal)
     assert captured == []
 
