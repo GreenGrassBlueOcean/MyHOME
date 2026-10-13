@@ -270,6 +270,7 @@ class MyHOMEEntity(RestoreEntity):
         """Poll device status once initial discovery has completed."""
         await self._gateway_handler.wait_for_initial_discovery()
         if self._bus_state_complete:
+            LOGGER.debug("%s: state already reported on the bus, skipping post-discovery poll", self.entity_id)
             # The startup sweep already reported the full state. Querying the point again
             # makes an actuator re-announce itself, which MH200/MH200N scenarios with a
             # "light is ON" start condition take for a real switch-on (#612).

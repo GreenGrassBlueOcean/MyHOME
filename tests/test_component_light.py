@@ -2321,3 +2321,35 @@ async def test_poll_after_discovery_skipped_when_sweep_reported_state(hass):
     reported.handle_event(OWNLightingEvent("*1*1*11##"))
     await reported._async_poll_after_discovery()
     gateway.send_status_request.assert_not_called()
+
+
+async def _poll_count_after(hass, frame: str | None, *, dimmable: bool) -> int:
+    gateway = MagicMock()
+    gateway.send_status_request = AsyncMock()
+    gateway.wait_for_initial_discovery = AsyncMock()
+    gateway.config_entry = MagicMock(options={})
+    light = MyHOMELight(
+        hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+        device_id="11", who="1", where="11", interface=None, dimmable=dimmable,
+        manufacturer="B", model="M", gateway=gateway,
+    )
+    light.async_schedule_update_ha_state = MagicMock()
+    if frame:
+        light.handle_event(OWNLightingEvent(frame))
+    await light._async_poll_after_discovery()
+    return gateway.send_status_request.call_count
+
+
+async def test_dimmer_with_only_on_off_frame_is_still_polled(hass):
+    """A dimmer whose brightness the sweep did not report is queried for it (#612)."""
+    assert await _poll_count_after(hass, "*1*1*11##", dimmable=True) == 1
+
+
+async def test_dimmer_with_brightness_frame_is_not_polled(hass):
+    """A dimmer whose on/off and brightness the sweep reported is not queried (#612)."""
+    assert await _poll_count_after(hass, "*#1*11*1*150*0##", dimmable=True) == 0
+
+
+async def test_dimmer_with_preset_frame_is_still_polled(hass):
+    """WHAT 2..10 carries a preset, not a bus brightness, so the dimmer is still queried (#612)."""
+    assert await _poll_count_after(hass, "*1*5*11##", dimmable=True) == 1
