@@ -682,6 +682,11 @@ def test_impulse_cover_wall_button_log_says_the_gate_already_moved(impulse_gate,
     assert "already been actuated" in caplog.text
 
 
+def _pulses(gateway) -> int:
+    """Frames that start a pulse; the OFF that ends a software pulse on older OWNd is not one."""
+    return sum(1 for c in gateway.send.call_args_list if not str(c[0][0]).startswith("*1*0*"))
+
+
 @pytest.fixture
 def direct_gate(hass: HomeAssistant, mock_gateway):
     """An impulse gate without an `access:` block: a plain hardware interface."""
@@ -727,15 +732,15 @@ async def test_direct_cover_needs_no_approval_and_no_user(hass: HomeAssistant, d
     assert "access_phase" not in cover.extra_state_attributes
 
     await cover.async_open_cover()
-    assert str(mock_gateway.send.call_args[0][0]) == PULSE_FRAME.replace("22", "24")
+    assert [str(c[0][0]) for c in mock_gateway.send.call_args_list][-1] == PULSE_FRAME.replace("22", "24")
     assert cover.is_opening is True
 
     await cover.async_stop_cover()
-    assert mock_gateway.send.call_count == 2
+    assert _pulses(mock_gateway) == 2
     assert cover.is_opening is False
 
     await cover.async_close_cover()
-    assert mock_gateway.send.call_count == 3
+    assert _pulses(mock_gateway) == 3
     assert cover.is_closing is True
 
 
@@ -746,18 +751,18 @@ async def test_direct_cover_with_sensor_skips_a_pulse_that_would_undo_the_reques
     cover = direct_gate(state_sensor="binary_sensor.garage_contact")
     cover._handle_sensor_update(STATE_OFF)  # closed
     await cover.async_close_cover()
-    assert mock_gateway.send.call_count == 0
+    assert _pulses(mock_gateway) == 0
 
     await cover.async_open_cover()
-    assert mock_gateway.send.call_count == 1
+    assert _pulses(mock_gateway) == 1
 
     cover._handle_sensor_update(STATE_ON)  # open
     await cover.async_open_cover()
-    assert mock_gateway.send.call_count == 1
+    assert _pulses(mock_gateway) == 1
     await cover.async_stop_cover()
-    assert mock_gateway.send.call_count == 2
+    assert _pulses(mock_gateway) == 2
     await cover.async_close_cover()
-    assert mock_gateway.send.call_count == 3
+    assert _pulses(mock_gateway) == 3
 
 
 async def test_direct_cover_reports_a_dropped_pulse(hass: HomeAssistant, direct_gate, mock_gateway):
