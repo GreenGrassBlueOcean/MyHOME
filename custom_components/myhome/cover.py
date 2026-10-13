@@ -136,6 +136,10 @@ if TYPE_CHECKING:
 
 PARALLEL_UPDATES = 0
 
+# Delivery of the OFF that ends a software pulse (OWNd without the timed WHAT 18 builder).
+OFF_ATTEMPTS = 3
+OFF_RETRY_DELAY = 1.0
+
 
 def _clamp_slat_time(value: Any, fallback: float = DEFAULT_SLAT_TIME) -> float:
     """A slat time within MIN_SLAT_TIME..MAX_SLAT_TIME; ``fallback`` when the value is unusable."""
@@ -2161,10 +2165,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
     """An impulse-driven gate or garage door powered by a WHO=1 relay.
 
-    A service call never moves the door. ``open_cover``, ``close_cover`` and
-    ``stop_cover`` create an approval request through the cover's
-    :class:`~.access_policy.AccessController`; the relay is pulsed only after an
-    allowed person approves it on their phone, and a pulse that can close the
+    By default the cover is a hardware interface: ``open_cover``, ``close_cover``
+    and ``stop_cover`` pulse the relay (with deadband and delivery checks), the
+    optional ``state_sensor`` decides whether a pulse is still useful, and STOP
+    is never withheld. Who may operate the door, and how, is the installation's
+    policy (automations, dashboards, blueprints).
+
+    An ``access:`` block opts in to the supervised workflow instead: every
+    request then needs approval on an allowed person's phone through the cover's
+    :class:`~.access_policy.AccessController`, and a pulse that can close the
     door additionally needs confirmed safety devices, a requester in sight of
     the door and a pre-warning. See ``access_policy.py``.
     """
@@ -2222,6 +2231,9 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         self._last_pulse_time: float = -1e9
         self._pulse_in_flight = False
         self._pulse_off_cancel: CALLBACK_TYPE | None = None
+        # True while the software OFF of the last pulse is not confirmed on the bus: the
+        # relay may still be energised, so the next command and the removal retry the OFF.
+        self._off_pending = False
         self._travel_timer_cancel: CALLBACK_TYPE | None = None
 
         self._attr_extra_state_attributes = {
@@ -2233,32 +2245,39 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         if self._interface is not None:
             self._attr_extra_state_attributes["interface"] = self._interface
 
-        self._access = AccessController(
-            hass,
-            name=name,
-            config=AccessConfig.from_config(access_config, pin_code),
-            state_sensor=state_sensor,
-            travel_time=travel_time,
-            send_pulse=self._async_pulse,
-            publish=self._publish_state,
-            entity_id=lambda: self.entity_id,
+        # None: no `access:` block, the cover is a plain hardware interface.
+        self._access: AccessController | None = (
+            AccessController(
+                hass,
+                name=name,
+                config=AccessConfig.from_config(access_config, pin_code),
+                state_sensor=state_sensor,
+                travel_time=travel_time,
+                send_pulse=self._async_pulse,
+                publish=self._publish_state,
+                entity_id=lambda: self.entity_id,
+            )
+            if access_config is not None
+            else None
         )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Static attributes plus the access policy state (never a PIN or nonce)."""
+        """Static attributes plus the access policy state when enabled (never a PIN or nonce)."""
+        if self._access is None:
+            return self._attr_extra_state_attributes
         return {**self._attr_extra_state_attributes, **self._access.attributes()}
 
     async def async_added_to_hass(self) -> None:
         """Register listeners when added to Home Assistant."""
         await super().async_added_to_hass()
-        self._access.hass = self.hass
-        if not self._access.config.allowed_users:
-            LOGGER.warning(
-                "%s: no `access:` block with allowed_users and approvers, so every open, close and stop "
-                "request is refused. See the Impulse Covers section of the covers documentation.",
-                self._display_name,
-            )
+        if self._access is not None:
+            self._access.hass = self.hass
+            # A latched fault must survive a restart or reload: it is only cleared on site.
+            last_state = await self.async_get_last_state()
+            fault = last_state.attributes.get("fault_reason") if last_state is not None else None
+            if fault:
+                self._access.restore_fault(str(fault))
         if self._state_sensor and self.hass is not None:
             @callback
             def _sensor_state_changed(event: Any) -> None:
@@ -2305,6 +2324,11 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             self._pulse_off_cancel()
             self._pulse_off_cancel = None
 
+        # The relay of an earlier pulse may still be energised (its OFF never reached the
+        # bus): release it first, and refuse to start another pulse on top of it.
+        if self._off_pending and not await self._async_send_off():
+            return False
+
         # The deadband starts only once the gateway confirmed the write: a failed send
         # must not lock the user out for min_cycle_time with nothing on the bus. The
         # in-flight flag keeps a second request and our own echo out meanwhile.
@@ -2328,27 +2352,13 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             if inspect.isawaitable(write_fut):
                 await write_fut
             self._last_pulse_time = time.monotonic()
+            self._off_pending = True
 
             @callback
             def _turn_off(_now: Any = None) -> None:
                 self._pulse_off_cancel = None
                 if self.hass is not None:
-
-                    async def _send_off() -> None:
-                        try:
-                            fut = await self._gateway_handler.send(
-                                OWNLightingCommand.switch_off(self._full_where)
-                            )
-                            if inspect.isawaitable(fut):
-                                await fut
-                        except Exception as err:
-                            LOGGER.error(
-                                "%s: Failed to send OFF pulse to gateway: %s",
-                                self._display_name,
-                                err,
-                            )
-
-                    self.hass.async_create_task(_send_off())
+                    self.hass.async_create_task(self._async_send_off())
 
             if self.hass is not None:
                 self._pulse_off_cancel = async_call_later(
@@ -2364,6 +2374,37 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             return False
         finally:
             self._pulse_in_flight = False
+
+    async def _async_send_off(self) -> bool:
+        """Deliver the OFF that ends a software pulse, retrying; True once the bus took it.
+
+        A lost OFF leaves the relay energised, which the gate controller reads as a
+        button held down. ``_off_pending`` stays set until the write is confirmed, so
+        the next command (and removal) try again.
+        """
+        for attempt in range(1, OFF_ATTEMPTS + 1):
+            try:
+                fut = await self._gateway_handler.send(OWNLightingCommand.switch_off(self._full_where))
+                if inspect.isawaitable(fut):
+                    await fut
+            except Exception as err:
+                LOGGER.error(
+                    "%s: Failed to send OFF to gateway (attempt %d/%d): %s",
+                    self._display_name,
+                    attempt,
+                    OFF_ATTEMPTS,
+                    err,
+                )
+                if attempt < OFF_ATTEMPTS:
+                    await asyncio.sleep(OFF_RETRY_DELAY)
+                continue
+            self._off_pending = False
+            return True
+        LOGGER.error(
+            "%s: the relay may still be energised: OFF was not delivered; it is retried before the next command",
+            self._display_name,
+        )
+        return False
 
     async def _async_pulse(self, intent: Intent, effect: Effect) -> bool:
         """Pulse the relay for an approved request and show the expected motion.
@@ -2394,24 +2435,58 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             self._travel_timer_cancel = async_call_later(self.hass, self._travel_time, _finish)
         return True
 
+    async def _async_direct(self, intent: Intent) -> None:
+        """Pulse the relay without a policy (no `access:` block); STOP always goes out.
+
+        With a state sensor a pulse that would only undo the request is skipped: the
+        door is already there or already on its way. Without one the direction is
+        unknown and the pulse goes out as asked.
+        """
+        if self._state_sensor is not None:
+            if intent is Intent.OPEN and (self._attr_is_closed is False or self._attr_is_opening):
+                LOGGER.debug("%s: already open or opening, open request ignored", self._display_name)
+                return
+            if intent is Intent.CLOSE and (self._attr_is_closed is True or self._attr_is_closing):
+                LOGGER.debug("%s: already closed or closing, close request ignored", self._display_name)
+                return
+        effect = Effect.OPEN if intent is Intent.OPEN else Effect.MAY_CLOSE
+        if not await self._async_pulse(intent, effect):
+            raise HomeAssistantError(
+                f"{self._display_name}: the pulse was not sent "
+                f"(within the {self._min_cycle_time:.1f} s deadband, or the write failed)"
+            )
+
     async def async_open_cover(self, **kwargs: Any) -> None:
-        """Request approval to open the door (nothing moves until it is approved)."""
-        await self._access.async_request(Intent.OPEN, self._context)
+        """Pulse the relay to open, or (with `access:`) request approval first."""
+        if self._access is None:
+            await self._async_direct(Intent.OPEN)
+        else:
+            await self._access.async_request(Intent.OPEN, self._context)
 
     async def async_close_cover(self, **kwargs: Any) -> None:
-        """Request approval to close the door (nothing moves until it is approved)."""
-        await self._access.async_request(Intent.CLOSE, self._context)
+        """Pulse the relay to close, or (with `access:`) request approval first."""
+        if self._access is None:
+            await self._async_direct(Intent.CLOSE)
+        else:
+            await self._access.async_request(Intent.CLOSE, self._context)
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
-        """Request approval for a stop pulse; a stop pulse can close the door, so the close policy applies."""
-        await self._access.async_request(Intent.STOP, self._context)
+        """Pulse the relay to stop; with `access:` a stop of a moving door is immediate too."""
+        if self._access is None:
+            await self._async_direct(Intent.STOP)
+        else:
+            await self._access.async_request(Intent.STOP, self._context)
 
     async def async_cancel_request(self) -> None:
         """Cancel the pending approval request or the running pre-warning."""
+        if self._access is None:
+            raise HomeAssistantError(f"{self._display_name}: no `access:` policy is configured, nothing to cancel")
         await self._access.async_cancel(self._context)
 
     async def async_acknowledge_fault(self) -> None:
         """Clear a latched watchdog fault (allowed user, on site)."""
+        if self._access is None:
+            raise HomeAssistantError(f"{self._display_name}: no `access:` policy is configured, no fault to clear")
         await self._access.async_acknowledge_fault(self._context)
 
     @callback
@@ -2437,7 +2512,7 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         # The button has already closed the relay and started the motor: pressing it
         # never aborts anything. Only Home Assistant's own pending request or
         # pre-warning is dropped, so no second pulse follows and stops or reverses it.
-        if self._access.cancel("wall button pressed"):
+        if self._access is not None and self._access.cancel("wall button pressed"):
             LOGGER.info(
                 "%s: wall button pressed - the gate/door has already been actuated; "
                 "pending request or pre-warning cancelled so no second pulse follows",
@@ -2484,20 +2559,11 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         if self._pulse_off_cancel is not None:
             self._pulse_off_cancel()
             self._pulse_off_cancel = None
-            try:
-                write_fut = await self._gateway_handler.send(
-                    OWNLightingCommand.switch_off(self._full_where)
-                )
-                if inspect.isawaitable(write_fut):
-                    await write_fut
-            except Exception as err:
-                LOGGER.warning(
-                    "%s: Failed to send OFF pulse to gateway on removal: %s",
-                    self._display_name,
-                    err,
-                )
+        if self._off_pending:
+            await self._async_send_off()
         self._cancel_travel_timer()
-        await self._access.async_shutdown()
+        if self._access is not None:
+            await self._access.async_shutdown()
         await super().async_will_remove_from_hass()
 
 

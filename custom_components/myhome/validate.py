@@ -558,6 +558,8 @@ def _validate_impulse_covers(data: dict[str, typing.Any]) -> dict[str, typing.An
                     f"{device}: an impulse cover (who: 1) needs a point-to-point <WHERE>; a general, area or "
                     "group address would pulse several motors at once"
                 ) from err
+            if CONF_PIN_CODE in cfg and CONF_ACCESS not in cfg:
+                raise Invalid(f"{device}: pin_code is checked by the access policy; add an access: block or remove it")
         elif CONF_ACCESS in cfg or CONF_PIN_CODE in cfg or CONF_STATE_SENSOR in cfg:
             raise Invalid(f"{device}: access, pin_code and state_sensor only apply to impulse covers (who: 1)")
     return data

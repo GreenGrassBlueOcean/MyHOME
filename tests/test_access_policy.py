@@ -732,3 +732,82 @@ async def test_pulse_exception_settles_phase_and_does_not_wedge(hass: HomeAssist
 
     await h.ctrl.async_shutdown()
 
+
+
+# ── STOP is never withheld; a latched fault survives a restart ──────────
+
+
+async def _monitoring_close(hass: HomeAssistant, **harness_kwargs):
+    parent = await _user(hass, "Parent")
+    calls = async_mock_service(hass, "notify", "mobile_app_parent")
+    h = Harness(hass, _config(parent.id), **harness_kwargs)
+    hass.states.async_set(SENSOR, STATE_ON)
+    await h.ctrl.async_request(Intent.CLOSE, Context(user_id=parent.id))
+    await _press(hass, _approve_action(calls)["action"], parent.id)
+    await _wait_phase(h.ctrl, Phase.MONITORING)
+    return h, calls
+
+
+async def test_stop_of_a_moving_door_needs_no_approval_and_ends_supervision(hass: HomeAssistant):
+    """A STOP while the door moves pulses at once, for anyone, and does not end in a fault."""
+    h, calls = await _monitoring_close(hass)
+    h.pulses.clear()
+
+    await h.ctrl.async_request(Intent.STOP, Context(user_id=None))
+
+    assert h.pulses == [(Intent.STOP, Effect.MAY_CLOSE)]
+    assert h.ctrl.phase is Phase.IDLE
+    assert any("Garage 1: stopped" in c.data["message"] for c in calls)
+    _fire(hass, 30)  # the watchdog is gone: a stopped door is not a fault
+    await hass.async_block_till_done()
+    assert h.ctrl.fault_reason is None
+    await h.ctrl.async_shutdown()
+
+
+async def test_failed_stop_pulse_keeps_the_door_supervised(hass: HomeAssistant):
+    """If the stop pulse is dropped the door is still moving, so the watchdog keeps running."""
+    h, _ = await _monitoring_close(hass)
+    h.pulse_ok = False
+
+    with pytest.raises(HomeAssistantError, match="stop pulse was not sent"):
+        await h.ctrl.async_request(Intent.STOP, Context(user_id=None))
+
+    assert h.ctrl.phase is Phase.MONITORING
+    _fire(hass, 21)
+    await hass.async_block_till_done()
+    assert h.ctrl.phase is Phase.FAULT
+    await h.ctrl.async_shutdown()
+
+
+async def test_stop_drops_a_pending_request_instead_of_pulsing(hass: HomeAssistant):
+    """A STOP while an approval is pending cancels the request; nothing is pulsed."""
+    parent = await _user(hass, "Parent")
+    async_mock_service(hass, "notify", "mobile_app_parent")
+    h = Harness(hass, _config(parent.id))
+    hass.states.async_set(SENSOR, STATE_ON)
+    await h.ctrl.async_request(Intent.CLOSE, Context(user_id=parent.id))
+    assert h.ctrl.phase is Phase.PENDING
+
+    await h.ctrl.async_request(Intent.STOP, Context(user_id=None))
+
+    assert h.ctrl.phase is Phase.IDLE
+    assert h.pulses == []
+    await h.ctrl.async_shutdown()
+
+
+async def test_restored_fault_stays_latched_until_acknowledged_on_site(hass: HomeAssistant):
+    """A fault from before a restart blocks closing again and is cleared only by an on-site user."""
+    parent = await _user(hass, "Parent")
+    async_mock_service(hass, "notify", "mobile_app_parent")
+    h = Harness(hass, _config(parent.id))
+    hass.states.async_set(SENSOR, STATE_ON)
+    ctx = Context(user_id=parent.id)
+
+    h.ctrl.restore_fault("did not close: possible obstacle or reversal")
+
+    assert h.ctrl.phase is Phase.FAULT
+    assert h.ctrl.attributes()["fault_reason"] == "did not close: possible obstacle or reversal"
+    with pytest.raises(AccessDenied, match="ended in a fault"):
+        await h.ctrl.async_request(Intent.CLOSE, ctx)
+    await h.ctrl.async_acknowledge_fault(ctx)
+    assert h.ctrl.phase is Phase.IDLE

@@ -16,6 +16,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from OWNd.message import (
     OWNEvent,
@@ -35,6 +36,9 @@ from custom_components.myhome.access_policy import (
     RemoteClose,
 )
 from custom_components.myhome.const import (
+    CONF_ACCESS,
+    CONF_ALLOWED_USERS,
+    CONF_APPROVERS,
     CONF_DEVICE_CLASS,
     CONF_MIN_CYCLE_TIME,
     CONF_PIN_CODE,
@@ -53,6 +57,12 @@ from custom_components.myhome.cover import (
     async_setup_entry,
 )
 from tests.conftest import attach_runtime
+
+
+@pytest.fixture(autouse=True)
+def _no_off_retry_delay(monkeypatch):
+    monkeypatch.setattr("custom_components.myhome.cover.OFF_RETRY_DELAY", 0.0)
+
 
 PULSE_FRAME = "*1*18*22##" if hasattr(OWNLightingCommand, "switch_on_timed") else "*1*1*22##"
 
@@ -90,6 +100,7 @@ async def test_impulse_cover_setup_restores_and_configures(hass: HomeAssistant, 
                             CONF_PULSE_DURATION: 0.5,
                             CONF_MIN_CYCLE_TIME: 5.0,
                             CONF_PIN_CODE: "1234",
+                            CONF_ACCESS: {CONF_ALLOWED_USERS: ["u1"], CONF_APPROVERS: {"u1": "notify.mobile_app_phone"}},
                         },
                     }
                 },
@@ -149,6 +160,7 @@ def impulse_gate(hass: HomeAssistant, mock_gateway):
             manufacturer="BTicino",
             model="Impulse Cover",
             gateway=mock_gateway,
+            access_config={},
         )
         cover.hass = hass
         cover.entity_id = "cover.driveway_gate"
@@ -668,3 +680,165 @@ def test_impulse_cover_wall_button_log_says_the_gate_already_moved(impulse_gate,
         impulse_gate.handle_event(OWNEvent.parse("*1*1*22##"))
     impulse_gate._access.cancel.assert_called_once()
     assert "already been actuated" in caplog.text
+
+
+@pytest.fixture
+def direct_gate(hass: HomeAssistant, mock_gateway):
+    """An impulse gate without an `access:` block: a plain hardware interface."""
+    built = []
+
+    def build(state_sensor=None):
+        with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
+            cover = MyHOMEImpulseCover(
+                hass=hass,
+                name="Garage",
+                entity_name=None,
+                device_id="24",
+                who="1",
+                where="24",
+                interface=None,
+                device_class=CoverDeviceClass.GARAGE,
+                travel_time=10.0,
+                pulse_duration=0.5,
+                min_cycle_time=0.0,
+                pin_code=None,
+                state_sensor=state_sensor,
+                manufacturer="BTicino",
+                model="Impulse Cover",
+                gateway=mock_gateway,
+            )
+        cover.hass = hass
+        cover.entity_id = "cover.garage"
+        cover.async_write_ha_state = MagicMock()
+        built.append(cover)
+        return cover
+
+    yield build
+    for cover in built:
+        cover._cancel_travel_timer()
+        if cover._pulse_off_cancel is not None:
+            cover._pulse_off_cancel()
+
+
+async def test_direct_cover_needs_no_approval_and_no_user(hass: HomeAssistant, direct_gate, mock_gateway):
+    """Without `access:` a dashboard, button or automation pulses the relay at once."""
+    cover = direct_gate()
+    assert cover._access is None
+    assert "access_phase" not in cover.extra_state_attributes
+
+    await cover.async_open_cover()
+    assert str(mock_gateway.send.call_args[0][0]) == PULSE_FRAME.replace("22", "24")
+    assert cover.is_opening is True
+
+    await cover.async_stop_cover()
+    assert mock_gateway.send.call_count == 2
+    assert cover.is_opening is False
+
+    await cover.async_close_cover()
+    assert mock_gateway.send.call_count == 3
+    assert cover.is_closing is True
+
+
+async def test_direct_cover_with_sensor_skips_a_pulse_that_would_undo_the_request(
+    hass: HomeAssistant, direct_gate, mock_gateway
+):
+    """Open on an open door and close on a closed door send nothing; STOP is always sent."""
+    cover = direct_gate(state_sensor="binary_sensor.garage_contact")
+    cover._handle_sensor_update(STATE_OFF)  # closed
+    await cover.async_close_cover()
+    assert mock_gateway.send.call_count == 0
+
+    await cover.async_open_cover()
+    assert mock_gateway.send.call_count == 1
+
+    cover._handle_sensor_update(STATE_ON)  # open
+    await cover.async_open_cover()
+    assert mock_gateway.send.call_count == 1
+    await cover.async_stop_cover()
+    assert mock_gateway.send.call_count == 2
+    await cover.async_close_cover()
+    assert mock_gateway.send.call_count == 3
+
+
+async def test_direct_cover_reports_a_dropped_pulse(hass: HomeAssistant, direct_gate, mock_gateway):
+    """A pulse inside the deadband or a failed write is an error, not a silent no-op."""
+    cover = direct_gate()
+    cover._min_cycle_time = 5.0
+    await cover.async_open_cover()
+    with pytest.raises(HomeAssistantError, match="pulse was not sent"):
+        await cover.async_stop_cover()
+
+
+async def test_direct_cover_has_no_policy_services(hass: HomeAssistant, direct_gate):
+    """Cancelling a request or acknowledging a fault only makes sense with `access:`."""
+    cover = direct_gate()
+    with pytest.raises(HomeAssistantError, match="no `access:` policy"):
+        await cover.async_cancel_request()
+    with pytest.raises(HomeAssistantError, match="no `access:` policy"):
+        await cover.async_acknowledge_fault()
+    cover.handle_event(OWNEvent.parse("*1*1*24##"))  # a wall button works without a policy
+    await cover.async_will_remove_from_hass()
+
+
+async def test_stop_of_a_supervised_gate_is_immediate_while_it_moves(hass: HomeAssistant, impulse_gate, mock_gateway):
+    """With `access:`, STOP of a moving gate does not wait for a phone."""
+    from custom_components.myhome.access_policy import Phase
+
+    impulse_gate._access.phase = Phase.MONITORING
+    await impulse_gate.async_stop_cover()
+    assert mock_gateway.send.call_count == 1
+    assert impulse_gate.extra_state_attributes["access_phase"] == "idle"
+
+
+async def test_latched_fault_is_restored_after_a_restart(hass: HomeAssistant, impulse_gate):
+    """The fault attribute of the last state re-latches the fault when the entity is added."""
+    last = MagicMock()
+    last.attributes = {"fault_reason": "did not close: possible obstacle or reversal"}
+    with (
+        patch.object(MyHOMEImpulseCover, "async_get_last_state", AsyncMock(return_value=last)),
+        patch("custom_components.myhome.cover.MyHOMEEntity.async_added_to_hass", AsyncMock()),
+    ):
+        await impulse_gate.async_added_to_hass()
+    assert impulse_gate.extra_state_attributes["access_phase"] == "fault"
+    assert impulse_gate.extra_state_attributes["fault_reason"] == "did not close: possible obstacle or reversal"
+
+    with (
+        patch.object(MyHOMEImpulseCover, "async_get_last_state", AsyncMock(return_value=None)),
+        patch("custom_components.myhome.cover.MyHOMEEntity.async_added_to_hass", AsyncMock()),
+    ):
+        impulse_gate._access.fault_reason = None
+        await impulse_gate.async_added_to_hass()
+    assert impulse_gate.extra_state_attributes["fault_reason"] is None
+
+
+async def test_lost_off_is_retried_and_blocks_the_next_pulse(hass: HomeAssistant, impulse_gate, mock_gateway, monkeypatch):
+    """A software OFF that never reaches the bus is retried, and the relay is released before the next pulse."""
+    monkeypatch.delattr(OWNLightingCommand, "switch_on_timed", raising=False)
+    impulse_gate._min_cycle_time = 0.0
+    assert await impulse_gate._async_send_impulse() is True
+    assert impulse_gate._off_pending is True
+
+    mock_gateway.send.reset_mock()
+    mock_gateway.send.side_effect = RuntimeError("bus down")
+    assert await impulse_gate._async_send_off() is False
+    assert mock_gateway.send.call_count == 3  # OFF_ATTEMPTS
+    assert impulse_gate._off_pending is True
+
+    # The next command first tries to release the relay and does not stack another ON on it.
+    mock_gateway.send.reset_mock()
+    assert await impulse_gate._async_send_impulse() is False
+    assert [str(c[0][0]) for c in mock_gateway.send.call_args_list] == ["*1*0*22##"] * 3
+
+    # Once the bus is back the OFF goes out first, then the new pulse.
+    mock_gateway.send.reset_mock()
+    mock_gateway.send.side_effect = None
+    assert await impulse_gate._async_send_impulse() is True
+    assert [str(c[0][0]) for c in mock_gateway.send.call_args_list] == ["*1*0*22##", "*1*1*22##"]
+    impulse_gate._pulse_off_cancel()
+
+    # A removal with the OFF still owed delivers it.
+    mock_gateway.send.reset_mock()
+    impulse_gate._pulse_off_cancel = None
+    await impulse_gate.async_will_remove_from_hass()
+    assert str(mock_gateway.send.call_args[0][0]) == "*1*0*22##"
+    assert impulse_gate._off_pending is False

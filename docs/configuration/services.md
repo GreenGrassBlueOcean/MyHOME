@@ -305,7 +305,7 @@ data:
 
 ## 14. `myhome.cancel_cover_request`
 
-Cancels an active or pending approval request or a running 5-second pre-warning countdown of an impulse gate or garage door (`type: impulse_relay`). Cancelling is always safe: no bus impulse is sent, no relay energizes, and nothing moves.
+Cancels an active or pending approval request or a running 5-second pre-warning countdown of an impulse gate or garage door (`type: impulse_relay`). Cancelling is always safe: no bus impulse is sent, no relay energizes, and nothing moves. Only meaningful for a cover with an `access:` block; on a cover without one the service raises an error.
 
 ### Fields
 | Parameter | Type | Required | Description | Example |
@@ -323,7 +323,7 @@ target:
 
 ## 15. `myhome.acknowledge_cover_fault`
 
-Clears the safety fault latched when a gate or garage door did not reach its expected state after a pulse (indicating a physical obstacle, safety trip, or reversal). Only an allowed user who is physically at home may clear the fault. Until acknowledged, all remote and automated closing commands from Home Assistant remain strictly blocked.
+Clears the safety fault latched when a gate or garage door did not reach its expected state after a pulse (indicating a physical obstacle, safety trip, or reversal). Only an allowed user who is physically at home may clear the fault. Until acknowledged, all remote and automated closing commands from Home Assistant remain strictly blocked. The fault survives a restart or reload of Home Assistant. Only meaningful for a cover with an `access:` block.
 
 ### Fields
 | Parameter | Type | Required | Description | Example |

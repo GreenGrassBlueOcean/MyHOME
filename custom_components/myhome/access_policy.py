@@ -253,6 +253,10 @@ class AccessController:
         """Create an approval request for ``intent``; raises :class:`AccessDenied` when refused."""
         hass = self._require_hass()
         user_id = context.user_id if context is not None else None
+        if intent is Intent.STOP and self.phase in (Phase.PENDING, Phase.PREWARNING, Phase.MONITORING):
+            # Stopping a door that is about to move or moving is never withheld, whoever asks.
+            await self._async_stop_now()
+            return
         if self.phase in (Phase.PENDING, Phase.PREWARNING, Phase.MONITORING):
             raise AccessDenied(f"{self._name}: another operation is in progress ({self.phase})")
         self._check_user(user_id)
@@ -284,6 +288,26 @@ class AccessController:
             raise HomeAssistantError(f"{self._name}: could not send the approval request: {err}") from err
         LOGGER.info("%s: %s requested by user %s, waiting for approval", self._name, intent, user_id)
         self._publish()
+
+    async def _async_stop_now(self) -> None:
+        """Drop a pending request or pre-warning, or pulse a moving door to a stop, without approval."""
+        if self.cancel("stop requested"):
+            return
+        if self.phase is not Phase.MONITORING:
+            return  # pragma: no cover - the request moved on between the check and here
+        if not await self._send_pulse(Intent.STOP, Effect.MAY_CLOSE):
+            # Still moving and still supervised: the watchdog keeps running.
+            raise HomeAssistantError(f"{self._name}: the stop pulse was not sent (deadband or write failed)")
+        self._cancel_watchdog()
+        LOGGER.info("%s: stopped while moving", self._name)
+        self._settle()
+        self._spawn(self._notify_all(f"{self._name}: stopped"))
+
+    @callback
+    def restore_fault(self, reason: str) -> None:
+        """Re-latch a fault that was active before a restart or reload (cleared only on site)."""
+        self.fault_reason = reason
+        self._settle()
 
     @callback
     def cancel(self, reason: str) -> bool:

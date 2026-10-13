@@ -51,7 +51,7 @@ Legend: ✅ supported · 👁️ read-only · ⚙️ via a service, not an entit
 | Function | Status | Notes |
 | :--- | :---: | :--- |
 | Open / close / stop | ✅ | Standard WHO 2 shutter actuators. |
-| Impulse cover (WHO 1) | ✅ | Pulse-driven gates and garage doors with AccessController multi-factor approval, sensor direction checks, pre-warning, and watchdog. |
+| Impulse cover (WHO 1) | ✅ | Pulse-driven gates and garage doors: direct pulses with deadband and sensor feedback by default, and an optional `access:` workflow with phone approval, pre-warning, and watchdog. |
 | Position (position-reporting actuators) | ✅ | Requires `advanced_shutter: true` in `myhome.yaml`; it is not learned from the bus. |
 | Position (timed actuators) | ✅ | Virtual position from the travel time: `travel_time` in YAML, measured with `myhome.calibrate_cover`, or set by hand with `myhome.set_cover_travel_time`. |
 | Tilt | ❌ | Slat commands are parsed by OWNd but not exposed. |

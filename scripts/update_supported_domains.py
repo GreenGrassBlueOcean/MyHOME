@@ -64,7 +64,7 @@ DOMAIN_METADATA: dict[str, dict[str, str]] = {
         "capabilities": (
             "Motorized shutters, blinds, roll-ups with state tracking, "
             "position-reporting actuators & virtual travel-time positioning; "
-            "impulse gates & garage doors (`WHO=1`) with AccessController multi-factor safety approval"
+            "impulse gates & garage doors (`WHO=1`) with sensor feedback and an optional multi-factor approval workflow"
         ),
     },
     "lock": {
