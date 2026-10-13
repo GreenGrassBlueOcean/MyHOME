@@ -2353,3 +2353,8 @@ async def test_dimmer_with_brightness_frame_is_not_polled(hass):
 async def test_dimmer_with_preset_frame_is_still_polled(hass):
     """WHAT 2..10 carries a preset, not a bus brightness, so the dimmer is still queried (#612)."""
     assert await _poll_count_after(hass, "*1*5*11##", dimmable=True) == 1
+
+
+async def test_dimmer_reported_off_is_not_polled(hass):
+    """An off dimmer has no brightness left to ask for, so the sweep's reply is enough (#612)."""
+    assert await _poll_count_after(hass, "*1*0*11##", dimmable=True) == 0
