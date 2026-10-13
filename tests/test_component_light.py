@@ -2294,3 +2294,30 @@ async def test_unloaded_dimmer_discovered_as_dimmable(hass):
         assert ColorMode.BRIGHTNESS in discovered.supported_color_modes
         assert discovered.is_on is False
         assert discovered.extra_state_attributes.get("no_load") is True
+
+
+async def test_poll_after_discovery_skipped_when_sweep_reported_state(hass):
+    """A light the startup sweep already reported is not queried again (#612)."""
+    gateway = MagicMock()
+    gateway.send_status_request = AsyncMock()
+    gateway.wait_for_initial_discovery = AsyncMock()
+    gateway.config_entry = MagicMock(options={})
+
+    def make() -> MyHOMELight:
+        light = MyHOMELight(
+            hass=hass, name="L", entity_name="L", icon="mdi:lightbulb-off", icon_on="mdi:lightbulb-on",
+            device_id="11", who="1", where="11", interface=None, dimmable=False,
+            manufacturer="B", model="M", gateway=gateway,
+        )
+        light.async_schedule_update_ha_state = MagicMock()
+        return light
+
+    silent = make()
+    await silent._async_poll_after_discovery()
+    gateway.send_status_request.assert_called_once()
+
+    gateway.send_status_request.reset_mock()
+    reported = make()
+    reported.handle_event(OWNLightingEvent("*1*1*11##"))
+    await reported._async_poll_after_discovery()
+    gateway.send_status_request.assert_not_called()
