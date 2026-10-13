@@ -837,3 +837,9 @@ class TestImpulseCoverTypeConsistency:
         assert "1-72" in self._cover(**{CONF_WHO: "1", "type": "impulse_relay"})
         assert "1-72" in self._cover(**{CONF_WHO: "1"})
         assert "2-72" in self._cover(**{CONF_WHO: "2", "type": "shutter"})
+
+    def test_pin_code_needs_an_access_block(self):
+        """A PIN is only checked by the access policy; a plain impulse cover needs none."""
+        assert "1-72" in self._cover(**{CONF_WHO: "1"})
+        with pytest.raises(Invalid, match="pin_code is checked by the access policy"):
+            self._cover(**{CONF_WHO: "1", "pin_code": "1234"})
