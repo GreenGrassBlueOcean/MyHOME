@@ -37,6 +37,7 @@ class MyHOMEEntity(RestoreEntity):
     # Whether to request a status update from the bus right after being added.
     # Push-only devices set this to False to avoid a useless (NACKed) query.
     _poll_on_add: bool = True
+    _bus_state_complete: bool = False
     # Sensors / binary sensors: let Home Assistant name the entity after its device class.
     _name_from_device_class: bool = False
 
@@ -268,6 +269,12 @@ class MyHOMEEntity(RestoreEntity):
     async def _async_poll_after_discovery(self) -> None:
         """Poll device status once initial discovery has completed."""
         await self._gateway_handler.wait_for_initial_discovery()
+        if self._bus_state_complete:
+            LOGGER.debug("%s: state already reported on the bus, skipping post-discovery poll", self.entity_id)
+            # The startup sweep already reported the full state. Querying the point again
+            # makes an actuator re-announce itself, which MH200/MH200N scenarios with a
+            # "light is ON" start condition take for a real switch-on (#612).
+            return
         await self.async_update()
 
     async def async_update(self) -> None:
