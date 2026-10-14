@@ -995,6 +995,9 @@ def test_golden_who1013_exchange(dev_reg, issues, plant, model, object_model, fi
     assert ident["model"] == model and h.gateway.model_name == model
     assert ident["conflict"] is None
     assert h._who1013["pending"] is False
+    if plant == "issue_466_f461":
+        assert ident["who13_kernel"] == "5.10.35"
+        assert ident["who13_distribution"] == "2.26.4"
     create.assert_not_called()
     corrected.assert_not_called()
     h.hass.config_entries.async_update_entry.assert_not_called()

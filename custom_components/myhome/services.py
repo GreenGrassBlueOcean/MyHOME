@@ -192,6 +192,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 "*#13**0##",   # Gateway real-time clock
                 "*#13**15##",  # Gateway device model
                 "*#13**16##",  # Gateway firmware version
+                "*#13**23##",  # Gateway kernel version (modern Linux gateways; NACK ignored on older)
+                "*#13**24##",  # Gateway distribution version (modern Linux gateways; NACK ignored on older)
             ]
             general_queries = ((1, "*#1*0##"), (2, "*#2*0##"), (4, "*#4*0##"), (5, "*#5*0##"), (16, "*#16*0*5##"))
 
