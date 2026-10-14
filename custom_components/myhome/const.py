@@ -239,6 +239,7 @@ def is_apl_address(base: str) -> bool:
     """Check if base address is a valid OpenWebNet Point-to-Point (APL) address.
 
     Point-to-point addressing combinations:
+      - A = 0; PL [1-9]        -> 2 digits (e.g. 02 = Area 0, PL 2; accepted by BTicino firmware)
       - A = 00; PL [01-15]     -> 4 digits (e.g. 0015 = Area 00, PL 15)
       - A [1-9]; PL [1-9]      -> 2 digits (e.g. 15 = Area 1, PL 5)
       - A = 10; PL [01-15]     -> 4 digits (e.g. 1015 = Area 10, PL 15)
@@ -249,6 +250,8 @@ def is_apl_address(base: str) -> bool:
     if len(base) == 2:
         a = int(base[0])
         pl = int(base[1])
+        if a == 0:
+            return 1 <= pl <= 9
         return 1 <= a <= 9 and 1 <= pl <= 9
     if len(base) == 4:
         a = int(base[:2])
@@ -272,6 +275,8 @@ def area_of_where(where: str | int | None) -> str | None:
     if not is_apl_address(base):
         return None
     if len(base) == 2:
+        if base[0] == "0":
+            return "00"
         return base[0]
     # Length is 4
     a = base[:2]
@@ -286,6 +291,7 @@ def normalize_where(where: str | int | None) -> str:
     """Normalize OpenWebNet address while preserving Point-to-Point (APL) addressing.
 
     Point-to-point WHERE addresses must never have leading zeros stripped:
+      - '02' means Area 0, Point 2 (2 digits)
       - '0015' means Area 00, Point 15 (4 digits)
       - '15' means Area 1, Point 5 (2 digits)
     Area broadcasts '00' (Area 0) and '100' (Area 10) are also preserved.
