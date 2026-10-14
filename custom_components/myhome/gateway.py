@@ -876,9 +876,14 @@ class MyHOMEGatewayHandler:
         if dim in (0, 22) and dim_val:
             # Check if timezone is 999. In both dimension 0 and 22, dim_val[3] carries the timezone.
             # The OWNd < 2.0.0b7 compat shim clears the time_zone property, but leaves dim_val[3] as "999".
+            # The F461 gateway is configured via Home + Project app and maintains its clock via NTP.
+            # Its firmware always reports 999 over OpenWebNet; it is exempted from this warning (Issue #709).
             if len(dim_val) > 3 and str(dim_val[3]) == "999":
                 if self.config_entry:
-                    async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id, self.config_entry.title)
+                    if self.model.strip().upper() == "F461" or self._who1013.get("code") == "134":
+                        async_delete_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
+                    else:
+                        async_create_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id, self.config_entry.title)
             elif len(dim_val) > 3 and str(dim_val[3]) != "":
                 if self.config_entry:
                     async_delete_unconfigured_timezone_issue(self.hass, self.config_entry.entry_id)
@@ -990,6 +995,8 @@ class MyHOMEGatewayHandler:
 
         # The effective model.
         model = resolution.model or configured
+        if ((model and model.strip().upper() == "F461") or self._who1013.get("code") == "134") and entry_id:
+            async_delete_unconfigured_timezone_issue(self.hass, entry_id)
         if model and model.lower() != configured.lower():
             reading = resolution.corrected_reading
             LOGGER.warning(
