@@ -1070,7 +1070,7 @@ class MyHOMEGatewayHandler:
         del self.sending_workers[limit:]
 
     def _request_object_model(self) -> None:
-        """Queue ``*#1013*0*1##`` (Gateway Diagnostic, dimension 1 OBJECT_MODEL) once.
+        """Queue ``*#1013**1##`` (Gateway Diagnostic, dimension 1 OBJECT_MODEL) once.
 
         Sent as a status request: OWNd retries a NACK once and logs both attempts at
         DEBUG, and the delivery future is cancelled, which nobody awaits. Not repeated
@@ -1078,7 +1078,7 @@ class MyHOMEGatewayHandler:
         """
         if self._who1013["pending"]:
             return
-        cmd = OWNCommand.parse("*#1013*0*1##")
+        cmd = OWNCommand.parse("*#1013**1##")
         if cmd is None:
             return
         LOGGER.debug("%s Requesting WHO=1013 dimension 1 (OBJECT_MODEL) to settle the model.", self.log_id)
