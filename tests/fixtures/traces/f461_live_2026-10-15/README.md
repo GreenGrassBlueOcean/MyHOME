@@ -12,9 +12,12 @@ Every frame exchanged with a physical F461 gateway during the live test of OWNd 
 | Lights | two F411 relay actuators, Home + Project addresses A=0 PL=1 (`WHERE 01`) and A=0 PL=4 (`WHERE 04`) |
 | Climate | one standalone thermostat, zone 2, no central unit; actuator 1 = heating valve, actuator 2 = fan coil used in cooling season |
 
-## File format: `frames.jsonl`
+## File format: `myhome_trace_F461_live_2026-10-15.json`
 
-One JSON object per line, in capture order, with `run` naming the session:
+Standard `MyHOME` derived trace archive containing:
+- `capture` & `gateway`: metadata (with RFC 5737 documentation IP `192.0.2.92` and synthetic MAC `00:03:50:00:04:97`).
+- `frames`: the 629 event-session `rx` frames (`direction: "rx"`, `raw: "..."`) replayed by the corpus health checks (`test_device_health_corpus.py`) and scanned by `scripts/update_trace_matrix.py`.
+- `rows`: all 2,478 session log entries in capture order, with `run` naming the session:
 
 | `dir` | Meaning | Fields |
 |---|---|---|
@@ -22,8 +25,7 @@ One JSON object per line, in capture order, with `run` naming the session:
 | `rx` | frame read from the gateway | `session` (`cmd` reply or `evt` monitor), `frame`; event-session rows also carry `ownd_class` and `ownd_log`, what OWNd master 028f11c made of the frame at capture time |
 | `result` | what the command session returned for a `tx` in the `run1_full` / `run3_climate` runs | `ack`, `replies`, `note` |
 
-`t` is seconds since the start of that run; `utc` (probe runs) is wall clock. `step` is the phase name
-of `live_test_ownd.py`.
+`t` is seconds since the start of that run; `utc` (probe runs) is wall clock. `step` is the phase name.
 
 ## The runs
 
@@ -37,7 +39,7 @@ of `live_test_ownd.py`.
 | `probe_area0` | `0001` / `01` / `02` / `1` address forms for the area-0 lights |
 | `probe_monitor5min` | 300 s passive listen: one spontaneous `*#4*2*60*34##`, gateway clock broadcast, nothing else |
 
-## What the plant established (each row has its frames in `frames.jsonl`)
+## What the plant established (each row has its frames in `myhome_trace_F461_live_2026-10-15.json`)
 
 * `*#4*2##` is answered in 1.3 s with `*#4*2*0*T##`, `*#4*2*12*T*3##`, `*4*1*2##` (season), `*#4*2*14*T*3##`,
   `*#4*2*13*00##`; `*#4*0##`, `*#4*#2##`, `*#4*#0##` are NACKed.
@@ -49,14 +51,3 @@ of `live_test_ownd.py`.
 * `*#4*Z*22##` and `*#4*#0*22##` crash the thermostat handler, the gateway reboots about 3 minutes later.
 * `*#13**15*200##` is followed by the spontaneous `*#1013**1*134*15*5*0##`.
 * Lights: `01` / `04` work, `0001` / `0004` / `02` are NACKed, `1` and `4` are areas.
-
-## How to reproduce on a plant
-
-```sh
-python3.12 -m venv venv && . venv/bin/activate
-pip install "git+https://github.com/OpenWebNet-HA/OWNd@master"
-# probe.py sends frames one by one and prints ACK/NACK, the replies and the events seen in a window:
-python probe.py --host 192.168.0.92 --port 20000 --password '...' --wait 2 '*#4*2##' '*#4*2*19##' '*#4*2*20##'
-```
-`probe.py` and the full `live_test_ownd.py` are in the project folder `live_f461/` (they only need OWNd).
-Do not send `*#4*…*22##` to an F461 unless a three-minute outage is acceptable.
