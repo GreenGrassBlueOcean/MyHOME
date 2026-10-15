@@ -441,7 +441,12 @@ class MyHOMEGatewayHandler:
         standard SCS bus protocol. Physical gateways (F455, F454, MH200N, MH202, etc.) forward
         the request to the SCS bus, where physical thermostats (LN4691, 3550) ignore it, causing
         a 10-second command session timeout per zone (#674).
-        Only MyHomeServer1 intercepts *#4*Z## in software and replies from its internal cache (#649).
+        MyHomeServer1 intercepts *#4*Z## in software and replies from its internal cache (#649).
+        An F461 (firmware 2.0.11) expands it itself into the four dimension requests and answers
+        within 1.3 s with dimensions 0, 12, 14, 13 and the season frame, while it NACKs the
+        general request *#4*0## of the startup sweep and its thermostats push nothing on their
+        own: polling is the only way such a zone gets a state
+        (tests/fixtures/traces/f461_live_2026-10-15/README.md).
         """
         norm = self.model.upper()
         return not any(
@@ -456,7 +461,6 @@ class MyHOMEGatewayHandler:
                 "F453",
                 "F458",
                 "F459",
-                "F461",
                 "H4684",
             )
         )
