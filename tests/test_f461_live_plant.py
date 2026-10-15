@@ -1,9 +1,8 @@
 """A physical BTicino F461 (firmware 2.0.11) against MyHOME, captured 2026-10-15.
 
-The frames are in ``tests/fixtures/traces/f461_live_2026-10-15/frames.jsonl`` (README there:
-plant, file format, how to reproduce with ``probe.py``). Plant: F411 lights at WHERE 01 and
-04, standalone zone 2 with a heating valve (actuator 1) and a cooling fan coil (actuator 2),
-no central unit.
+The frames are in ``tests/fixtures/traces/f461_live_2026-10-15/myhome_trace_F461_live_2026-10-15.json``
+(README there: plant and file format). Plant: F411 lights at WHERE 01 and 04, standalone zone 2
+with a heating valve (actuator 1) and a cooling fan coil (actuator 2), no central unit.
 
 What the capture changed in MyHOME:
 
@@ -34,14 +33,21 @@ from OWNd.message import OWNEvent, OWNMessage
 from custom_components.myhome.const import CONF_ENTITY, CONF_PLATFORMS, CONF_WHERE, DOMAIN
 from tests.conftest import attach_platform, attach_runtime
 
-MAC = "00:03:50:9f:3f:97"
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "traces" / "f461_live_2026-10-15" / "frames.jsonl"
+MAC = "00:03:50:00:04:97"
+FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "traces"
+    / "f461_live_2026-10-15"
+    / "myhome_trace_F461_live_2026-10-15.json"
+)
 
 
 @pytest.fixture(scope="module")
 def rows() -> list[dict]:
     assert FIXTURE.is_file(), FIXTURE
-    return [json.loads(line) for line in FIXTURE.open(encoding="utf-8")]
+    data = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    return data["rows"]
 
 
 def _gateway(model: str = "F461") -> MagicMock:
