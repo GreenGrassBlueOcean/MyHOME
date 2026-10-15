@@ -368,13 +368,14 @@ WHO13_OFFICIAL_DEVICE_TYPES = {
 #   200: Confirmed on physical hardware for F454 (PR #420 sweep, firmware 2.0.51;
 #        earlier in issue #370 with SSDP), MH202 (PR #420 sweep, firmware 1.0.21),
 #        MyHOMEServer1 (PR #420 trace, firmware 2.87.13; earlier in issue
-#        #292/#297), H4890 (issue #466 sweep, firmware 4.0.15), and F461 (issue
+#        #292/#297), H4890 (issue #466 sweep, firmware 4.0.15), F461 (issue
 #        #466 comment 5870342995 sweep, firmware 2.0.11; reported without
-#        diagnostics in issue #370). Shared across modern Linux-based
-#        gateway families, so it identifies none of them (see WHO13_SHARED_DEVICE_TYPES).
+#        diagnostics in issue #370), and MH201 (firmware 3.3.6, 3.6.27; OWNd#116).
+#        Shared across modern gateway families (not all Linux-based, e.g. MH201),
+#        so it identifies none of them (see WHO13_SHARED_DEVICE_TYPES).
 #        It contradicts legacy gateways (e.g. MH200/F452), but only as field evidence.
 WHO13_OBSERVED_DEVICE_TYPES: dict[str, tuple[str, ...]] = {
-    "200": ("F454", "MyHomeServer1", "MH202", "F461", "H4890"),
+    "200": ("F454", "MyHomeServer1", "MH202", "F461", "H4890", "MH201"),
 }
 # Codes from an independent implementation: the `device` table of Nmap's
 # openwebnet-discovery.nse, whose `device_dimension["Device Type"] = "15"` is this
@@ -429,11 +430,11 @@ WHO13_SHARED_DEVICE_TYPES: frozenset[str] = frozenset({"200"})
 # only brand value ever traced is 5, "Legrand BTicino", which does not
 # discriminate - so the BTicino name is always the one displayed.
 #
-# Four codes are confirmed on physical hardware: 51 F454, 5 MH202, and 67
-# MyHomeServer1 (PR #420, fixtures under tests/fixtures/plants/pr_420_*), and 134
+# Five codes are confirmed on physical hardware: 51 F454, 5 MH202, and 67
+# MyHomeServer1 (PR #420, fixtures under tests/fixtures/plants/pr_420_*), 134
 # F461 (issue #466 comment 5870342995, fixtures under
-# tests/fixtures/plants/issue_466_f461/). The rest of the table is from the
-# database, untraced.
+# tests/fixtures/plants/issue_466_f461/), and 10 MH201 (OWNd#116). The rest of
+# the table is from the database, untraced.
 #
 # A dimension-1 reply is four values, not one (@anotherjulien in #420, from the
 # OpenWebNet Encyclopedia's work on MHCatalogue.db):
@@ -450,6 +451,7 @@ WHO1013_OBJECT_MODELS: dict[str, tuple[str, ...]] = {
     "4": ("MH200",),
     "5": ("MH202", "003535"),
     "8": ("F455", "003594"),
+    "10": ("MH201",),
     "12": ("F453AV",),
     "29": ("H4684", "L4684"),
     "30": ("AM4890", "H4890", "573958", "067292", "078479", "HW4890", "LN4890", "LN4890A"),
