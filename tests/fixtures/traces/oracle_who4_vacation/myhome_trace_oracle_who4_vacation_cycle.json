@@ -1,0 +1,247 @@
+{
+  "capture": {
+    "kind": "trace",
+    "source": "firmware-oracle-contract",
+    "provenance": "Synthesized from static disassembly of Legrand bt_termo (scs2open 0x0000EC74 / expiration 0x0000D2A8) and 3550 CU FW 3.0.20 (0x0EF881 SUB.B #1, 0x2414)",
+    "started_at": "2026-10-15T00:00:00.000Z",
+    "filters": {
+      "who": "4",
+      "where": null,
+      "direction": null
+    },
+    "window": {
+      "first": "2026-10-15T00:00:00.000Z",
+      "last": "2026-10-20T00:00:01.000Z",
+      "frames": 16,
+      "buffer_frames": 16,
+      "buffer_depth": 500,
+      "truncated": false
+    }
+  },
+  "environment": {
+    "home_assistant_version": "2026.10.1",
+    "integration_version": "2.0.0b14",
+    "ownd_version": "2.0.0b10",
+    "exported_at": "2026-10-15T18:00:00.000Z"
+  },
+  "gateway": {
+    "model": "F454",
+    "manufacturer": "BTicino S.p.A.",
+    "firmware": "2.0.51",
+    "mac_prefix": "00:03:50",
+    "connection_type": "tcp",
+    "queue_pacing": 0.05,
+    "is_connected": true,
+    "identification": {
+      "model": "F454",
+      "source": "ssdp",
+      "configured_model": "F454",
+      "ssdp_model": "F454",
+      "who13_code": "13",
+      "who13_model": "F454",
+      "profile": "GenericGatewayProfile",
+      "conflict": null
+    }
+  },
+  "telemetry": {
+    "total_rx": 16,
+    "total_tx": 0,
+    "captured_in_buffer": 16,
+    "buffer_depth": 500,
+    "queue_depth": 0
+  },
+  "frames": [
+    {
+      "timestamp": 1792022400.0,
+      "iso_time": "2026-10-15T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*#4*0*12*0210*3##",
+      "who": "4",
+      "what": null,
+      "where": "0",
+      "dimension": "12",
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022400.1,
+      "iso_time": "2026-10-15T00:00:00.100000+00:00",
+      "direction": "rx",
+      "raw": "*4*1*0##",
+      "who": "4",
+      "what": "1",
+      "where": "0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022400.2,
+      "iso_time": "2026-10-15T00:00:00.200000+00:00",
+      "direction": "rx",
+      "raw": "*4*1101*#0##",
+      "who": "4",
+      "what": "1101",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022400.3,
+      "iso_time": "2026-10-15T00:00:00.300000+00:00",
+      "direction": "rx",
+      "raw": "*4*111*#1##",
+      "who": "4",
+      "what": "111",
+      "where": "#1",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.0,
+      "iso_time": "2026-10-15T00:00:10.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*13005#3102*#0##",
+      "who": "4",
+      "what": "13005",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.1,
+      "iso_time": "2026-10-15T00:00:10.100000+00:00",
+      "direction": "rx",
+      "raw": "*4*21*#0##",
+      "who": "4",
+      "what": "21",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.2,
+      "iso_time": "2026-10-15T00:00:10.200000+00:00",
+      "direction": "rx",
+      "raw": "*4*22*#0##",
+      "who": "4",
+      "what": "22",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.3,
+      "iso_time": "2026-10-15T00:00:10.300000+00:00",
+      "direction": "rx",
+      "raw": "*#4*#0*30*20*10*2026##",
+      "who": "4",
+      "what": null,
+      "where": "#0",
+      "dimension": "30",
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.4,
+      "iso_time": "2026-10-15T00:00:10.400000+00:00",
+      "direction": "rx",
+      "raw": "*#4*#0*31*00*00##",
+      "who": "4",
+      "what": null,
+      "where": "#0",
+      "dimension": "31",
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792022410.5,
+      "iso_time": "2026-10-15T00:00:10.500000+00:00",
+      "direction": "rx",
+      "raw": "*4*13005*#0##",
+      "who": "4",
+      "what": "13005",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792108800.0,
+      "iso_time": "2026-10-16T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*13004*#0##",
+      "who": "4",
+      "what": "13004",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792195200.0,
+      "iso_time": "2026-10-17T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*13003*#0##",
+      "who": "4",
+      "what": "13003",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792281600.0,
+      "iso_time": "2026-10-18T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*13002*#0##",
+      "who": "4",
+      "what": "13002",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792368000.0,
+      "iso_time": "2026-10-19T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*13001*#0##",
+      "who": "4",
+      "what": "13001",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792454400.0,
+      "iso_time": "2026-10-20T00:00:00.000000+00:00",
+      "direction": "rx",
+      "raw": "*4*1102*#0##",
+      "who": "4",
+      "what": "1102",
+      "where": "#0",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792454400.1,
+      "iso_time": "2026-10-20T00:00:00.100000+00:00",
+      "direction": "rx",
+      "raw": "*4*111*#1##",
+      "who": "4",
+      "what": "111",
+      "where": "#1",
+      "dimension": null,
+      "is_ack": false,
+      "is_nack": false
+    }
+  ]
+}
