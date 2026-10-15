@@ -494,6 +494,17 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     self._scenario = int(last_state.attributes["scenario"])
                 except (ValueError, TypeError):
                     pass
+            restored_season = last_state.attributes.get("season")
+            if restored_season in (SEASON_HEATING, "cooling"):
+                self._season = str(restored_season)
+            if (
+                "fan_coil_heating" in last_state.attributes
+                or "fan_coil_cooling" in last_state.attributes
+            ):
+                self._fan_coil_sides = {
+                    "heating": bool(last_state.attributes.get("fan_coil_heating", False)),
+                    "cooling": bool(last_state.attributes.get("fan_coil_cooling", False)),
+                }
             if "fan_mode" in last_state.attributes or bool(
                 last_state.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE
             ):
@@ -524,12 +535,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             and not self._fan
             and not self._humidity
         ):
-            # Physical SCS gateways (F455, F454, MH200N, MH202, F461, etc.) do not support
+            # Physical SCS gateways (F455, F454, MH200N, MH202, etc.) do not support
             # dimension-less status requests (*#4*Z##) for regular zones (1-99). The request
             # is forwarded to the SCS bus where physical thermostats have no handler for it,
             # resulting in a 10-second command session timeout per zone (#674).
-            # Only MyHomeServer1 intercepts *#4*Z## in software and replies from its cache (#649).
-            # Physical plants receive standard zone telemetry spontaneously via the startup sweep (*#4*0##).
+            # MyHomeServer1 intercepts *#4*Z## in software and replies from its cache (#649),
+            # and F461 expands it into the four dimension requests (#714).
+            # Other physical plants receive standard zone telemetry spontaneously via the startup sweep (*#4*0##).
             return
         if self._poll_health.should_skip(time.time()):
             LOGGER.debug("%s %s did not answer its last polls; not asking again yet", self._gateway_handler.log_id, self._display_name)
@@ -1130,7 +1142,18 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     else "valve"
                 )
             )
-            self._actuator_states[actuator_id] = bool(message.is_active())
+            is_active = bool(message.is_active())
+            if getattr(message, "dimension", None) == 19:
+                # OWNd <= 2.0.0b11 clears _is_active when a fan-coil side is off (value 5),
+                # even if the other side's valve is open (*#4*2*19*5*1##, OWNd#116).
+                is_active = bool(
+                    is_active
+                    or message.is_heating()
+                    or message.is_cooling()
+                    or getattr(message, "cooling_fan_on", None)
+                    or getattr(message, "fan_on", None)
+                )
+            self._actuator_states[actuator_id] = is_active
             any_active = any(self._actuator_states.values())
 
             if any_active:

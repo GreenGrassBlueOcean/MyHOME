@@ -224,9 +224,37 @@ async def test_dimension_19_records_which_side_is_a_fan_coil(hass) -> None:
     zone.handle_event(OWNEvent.parse("*#4*2*19*5*1##"))
     attrs = zone.extra_state_attributes
     assert attrs["fan_coil_cooling"] is True and attrs["fan_coil_heating"] is False
+    assert zone.hvac_action == HVACAction.HEATING  # heating valve on even with cooling fan off (OWNd <= 2.0.0b11)
     zone.handle_event(OWNEvent.parse("*#4*2*19*0*1##"))  # a valve-only plant
     attrs = zone.extra_state_attributes
     assert attrs["fan_coil_cooling"] is False and attrs["fan_coil_heating"] is False
+
+
+async def test_restore_last_state_preserves_season_and_fan_coil_sides(hass) -> None:
+    from homeassistant.core import State
+
+    gw = _gateway()
+    zone = (await _plant(hass, gw))["2"]
+    await zone.async_restore_last_state(
+        State(
+            "climate.thermo_office",
+            HVACMode.HEAT,
+            {
+                "temperature": 21.5,
+                "fan_mode": "auto",
+                "season": "heating",
+                "fan_coil_heating": False,
+                "fan_coil_cooling": True,
+            },
+        )
+    )
+    attrs = zone.extra_state_attributes
+    assert attrs["season"] == "heating"
+    assert attrs["fan_coil_heating"] is False
+    assert attrs["fan_coil_cooling"] is True
+    gw.sent.clear()
+    await zone.async_update()
+    assert gw.sent == ["*#4*2##"], "restored heating season + cooling-only fan coil skips *#4*2*11##"
 
 
 async def test_fan_speed_is_polled_only_in_the_fan_coil_season(hass) -> None:
