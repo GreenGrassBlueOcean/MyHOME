@@ -364,6 +364,10 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         self._attr_fan_modes: list[str] | None = None
         self._running_fan_speed: str | None = None
         self._actuator_states: dict[str, bool] = {}
+        # Which side of the zone drives a fan coil, from dimension 19
+        # (*#4*Z*19*COOLING*HEATING##: a value of 5..8 on a side is a fan coil, 0..4 a valve).
+        # Empty until a dimension 19 frame has been seen.
+        self._fan_coil_sides: dict[str, bool] = {}
         if fan and not self._central:
             self._enable_fan_mode()
 
@@ -444,6 +448,9 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             attrs["fan_mode"] = self._attr_fan_mode
             if self._running_fan_speed is not None:
                 attrs["running_fan_speed"] = self._running_fan_speed
+        if self._fan_coil_sides:
+            attrs["fan_coil_heating"] = self._fan_coil_sides.get("heating", False)
+            attrs["fan_coil_cooling"] = self._fan_coil_sides.get("cooling", False)
         if self._interface is not None:
             attrs["Int"] = self._interface
         if not self._central:
@@ -538,7 +545,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             written = await self._gateway_handler.send_status_request(request)
             if isinstance(written, asyncio.Future) and not self._central:
                 written.add_done_callback(lambda future: self._poll_answered(future, frames_before))
-        if self._fan:
+        if self._fan and self._season_has_fan_coil():
             await self._gateway_handler.send_status_request(
                 cast(OWNCommand, OWNHeatingCommand.parse(f"*#4*{self._full_where}*11##"))
             )
@@ -560,6 +567,19 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         elif self._poll_health.answered():
             self._clear_unresponsive_issue()
             self._publish_state()
+
+    def _season_has_fan_coil(self) -> bool:
+        """Whether the fan speed request makes sense right now.
+
+        A zone with a valve on one side and a fan coil on the other (F461 plant: heating valve,
+        cooling fan coil) answers *#4*Z*11## only in the fan coil's season and NACKs it in the
+        other one. Until dimension 19 has told which side is which, or while the season is
+        unknown, ask anyway.
+        """
+        if not self._fan_coil_sides or self._season is None:
+            return True
+        side = "heating" if self._season == SEASON_HEATING else "cooling"
+        return self._fan_coil_sides.get(side, False)
 
     @property
     def _standalone(self) -> bool:
@@ -698,6 +718,33 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
             if cmd is not None:
                 await self._gateway_handler.send(cmd)
         elif hvac_mode == HVACMode.AUTO:
+            if self._standalone and getattr(self._gateway_handler, "has_central_unit", False) is not True:
+                # Automatic is the central unit's program. On a plant without one the
+                # gateway ACKs *4*311*#Z## and nobody acts on it, and *4*311*Z## is
+                # NACKed (F461 2.0.11, tests/fixtures/traces/f461_live_2026-10-15). The
+                # only frame that takes a standalone thermostat out of OFF or protection
+                # is a setpoint write; mode 3 keeps the thermostat's own season.
+                if self._target_temperature is None:
+                    LOGGER.warning(
+                        "%s %s has no central unit and no known setpoint, cannot switch it on",
+                        self._gateway_handler.log_id,
+                        self._display_name,
+                    )
+                    return
+                LOGGER.debug(
+                    "%s %s is a standalone zone without a central unit: AUTO is written as a setpoint",
+                    self._gateway_handler.log_id,
+                    self._display_name,
+                )
+                await self._gateway_handler.send(
+                    OWNHeatingCommand.set_temperature(
+                        where=self._where,
+                        temperature=self._target_temperature,
+                        mode=SETPOINT_WRITE_MODE,
+                        standalone=True,
+                    )
+                )
+                return
             cmd = OWNHeatingCommand.set_mode(
                 where=self._where,
                 mode=CLIMATE_MODE_AUTO,
@@ -926,6 +973,12 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 )
         elif message.message_type == MESSAGE_TYPE_MODE:
             prev_mode = self._attr_hvac_mode
+            # OWNd releases without MESSAGE_TYPE_SEASON decode the zone operation mode
+            # frame *4*1*Z## / *4*0*Z## as a plain heat / cool mode; it still tells the
+            # season the thermostat runs in, which the fan coil poll needs.
+            raw_what = str(message).split("*")[2] if str(message).startswith("*4*") else ""
+            if raw_what in ("0", "1") and not self._central:
+                self._season = SEASON_HEATING if raw_what == "1" else "cooling"
             self._program = getattr(message, "program", None)
             self._holiday_days = getattr(message, "holiday_days", None)
             self._scenario = getattr(message, "scenario", None)
@@ -1043,6 +1096,13 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                 self._gateway_handler.log_id,
                 message.human_readable_log,
             )
+            # Valves status (dimension 19): OWNd sets cooling_fan_on / fan_on only for a
+            # fan-coil value (5..8) on that side, so their presence tells which side is a fan coil.
+            if getattr(message, "dimension", None) == 19:
+                self._fan_coil_sides = {
+                    "cooling": isinstance(getattr(message, "cooling_fan_on", None), bool),
+                    "heating": isinstance(getattr(message, "fan_on", None), bool),
+                }
             # Actuator status (Dimension 20) with values >= 5 reports fancoil fan status in OWNd.
             is_fan = isinstance(getattr(message, "fan_speed", None), int) or isinstance(
                 getattr(message, "fan_on", None), bool
