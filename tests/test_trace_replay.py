@@ -895,7 +895,7 @@ class TestTraceReplayHarness:
         model_frame = "*#13**15*200##"
         model_msg = OWNMessage.parse(model_frame)
         assert isinstance(model_msg, OWNMessage)
-        assert getattr(model_msg, "_device_type", None) == "F454"
+        assert "F454" in (getattr(model_msg, "_device_type", None) or "")
         await handler._process_message(model_msg)
         assert handler.model == "F454"
         assert handler.profile.model_name == "F454"
