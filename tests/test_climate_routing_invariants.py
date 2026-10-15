@@ -8,7 +8,10 @@ new spelling that is routed by its digits fails here instead of on a user's plan
 
 WHO 4 WHERE (OpenWebNet thermoregulation):
 
-* ``1``-``99``          zone;  ``#0`` central unit (``#0#N`` zone N of a 4-zone central unit)
+* ``1``-``99``          zone;  ``#0`` central unit
+* ``#0#N``              zone N of a 4-zone central unit (3550 / 4695): the frame concerns
+                        zone N and the central (``*4*1*#0#1##``, ``*#4*#0#1*#14*T*M##``);
+                        OWNd keeps ``#0`` as the WHERE and ``N`` as the parameter
 * ``Z#N``               actuator N of zone Z: the frame concerns zone Z
 * ``0#N``               pump N (actuator N of zone 0): no zone
 * ``PZZ`` (>= 100)      probe P of zone ZZ: a sensor frame, never a zone's
@@ -37,7 +40,7 @@ ACTUATOR = re.compile(r"^([1-9]\d?)#\d+$")
 PUMP = re.compile(r"^0#\d+$")
 PROBE = re.compile(r"^0?[1-9]\d\d$")
 CENTRAL = re.compile(r"^#0$")
-CENTRAL_ZONE = re.compile(r"^#0#([1-9]\d?)$")
+CENTRAL_4ZONE = re.compile(r"^#0#([1-9]\d?)$")
 
 
 def expected_zones(where: str) -> set[str] | None:
@@ -48,7 +51,7 @@ def expected_zones(where: str) -> set[str] | None:
         return {m.group(1)}
     if CENTRAL.match(where):
         return {"#0"}
-    if m := CENTRAL_ZONE.match(where):
+    if m := CENTRAL_4ZONE.match(where):
         return {"#0", m.group(1)}
     if PUMP.match(where) or PROBE.match(where) or where == "0":
         return set()
@@ -77,6 +80,13 @@ def _fixture_frames() -> list[str]:
     return sorted(frames)
 
 
+def _full_where(message) -> str:
+    """The WHERE as written on the bus: OWNd splits ``#0#1`` into ``#0`` and the parameter ``1``."""
+    where = str(getattr(message, "where", ""))
+    params = where_param(message)
+    return f"{where}#{'#'.join(params)}" if params else where
+
+
 def _who4_message(raw: str):
     try:
         message = OWNMessage.parse(raw)
@@ -96,6 +106,8 @@ GRAMMAR = [
     ("*4*4001#12*0#3##", {"12"}),
     ("*4*1*#0#1##", {"1"}),
     ("*#4*#0#1##", {"#0"}),
+    ("*#4*#0#1*#14*0210*1##", {"#0"}),
+    ("*#4*#0*0*0215##", {"#0"}),
 ]
 
 
@@ -130,10 +142,7 @@ def test_every_recorded_who4_frame_reaches_only_the_zones_its_where_names():
         message = _who4_message(raw)
         if message is None:
             continue
-        where = str(getattr(message, "where", ""))
-        params = where_param(message)
-        if params:
-            where = f"{where}#{'#'.join(params)}"
+        where = _full_where(message)
         expected = expected_zones(where)
         if expected is None:
             continue
