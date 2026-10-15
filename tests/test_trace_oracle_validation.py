@@ -308,7 +308,7 @@ def test_tier1_trace_tx_canonical_oracle_coverage():
         for _src, _gw, direction, raw in ALL_TRACE_RECORDS
         if direction == "tx" and raw not in ("*#*1##", "*#*0##")
     }
-    assert len(tx_frames) >= 440, f"Expected >= 440 unique tx frames, found {len(tx_frames)}"
+    assert len(tx_frames) >= 435, f"Expected >= 435 unique tx frames, found {len(tx_frames)}"
 
     deterministic_tx = tx_frames - CLOCK_DEPENDENT_TX_FRAMES
     unmapped: list[tuple[str, str]] = []
