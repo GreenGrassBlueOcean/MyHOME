@@ -8,7 +8,7 @@ new spelling that is routed by its digits fails here instead of on a user's plan
 
 WHO 4 WHERE (OpenWebNet thermoregulation):
 
-* ``1``-``99``          zone;  ``#0`` central unit
+* ``1``-``99``          zone;  ``#0`` central unit (``#0#N`` zone N of a 4-zone central unit)
 * ``Z#N``               actuator N of zone Z: the frame concerns zone Z
 * ``0#N``               pump N (actuator N of zone 0): no zone
 * ``PZZ`` (>= 100)      probe P of zone ZZ: a sensor frame, never a zone's
@@ -27,7 +27,7 @@ from custom_components.myhome.climate import (
     _zone_address,
     _zone_route_keys,
 )
-from custom_components.myhome.where_grammar import is_probe
+from custom_components.myhome.where_grammar import is_probe, where_param
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FRAME = re.compile(r"^\*#?4\*")
@@ -37,6 +37,7 @@ ACTUATOR = re.compile(r"^([1-9]\d?)#\d+$")
 PUMP = re.compile(r"^0#\d+$")
 PROBE = re.compile(r"^0?[1-9]\d\d$")
 CENTRAL = re.compile(r"^#0$")
+CENTRAL_ZONE = re.compile(r"^#0#([1-9]\d?)$")
 
 
 def expected_zones(where: str) -> set[str] | None:
@@ -47,6 +48,8 @@ def expected_zones(where: str) -> set[str] | None:
         return {m.group(1)}
     if CENTRAL.match(where):
         return {"#0"}
+    if m := CENTRAL_ZONE.match(where):
+        return {"#0", m.group(1)}
     if PUMP.match(where) or PROBE.match(where) or where == "0":
         return set()
     return None
@@ -91,6 +94,8 @@ GRAMMAR = [
     ("*#4*169*0*0250##", set()),
     ("*4*1*105##", set()),
     ("*4*4001#12*0#3##", {"12"}),
+    ("*4*1*#0#1##", {"1"}),
+    ("*#4*#0#1##", {"#0"}),
 ]
 
 
@@ -100,7 +105,7 @@ def test_grammar_examples(raw, zones):
     assert set(_calling_zones(message)[0]) == zones
 
 
-@pytest.mark.parametrize("where", ["12#1", "99#3", "5#2", "0#3", "105", "169", "0105"])
+@pytest.mark.parametrize("where", ["12#1", "99#3", "5#2", "0#3", "105", "169", "0105", "#0#1"])
 def test_no_raw_where_route_key_unless_it_is_a_zone(where):
     """A sub-part of a WHERE (``12`` of ``12#1``) is never enough to deliver a frame to a zone it does not name."""
     frame = {"105": "*#4*105*0*0296##", "169": "*#4*169*0*0250##", "0105": "*#4*0105*0*0296##"}.get(
@@ -126,6 +131,9 @@ def test_every_recorded_who4_frame_reaches_only_the_zones_its_where_names():
         if message is None:
             continue
         where = str(getattr(message, "where", ""))
+        params = where_param(message)
+        if params:
+            where = f"{where}#{'#'.join(params)}"
         expected = expected_zones(where)
         if expected is None:
             continue
