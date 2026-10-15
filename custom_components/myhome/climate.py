@@ -47,10 +47,11 @@ from OWNd.message import (
 )
 
 try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#94)
-    from OWNd.message import MESSAGE_TYPE_SEASON, SEASON_HEATING
+    from OWNd.message import MESSAGE_TYPE_SEASON, SEASON_CONDITIONING, SEASON_HEATING
 except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 reports WHAT 1/0 as hvac_mode
     MESSAGE_TYPE_SEASON = "hvac_season"
     SEASON_HEATING = "heating"
+    SEASON_CONDITIONING = "conditioning"
 
 from .const import (
     BUS_ROUTING,
@@ -1161,6 +1162,10 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
                     if message.is_heating():
                         self._attr_hvac_action = HVACAction.HEATING
                     elif message.is_cooling():
+                        self._attr_hvac_action = HVACAction.COOLING
+                    elif self._season == SEASON_HEATING:
+                        self._attr_hvac_action = HVACAction.HEATING
+                    elif self._season in (SEASON_CONDITIONING, "cooling"):
                         self._attr_hvac_action = HVACAction.COOLING
                     elif self._attr_hvac_mode == HVACMode.COOL:
                         self._attr_hvac_action = HVACAction.COOLING
