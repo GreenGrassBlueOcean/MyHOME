@@ -5,13 +5,14 @@ from functools import lru_cache
 from typing import Any
 
 from homeassistant.const import Platform
-from OWNd.message import (
+
+from .where_grammar import (
     area_of_where as area_of_where,
 )
-from OWNd.message import (
+from .where_grammar import (
     is_apl_address as is_apl_address,
 )
-from OWNd.message import (
+from .where_grammar import (
     normalize_where as normalize_where,
 )
 
