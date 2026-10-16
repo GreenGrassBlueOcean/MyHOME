@@ -451,12 +451,16 @@ def build_timed_turn_on_command(
     rounded_secs = round(total_seconds, 1)
     if rounded_secs in PRESET_TIMERS:
         what = PRESET_TIMERS[rounded_secs]
-        return OWNLightingCommand.switch_on_timed(where, what)
+        if hasattr(OWNLightingCommand, "switch_on_timed"):
+            return OWNLightingCommand.switch_on_timed(where, what)
+        return OWNLightingCommand.parse(f"*1*{what}*{where}##")
 
     int_secs = int(round(total_seconds))
     h = max(0, min(255, int_secs // 3600))
     m = max(0, min(59, (int_secs % 3600) // 60))
     s = max(0, min(59, int_secs % 60))
-    return OWNLightingCommand.set_variable_timer(where, h, m, s)
+    if hasattr(OWNLightingCommand, "set_variable_timer"):
+        return OWNLightingCommand.set_variable_timer(where, h, m, s)
+    return OWNLightingCommand.parse(f"*#1*{where}*#2*{h}*{m}*{s}##")
 
 
