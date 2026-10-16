@@ -591,7 +591,12 @@ class DecoderPool:
         return None
 
     def pop_displaced_zones(self) -> set[str]:
-        """Return and clear zones whose decoder or group was taken over by :meth:`claim`."""
+        """Return and clear zones whose decoder or group was taken over by :meth:`claim`.
+
+        Concurrent claims are serialized by ``self._lock`` and callers consume
+        this set synchronously on the single-threaded event loop immediately
+        after ``await pool.claim(...)`` returns.
+        """
         displaced = set(self._displaced_zones)
         self._displaced_zones.clear()
         return displaced

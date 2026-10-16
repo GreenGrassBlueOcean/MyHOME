@@ -56,16 +56,7 @@ class ZoneGroupLayer(ZoneDecoderLayer):
 
     def _reconcile_pool_loss(self, pool: DecoderPool) -> None:
         """Clear parked/decoder state and schedule power-off on displaced zones."""
-        displaced = (
-            pool.pop_displaced_zones()
-            if hasattr(pool, "pop_displaced_zones") and isinstance(pool, DecoderPool)
-            else (
-                pool.pop_displaced_zones()
-                if callable(getattr(pool, "pop_displaced_zones", None))
-                and isinstance(getattr(pool, "_displaced_zones", None), set)
-                else set()
-            )
-        )
+        displaced = pool.pop_displaced_zones() if isinstance(pool, DecoderPool) else set()
         runtime = self._runtime_data
         for zone in list(runtime.media_players.values()) if runtime is not None else ():
             if zone is self or not isinstance(zone, ZoneGroupLayer):
