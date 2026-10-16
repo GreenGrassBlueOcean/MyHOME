@@ -1,8 +1,8 @@
 {
   "capture": {
     "kind": "trace",
-    "source": "firmware-oracle-contract",
-    "provenance": "Synthesized from Legrand / BTicino bt_device daemon (firmware 2.0.54, TiDisplayColorIP) binary disassembly and OpenWebNet gateway identification contracts. Catalogued in own-firmware-oracle PR #26.",
+    "source": "firmware-oracle-emulation",
+    "provenance": "Captured from live QEMU execution of Legrand / BTicino bt_device daemon (firmware 2.0.54, TiDisplayColorIP, own-firmware-oracle PR #34, results/H4684/020054/oracle/full/trace-corpus.tsv) and static binary disassembly of bt_device dispatch contracts (own-firmware-oracle PR #26).",
     "started_at": "2026-10-15T18:00:00.000Z",
     "filters": {
       "who": "13,1013",
@@ -11,9 +11,9 @@
     },
     "window": {
       "first": "2026-10-15T18:00:00.000Z",
-      "last": "2026-10-15T18:00:05.000Z",
-      "frames": 8,
-      "buffer_frames": 8,
+      "last": "2026-10-15T18:00:08.000Z",
+      "frames": 13,
+      "buffer_frames": 13,
       "buffer_depth": 500,
       "truncated": false
     }
@@ -38,6 +38,8 @@
       "configured_model": "H4684",
       "who13_code": "13",
       "who13_model": "H4684",
+      "who13_kernel": "2.0.5",
+      "who13_distribution": "3.0.0",
       "who1013_code": "19",
       "who1013_model": "H4684",
       "who1013_n_conf": "15",
@@ -48,9 +50,9 @@
     }
   },
   "telemetry": {
-    "total_rx": 5,
-    "total_tx": 3,
-    "captured_in_buffer": 8,
+    "total_rx": 8,
+    "total_tx": 5,
+    "captured_in_buffer": 13,
     "buffer_depth": 500,
     "queue_depth": 0
   },
@@ -109,6 +111,56 @@
       "timestamp": 1792087202.0,
       "iso_time": "2026-10-15T18:00:02.000000+00:00",
       "direction": "tx",
+      "raw": "*#13**23##",
+      "who": "13",
+      "what": null,
+      "where": "",
+      "dimension": "23",
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792087202.05,
+      "iso_time": "2026-10-15T18:00:02.050000+00:00",
+      "direction": "rx",
+      "raw": "*#13**23*2*0*5##",
+      "who": "13",
+      "what": null,
+      "where": "",
+      "dimension": "23",
+      "dimension_values": ["2", "0", "5"],
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792087203.0,
+      "iso_time": "2026-10-15T18:00:03.000000+00:00",
+      "direction": "tx",
+      "raw": "*#13**24##",
+      "who": "13",
+      "what": null,
+      "where": "",
+      "dimension": "24",
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792087203.05,
+      "iso_time": "2026-10-15T18:00:03.050000+00:00",
+      "direction": "rx",
+      "raw": "*#13**24*3*0*0##",
+      "who": "13",
+      "what": null,
+      "where": "",
+      "dimension": "24",
+      "dimension_values": ["3", "0", "0"],
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792087204.0,
+      "iso_time": "2026-10-15T18:00:04.000000+00:00",
+      "direction": "tx",
       "raw": "*#1013*0*1##",
       "who": "1013",
       "what": null,
@@ -118,8 +170,21 @@
       "is_nack": false
     },
     {
-      "timestamp": 1792087202.05,
-      "iso_time": "2026-10-15T18:00:02.050000+00:00",
+      "timestamp": 1792087204.05,
+      "iso_time": "2026-10-15T18:00:04.050000+00:00",
+      "direction": "rx",
+      "raw": "*#1013**1*19##",
+      "who": "1013",
+      "what": null,
+      "where": "",
+      "dimension": "1",
+      "dimension_values": ["19"],
+      "is_ack": false,
+      "is_nack": false
+    },
+    {
+      "timestamp": 1792087205.0,
+      "iso_time": "2026-10-15T18:00:05.000000+00:00",
       "direction": "rx",
       "raw": "*#1013**1*19*15*5*0##",
       "who": "1013",
@@ -131,8 +196,8 @@
       "is_nack": false
     },
     {
-      "timestamp": 1792087204.0,
-      "iso_time": "2026-10-15T18:00:04.000000+00:00",
+      "timestamp": 1792087207.0,
+      "iso_time": "2026-10-15T18:00:07.000000+00:00",
       "direction": "rx",
       "raw": "*#13**15*20##",
       "who": "13",
@@ -144,8 +209,8 @@
       "is_nack": false
     },
     {
-      "timestamp": 1792087205.0,
-      "iso_time": "2026-10-15T18:00:05.000000+00:00",
+      "timestamp": 1792087208.0,
+      "iso_time": "2026-10-15T18:00:08.000000+00:00",
       "direction": "rx",
       "raw": "*#1013**1*26*15*5*0##",
       "who": "1013",

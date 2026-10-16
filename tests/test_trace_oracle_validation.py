@@ -240,6 +240,10 @@ def canonicalize_trace_tx_frame(frame: str) -> str:
     if re.match(r"^\*25\*1\d#0\*11\#\#$", frame):
         return "*25*11#0*11##"
 
+    # WHO 1013 diagnostic object model query: *#1013**1## -> *#1013*0*1##
+    if frame == "*#1013**1##":
+        return "*#1013*0*1##"
+
     return frame
 
 
@@ -345,6 +349,12 @@ def test_tier1_trace_tx_canonical_oracle_coverage():
         ("*#13**16##", "F453AV", "*#13**16*3*0*14##"),
         ("*#13**16##", "H4684", "*#13**16*2*0*54##"),
         ("*#13**16##", "MyHomeServer1", "*#13**16*2*82*6##"),
+        # WHO 13 Kernel & Distribution Version (*#13**23##, *#13**24##) on H4684
+        ("*#13**23##", "H4684", "*#13**23*2*0*5##"),
+        ("*#13**24##", "H4684", "*#13**24*3*0*0##"),
+        # WHO 1013 Diagnostic Object Model (*#1013*0*1##) on H4684 & MH200
+        ("*#1013*0*1##", "H4684", "*#1013**1*19##"),
+        ("*#1013*0*1##", "MH200", "*#1013**1*4##"),
         # WHO 5 Burglar Alarm status on MH200N & MH200 (bt_alarm phantom 8-zone response)
         ("*#5*0##", "MH200N", "*5*1*##"),
         ("*#5*0##", "MH200", "*5*1*##"),
