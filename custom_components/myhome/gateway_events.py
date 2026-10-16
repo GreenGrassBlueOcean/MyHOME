@@ -288,6 +288,8 @@ class GatewayEventDispatcher:
             or isinstance(message, OWNHeatingEvent)
         ):
             if not message.is_translation:
+                if isinstance(message, OWNHeatingEvent) and str(message.where or "").startswith("#0"):
+                    self.handler.has_central_unit = True
                 if isinstance(message, OWNLightingEvent) and self._is_active_for_who(1):
                     if (
                         not getattr(message, "is_group", False)

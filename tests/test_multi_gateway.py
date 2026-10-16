@@ -49,6 +49,7 @@ def _create_mock_gateway(
     hass: HomeAssistant,
     mac: str,
     *,
+    name: str = "MH201",
     topology: str = TOPOLOGY_STANDALONE,
     role: str = ROLE_PRIMARY,
     primary_gateway: str | None = None,
@@ -72,7 +73,7 @@ def _create_mock_gateway(
         data={
             CONF_HOST: f"192.168.1.{last_octet}",
             CONF_MAC: formatted_mac,
-            CONF_NAME: "MH201",
+            CONF_NAME: name,
         },
         options=options,
         unique_id=formatted_mac,
@@ -121,8 +122,8 @@ async def test_initial_discovery_skips_non_delegated_on_secondary(hass: HomeAssi
     gw_primary.send_status_request = AsyncMock()
 
     await gw_primary.initial_discovery()
-    # Primary queries WHO=1 (*#1*0##), WHO=2 (*#2*0##), WHO=4 (*#4*0##), WHO=16 (*#16*0*5##)
-    assert gw_primary.send_status_request.call_count == 4
+    # Primary queries WHO=1 (*#1*0##), WHO=2 (*#2*0##), WHO=4 (*#4*0##), WHO=16 (*#16*0*5##), WHO=18 (*#18*51*51##, *#18*51*113##)
+    assert gw_primary.send_status_request.call_count == 6
 
     # Secondary with WHO=16 delegated only
     _, gw_secondary = _create_mock_gateway(
@@ -328,6 +329,7 @@ async def test_services_multi_gateway(hass: HomeAssistant, fast_bus_pacing) -> N
     entry_b, gw_b = _create_mock_gateway(
         hass,
         "00:03:50:aa:bb:02",
+        name="MH202",
         topology=TOPOLOGY_SHARED,
         role=ROLE_SECONDARY,
         primary_gateway="00:03:50:aa:bb:01",
@@ -352,11 +354,11 @@ async def test_services_multi_gateway(hass: HomeAssistant, fast_bus_pacing) -> N
 
     # 3. sweep_bus filters queries: WHO=2/4/5/16/18 are delegated, so only the secondary sweeps them
     await hass.services.async_call(DOMAIN, SERVICE_SWEEP_BUS, {}, blocking=True)
-    # Primary sends RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##); covers/climate/audio/energy
-    # are delegated away, so its only general request is Lighting (*#1*0##). All are status requests.
+    # Primary sends RTC (*#13**0##), Model (*#13**15##), FW (*#13**16##), Kernel (*#13**23##), Distro (*#13**24##);
+    # covers/climate/audio/energy are delegated away, so its only general request is Lighting (*#1*0##). All are status requests.
     gw_a.send.assert_not_called()
     assert [str(c.args[0]) for c in gw_a.send_status_request.call_args_list] == [
-        "*#13**0##", "*#13**15##", "*#13**16##", "*#1*0##",
+        "*#13**0##", "*#13**15##", "*#13**16##", "*#13**23##", "*#13**24##", "*#1*0##",
     ]
     gw_b.send.assert_not_called()
     gw_b.send_status_request.assert_not_called()
@@ -372,14 +374,14 @@ async def test_services_multi_gateway(hass: HomeAssistant, fast_bus_pacing) -> N
     )
     gw_a.send.assert_not_called()
     gw_a.send_status_request.assert_not_called()
-    # Secondary sends RTC, Model, FW, the delegated WHO=2, 4, 5, 16 general requests,
-    # plus the 36 delegated WHO=18 energy queries = 43 status requests
+    # Secondary sends RTC, Model, FW, Kernel, Distro, the delegated WHO=2, 4, 5, 16 general requests,
+    # plus the 36 delegated WHO=18 energy queries = 45 status requests
     gw_b.send.assert_not_called()
     calls_b = [str(c.args[0]) for c in gw_b.send_status_request.call_args_list]
-    assert len(calls_b) == 43
-    assert calls_b[:3] == ["*#13**0##", "*#13**15##", "*#13**16##"]
-    assert calls_b[3:7] == ["*#2*0##", "*#4*0##", "*#5*0##", "*#16*0*5##"]
-    assert len(calls_b[7:]) == 36
+    assert len(calls_b) == 45
+    assert calls_b[:5] == ["*#13**0##", "*#13**15##", "*#13**16##", "*#13**23##", "*#13**24##"]
+    assert calls_b[5:9] == ["*#2*0##", "*#4*0##", "*#5*0##", "*#16*0*5##"]
+    assert len(calls_b[9:]) == 36
 
     # 4. _get_gateway_handler falls back to next(iter(gateways.values())) if no primary
     hass.config_entries.async_update_entry(

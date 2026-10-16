@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.const import CONF_MAC
@@ -28,6 +29,8 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_SYNC_TIME = "sync_time"
 SERVICE_SEND_MESSAGE = "send_message"
+# *#4*<where>*22## and *#4*<where>*#22*...## (split control): never forwarded, see handle_send_message.
+_WHO4_DIMENSION_22 = re.compile(r"^\*#4\*[^*]*\*#?22(\*[^#]*)?##$")
 SERVICE_SWEEP_BUS = "sweep_bus"
 
 
@@ -63,6 +66,23 @@ def _get_gateway_handler(hass: HomeAssistant, gateway_identifier: str | None) ->
                 return handler
 
     return None
+
+
+def _handler_supports_who(handler: MyHOMEGatewayHandler, who: int) -> bool:
+    """Return whether the gateway handler profile advertises a WHO subsystem."""
+    fn = getattr(handler, "profile_supports_who", None)
+    private_fn = getattr(handler, "_profile_supports_who", None)
+    target = (
+        private_fn
+        if callable(private_fn) and type(fn).__name__ == "MagicMock" and type(private_fn).__name__ != "MagicMock"
+        else (fn or private_fn)
+    )
+    if callable(target):
+        try:
+            return bool(target(who))
+        except Exception:  # pragma: no cover - defensive against broken handler mocks
+            return True
+    return True
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -120,6 +140,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if handler is not None:
             if message is not None:
                 from OWNd.message import OWNCommand
+                if _WHO4_DIMENSION_22.match(str(message).strip()):
+                    _LOGGER.error(
+                        "%s Refusing to send `%s`: a WHO 4 dimension 22 request kills the thermostat "
+                        "handler of F461 / F454 / MH200N-class gateways and reboots the gateway "
+                        "about three minutes later (tests/fixtures/traces/f461_live_2026-10-15).",
+                        handler.log_id,
+                        message,
+                    )
+                    return
                 own_message = OWNCommand.parse(message)
                 if own_message is not None and own_message.is_valid:
                     _LOGGER.debug(
@@ -167,24 +196,48 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             for query in (f"*#18*{addr}*51##", f"*#18*{addr}*1200##")
         ]
 
+        force = bool(call.data.get("force", False))
+
         for gw_mac, handler in target_gateways.items():
-            _LOGGER.info("Executing diagnostic bus sweep on gateway %s", gw_mac)
+            _LOGGER.info("Executing diagnostic bus sweep on gateway %s (force=%s)", gw_mac, force)
             gateway_queries = [
                 "*#13**0##",   # Gateway real-time clock
                 "*#13**15##",  # Gateway device model
                 "*#13**16##",  # Gateway firmware version
+                "*#13**23##",  # Gateway kernel version (modern Linux gateways; NACK ignored on older)
+                "*#13**24##",  # Gateway distribution version (modern Linux gateways; NACK ignored on older)
             ]
             general_queries = ((1, "*#1*0##"), (2, "*#2*0##"), (4, "*#4*0##"), (5, "*#5*0##"), (16, "*#16*0*5##"))
+
+            def _profile_supports(who: int) -> bool:
+                if force:
+                    return True
+                return _handler_supports_who(handler, who)
+
             if getattr(handler, "is_follower", False) is True:
                 delegated: set[int] = getattr(handler, "delegated_whos", set())
-                general = [q for who, q in general_queries if who in delegated]
-                point_queries = energy_queries if 18 in delegated else []
+                general = [
+                    q for who, q in general_queries
+                    if who in delegated and _profile_supports(who)
+                ]
+                point_queries = (
+                    energy_queries
+                    if 18 in delegated and _profile_supports(18)
+                    else []
+                )
             else:
                 delegated_away: object = getattr(handler, "delegated_away_whos", set())
                 if not isinstance(delegated_away, (set, frozenset, list, tuple)):
                     delegated_away = set()
-                general = [q for who, q in general_queries if who not in delegated_away]
-                point_queries = energy_queries if 18 not in delegated_away else []
+                general = [
+                    q for who, q in general_queries
+                    if who not in delegated_away and _profile_supports(who)
+                ]
+                point_queries = (
+                    energy_queries
+                    if 18 not in delegated_away and _profile_supports(18)
+                    else []
+                )
 
             for query in gateway_queries:
                 await _send_query(handler, query)

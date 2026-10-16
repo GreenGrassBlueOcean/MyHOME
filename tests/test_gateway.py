@@ -234,9 +234,10 @@ async def test_gateway_send_and_send_status_request(gateway_handler):
 
 @pytest.mark.asyncio
 async def test_gateway_initial_discovery_queues_sweep(gateway_handler, fast_bus_pacing):
-    """The startup sweep queues lighting, covers, heating and audio status requests.
+    """The startup sweep queues lighting, covers, heating, audio and energy meter status requests.
 
     WHO 16 goes out as dimension 5 (``*#16*0*5##``): gateways NACK the bare ``*#16*0##``.
+    WHO 18 probes meter 51 for total energy and active power.
     """
     await gateway_handler.initial_discovery()
     queued = []
@@ -244,7 +245,7 @@ async def test_gateway_initial_discovery_queues_sweep(gateway_handler, fast_bus_
         item = gateway_handler.send_buffer.get_nowait()
         assert item["is_status_request"] is True
         queued.append(str(item["message"]))
-    assert queued == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##"]
+    assert queued == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##", "*#18*51*51##", "*#18*51*113##"]
 
 
 @pytest.mark.asyncio
@@ -267,7 +268,7 @@ async def test_gateway_initial_discovery_f454_nack_continues(gateway_handler, fa
 
         async def mock_send(message, is_status_request):
             sent_frames.append(str(message))
-            if str(message) == "*#16*0*5##":
+            if str(message) == "*#18*51*113##":
                 gateway_handler._terminate_sender = True
             if str(message) == "*#1*0##":
                 # F454 NACK returns None/empty without raising
@@ -284,7 +285,7 @@ async def test_gateway_initial_discovery_f454_nack_continues(gateway_handler, fa
         finally:
             worker.cancel()
 
-        assert sent_frames == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##"]
+        assert sent_frames == ["*#1*0##", "*#2*0##", "*#4*0##", "*#16*0*5##", "*#18*51*51##", "*#18*51*113##"]
         assert elapsed < 2.0
         assert not gateway_handler.initial_discovery_pending
 
@@ -313,7 +314,7 @@ async def test_gateway_initial_discovery_skips_who1_when_delegated_away(gateway_
     while not gateway_handler.send_buffer.empty():
         item = gateway_handler.send_buffer.get_nowait()
         queued.append(str(item["message"]))
-    assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##"]
+    assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##", "*#18*51*51##", "*#18*51*113##"]
 
 
 @pytest.mark.asyncio
@@ -325,7 +326,59 @@ async def test_gateway_initial_discovery_profile_unsupported(gateway_handler, fa
         while not gateway_handler.send_buffer.empty():
             item = gateway_handler.send_buffer.get_nowait()
             queued.append(str(item["message"]))
-        assert queued == ["*#2*0##", "*#4*0##", "*#16*0*5##"]
+        assert queued == ["*#2*0##", "*#4*0##", "*#5*0##", "*#16*0*5##", "*#18*51*51##", "*#18*51*113##"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_initial_discovery_profiles_who5_who18(mock_config_entry, fast_bus_pacing):
+    """Profile-specific discovery sends WHO 5 on MH202, WHO 18 on F454, neither on MH200N (#681)."""
+    mock_hass = MagicMock()
+    mock_hass.data = {}
+
+    from OWNd.profiles import get_gateway_profile
+
+    # MH202: supports WHO 1, 2, 4, 5, 16, 18
+    h_mh202 = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    h_mh202.gateway.profile = get_gateway_profile("MH202")
+    frames_mh202 = h_mh202._discovery_frames()
+    assert "*#5*0##" in frames_mh202
+    assert "*#18*51*51##" in frames_mh202
+    assert "*#18*51*113##" in frames_mh202
+
+    # F454: supports WHO 1, 2, 4, 16, 18, but NOT WHO 5
+    h_f454 = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    h_f454.gateway.profile = get_gateway_profile("F454")
+    frames_f454 = h_f454._discovery_frames()
+    assert "*#5*0##" not in frames_f454
+    assert "*#18*51*51##" in frames_f454
+    assert "*#18*51*113##" in frames_f454
+
+    # MH200N: supports WHO 1, 2, 4, 16, but NOT WHO 5 or WHO 18
+    h_mh200n = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    h_mh200n.gateway.profile = get_gateway_profile("MH200N")
+    frames_mh200n = h_mh200n._discovery_frames()
+    assert "*#5*0##" not in frames_mh200n
+    assert "*#18*51*51##" not in frames_mh200n
+    assert "*#18*51*113##" not in frames_mh200n
+
+    # F455: supports WHO 1, 2, 4, 18, but NOT WHO 5 or WHO 16
+    h_f455 = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    h_f455.gateway.profile = get_gateway_profile("F455")
+    frames_f455 = h_f455._discovery_frames()
+    assert "*#16*0*5##" not in frames_f455
+    assert "*#5*0##" not in frames_f455
+    assert "*#18*51*51##" in frames_f455
+    assert "*#18*51*113##" in frames_f455
+
+    # H4890: supports WHO 1, 2, 4, 5, 16, 18
+    h_h4890 = MyHOMEGatewayHandler(mock_hass, mock_config_entry)
+    h_h4890.gateway.profile = get_gateway_profile("H4890")
+    frames_h4890 = h_h4890._discovery_frames()
+    assert "*#5*0##" in frames_h4890
+    assert "*#16*0*5##" in frames_h4890
+    assert "*#18*51*51##" in frames_h4890
+    assert "*#18*51*113##" in frames_h4890
+
 
 
 @pytest.mark.asyncio
@@ -1739,7 +1792,42 @@ def test_handle_gateway_diagnostics_dimension_0(gateway_handler, mock_config_ent
         msg_empty = OWNEvent.parse("*#13**0*23*52*03*##")
         gateway_handler._handle_gateway_diagnostics(msg_empty)
         create_issue.assert_not_called()
+        delete_issue.assert_not_called()
 
+        # 7. F461 model is exempted from unconfigured timezone repair (Issue #709)
+        gateway_handler.gateway.model_name = "F461"
+        gateway_handler._handle_gateway_diagnostics(msg)
+        create_issue.assert_not_called()
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+        delete_issue.reset_mock()
+
+        # 8. F461 dimension 22 is also exempted
+        gateway_handler._handle_gateway_diagnostics(msg_dim22_999)
+        create_issue.assert_not_called()
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+        delete_issue.reset_mock()
+
+        # 9. Resolved WHO=1013 object model code 134 also exempts even if model_name was Generic
+        gateway_handler.gateway.model_name = "Generic"
+        gateway_handler._who1013["code"] = "134"
+        gateway_handler._handle_gateway_diagnostics(msg)
+        create_issue.assert_not_called()
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
+
+
+def test_resolve_identity_clears_timezone_issue_for_f461(gateway_handler):
+    """Verify that resolving identity to F461 clears any existing unconfigured timezone issue (Issue #709)."""
+    from OWNd.message import OWNEvent
+
+    gateway_handler.config_entry.entry_id = "entry_diag"
+    gateway_handler.config_entry.data[CONF_NAME] = "Generic"
+    gateway_handler.gateway.model_name = "Generic"
+    with patch("custom_components.myhome.gateway.async_delete_unconfigured_timezone_issue") as delete_issue:
+        msg = OWNEvent.parse("*#1013**1*134*15*5*0##")
+        gateway_handler._handle_gateway_identity_diagnostics(msg)
+        delete_issue.assert_called_once_with(gateway_handler.hass, "entry_diag")
 
 
 def test_compat_gateway_timezone():
