@@ -170,6 +170,14 @@ def test_real_owndiffusion_event_is_placed_when_owNd_parses_who22():
         pytest.skip("this OWNd does not parse WHO=22")
     assert who22_source_id(event) == 1
 
+
+def test_who22_source_id_prefers_known_source_id():
+    """Prefers the source_id worked out by OWNd when present."""
+    event = SimpleNamespace(who="22", source_id=2, where="5", where_param=["2", "1"])
+    assert who22_source_id(event) == 2
+
+
+
 def test_entity_picture_follows_the_live_frequency(hass, gateway):
     tuner = _tuner(hass, gateway)
     tuner._pictures = {96200: "/local/radio/one.png"}
