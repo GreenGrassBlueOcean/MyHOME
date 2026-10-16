@@ -70,12 +70,8 @@ def _get_gateway_handler(hass: HomeAssistant, gateway_identifier: str | None) ->
 
 def _handler_supports_who(handler: MyHOMEGatewayHandler, who: int) -> bool:
     """Return whether the gateway handler profile advertises a WHO subsystem."""
-    fn = getattr(handler, "profile_supports_who", None)
-    private_fn = getattr(handler, "_profile_supports_who", None)
-    target = (
-        private_fn
-        if callable(private_fn) and type(fn).__name__ == "MagicMock" and type(private_fn).__name__ != "MagicMock"
-        else (fn or private_fn)
+    target = getattr(handler, "profile_supports_who", None) or getattr(
+        handler, "_profile_supports_who", None
     )
     if callable(target):
         try:

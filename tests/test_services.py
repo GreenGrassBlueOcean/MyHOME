@@ -81,8 +81,8 @@ def test_handler_supports_who_helper() -> None:
     assert _handler_supports_who(h1, 1) is True
     assert _handler_supports_who(h1, 5) is False
 
-    # 2. Legacy handler with only _profile_supports_who (where profile_supports_who is MagicMock default)
-    h2 = MagicMock()
+    # 2. Legacy handler stub with only _profile_supports_who
+    h2 = MagicMock(spec=["_profile_supports_who"])
     h2._profile_supports_who = lambda who: who == 4
     assert _handler_supports_who(h2, 4) is True
     assert _handler_supports_who(h2, 1) is False

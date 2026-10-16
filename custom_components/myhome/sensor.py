@@ -30,6 +30,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from OWNd.message import (
     MESSAGE_TYPE_ACTIVE_POWER,
+    MESSAGE_TYPE_AUTO_UPDATE_INTERVAL,
     MESSAGE_TYPE_CURRENT_DAY_CONSUMPTION,
     MESSAGE_TYPE_CURRENT_MONTH_CONSUMPTION,
     MESSAGE_TYPE_ENERGY_TOTALIZER,
@@ -43,12 +44,8 @@ from OWNd.message import (
     OWNHeatingEvent,
     OWNLightingCommand,
     OWNLightingEvent,
+    who4_temperature,
 )
-
-try:
-    from OWNd.message import MESSAGE_TYPE_AUTO_UPDATE_INTERVAL
-except ImportError:  # pragma: no cover - fallback for OWNd < 2.0.0b11
-    MESSAGE_TYPE_AUTO_UPDATE_INTERVAL = "auto_update_interval"
 from voluptuous import (
     All,
     Coerce,
@@ -65,7 +62,6 @@ from .const import (
     DOMAIN,
     LOGGER,
     normalize_where,
-    who4_raw_to_celsius,
 )
 from .data import MyHOMEConfigEntry
 from .discovery import Address, DeviceContext, PlatformDiscovery, is_broadcast_where
@@ -559,7 +555,7 @@ class MyHOMEPowerSensor(MyHOMEEntity, SensorEntity):
                 dim_vals = getattr(
                     message,
                     "dimension_values",
-                    getattr(message, "_dimension_value", []),
+                    getattr(message, "dimension_value", []),
                 )
                 try:
                     interval = int(dim_vals[0]) if dim_vals else 0
@@ -842,28 +838,23 @@ class MyHOMETemperatureSensor(MyHOMEEntity, SensorEntity):
             val = message.main_temperature
         elif message.message_type == MESSAGE_TYPE_SECONDARY_TEMPERATURE:
             sec = getattr(message, "secondary_temperature", None)
+            probe_temp = getattr(message, "probe_temperature", None)
             if isinstance(sec, (list, tuple)) and len(sec) > 1:
                 val = sec[1]
-            elif isinstance(sec, (int, float)):
+            elif isinstance(sec, (int, float)) and not isinstance(sec, bool):
                 val = sec
-            elif hasattr(message, "probe_temperature") and type(message.probe_temperature).__name__ != "MagicMock":
-                val = message.probe_temperature
+            elif isinstance(probe_temp, (int, float)) and not isinstance(probe_temp, bool):
+                val = probe_temp
         elif getattr(message, "dimension", None) == 15:
             dim_val = getattr(message, "dimension_value", None)
             if dim_val:
                 raw = dim_val[1] if len(dim_val) >= 2 else dim_val[0]
-                try:
-                    val = who4_raw_to_celsius(raw)
-                except (ValueError, TypeError):
-                    pass
+                val = who4_temperature(str(raw))
         elif getattr(message, "dimension", None) == 0:
             dim_val = getattr(message, "dimension_value", None)
             if dim_val:
                 raw = dim_val[0]
-                try:
-                    val = who4_raw_to_celsius(raw)
-                except (ValueError, TypeError):
-                    pass
+                val = who4_temperature(str(raw))
         else:
             return True  # type: ignore
 
