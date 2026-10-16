@@ -507,3 +507,27 @@ class TestPlatformImportCleanliness:
         assert "overriding the deprecated target_temperature" in captured[0]
         assert "Please rename 'old_prop' to 'new_prop'" in captured[1]
 
+        # 4. Fallback resilience: if HA Core renames private helpers (_orig_* is None),
+        # the root logger handler still captures rendered Channel 1 & Channel 2 warnings.
+        from tests.conftest import get_ha_deprecation_guard
+
+        guard = get_ha_deprecation_guard()
+        with (
+            capture_ha_deprecations() as captured,
+            patch.object(guard, "_orig_report_usage", None),
+            patch.object(guard, "_orig_print_deprecation", None),
+        ):
+            logging.getLogger("homeassistant.helpers.frame").warning(
+                "Detected that custom integration 'myhome' calls deprecated_helper "
+                "at custom_components/myhome/light.py, line 10: test. "
+                "This will stop working in Home Assistant 2027.5"
+            )
+            logging.getLogger("homeassistant.const").warning(
+                "The deprecated constant OLD_CONST was used from myhome. "
+                "It will be removed in HA Core 2027.6. Use NewEnum.VALUE instead"
+            )
+        assert len(captured) == 2
+        assert "Detected that custom integration 'myhome' calls deprecated_helper" in captured[0]
+        assert "The deprecated constant OLD_CONST was used from myhome" in captured[1]
+
+

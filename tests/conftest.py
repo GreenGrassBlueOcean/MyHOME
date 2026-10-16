@@ -122,9 +122,16 @@ except ImportError:
     pass
 
 
+# NOTE FOR MAINTAINERS:
+# Home Assistant Core emits custom-integration deprecation notices as logging.WARNING
+# records rather than raising Python DeprecationWarning exceptions. If future HA Core
+# releases introduce new deprecation warning phrasings on entity/component loggers,
+# update _LOG_DEPRECATION_RE below (and the matching check in scripts/run_ha_container_smoke.py).
 _LOG_DEPRECATION_RE = re.compile(
     r"("
-    r"custom_components\.myhome\b.*\b(?:deprecated|will be unsupported from Home Assistant|will stop working in Home Assistant|will be removed in HA Core|will break in Home Assistant)"
+    r"Detected that custom integration 'myhome'"
+    r"|The deprecated .+ from myhome\b"
+    r"|custom_components\.myhome\b.*\b(?:deprecated|will be unsupported from Home Assistant|will stop working in Home Assistant|will be removed in HA Core|will break in Home Assistant)"
     r"|is deprecated\. Please rename .+ in .*custom_components[/\\]myhome"
     r"|Entity .+custom_components\.myhome\..+Instead it should use self\.async_write_ha_state\(\)"
     r")",
@@ -137,12 +144,20 @@ class _HADeprecationGuard(logging.Handler):
 
     Home Assistant Core reports custom integration deprecations through three
     ``logging.WARNING`` paths rather than raising ``DeprecationWarning``:
-    1. ``homeassistant.helpers.frame._report_usage`` (runtime API deprecations).
+    1. ``homeassistant.helpers.frame._report_usage`` (runtime API deprecations;
+       normally deduplicated per call-site via ``_REPORTED_INTEGRATIONS``).
     2. ``homeassistant.helpers.deprecation._print_deprecation_warning_internal_impl``
        (deprecated constants, aliases, enums, classes, functions, and ``hass`` args).
     3. Direct ``WARNING`` logs on ``homeassistant.*`` or ``custom_components.myhome.*``
        from entity ``__init_subclass__`` checks, deprecated attribute checks, or
        ``@deprecated_substitute`` property wrappers.
+
+    Because channels (1) and (2) hook private HA helper functions to extract exact
+    file/line metadata and bypass per-session deduplication, both hooks are installed
+    via ``getattr(..., None)`` with flexible ``*args, **kwargs`` signatures. If a
+    future HA Core version renames or removes those private helpers, ``emit()``
+    automatically falls back to matching the rendered ``WARNING`` log messages via
+    ``_LOG_DEPRECATION_RE``.
     """
 
     def __init__(self) -> None:
@@ -151,13 +166,17 @@ class _HADeprecationGuard(logging.Handler):
         self.all_import_time_records: list[str] = []
         self.current_test_records: list[str] | None = None
         self.active_capture: list[str] | None = None
-        self._orig_report_usage = ha_frame._report_usage
-        self._orig_print_deprecation = ha_deprecation._print_deprecation_warning_internal_impl
+        self._orig_report_usage = getattr(ha_frame, "_report_usage", None)
+        self._orig_print_deprecation = getattr(
+            ha_deprecation, "_print_deprecation_warning_internal_impl", None
+        )
 
     def install(self) -> None:
         """Install hooks on Home Assistant's frame, deprecation, and root logger."""
-        ha_frame._report_usage = self._on_report_usage
-        ha_deprecation._print_deprecation_warning_internal_impl = self._on_print_deprecation
+        if self._orig_report_usage is not None:
+            ha_frame._report_usage = self._on_report_usage
+        if self._orig_print_deprecation is not None:
+            ha_deprecation._print_deprecation_warning_internal_impl = self._on_print_deprecation
         root_logger = logging.getLogger()
         if self not in root_logger.handlers:
             root_logger.addHandler(self)
@@ -177,20 +196,11 @@ class _HADeprecationGuard(logging.Handler):
         if entry not in self.all_import_time_records:
             self.all_import_time_records.append(entry)
 
-    def _on_report_usage(
-        self,
-        hass,
-        what: str,
-        *,
-        breaks_in_ha_version: str | None = None,
-        core_behavior=None,
-        core_integration_behavior=None,
-        custom_integration_behavior=None,
-        integration_domain: str | None = None,
-        integration_frame=None,
-        integration_frame_err=None,
-        level: int = logging.WARNING,
-    ) -> None:
+    def _on_report_usage(self, *args, **kwargs):
+        what = args[1] if len(args) > 1 else kwargs.get("what", "<unknown>")
+        breaks_in_ha_version = kwargs.get("breaks_in_ha_version")
+        integration_domain = kwargs.get("integration_domain")
+        integration_frame = kwargs.get("integration_frame")
         if integration_domain == "myhome" or (
             integration_frame is not None
             and getattr(integration_frame, "integration", None) == "myhome"
@@ -202,34 +212,25 @@ class _HADeprecationGuard(logging.Handler):
             )
             breaks = f" (breaks in HA {breaks_in_ha_version})" if breaks_in_ha_version else ""
             self.record(f"[frame.report_usage] {loc}: {what}{breaks}")
-        return self._orig_report_usage(
-            hass,
-            what,
-            breaks_in_ha_version=breaks_in_ha_version,
-            core_behavior=core_behavior,
-            core_integration_behavior=core_integration_behavior,
-            custom_integration_behavior=custom_integration_behavior,
-            integration_domain=integration_domain,
-            integration_frame=integration_frame,
-            integration_frame_err=integration_frame_err,
-            level=level,
-        )
+        return self._orig_report_usage(*args, **kwargs)
 
-    def _on_print_deprecation(
-        self,
-        obj_name: str,
-        module_name: str,
-        replacement: str,
-        description: str,
-        verb: str,
-        breaks_in_ha_version: str | None,
-        *,
-        log_when_no_integration_is_found: bool,
-    ) -> None:
-        try:
-            ig_frame = ha_frame.get_integration_frame()
-        except ha_frame.MissingIntegrationFrame:
-            ig_frame = None
+    def _on_print_deprecation(self, *args, **kwargs):
+        obj_name = args[0] if len(args) > 0 else kwargs.get("obj_name", "<unknown>")
+        module_name = args[1] if len(args) > 1 else kwargs.get("module_name", "<unknown>")
+        replacement = args[2] if len(args) > 2 else kwargs.get("replacement", "<unknown>")
+        description = args[3] if len(args) > 3 else kwargs.get("description", "object")
+        verb = args[4] if len(args) > 4 else kwargs.get("verb", "used")
+        breaks_in_ha_version = (
+            args[5] if len(args) > 5 else kwargs.get("breaks_in_ha_version")
+        )
+        get_ig_frame = getattr(ha_frame, "get_integration_frame", None)
+        missing_frame_exc = getattr(ha_frame, "MissingIntegrationFrame", Exception)
+        ig_frame = None
+        if callable(get_ig_frame):
+            try:
+                ig_frame = get_ig_frame()
+            except missing_frame_exc:
+                ig_frame = None
         if ig_frame is not None and getattr(ig_frame, "integration", None) == "myhome":
             loc = f"{ig_frame.relative_filename}:{ig_frame.line_number}"
             breaks = f" (breaks in HA {breaks_in_ha_version})" if breaks_in_ha_version else ""
@@ -237,26 +238,25 @@ class _HADeprecationGuard(logging.Handler):
                 f"[deprecation] {loc}: The deprecated {description} {module_name}.{obj_name} "
                 f"was {verb} from myhome; use {replacement} instead{breaks}"
             )
-        return self._orig_print_deprecation(
-            obj_name,
-            module_name,
-            replacement,
-            description,
-            verb,
-            breaks_in_ha_version,
-            log_when_no_integration_is_found=log_when_no_integration_is_found,
-        )
+        return self._orig_print_deprecation(*args, **kwargs)
 
     def emit(self, record: logging.LogRecord) -> None:
         if not record.name.startswith(("homeassistant.", "custom_components.myhome")):
             return
-        if record.name == "homeassistant.helpers.frame":
+        # When _orig_report_usage is hooked, channel 1 already records frame reports
+        # with source file/line metadata; if HA renames _report_usage, fall through.
+        if record.name == "homeassistant.helpers.frame" and self._orig_report_usage is not None:
             return
         try:
             msg = record.getMessage()
         except Exception:
             return
-        if msg.startswith("The deprecated ") and " from myhome" in msg:
+        # Likewise, skip duplicate channel 2 log records only when the private hook is active.
+        if (
+            self._orig_print_deprecation is not None
+            and msg.startswith("The deprecated ")
+            and " from myhome" in msg
+        ):
             return
         if _LOG_DEPRECATION_RE.search(msg):
             self.record(f"[log:{record.name}] {msg}")
@@ -310,7 +310,9 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 def fail_on_ha_deprecations():
     """Fail any test that triggers a Home Assistant deprecation in myhome."""
     guard = get_ha_deprecation_guard()
-    ha_frame._REPORTED_INTEGRATIONS.clear()
+    reported = getattr(ha_frame, "_REPORTED_INTEGRATIONS", None)
+    if hasattr(reported, "clear"):
+        reported.clear()
     guard.current_test_records = []
     try:
         yield
