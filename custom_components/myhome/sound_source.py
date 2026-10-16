@@ -343,7 +343,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     @callback
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Apply a WHO=16 event addressed to this source device."""
-        raw_dim = getattr(message, "dimension", getattr(message, "_dimension", None))
+        raw_dim = getattr(message, "dimension", None)
         try:
             dimension = int(raw_dim) if raw_dim is not None else None
         except (ValueError, TypeError):
@@ -353,7 +353,6 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             str(v)
             for v in (
                 getattr(message, "dimension_value", None)
-                or getattr(message, "_dimension_value", None)
                 or getattr(message, "dimension_values", None)
                 or []
             )

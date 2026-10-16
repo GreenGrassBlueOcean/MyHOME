@@ -282,7 +282,7 @@ class GatewayEventDispatcher:
                         self.handler._resync_manager.handle_ptp_echo(message)
 
                     dim = getattr(message, "dimension", None)
-                    is_not_dimension = dim is None or type(dim).__name__ == "MagicMock"
+                    is_not_dimension = not (isinstance(dim, int) and not isinstance(dim, bool))
 
                     if message.is_on is not None and is_not_dimension:
                         event = "on" if message.is_on else "off"
@@ -324,7 +324,7 @@ class GatewayEventDispatcher:
                         event = "stop"
 
                     where_raw = getattr(message, "where", None)
-                    where_val = str(where_raw) if (where_raw is not None and not str(where_raw).startswith("<MagicMock")) else "0"
+                    where_val = str(where_raw) if (isinstance(where_raw, (str, int)) and not isinstance(where_raw, bool)) else "0"
 
                     auto_payload: dict[str, Any] = {
                         "message": str(message),

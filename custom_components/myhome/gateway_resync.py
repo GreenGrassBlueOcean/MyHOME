@@ -121,7 +121,7 @@ class LightingResyncManager:
             return
 
         dim = getattr(message, "dimension", None)
-        is_dimension = dim is not None and type(dim).__name__ != "MagicMock"
+        is_dimension = isinstance(dim, int) and not isinstance(dim, bool)
         if getattr(message, "is_on", None) is None or is_dimension:
             return
 
