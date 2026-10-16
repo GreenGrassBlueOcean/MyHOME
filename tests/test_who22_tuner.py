@@ -107,14 +107,24 @@ def test_station_report_from_a_query_reply(tuner):
     assert tuner.extra_state_attributes == {"station": 3}
 
 
-def test_mirrored_who16_and_who22_reports_agree(tuner):
-    """The same fact on both families lands on one state, whichever arrives first."""
-    tuner.handle_event(OWNMessage.parse("*#16*101*6*0*96200##"))
-    tuner.handle_who22_event(_frame("5", ["2", "1"], 5, "1", "9620"))
-    tuner.handle_event(OWNMessage.parse("*#16*101*7*0*2##"))
-    tuner.handle_who22_event(_frame("5", ["2", "1"], 11, "1", "9620", "2"))
+def test_mirrored_who16_and_who22_reports_agree(hass, gateway):
+    """``bt_difson`` (WHO=16) and ``bt_multi`` (WHO=22) race; either order lands on one state."""
+    who16_first = _tuner(hass, gateway, 1)
+    who16_first.handle_event(OWNMessage.parse("*#16*101*6*0*96200##"))
+    who16_first.handle_event(OWNMessage.parse("*#16*101*7*0*2##"))
+    who16_first.handle_who22_event(_frame("5", ["2", "1"], 5, "1", "9620"))
+    who16_first.handle_who22_event(_frame("5", ["2", "1"], 11, "1", "9620", "2"))
+
+    who22_first = _tuner(hass, gateway, 2)
+    who22_first.handle_who22_event(_frame("5", ["2", "2"], 5, "1", "9620"))
+    who22_first.handle_who22_event(_frame("5", ["2", "2"], 11, "1", "9620", "2"))
+    who22_first.handle_event(OWNMessage.parse("*#16*102*6*0*96200##"))
+    who22_first.handle_event(OWNMessage.parse("*#16*102*7*0*2##"))
+
     assert isinstance(OWNMessage.parse("*#16*101*6*0*96200##"), OWNSoundEvent)
-    assert tuner.extra_state_attributes == {"frequency": 96.2, "station": 2}
+    assert who16_first.extra_state_attributes == {"frequency": 96.2, "station": 2}
+    assert who22_first.extra_state_attributes == {"frequency": 96.2, "station": 2}
+    assert who16_first.source == who22_first.source == "Station 2"
 
 
 @pytest.mark.parametrize(

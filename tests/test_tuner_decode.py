@@ -201,7 +201,7 @@ def _mhs1_tuner_frames() -> list[str]:
     ],
 )
 def test_who22_frequency_in_hundred_khz_units(frame: str, khz: int, preset: int) -> None:
-    """A MyHomeServer1 reports ``1015`` for 101.5 MHz, an MH200N ``10150``."""
+    """The hand-transcribed MyHomeServer1 excerpt records ``1015`` for 101.5 MHz."""
     dimension, values = _values(frame)
     assert decode_who22_tuner(dimension, values) == TunerReport(
         frequency_khz=khz, preset=preset
@@ -219,8 +219,10 @@ def test_the_two_who22_units_cannot_be_confused() -> None:
     assert frequency_khz_from_who22("10801") is None
 
 
-def test_a_five_code_rds_chunk_is_text_not_a_glitch() -> None:
-    """The MyHomeServer1 sends ``RADIO`` as five codes, not eight."""
+def test_a_short_rds_chunk_is_text_not_a_glitch() -> None:
+    """4-code frames (lost middle SCS frame, k=0) and 5-code excerpts decode as text."""
+    dimension, values = _values("*#22*5#2#1*10*82*65*68*73##")
+    assert decode_who22_tuner(dimension, values) == TunerReport(rds="RADI")
     dimension, values = _values("*#22*5#2#1*10*82*65*68*73*79##")
     assert decode_who22_tuner(dimension, values) == TunerReport(rds="RADIO")
     assert decode_rds_frame([]) is None

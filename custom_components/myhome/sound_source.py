@@ -423,10 +423,13 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     def handle_who22_event(self, message: Any) -> None:
         """Apply a WHO=22 report of this tuner (source address ``5#2#S`` / ``2#S``).
 
-        The F500 mirrors every WHO=16 report onto WHO=22, so on a plant that
-        also delivers WHO=16 this repeats facts already applied; each update is
-        idempotent, so the repeat changes nothing. On a plant that only
-        delivers WHO=22 it is the sole source of the tuner's state.
+        Dual-stack gateways (MH200N, F454, F453AV) run both ``bt_difson``
+        (WHO=16) and ``bt_multi`` (WHO=22), emitting both families in
+        non-deterministic order for every SCS tuner frame; each update is
+        idempotent, so the repeat changes nothing. On WHO=22-only gateways
+        (MyHomeServer1, F459, F460, F461), ``bt_multi`` is the sole translator
+        of the tuner's state (emitting dim 5 alone on manual tuning and dim 5
+        followed by dim 11 on a stored preset).
         """
         raw_dim = getattr(message, "dimension", None)
         try:

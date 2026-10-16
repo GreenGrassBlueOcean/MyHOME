@@ -1,8 +1,12 @@
 """Pure decoding of FM tuner reports, shared by WHO=16 and WHO=22.
 
-An F500 / F500N tuner reports the same facts on both families, in different
-dimensions and units (the tuner mirrors its WHO=16 reports onto WHO=22 under
-the compound source address ``5#2#S``):
+On the SCS bus an F500 / F500N tuner broadcasts a single ``D2`` telegram for
+each tuning or RDS update. Inside BTicino gateways, ``bt_difson`` translates
+those telegrams to WHO=16 (source ``10S``) and ``bt_multi`` translates them to
+WHO=22 (compound source ``5#2#S``). Legacy gateways (MH200, H4684, MH202) run
+``bt_difson`` only; dual-stack gateways (MH200N, F454, F453AV) run both daemons
+and emit mirrored WHO=16 and WHO=22 reports; modern gateways (MyHomeServer1,
+F459, F460, F461) ship ``bt_multi`` only and report exclusively on WHO=22:
 
 ======================  ====================  ==========================
 Fact                    WHO=16 (source 10S)   WHO=22 (source 5#2#S)
@@ -10,13 +14,14 @@ Fact                    WHO=16 (source 10S)   WHO=22 (source 5#2#S)
 Frequency               dim 6, ``0*<KHZ>``    dim 5, ``1*<10/100 kHz>``
 Frequency and preset    -                     dim 11, ``1*<units>*<N>``
 Stored station          dim 7, ``0*<N>``      dim 6, ``<N>``
-RDS programme service   dim 8, 8 ASCII codes  dim 10, 8 ASCII codes
+RDS programme service   dim 8, 8 ASCII codes  dim 10, 1..8 ASCII codes
 ======================  ====================  ==========================
 
-The leading ``0`` / ``1`` value of the frequency reports is carried by every
-traced frame and is not interpreted here: nothing in the traces shows what it
-selects. Everything in this module is a function of dimension values alone, so
-it is testable against recorded frames without a gateway or Home Assistant.
+The leading ``0`` / ``1`` token of the frequency reports is the band identifier
+(``bt_difson`` formats the 0-based SCS band index ``0`` = FM; ``bt_multi``
+hardcodes the 1-based literal ``1`` in its format strings). Everything in this
+module is a function of dimension values alone, so it is testable against
+recorded frames without a gateway or Home Assistant.
 """
 
 from __future__ import annotations
@@ -29,14 +34,18 @@ from dataclasses import dataclass
 FM_MIN_KHZ = 87500
 FM_MAX_KHZ = 108000
 
-#: A WHO=22 frequency is reported in 10 kHz units on an MH200N (``9620`` is
-#: 96.20 MHz) and in 100 kHz units on a MyHomeServer1 (``1015`` is 101.5 MHz).
-#: The two FM ranges (8750..10800 and 875..1080) do not overlap, so the value
-#: itself says which unit it is in.
+#: ``bt_multi`` firmware computes WHO=22 FM frequencies in 10 kHz units
+#: (``steps * 5 + 8700``, so ``9620`` is 96.20 MHz), while the hand-transcribed
+#: MyHomeServer1 log excerpt (OWNd#103) records 100 kHz units (``1015`` is
+#: 101.5 MHz). The two FM ranges (8750..10800 and 875..1080) do not overlap, so
+#: the value itself selects the unit.
 WHO22_FREQUENCY_UNITS_KHZ = (10, 100)
 
-#: An RDS programme service name is at most this many characters. A
-#: MyHomeServer1 sends shorter chunks (``RADIO`` is five codes).
+#: ``bt_multi`` and ``bt_difson`` reassemble 3-frame SCS RDS sequences
+#: (1 start + 4k middle + 3 EOT bytes = 4(k+1) ASCII codes): 8 codes normally
+#: (k=1), 4 codes when a middle SCS frame is lost (k=0), and 12 codes when a
+#: missed EOT concatenates a second middle frame (k=2); hand-transcribed log
+#: excerpts (OWNd#103) also trim trailing space padding (``RADIO`` is 5 codes).
 RDS_LENGTH = 8
 
 
