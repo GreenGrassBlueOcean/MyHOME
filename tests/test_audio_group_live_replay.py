@@ -482,3 +482,140 @@ async def test_anti_hiss_auto_off_for_owned_and_unowned_rooms(hass, mock_gateway
         mock_off_owned.assert_called_once()
         mock_off_unowned.assert_called_once()
 
+
+TAKEOVER_FIXTURE = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures"
+        / "traces"
+        / "mh200_sound_f441m"
+        / "live_2026-10-16_parked_group_decoder_takeover.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+async def _plant_from_takeover_diagnostics(hass, mock_gateway):
+    """Reconstruct the exact plant state from the 2026-10-16 diagnostics snapshot."""
+    audio_diag = TAKEOVER_FIXTURE["audio_diagnostics"]
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(
+        hass,
+        {DECODER: audio_diag["decoder_pool"]["decoders"]["decoder_1"]["source"]},
+        pre_gain_map={DECODER: audio_diag["decoder_pool"]["decoders"]["decoder_1"]["pre_gain_pct"]},
+    )
+    runtime.decoder_pool = pool
+
+    zones = {}
+    for where, meta in TAKEOVER_FIXTURE["meta"]["zones"].items():
+        diag_zone = audio_diag["zones"][f"zone_{where}"]
+        zone = _create_test_zone(hass, mock_gateway, runtime, where, _entity_id(where))
+        zone._environment = str(meta["environment"])
+        zone._attr_state = MediaPlayerState(diag_zone["state"])
+        zone._attr_volume_level = diag_zone["volume_level"]
+        zone._attr_is_volume_muted = diag_zone["is_volume_muted"]
+        zone._parked = diag_zone["parked"]
+        zone._wake_pending = diag_zone["wake_pending"]
+        zone._status_seen = diag_zone["status_seen"]
+        if diag_zone["has_decoder"]:
+            zone._active_decoder = DECODER
+        zones[where] = zone
+
+    # Decoder hardware is off, held by parked group leader zone_17 with member zone_18
+    hass.states.async_set(DECODER, audio_diag["decoder_pool"]["decoders"]["decoder_1"]["state"])
+    assert await pool.claim(_entity_id("17"), environment="1") == (DECODER, 2)
+    await pool.add_member(_entity_id("17"), _entity_id("18"), environment="1")
+
+    # Sync all zones' computed properties into HA state machine (zone_17 and zone_18 report 'idle')
+    for zone in zones.values():
+        def _sync_state(z=zone):
+            hass.states.async_set(z.entity_id, z.state)
+        zone.async_write_ha_state = MagicMock(side_effect=_sync_state)
+        zone.async_write_ha_state()
+
+    return zones, pool
+
+
+@pytest.mark.asyncio
+async def test_live_2026_10_16_parked_group_yields_decoder_to_bathroom_multiroom_play(hass, mock_gateway):
+    """Replay the 2026-10-16 09:27:21 Music Assistant attempt 1 against the captured diagnostics state."""
+    zones, pool = await _plant_from_takeover_diagnostics(hass, mock_gateway)
+    attempt_1 = TAKEOVER_FIXTURE["music_assistant_attempts"][0]
+
+    # Pre-condition from diagnostics: zone_17 and zone_18 are parked and report 'idle' in HA
+    assert zones["17"].state == MediaPlayerState.IDLE
+    assert zones["18"].state == MediaPlayerState.IDLE
+    assert hass.states.get(_entity_id("17")).state == MediaPlayerState.IDLE
+    assert hass.states.get(_entity_id("18")).state == MediaPlayerState.IDLE
+    assert pool.owned_decoder(_entity_id("17")) == DECODER
+
+    mock_gateway.send.reset_mock()
+    async_mock_service(hass, "media_player", "play_media")
+    hass.services.async_register(
+        "media_player",
+        "turn_on",
+        lambda call: hass.states.async_set(call.data["entity_id"], "on"),
+    )
+    async_mock_service(hass, "media_player", "volume_set")
+
+    with patch("asyncio.sleep", return_value=None):
+        # Step 1: Music Assistant calls set_members on badkamer (36) adding 21, 23, 22, 35
+        await zones["36"].async_join_players(attempt_1["set_members_add"])
+        # Step 2: Music Assistant starts Spotify playback on badkamer (36)
+        await zones["36"].async_play_media("music", "http://example.invalid/spotify_discovery.mp3")
+        await hass.async_block_till_done()
+
+    # 1. Decoder 1 is reassigned to badkamer (36)
+    assert pool.owned_decoder(_entity_id("36")) == DECODER
+    assert pool.owned_decoder(_entity_id("17")) is None
+    assert pool.get_members(_entity_id("17")) == []
+    assert set(pool.get_members(_entity_id("36"))) == set(attempt_1["set_members_add"])
+
+    # 2. Displaced parked group (17 + 18) cleanly unparks and transitions to 'off' in HA
+    for displaced_where in TAKEOVER_FIXTURE["expected_after_fix"]["displaced_parked_zones"]:
+        z = zones[displaced_where]
+        assert not z._parked
+        assert z._active_decoder is None
+        assert z.state == MediaPlayerState.OFF
+        assert hass.states.get(_entity_id(displaced_where)).state == MediaPlayerState.OFF
+
+    # 3. No redundant OFF frames were sent to already-off amplifiers 17 and 18
+    sent = _sent(mock_gateway)
+    for forbidden in TAKEOVER_FIXTURE["expected_after_fix"]["forbidden_tx"]:
+        assert forbidden not in sent
+
+    # 4. Expected wake and matrix routing frames were sent for 36 and its newly joined members
+    for expected in TAKEOVER_FIXTURE["expected_after_fix"]["expected_attempt_1_tx"]:
+        assert expected in sent, expected
+
+
+@pytest.mark.asyncio
+async def test_live_2026_10_16_parked_group_yields_decoder_to_bathroom_two_room_play(hass, mock_gateway):
+    """Replay the 2026-10-16 09:27:40 Music Assistant attempt 2 (badkamer 36 + 35 in Environment 3)."""
+    zones, pool = await _plant_from_takeover_diagnostics(hass, mock_gateway)
+    attempt_2 = TAKEOVER_FIXTURE["music_assistant_attempts"][1]
+
+    mock_gateway.send.reset_mock()
+    async_mock_service(hass, "media_player", "play_media")
+    hass.services.async_register(
+        "media_player",
+        "turn_on",
+        lambda call: hass.states.async_set(call.data["entity_id"], "on"),
+    )
+    async_mock_service(hass, "media_player", "volume_set")
+
+    with patch("asyncio.sleep", return_value=None):
+        await zones["36"].async_join_players(attempt_2["set_members_add"])
+        await zones["36"].async_play_media("music", "http://example.invalid/spotify_discovery.mp3")
+        await hass.async_block_till_done()
+
+    assert pool.owned_decoder(_entity_id("36")) == DECODER
+    assert pool.owned_decoder(_entity_id("17")) is None
+    assert zones["17"].state == MediaPlayerState.OFF
+    assert zones["18"].state == MediaPlayerState.OFF
+    sent = _sent(mock_gateway)
+    for forbidden in TAKEOVER_FIXTURE["expected_after_fix"]["forbidden_tx"]:
+        assert forbidden not in sent
+    for expected in TAKEOVER_FIXTURE["expected_after_fix"]["expected_leader_tx"]:
+        assert expected in sent
+
+

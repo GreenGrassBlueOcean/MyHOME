@@ -516,8 +516,19 @@ class DecoderPool:
                 if owner is not None:
                     owner_state = self._hass.states.get(owner)
                     owner_val = owner_state.state if owner_state else None
-                    is_owner_off = (
-                        is_hw_idle and owner_val in (MediaPlayerState.OFF, "off")
+                    # A parked group's amplifiers are off, yet its rooms report
+                    # idle or paused so Music Assistant does not dissolve the
+                    # group (see ZoneDecoderLayer._parked_state). A zone that is
+                    # playing reports playing/buffering (or on when no decoder
+                    # mirrors onto it), so idle/paused with an idle decoder means
+                    # the owner is parked and free to yield the decoder.
+                    is_owner_off = is_hw_idle and owner_val in (
+                        MediaPlayerState.OFF,
+                        MediaPlayerState.IDLE,
+                        MediaPlayerState.PAUSED,
+                        "off",
+                        "idle",
+                        "paused",
                     )
                     if is_owner_off or is_handover:
                         LOGGER.info(
@@ -529,7 +540,7 @@ class DecoderPool:
                             is_handover,
                             zone_entity_id,
                         )
-                        if owner != zone_entity_id and owner_val not in (MediaPlayerState.OFF, "off"):
+                        if owner != zone_entity_id and not is_owner_off:
                             displaced_owner = owner
                         self._disband_group_locked(owner)
                         self._environments.pop(owner, None)
@@ -937,7 +948,14 @@ class DecoderPool:
             if zone_environment == environment and zone not in exclude and self.get_assignment(zone) is not None:
                 state = self._hass.states.get(zone)
                 state_val = state.state if state else None
-                if state_val not in (MediaPlayerState.OFF, "off"):
+                if state_val not in (
+                    MediaPlayerState.OFF,
+                    MediaPlayerState.IDLE,
+                    MediaPlayerState.PAUSED,
+                    "off",
+                    "idle",
+                    "paused",
+                ):
                     active.append(zone)
         return active
 

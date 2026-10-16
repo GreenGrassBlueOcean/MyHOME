@@ -591,7 +591,7 @@ The amplifier entity transitions between five distinct states:
 | `WAKE_PENDING` | `off` / `on` | Powering Up | Integration initiates an OFF → ON wake sequence (`*16*13*<WHERE>##` followed by `*16*3*<WHERE>##`). A 3-second echo suppression window (`WAKE_ECHO_WINDOW = 3.0s`) ignores the initial OFF echo. |
 | `ON` | `playing` / `on` | Active | Amplifier is powered ON (`*16*3*<WHERE>##`). Demodulating stereo audio and driving room speakers. |
 | `PENDING_OFF` | `paused` / `idle` | Active (Timer) | Decoder has stopped or paused. A safety timer runs (3.0s for idle/off/standby, 60.0s for pause, or 5.0s group leave grace). If audio resumes before timer expiry, the timer cancels and playback continues without interruption. |
-| `PARKED` | `paused` / `idle` | Powered Off | Anti-hiss auto-off has powered off the hardware amplifier (`*16*13*<WHERE>##`) to eliminate analog bus hiss during extended pauses. In Home Assistant, the entity reports `paused`/`idle` and preserves group topology. Resumes immediately upon playback. |
+| `PARKED` | `paused` / `idle` | Powered Off | Anti-hiss auto-off has powered off the hardware amplifier (`*16*13*<WHERE>##`) to eliminate analog bus hiss during extended pauses. In Home Assistant, the entity reports `paused`/`idle` and preserves group topology so Music Assistant keeps the sync group intact. Resumes immediately if playback restarts on the group, or yields the idle decoder and transitions cleanly to `OFF` (with zero bus frames) if another room starts a stream. |
 
 ### State Transition Diagram
 
@@ -605,11 +605,29 @@ stateDiagram-v2
     ON --> PENDING_OFF: Decoder Idle/Off (3s) or Paused (60s)
     ON --> PENDING_OFF: Member Unjoined (5s grace period)
     PENDING_OFF --> ON: Decoder resumes playing (Timer Cancelled)
-    PENDING_OFF --> PARKED: Auto-Off Timer Expires (Group Preserved)
+    PENDING_OFF --> PARKED: Auto-Off Timer Expires (Group Preserved, Amp OFF)
     PENDING_OFF --> OFF: Grace Period Expires (Standalone / Unjoined)
-    PARKED --> ON: media_play / play_media / turn_on
+    PARKED --> ON: Same group resumes (media_play / play_media / turn_on)
+    PARKED --> OFF: Another room claims idle decoder (Group Dissolved, No Bus Frame)
     PARKED --> OFF: turn_off / Physical Wall Switch OFF (*16*13*<WHERE>##)
     ON --> OFF: turn_off / Physical Wall Switch OFF (*16*13*<WHERE>##)
+```
+
+### Parked Group & Cross-Room Decoder Reassignment
+
+When a multiroom group pauses or its stream ends, anti-hiss auto-off powers down the physical amplifiers (`*16*13*<WHERE>##`) while keeping the rooms in `PARKED` (`idle` / `paused` in Home Assistant) so Music Assistant does not tear down the sync group. Because the hardware amplifiers and the decoder are idle, the decoder remains **soft-held**:
+
+- **Same group resumes**: Calling `media_play`, `play_media`, or `turn_on` on the parked group wakes its amplifiers (`*16*13*<WHERE>##` → `*16*3*<WHERE>##`) and resumes playback on the same decoder.
+- **Another room starts playback**: Calling `play_media` or `join_players` on a different room (`Room B`) sees that the decoder hardware is idle (`off` / `on` / `idle`, or `paused` past the 5-minute takeover window) and that the previous owner is parked (`idle` / `paused` in HA). `DecoderPool.claim()` immediately reassigns the decoder to `Room B`, dissolves the parked group in the pool, and reconciles the displaced rooms (`_parked = False`, `_active_decoder = None`, HA state `off`) without sending redundant `*16*13*<WHERE>##` OFF frames to amplifiers that are already physically powered off.
+
+```mermaid
+stateDiagram-v2
+    state "Room A Group (Zone 17 + Zone 18)" as RoomA {
+        A_ON["ON (playing)\nAmp: ON | HA: playing\nHolds decoder_1"] --> A_PENDING["PENDING_OFF\n3s idle / 60s pause timer"] : Stream stops / pauses
+        A_PENDING --> A_PARKED["PARKED (Soft-Hold)\nAmp: OFF (*16*13*17/18##)\nHA: idle / paused\nGroup kept for Music Assistant"] : Anti-hiss timer fires
+        A_PARKED --> A_ON : Same group plays\n(Wakes 17 & 18)
+        A_PARKED --> A_OFF["OFF\nAmp: OFF (no bus frame sent)\nHA: off | Group dissolved"] : Room B claims idle decoder_1\n(_reconcile_pool_loss)
+    }
 ```
 
 ### Bus Frame Decision Engine

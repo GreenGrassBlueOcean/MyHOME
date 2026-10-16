@@ -441,6 +441,7 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
         except EnvironmentBusyError as err:
             raise self._environment_busy_error(err.owner, err.environment) from err
         self._write_zone_state(old_leader)
+        self._reconcile_pool_loss(pool)
         if result is None:
             if exclude and set(pool.decoder_entity_ids) <= exclude:
                 # Nothing is busy: no configured decoder can take this media.

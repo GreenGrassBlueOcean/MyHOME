@@ -54,6 +54,20 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         """Return a list of entity ids belonging to this entity's group, leader first."""
         return _get_group_members(self._runtime_data, self.entity_id)
 
+    def _reconcile_pool_loss(self, pool: DecoderPool) -> None:
+        """Clear parked/decoder state on any zone that no longer holds a decoder or group."""
+        runtime = self._runtime_data
+        for zone in list(runtime.media_players.values()) if runtime is not None else ():
+            if zone is self or not isinstance(zone, ZoneGroupLayer):
+                continue
+            has_group = pool.is_leader(zone.entity_id) or pool.get_leader(zone.entity_id) is not None
+            owned = pool.owned_decoder(zone.entity_id)
+            if zone._parked and not has_group and owned is None:
+                zone._parked = False
+                zone._wake_pending = False
+                zone._active_decoder = None
+                zone.async_write_ha_state()
+
     async def async_join_players(self, group_members: list[str]) -> None:
         """Add players to this zone's group (additive; existing members stay).
 
@@ -148,6 +162,7 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         except EnvironmentBusyError as err:
             raise self._environment_busy_error(err.owner, err.environment) from err
         self._write_zone_state(old_leader)
+        self._reconcile_pool_loss(pool)
 
         # Decoders the joining zones held are no longer anyone's: stop them.
         for decoder_id in change.released:

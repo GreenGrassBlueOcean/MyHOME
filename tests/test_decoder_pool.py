@@ -861,6 +861,33 @@ async def test_claim_reassigns_idle_decoder_from_powered_off_owner(hass):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("parked_state", ["idle", "paused"])
+async def test_claim_reassigns_idle_decoder_from_parked_owner(hass, parked_state):
+    """A parked group leader reports idle/paused in HA; another room can claim its idle decoder."""
+    pool = DecoderPool(hass, {"media_player.dec": 1})
+    hass.states.async_set("media_player.dec", "off")
+    hass.states.async_set("media_player.zone17", parked_state)
+    hass.states.async_set("media_player.zone18", parked_state)
+
+    pool._assignments["media_player.dec"] = "media_player.zone17"
+    pool._environments["media_player.zone17"] = "1"
+    pool._environments["media_player.zone18"] = "1"
+    pool._groups["media_player.zone17"] = {"media_player.zone18"}
+
+    # Environment 1 is not considered actively streaming while parked
+    assert pool.environment_owner("1") is None
+
+    with patch("homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock) as mock_call:
+        claimed = await pool.claim("media_player.zone36", environment="3")
+        assert claimed == ("media_player.dec", 1)
+        assert pool.get_assignment("media_player.zone36") == "media_player.dec"
+        assert pool.get_assignment("media_player.zone17") is None
+        assert pool.get_members("media_player.zone17") == []
+        # Parked rooms already have their physical amplifiers off; no turn_off service call needed
+        mock_call.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_claim_handover_from_former_leader_turns_off_displaced_leader(hass):
     """When a leader's last member is removed and immediately claims the decoder, it takes over."""
     pool = DecoderPool(hass, {"media_player.dec": 1})
