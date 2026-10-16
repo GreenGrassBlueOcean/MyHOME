@@ -76,7 +76,7 @@ except ImportError:  # pragma: no cover - PyPI OWNd < 2.0.0b11 compatibility
         base = parts[0]
         if is_apl_address(base) or base in ("00", "100", "0"):
             norm_base = base
-        elif base.isdigit():
+        elif base.isdigit() and base.startswith("00") and int(base) > 15:
             norm_base = str(int(base))
         else:
             norm_base = base
@@ -145,7 +145,7 @@ if not hasattr(OWNLightingCommand, "brightness"):  # pragma: no cover - PyPI OWN
                 h, s, v = int(vals[0]), int(vals[1]), int(vals[2])
             except (TypeError, ValueError):
                 return None
-            if h <= 360 and (h, s, v) != (511, 127, 255):
+            if 0 <= h <= 360 and 0 <= s <= 100 and (h, s, v) != (511, 127, 255):
                 return (h, s)
         return None
 

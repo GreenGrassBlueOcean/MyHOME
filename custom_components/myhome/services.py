@@ -70,15 +70,9 @@ def _get_gateway_handler(hass: HomeAssistant, gateway_identifier: str | None) ->
 
 def _handler_supports_who(handler: MyHOMEGatewayHandler, who: int) -> bool:
     """Return whether the gateway handler profile advertises a WHO subsystem."""
-    inst_dict = getattr(handler, "__dict__", {})
-    if "profile_supports_who" in inst_dict:
-        target = inst_dict["profile_supports_who"]
-    elif "_profile_supports_who" in inst_dict:
-        target = inst_dict["_profile_supports_who"]
-    else:
-        target = getattr(handler, "profile_supports_who", None) or getattr(
-            handler, "_profile_supports_who", None
-        )
+    target = getattr(handler, "profile_supports_who", None) or getattr(
+        handler, "_profile_supports_who", None
+    )
     if callable(target):
         try:
             return bool(target(who))
