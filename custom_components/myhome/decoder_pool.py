@@ -200,6 +200,7 @@ class DecoderPool:
         self._saved: dict[str, Any] | None = None                # last books handed to the store
         self._released_at: dict[str, datetime] = {}               # decoder → when a zone of ours last let go of it
         self._unconfirmed: set[str] = set()                      # restored zones the bus has not reported yet
+        self._displaced_zones: set[str] = set()                  # zones whose claim or group was taken over by claim()
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -460,7 +461,10 @@ class DecoderPool:
             for dec_id, owner in self._assignments.items():
                 if owner == zone_entity_id:
                     LOGGER.debug("Decoder %s already claimed by %s", dec_id, zone_entity_id)
+                    prev_leader = self.get_leader(zone_entity_id)
                     self._remove_member_locked(zone_entity_id)
+                    if prev_leader and not self.is_leader(prev_leader) and self.owned_decoder(prev_leader) is None:
+                        self._displaced_zones.add(prev_leader)
                     return (dec_id, self._decoder_map[dec_id])
 
             if environment is not None:
@@ -542,7 +546,10 @@ class DecoderPool:
                         )
                         if owner != zone_entity_id and not is_owner_off:
                             displaced_owner = owner
-                        self._disband_group_locked(owner)
+                        disbanded = self._disband_group_locked(owner)
+                        if owner != zone_entity_id:
+                            self._displaced_zones.add(owner)
+                        self._displaced_zones.update(m for m in disbanded if m != zone_entity_id)
                         self._environments.pop(owner, None)
                         self._unassign_locked(dec_id)
                         owner = None
@@ -550,7 +557,10 @@ class DecoderPool:
                         continue  # already in use by an active zone
 
                 if is_hw_idle or is_handover:
+                    prev_leader = self.get_leader(zone_entity_id)
                     self._remove_member_locked(zone_entity_id)
+                    if prev_leader and not self.is_leader(prev_leader) and self.owned_decoder(prev_leader) is None:
+                        self._displaced_zones.add(prev_leader)
                     self._assignments[dec_id] = zone_entity_id
                     if environment is not None:
                         self._environments[zone_entity_id] = environment
@@ -579,6 +589,12 @@ class DecoderPool:
             "DecoderPool: all decoders busy — zone %s cannot play", zone_entity_id
         )
         return None
+
+    def pop_displaced_zones(self) -> set[str]:
+        """Return and clear zones whose decoder or group was taken over by :meth:`claim`."""
+        displaced = set(self._displaced_zones)
+        self._displaced_zones.clear()
+        return displaced
 
     async def set_group(
         self,

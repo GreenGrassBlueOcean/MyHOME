@@ -5225,3 +5225,28 @@ async def test_who22_volume_reports_do_not_wake_amplifiers(hass, mock_gateway):
     assert not isinstance(live_msg, OWNSoundEvent)
 
 
+@pytest.mark.asyncio
+async def test_parked_state_checks_streaming_companion_for_paused(hass, mock_gateway):
+    """A parked zone whose hardware decoder is idle/on but whose streaming companion is paused reports PAUSED."""
+    runtime = MyHOMERuntimeData(gateway=mock_gateway)
+    pool = DecoderPool(
+        hass,
+        {"media_player.cxn": 1},
+        companion_map={"media_player.cxn": "media_player.cxn_dlna"},
+    )
+    runtime.decoder_pool = pool
+
+    zone = _create_test_zone(hass, mock_gateway, runtime, "17", "media_player.zone_17")
+    hass.states.async_set("media_player.cxn", MediaPlayerState.ON)
+    hass.states.async_set("media_player.cxn_dlna", MediaPlayerState.IDLE)
+
+    await pool.claim("media_player.zone_17", environment="1")
+    zone._attr_state = MediaPlayerState.OFF
+    zone._parked = True
+
+    assert zone.state == MediaPlayerState.IDLE
+    hass.states.async_set("media_player.cxn_dlna", MediaPlayerState.PAUSED)
+    assert zone.state == MediaPlayerState.PAUSED
+
+
+

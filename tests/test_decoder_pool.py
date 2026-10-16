@@ -883,8 +883,31 @@ async def test_claim_reassigns_idle_decoder_from_parked_owner(hass, parked_state
         assert pool.get_assignment("media_player.zone36") == "media_player.dec"
         assert pool.get_assignment("media_player.zone17") is None
         assert pool.get_members("media_player.zone17") == []
+        assert pool.pop_displaced_zones() == {"media_player.zone17", "media_player.zone18"}
+        assert pool.pop_displaced_zones() == set()
         # Parked rooms already have their physical amplifiers off; no turn_off service call needed
         mock_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_claim_by_member_of_passive_group_records_displaced_leader(hass):
+    """When the only member of a passive/unowned group claims a decoder on its own, its former leader is displaced."""
+    pool = DecoderPool(hass, {"media_player.dec1": 1, "media_player.dec2": 2})
+    hass.states.async_set("media_player.dec1", "idle")
+    hass.states.async_set("media_player.dec2", "idle")
+
+    # Case 1: zone18 is a member of passive group led by zone17 (no decoder owned by zone17)
+    pool._groups["media_player.zone17"] = {"media_player.zone18"}
+    claimed = await pool.claim("media_player.zone18", environment="1")
+    assert claimed == ("media_player.dec1", 1)
+    assert pool.pop_displaced_zones() == {"media_player.zone17"}
+
+    # Case 2: zone18 already owns dec1, was re-added to passive group of zone17, and re-claims dec1
+    pool._groups["media_player.zone17"] = {"media_player.zone18"}
+    claimed_again = await pool.claim("media_player.zone18", environment="1")
+    assert claimed_again == ("media_player.dec1", 1)
+    assert pool.pop_displaced_zones() == {"media_player.zone17"}
+
 
 
 @pytest.mark.asyncio

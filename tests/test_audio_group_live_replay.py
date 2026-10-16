@@ -619,3 +619,147 @@ async def test_live_2026_10_16_parked_group_yields_decoder_to_bathroom_two_room_
         assert expected in sent
 
 
+@pytest.mark.asyncio
+async def test_unparked_paused_group_yields_decoder_within_60s_and_powers_off_amplifiers(hass, mock_gateway):
+    """Music Assistant has no Stop button: pausing Room A (17+18) and starting Room B (36) within <60s
+    claims the paused decoder immediately, cancels Room A's 60s timer, prevents Room A from mirroring
+    or auto-joining Room B's stream, and powers off 17 & 18 after the 5s delayed-off grace window.
+    """
+    zones, pool = await _plant_from_takeover_diagnostics(hass, mock_gateway)
+
+    # Simulate Room A (17 + 18) having just been paused in Music Assistant (< 60s ago):
+    # physical amplifiers are still ON (_parked = False), decoder is paused, 60s timer is running.
+    for where in ("17", "18"):
+        zones[where]._parked = False
+        zones[where]._attr_state = MediaPlayerState.ON
+        zones[where]._attr_source = "Cambridge"
+    zones["17"]._active_decoder = DECODER
+    hass.states.async_set(DECODER, MediaPlayerState.PAUSED)
+
+    unsub_mock = MagicMock()
+    zones["17"]._auto_off_unsub = unsub_mock
+    zones["17"]._auto_off_key = (60.0, DECODER)
+
+    for where in ("17", "18"):
+        zones[where].async_write_ha_state()
+        assert zones[where].state == MediaPlayerState.PAUSED
+        assert hass.states.get(_entity_id(where)).state == MediaPlayerState.PAUSED
+
+    mock_gateway.send.reset_mock()
+
+    async def _play_media_side_effect(call):
+        hass.states.async_set(call.data["entity_id"], MediaPlayerState.PLAYING)
+
+    hass.services.async_register("media_player", "play_media", _play_media_side_effect)
+    async_mock_service(hass, "media_player", "turn_on")
+    async_mock_service(hass, "media_player", "volume_set")
+
+    # Block the 5s delayed-off sleep initially so we can inspect the in-grace state
+    grace_gate = asyncio.Event()
+    real_sleep = asyncio.sleep
+
+    async def _controlled_sleep(delay):
+        if delay == 5.0:
+            await grace_gate.wait()
+        else:
+            await real_sleep(0)
+
+    with patch("custom_components.myhome.media_player_group.asyncio.sleep", side_effect=_controlled_sleep):
+        await zones["36"].async_play_media("music", "http://example.invalid/new_room_stream.mp3")
+        # Trigger decoder state change event to PLAYING while 17 & 18 are in their 5s delayed-off window
+        for where in ("17", "18"):
+            zones[where]._async_decoder_state_changed(
+                MagicMock(
+                    data={
+                        "entity_id": DECODER,
+                        "old_state": State(DECODER, MediaPlayerState.PAUSED),
+                        "new_state": State(DECODER, MediaPlayerState.PLAYING),
+                    }
+                )
+            )
+        await real_sleep(0)
+
+        # 1. Decoder 1 is immediately reassigned to zone 36
+        assert pool.owned_decoder(_entity_id("36")) == DECODER
+        assert pool.owned_decoder(_entity_id("17")) is None
+        assert pool.get_members(_entity_id("17")) == []
+
+        # 2. Displaced zones 17 & 18 cleared _active_decoder, cancelled the 60s timer,
+        # scheduled the 5s delayed-off task, and did NOT auto-join or mirror PLAYING
+        unsub_mock.assert_called_once()
+        for where in ("17", "18"):
+            assert zones[where]._active_decoder is None
+            assert zones[where]._pending_off_task is not None
+            assert pool.get_leader(_entity_id(where)) is None
+            assert zones[where].state == MediaPlayerState.ON  # not mirroring PLAYING
+
+        # 3. Release the 5s grace window: physical amplifiers 17 & 18 send *16*13*<WHERE>## and turn OFF
+        grace_gate.set()
+        await hass.async_block_till_done()
+
+    sent = _sent(mock_gateway)
+    assert "*16*13*17##" in sent
+    assert "*16*13*18##" in sent
+    for where in ("17", "18"):
+        assert zones[where]._pending_off_task is None
+        assert zones[where].state == MediaPlayerState.OFF
+        assert hass.states.get(_entity_id(where)).state == MediaPlayerState.OFF
+
+
+@pytest.mark.asyncio
+async def test_displaced_zone_rejoined_within_5s_grace_cancels_delayed_off_without_power_cycle(hass, mock_gateway):
+    """If Music Assistant joins a displaced zone (18) into the new group (36) within the 5s delayed-off
+    grace window, _async_wake_zone() cancels _pending_off_task so 18 stays ON without an OFF->ON cycle,
+    while the unjoined displaced zone (17) powers off after the 5s window expires.
+    """
+    zones, pool = await _plant_from_takeover_diagnostics(hass, mock_gateway)
+
+    for where in ("17", "18"):
+        zones[where]._parked = False
+        zones[where]._attr_state = MediaPlayerState.ON
+        zones[where]._attr_source = "Cambridge"
+    zones["17"]._active_decoder = DECODER
+    hass.states.async_set(DECODER, MediaPlayerState.PAUSED)
+
+    for where in ("17", "18"):
+        zones[where].async_write_ha_state()
+
+    mock_gateway.send.reset_mock()
+    async_mock_service(hass, "media_player", "play_media")
+    async_mock_service(hass, "media_player", "turn_on")
+    async_mock_service(hass, "media_player", "volume_set")
+
+    grace_gate = asyncio.Event()
+    real_sleep = asyncio.sleep
+
+    async def _controlled_sleep(delay):
+        if delay == 5.0:
+            await grace_gate.wait()
+        else:
+            await real_sleep(0)
+
+    with patch("custom_components.myhome.media_player_group.asyncio.sleep", side_effect=_controlled_sleep):
+        await zones["36"].async_play_media("music", "http://example.invalid/new_room_stream.mp3")
+        assert zones["17"]._pending_off_task is not None
+        assert zones["18"]._pending_off_task is not None
+
+        # Music Assistant joins zone 18 into zone 36's group within the 5s grace window
+        mock_gateway.send.reset_mock()
+        await zones["36"].async_join_players([_entity_id("18")])
+        assert zones["18"]._pending_off_task is None
+        assert zones["17"]._pending_off_task is not None
+        assert "*16*13*18##" not in _sent(mock_gateway)
+
+        # Let the 5s grace window expire: only 17 turns off; 18 stays ON in 36's group
+        grace_gate.set()
+        await hass.async_block_till_done()
+
+    sent = _sent(mock_gateway)
+    assert "*16*13*17##" in sent
+    assert "*16*13*18##" not in sent
+    assert zones["17"].state == MediaPlayerState.OFF
+    assert zones["18"]._attr_state == MediaPlayerState.ON
+    assert pool.get_leader(_entity_id("18")) == _entity_id("36")
+
+
+

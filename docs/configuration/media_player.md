@@ -605,28 +605,34 @@ stateDiagram-v2
     ON --> PENDING_OFF: Decoder Idle/Off (3s) or Paused (60s)
     ON --> PENDING_OFF: Member Unjoined (5s grace period)
     PENDING_OFF --> ON: Decoder resumes playing (Timer Cancelled)
+    PENDING_OFF --> OFF: Another room claims paused/idle decoder (< 60s, Amp OFF after 5s grace)
     PENDING_OFF --> PARKED: Auto-Off Timer Expires (Group Preserved, Amp OFF)
     PENDING_OFF --> OFF: Grace Period Expires (Standalone / Unjoined)
     PARKED --> ON: Same group resumes (media_play / play_media / turn_on)
-    PARKED --> OFF: Another room claims idle decoder (Group Dissolved, No Bus Frame)
+    PARKED --> OFF: Another room claims idle decoder (>= 60s, Group Dissolved, No Bus Frame)
     PARKED --> OFF: turn_off / Physical Wall Switch OFF (*16*13*<WHERE>##)
     ON --> OFF: turn_off / Physical Wall Switch OFF (*16*13*<WHERE>##)
 ```
 
-### Parked Group & Cross-Room Decoder Reassignment
+### Parked Group & Cross-Room Decoder Reassignment (Music Assistant Pause-Only UI)
 
-When a multiroom group pauses or its stream ends, anti-hiss auto-off powers down the physical amplifiers (`*16*13*<WHERE>##`) while keeping the rooms in `PARKED` (`idle` / `paused` in Home Assistant) so Music Assistant does not tear down the sync group. Because the hardware amplifiers and the decoder are idle, the decoder remains **soft-held**:
+Music Assistant's player UI only offers **Play / Pause** (it has **no Stop button**). When a listener finishes playing music in a multiroom group (`Room A`, e.g. `zone_17` + `zone_18`) and presses **Pause**, the rooms first enter `PENDING_OFF` (`0–60s` while the 60-second anti-hiss pause timer runs and physical amplifiers remain ON) and then enter `PARKED` (`≥ 60s`, after anti-hiss auto-off sends `*16*13*<WHERE>##` to power down the physical amplifiers while reporting `paused` / `idle` in Home Assistant so Music Assistant does not tear down the sync group).
 
-- **Same group resumes**: Calling `media_play`, `play_media`, or `turn_on` on the parked group wakes its amplifiers (`*16*13*<WHERE>##` → `*16*3*<WHERE>##`) and resumes playback on the same decoder.
-- **Another room starts playback**: Calling `play_media` or `join_players` on a different room (`Room B`) sees that the decoder hardware is idle (`off` / `on` / `idle`, or `paused` past the 5-minute takeover window) and that the previous owner is parked (`idle` / `paused` in HA). `DecoderPool.claim()` immediately reassigns the decoder to `Room B`, dissolves the parked group in the pool, and reconciles the displaced rooms (`_parked = False`, `_active_decoder = None`, HA state `off`) without sending redundant `*16*13*<WHERE>##` OFF frames to amplifiers that are already physically powered off.
+Because the decoder is paused or idle under a MyHOME room's ownership, it remains **soft-held** and can be reclaimed immediately in both windows (the 5-minute `PAUSE_TAKEOVER_AFTER` lock only protects **unassigned** decoders paused by an external non-MyHOME session such as Spotify Connect started directly on the hardware streamer):
+
+- **Same group resumes**: Calling `media_play`, `play_media`, or `turn_on` on `Room A` cancels the timer (if `< 60s`) or wakes its parked amplifiers (`*16*13*<WHERE>##` → `*16*3*<WHERE>##` if `≥ 60s`) and resumes playback on the same decoder.
+- **Another room starts playback `< 60s` after pause (`PENDING_OFF` takeover)**: If `Room B` (`zone_36`) starts playback before the 60-second anti-hiss timer fires, `DecoderPool.claim()` immediately reassigns the paused/idle decoder to `Room B` and records the displaced group (`zone_17` + `zone_18`). `_reconcile_pool_loss()` clears `_active_decoder` and cancels the 60-second timer on `Room A`, prevents `Room A` from passively mirroring or auto-joining `Room B`'s stream, and schedules the 5-second delayed-off grace timer so `zone_17` and `zone_18` send `*16*13*<WHERE>##` and power off their physical amplifiers cleanly.
+- **Another room starts playback `≥ 60s` after pause (`PARKED` takeover)**: Once `Room A` is parked (`_parked = True`, physical amplifiers already OFF), `DecoderPool.claim()` immediately reassigns the decoder to `Room B`, dissolves the parked group in the pool, and reconciles the displaced rooms (`_parked = False`, `_active_decoder = None`, HA state `off`) with **zero bus frames** sent to amplifiers that are already physically powered off.
 
 ```mermaid
 stateDiagram-v2
     state "Room A Group (Zone 17 + Zone 18)" as RoomA {
-        A_ON["ON (playing)\nAmp: ON | HA: playing\nHolds decoder_1"] --> A_PENDING["PENDING_OFF\n3s idle / 60s pause timer"] : Stream stops / pauses
-        A_PENDING --> A_PARKED["PARKED (Soft-Hold)\nAmp: OFF (*16*13*17/18##)\nHA: idle / paused\nGroup kept for Music Assistant"] : Anti-hiss timer fires
-        A_PARKED --> A_ON : Same group plays\n(Wakes 17 & 18)
-        A_PARKED --> A_OFF["OFF\nAmp: OFF (no bus frame sent)\nHA: off | Group dissolved"] : Room B claims idle decoder_1\n(_reconcile_pool_loss)
+        A_ON["ON (playing)\nAmp: ON | HA: playing\nHolds decoder_1"] --> A_PENDING["PENDING_OFF (0-60s after MA Pause)\nAmp: ON | HA: paused / idle\n60s pause / 3s idle timer running"] : User presses Pause in Music Assistant\n(MA has no Stop button)
+        A_PENDING --> A_ON : Same group resumes (< 60s)\n(Timer cancelled, no bus frames)
+        A_PENDING --> A_OFF_ACTIVE["OFF\nAmp: OFF (*16*13*17/18## after 5s grace)\nHA: off | Group dissolved"] : Room B (Zone 36) plays (< 60s)\n(Claims decoder_1, powers off 17 & 18)
+        A_PENDING --> A_PARKED["PARKED (>= 60s, Soft-Hold)\nAmp: OFF (*16*13*17/18## sent at 60s)\nHA: idle / paused\nGroup kept for Music Assistant"] : 60s anti-hiss timer fires
+        A_PARKED --> A_ON : Same group resumes\n(Wakes 17 & 18: *16*13*Z## -> *16*3*Z##)
+        A_PARKED --> A_OFF_PARKED["OFF\nAmp: OFF (no bus frame needed)\nHA: off | Group dissolved"] : Room B (Zone 36) plays (>= 60s)\n(Claims decoder_1, unparks 17 & 18)
     }
 ```
 

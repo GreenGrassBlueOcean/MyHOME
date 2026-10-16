@@ -55,17 +55,35 @@ class ZoneGroupLayer(ZoneDecoderLayer):
         return _get_group_members(self._runtime_data, self.entity_id)
 
     def _reconcile_pool_loss(self, pool: DecoderPool) -> None:
-        """Clear parked/decoder state on any zone that no longer holds a decoder or group."""
+        """Clear parked/decoder state and schedule power-off on displaced zones."""
+        displaced = (
+            pool.pop_displaced_zones()
+            if hasattr(pool, "pop_displaced_zones") and isinstance(pool, DecoderPool)
+            else (
+                pool.pop_displaced_zones()
+                if callable(getattr(pool, "pop_displaced_zones", None))
+                and isinstance(getattr(pool, "_displaced_zones", None), set)
+                else set()
+            )
+        )
         runtime = self._runtime_data
         for zone in list(runtime.media_players.values()) if runtime is not None else ():
             if zone is self or not isinstance(zone, ZoneGroupLayer):
                 continue
             has_group = pool.is_leader(zone.entity_id) or pool.get_leader(zone.entity_id) is not None
             owned = pool.owned_decoder(zone.entity_id)
-            if zone._parked and not has_group and owned is None:
+            if not has_group and owned is None and (
+                zone._parked
+                or zone._active_decoder is not None
+                or zone.entity_id in displaced
+            ):
+                was_parked = zone._parked
                 zone._parked = False
                 zone._wake_pending = False
                 zone._active_decoder = None
+                zone._cancel_auto_off()
+                if not was_parked and zone._attr_state == MediaPlayerState.ON:
+                    zone._schedule_delayed_off()
                 zone.async_write_ha_state()
 
     async def async_join_players(self, group_members: list[str]) -> None:
@@ -648,7 +666,12 @@ class ZoneGroupLayer(ZoneDecoderLayer):
             if pool.get_leader(self.entity_id) or pool.is_leader(self.entity_id) or self._active_decoder:
                 return
 
-            if self._attr_state != MediaPlayerState.ON or self._parked or self._turning_off:
+            if (
+                self._attr_state != MediaPlayerState.ON
+                or self._parked
+                or self._turning_off
+                or self._pending_off_task is not None
+            ):
                 return
 
             source_num = self._source_number(self._attr_source) if self._attr_source else None
