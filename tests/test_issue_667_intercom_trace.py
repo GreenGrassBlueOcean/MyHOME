@@ -173,3 +173,62 @@ async def test_issue_667_trace_full_replay(hass: HomeAssistant) -> None:
     finally:
         unsub_event()
         unsub_dispatcher()
+
+
+@pytest.mark.asyncio
+async def test_intercom_ts10_firmware_oracle_conformance(hass: HomeAssistant) -> None:
+    """Verify all 59 intercom-ts10 WHO 8 oracle frames and MH200 020102 trace verdicts."""
+    oracle_path = Path(__file__).resolve().parent / "golden" / "firmware_oracle.json"
+    verdicts = json.loads(oracle_path.read_text(encoding="utf-8"))["verdicts"]
+
+    # 1. Extract all 59 WHO 8 frames from the intercom-ts10 oracle suite
+    # (derived from libqtdevices TS10_1_0_23 videodoorentry_device.cpp: kinds 6, 7, 14)
+    intercom_ts10_frames = sorted(
+        {
+            frame
+            for frame, entries in verdicts.items()
+            if any(e.get("suite") == "intercom-ts10" for e in entries)
+        }
+    )
+    assert len(intercom_ts10_frames) == 59
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.50",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "open",
+            CONF_MAC: "00:03:50:00:88:89",
+        },
+        entry_id="test_intercom_ts10_oracle_entry",
+    )
+    entry.add_to_hass(hass)
+    gateway = MyHOMEGatewayHandler(hass, entry)
+
+    captured_events: list[Event] = []
+    unsub_event = hass.bus.async_listen(
+        "myhome_doorbell_event",
+        lambda event: captured_events.append(event),
+    )
+
+    try:
+        for raw in intercom_ts10_frames:
+            msg = OWNEvent.parse(raw)
+            assert msg is not None, f"Failed to parse intercom-ts10 frame: {raw}"
+            assert msg.who == 8
+            await gateway._process_message(msg)
+
+        await hass.async_block_till_done()
+        # None of the 59 internal/external/pager intercom-ts10 frames is an entrance panel call (kinds 1-4)
+        assert captured_events == []
+    finally:
+        unsub_event()
+
+    # 2. Verify emulated MH200 (020102) oracle verdicts for WHO 13 identification and WHO 1 impulse relays
+    mh200_id = next(e for e in verdicts["*#13**15##"] if e["product"] == "MH200")
+    assert mh200_id["emitted_own"] == ["*#13**15*4##"]
+    for impulse_cmd in ("*1*1*31##", "*1*0*31##"):
+        mh200_cmd = next(e for e in verdicts[impulse_cmd] if e["product"] == "MH200")
+        assert mh200_cmd["reply"] == "ack"
+        assert mh200_cmd["verdict"] == "out"
+        assert len(mh200_cmd["bus_frames"]) == 1

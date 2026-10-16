@@ -596,11 +596,12 @@ class GatewayEventDispatcher:
             who = getattr(message, "who", None)
             what = getattr(message, "_what", None)
             where_val = getattr(message, "where", "")
-            # WHO 8 WHAT 1 starts any call session. Only the entrance panels ring the
-            # door; handset-to-handset calls (kind 6) and pager broadcasts (kind 14)
-            # must not, and a kind that cannot be read fails closed. Older OWNd
-            # releases flag every WHAT 1 as an incoming call, so WHO 8 never trusts
-            # the library's is_call / is_incoming_call.
+            # WHO 8 WHAT 1 starts any call session. Only the entrance panels (kinds 1-4)
+            # ring the door; internal handset calls (kind 6), external intercom calls
+            # across SCS interfaces (kind 7), and pager broadcasts (kind 14) from
+            # libqtdevices TS10_1_0_23 must not, and a kind that cannot be read fails
+            # closed. Older OWNd releases flag every WHAT 1 as an incoming call, so WHO 8
+            # never trusts the library's is_call / is_incoming_call.
             is_who8_call = who == 8 and what == 1 and self._intercom_call_kind(message) in ENTRANCE_PANEL_KINDS
             is_broadcast = getattr(message, "is_broadcast_call", who == 6 and what == 6 and str(where_val) == "4100")
             # WHO 6 WHAT 20 is not in the published WHO 6 table (WHAT 0, 6, 9, 10, 11, 12,
