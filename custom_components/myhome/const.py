@@ -146,6 +146,8 @@ SOURCE_UNCONFIGURED_SUFFIX = " (not configured)"
 # messages that an RCA interface does not. The user declares it, because a
 # source device that has not spoken yet is indistinguishable on the bus.
 CONF_SOURCE_TUNER = "source_{}_tuner"
+#: Optional user-supplied pictures per FM frequency, one "<MHz>=<url>" per line.
+CONF_TUNER_PICTURES = "tuner_pictures"
 #: Stored stations a WHO=16 tuner exposes (5 for F500, up to 15 for F500N).
 TUNER_STATION_COUNT = 5
 TUNER_MAX_STATION_COUNT = 15
