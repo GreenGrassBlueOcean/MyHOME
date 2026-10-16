@@ -825,7 +825,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         """
         if self._attr_hvac_mode == HVACMode.OFF:
             return True
-        value = getattr(message, "dimension_value", None) or ()
+        value: list[str] = getattr(message, "dimension_value", None) or []
         return bool(len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None)
 
     def _remember_nominal(self) -> None:
