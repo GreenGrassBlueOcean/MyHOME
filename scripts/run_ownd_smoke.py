@@ -98,7 +98,14 @@ def install_target(target: str, pinned_version: str, dev_ref: str = None) -> Tup
     elif target == "latest":
         cmd = [sys.executable, "-m", "pip", "install", "--pre", "-U", "OWNd"]
         res = run_cmd(cmd, check=False)
-        return res.returncode == 0, False
+        if res.returncode != 0:
+            return False, False
+        if not is_pypi_released("OWNd", pinned_version):
+            print(f"\n[NOTICE] Pinned OWNd=={pinned_version} is not yet published to PyPI (latest PyPI release is older).")
+            print("Falling back to installing development OWNd so PR validation can proceed...")
+            dev_ok, _ = install_target("dev", pinned_version, dev_ref=dev_ref)
+            return dev_ok, True
+        return True, False
     elif target == "dev":
         ref = dev_ref or os.environ.get("OWND_REF") or os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or "master"
         # Try installing from matching branch/ref first if available
@@ -266,7 +273,7 @@ def run_smoke_suite(target: str, skip_install: bool = False, dev_ref: str = None
         if not install_ok:
             print(f"❌ FAILED: Unable to install OWNd target '{target}'")
             return False
-    elif target == "pinned":
+    elif target in ("pinned", "latest"):
         try:
             if importlib.metadata.version("OWNd") != pinned and not is_pypi_released("OWNd", pinned):
                 dev_fallback = True
