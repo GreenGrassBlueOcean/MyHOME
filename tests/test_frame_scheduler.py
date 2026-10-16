@@ -257,8 +257,11 @@ async def test_multi_worker_cold_vs_warm_socket_preserves_per_target_order() -> 
 
 
 async def test_frame_scheduler_storage_and_lifecycle_edge_cases() -> None:
-    """Cover storage operations, join, task_done errors, and immediate shutdown."""
+    """Cover storage operations, join, task_done errors, full/empty/shutdown, and pool methods."""
     storage = _PriorityQueueStorage()
+    with pytest.raises(IndexError, match="no eligible item"):
+        storage.pop_eligible({(1, "11")})
+
     fade = {"message": "*1*5*21##", "is_status_request": False, "is_fade_step": True}
     storage.appendleft(fade)
     assert storage[0] == fade
@@ -268,9 +271,15 @@ async def test_frame_scheduler_storage_and_lifecycle_edge_cases() -> None:
     storage.append(fade)
     assert storage.pop() == fade
 
-    scheduler = FrameScheduler(maxsize=2)
+    scheduler = FrameScheduler(maxsize=1)
+    with pytest.raises(asyncio.QueueEmpty):
+        scheduler.acquire_nowait()
+
     fut = asyncio.get_running_loop().create_future()
     scheduler.put_nowait({"message": "*1*1*11##", "is_status_request": False, "written": fut})
+    with pytest.raises(asyncio.QueueFull):
+        scheduler.put_nowait({"message": "*1*1*12##", "is_status_request": False})
+
     item = scheduler.acquire_nowait()
     assert (1, "11") in scheduler.in_flight_targets
     scheduler.complete_task(item)
@@ -285,6 +294,28 @@ async def test_frame_scheduler_storage_and_lifecycle_edge_cases() -> None:
     scheduler.shutdown(immediate=True)
     assert fut2.cancelled()
     assert scheduler.empty()
+
+    shutdown_exc = getattr(asyncio, "QueueShutDown", Exception)
+    with pytest.raises(shutdown_exc):
+        scheduler.put_nowait({"message": "*1*1*13##", "is_status_request": False})
+    with pytest.raises(shutdown_exc):
+        await scheduler.get()
+    with pytest.raises(shutdown_exc):
+        await scheduler.acquire_next()
+
+    # CommandWorkerPool.send_fade_step and send(..., is_cancel=True)
+    mock_handler = MagicMock()
+    mock_handler.gateway.profile.max_queue_size = 10
+    pool = CommandWorkerPool(mock_handler)
+    f_fade = await pool.send_fade_step(OWNCommand("*1*5*21##"))
+    assert not f_fade.done()
+    assert pool.send_buffer.fade_qsize == 1  # type: ignore[union-attr]
+    f_cancel = await pool.send(OWNCommand("*1*0*21##"), is_cancel=True)
+    assert f_fade.cancelled()
+    assert not f_cancel.done()
+    assert pool.send_buffer.command_qsize == 1  # type: ignore[union-attr]
+    pool.close()
+
 
 
 async def test_gateway_send_fade_step_and_is_cancel_delegation() -> None:

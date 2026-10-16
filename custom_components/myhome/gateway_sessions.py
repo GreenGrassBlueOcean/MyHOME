@@ -490,8 +490,6 @@ class _PriorityQueueStorage:
             for idx, item in enumerate(q):
                 target = _extract_target_key(item)
                 if target is None or target not in in_flight_targets:
-                    if idx == 0:
-                        return q.popleft()
                     del q[idx]
                     return item
         raise IndexError("no eligible item in priority queue")
@@ -686,8 +684,6 @@ class FrameScheduler:
             _cancel_written(old_item)
             if self._unfinished_tasks > 0:
                 self._unfinished_tasks -= 1
-                if self._unfinished_tasks == 0:
-                    self._finished.set()
 
     def put_nowait(self, item: Any) -> None:
         """Put an item into the queue without blocking."""
@@ -736,8 +732,6 @@ class FrameScheduler:
     def get_nowait(self) -> Any:
         """Remove and return an item from the queue without blocking."""
         if self.empty():
-            if self._is_shutdown:
-                raise getattr(asyncio, "QueueShutDown", Exception)
             raise asyncio.QueueEmpty
         item = self._queue.popleft()
         self._wakeup_next(self._putters)
@@ -746,7 +740,7 @@ class FrameScheduler:
     async def get(self) -> Any:
         """Remove and return the highest-priority item from the queue."""
         while self.empty():
-            if self._is_shutdown and self.empty():
+            if self._is_shutdown:
                 raise getattr(asyncio, "QueueShutDown", Exception)
             getter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             self._getters.append(getter)
@@ -756,16 +750,12 @@ class FrameScheduler:
                 getter.cancel()
                 with contextlib.suppress(ValueError):
                     self._getters.remove(getter)
-                if not self.empty() and not getter.cancelled():
-                    self._wakeup_next(self._getters)
                 raise
         return self.get_nowait()
 
     def acquire_nowait(self) -> Any:
         """Pop the highest-priority eligible item and lock its (who, where) target."""
         if not self._queue.has_eligible(self._in_flight_targets):
-            if self._is_shutdown and self.empty():
-                raise getattr(asyncio, "QueueShutDown", Exception)
             raise asyncio.QueueEmpty
         item = self._queue.pop_eligible(self._in_flight_targets)
         target = _extract_target_key(item)
@@ -787,11 +777,6 @@ class FrameScheduler:
                 getter.cancel()
                 with contextlib.suppress(ValueError):
                     self._getters.remove(getter)
-                if (
-                    self._queue.has_eligible(self._in_flight_targets)
-                    and not getter.cancelled()
-                ):
-                    self._wakeup_next(self._getters)
                 raise
         return self.acquire_nowait()
 
@@ -835,10 +820,6 @@ class FrameScheduler:
             if self._unfinished_tasks == 0:
                 self._finished.set()
         self._wakeup_all_getters()
-        while self._putters:
-            putter = self._putters.popleft()
-            if not putter.done():
-                putter.set_exception(getattr(asyncio, "QueueShutDown", Exception)())
 
 
 CommandPriorityQueue = FrameScheduler
@@ -1130,10 +1111,7 @@ class CommandWorkerPool:
                 break
             if task is not None:
                 _cancel_written(task)
-            if isinstance(self.send_buffer, FrameScheduler):
-                self.send_buffer.complete_task(task)
-            else:
-                self.send_buffer.task_done()
+            self.send_buffer.task_done()
 
         if isinstance(self.send_buffer, FrameScheduler):
             self.send_buffer._in_flight_targets.clear()
