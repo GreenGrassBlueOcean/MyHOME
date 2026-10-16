@@ -764,6 +764,9 @@ def test_is_cover_stop(raw: str, is_stop: bool) -> None:
         ("11", "12", False),
         ("11#4#02", "11", False),
         ("11#4#02", "11#4#02", True),
+        ("11#4#2", "11#4#02", True),
+        ("02", "2", True),
+        ("02#4#1", "2#4#01", True),
         ("0", "11", True),
         ("0", "11#4#02", True),  # main-bus general may reach covers behind an interface: be safe
         ("1", "11", True),
@@ -771,7 +774,9 @@ def test_is_cover_stop(raw: str, is_stop: bool) -> None:
         ("1", "11#4#02", False),
         ("00", "0011", True),
         ("#3", "21", True),
-        ("#3", "21#4#02", True),  # group membership is unknown: be safe`r`n        ("0#4#01", "11#4#02", False),`r`n        ("#3#4#01", "21#4#02", False),
+        ("#3", "21#4#02", True),  # group membership is unknown: be safe
+        ("0#4#01", "11#4#02", False),
+        ("#3#4#01", "21#4#02", False),
     ],
 )
 def test_wheres_overlap(first: str, second: str, overlap: bool) -> None:
@@ -869,3 +874,40 @@ async def test_workers_keep_overlapping_cover_frames_in_order(mock_handler: Magi
         pool.close()
         await asyncio.gather(*workers)
     assert pool._cover_in_flight == []
+
+
+def test_cover_stop_priority_with_firmware_oracle_who2_frames() -> None:
+    """Verify _is_cover_stop and _PriorityQueueStorage ordering across WHO 2 firmware oracle frames."""
+    import json
+    from pathlib import Path
+
+    oracle_path = Path(__file__).resolve().parent / "golden" / "firmware_oracle.json"
+    verdicts = json.loads(oracle_path.read_text(encoding="utf-8"))["verdicts"]
+
+    # Every WHO 2 command in firmware_oracle.json must classify cleanly
+    who2_frames = sorted(
+        f for f in verdicts if f.startswith("*2*") or f.startswith("*#2*")
+    )
+    assert len(who2_frames) >= 16
+
+    for frame in who2_frames:
+        if frame.startswith("*2*0*") or frame.startswith("*2*10*") or frame.startswith("*2*10#"):
+            assert _is_cover_stop(frame) is True, f"Expected stop for {frame}"
+        else:
+            assert _is_cover_stop(frame) is False, f"Expected non-stop for {frame}"
+
+    # Verify stop (*2*0*31##) stays behind advanced step (*2*11#1#001*31##) and
+    # Dimension 11 write (*#2*31*#11#001*40##) on the same cover 31 while overtaking
+    # independent cover 11#4#02 (*2*1*11#4#02##).
+    storage = _PriorityQueueStorage()
+    storage.append(_cmd("*2*11#1#001*31##"))
+    storage.append(_cmd("*#2*31*#11#001*40##"))
+    storage.append(_cmd("*2*1*11#4#02##"))
+    storage.append(_cmd("*2*0*31##"))
+    assert _order(storage) == [
+        "*2*11#1#001*31##",
+        "*#2*31*#11#001*40##",
+        "*2*0*31##",
+        "*2*1*11#4#02##",
+    ]
+

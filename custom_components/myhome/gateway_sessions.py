@@ -321,9 +321,12 @@ def _is_cover_stop(message: Any) -> bool:
 
 
 def _split_where(where: str) -> tuple[str, str | None]:
-    """Split ``11#4#02`` into ``("11", "02")``; an address on the main bus has no interface."""
+    """Split ``11#4#02`` into ``("11", "2")``; an address on the main bus has no interface."""
     base, sep, interface = where.partition("#4#")
-    return base, (interface if sep else None)
+    if not sep:
+        return base, None
+    norm_if = (interface.lstrip("0") or "0") if interface.isdigit() else interface
+    return base, norm_if
 
 
 def _wheres_overlap(first: str, second: str) -> bool:
@@ -336,6 +339,17 @@ def _wheres_overlap(first: str, second: str) -> bool:
         return True
     base_a, if_a = _split_where(first)
     base_b, if_b = _split_where(second)
+    if if_a == if_b and (
+        base_a == base_b
+        or (
+            base_a not in ("0", "00")
+            and base_b not in ("0", "00")
+            and base_a.isdigit()
+            and base_b.isdigit()
+            and int(base_a) == int(base_b)
+        )
+    ):
+        return True
     compatible = if_a is None or if_b is None or if_a == if_b
 
     def _is_scope(base: str) -> bool:
