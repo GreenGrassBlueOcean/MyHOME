@@ -235,3 +235,50 @@ def test_shared_code_200_resolved_to_lgrh4684_by_who1013():
             assert ident["profile"] == "H4684Profile"
         else:
             assert ident["profile"] in ("H4684Profile", "GenericGatewayProfile")
+
+
+def test_h4684_qemu_oracle_subsystem_boundaries():
+    """Verify H4684 020054 QEMU oracle verdicts and daemon subsystem boundaries."""
+    oracle_path = Path(__file__).parent / "golden" / "firmware_oracle.json"
+    verdicts = json.loads(oracle_path.read_text(encoding="utf-8"))["verdicts"]
+
+    def _h4684_entry(frame: str) -> dict:
+        matches = [e for e in verdicts[frame] if e["product"] == "H4684"]
+        assert matches, f"Missing H4684 verdict for {frame}"
+        return matches[0]
+
+    # 1. Gateway identity & diagnostic frames in trace-corpus
+    assert _h4684_entry("*#13**15##")["emitted_own"] == ["*#13**15*13##"]
+    assert _h4684_entry("*#13**16##")["emitted_own"] == ["*#13**16*2*0*54##"]
+    assert _h4684_entry("*#13**23##")["emitted_own"] == ["*#13**23*2*0*5##"]
+    assert _h4684_entry("*#13**24##")["emitted_own"] == ["*#13**24*3*0*0##"]
+    assert _h4684_entry("*#1013*0*1##")["emitted_own"] == ["*#1013**1*19##"]
+
+    # 2. Subsystems supported by H4684 daemons (bt_autom, bt_termoreg, bt_alarm, bt_difson)
+    for supported_frame in (
+        "*0*1*31#4#01##",
+        "*1*1*31##",
+        "*2*1*31##",
+        "*3*2*#1##",
+        "*#4*1##",
+        "*#5*#1##",
+        "*#9*1##",
+        "*14*0*32##",
+        "*16*3*101##",
+    ):
+        entry = _h4684_entry(supported_frame)
+        assert entry["verdict"] == "out", f"Expected H4684 to forward {supported_frame}"
+        assert len(entry["bus_frames"]) > 0 or len(entry["emitted_own"]) > 0
+
+    # 3. Subsystems absent on H4684 020054 (lacks bt_energia, bt_multi, bt_supervisione -> refuses WHO 17, 18, 22, 25)
+    for unsupported_frame in (
+        "*17*1*1##",
+        "*18*21*11##",
+        "*22*3#1*3#1#1##",
+        "*25*21#1*21##",
+    ):
+        entry = _h4684_entry(unsupported_frame)
+        assert entry["reply"] == "nack"
+        assert entry["verdict"] == "silent"
+        assert entry["bus_frames"] == []
+
