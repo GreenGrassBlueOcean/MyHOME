@@ -113,8 +113,8 @@ async def test_gateway_fires_doorbell_events(hass: HomeAssistant):
         assert len(dispatcher_payloads) == 4
         assert dispatcher_payloads[3] == captured_events[3].data
 
-        # 6. Internal handset call and pager broadcast are not doorbell rings
-        for raw in ("*8*1#6#2#11*16##", "*8*1#14#2#11*4##"):
+        # 6. Internal handset call (kind 6), external intercom call (kind 7), and pager broadcast (kind 14) are not doorbell rings
+        for raw in ("*8*1#6#2#11*16##", "*8*1#7#2#11*16##", "*8*1#14#2#11*4##"):
             await gateway._process_message(OWNEvent.parse(raw))
         assert len(captured_events) == 4
         assert len(dispatcher_payloads) == 4
@@ -161,8 +161,8 @@ async def test_doorbell_only_for_entrance_panel_calls(hass: HomeAssistant):
     gateway = _doorbell_gateway(hass)
     captured = async_capture_events(hass, "myhome_doorbell_event")
 
-    # Handset to handset (kind 6) and a pager broadcast (kind 14) are not a visitor
-    for frame in ("*8*1#6#2*74##", "*8*1#6#4#73*74##", "*8*1#14#2*4##"):
+    # Internal handset (kind 6), external intercom (kind 7), and pager broadcast (kind 14) are not a visitor
+    for frame in ("*8*1#6#2*74##", "*8*1#6#4#73*74##", "*8*1#7#2*74##", "*8*1#7#2#11*16##", "*8*1#14#2*4##"):
         await gateway._process_message(OWNEvent.parse(frame))
     # A call whose kind cannot be read fails closed
     for frame in ("*8*1*74##", "*8*1#x#4*74##"):
