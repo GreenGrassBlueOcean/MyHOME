@@ -626,14 +626,19 @@ Because the decoder is paused or idle under a MyHOME room's ownership, it remain
 
 ```mermaid
 stateDiagram-v2
-    state "Room A Group (Zone 17 + Zone 18)" as RoomA {
-        A_ON["ON (playing)\nAmp: ON | HA: playing\nHolds decoder_1"] --> A_PENDING["PENDING_OFF (0-60s after MA Pause)\nAmp: ON | HA: paused / idle\n60s pause / 3s idle timer running"] : User presses Pause in Music Assistant\n(MA has no Stop button)
-        A_PENDING --> A_ON : Same group resumes (< 60s)\n(Timer cancelled, no bus frames)
-        A_PENDING --> A_OFF_ACTIVE["OFF\nAmp: OFF (*16*13*17/18## after 5s grace)\nHA: off | Group dissolved"] : Room B (Zone 36) plays (< 60s)\n(Claims decoder_1, powers off 17 & 18)
-        A_PENDING --> A_PARKED["PARKED (>= 60s, Soft-Hold)\nAmp: OFF (*16*13*17/18## sent at 60s)\nHA: idle / paused\nGroup kept for Music Assistant"] : 60s anti-hiss timer fires
-        A_PARKED --> A_ON : Same group resumes\n(Wakes 17 & 18: *16*13*Z## -> *16*3*Z##)
-        A_PARKED --> A_OFF_PARKED["OFF\nAmp: OFF (no bus frame needed)\nHA: off | Group dissolved"] : Room B (Zone 36) plays (>= 60s)\n(Claims decoder_1, unparks 17 & 18)
-    }
+    state "ON (playing) — Amp ON, HA playing, holds decoder_1" as A_ON
+    state "PENDING_OFF (0–60s after MA Pause) — Amp ON, HA paused/idle, 60s timer" as A_PENDING
+    state "PARKED (>= 60s Soft-Hold) — Amp OFF (*16*13*17/18##), HA idle/paused, group kept" as A_PARKED
+    state "OFF (Displaced < 60s) — Amp OFF (*16*13*17/18## after 5s grace), HA off, group dissolved" as A_OFF_ACTIVE
+    state "OFF (Displaced >= 60s) — Amp already OFF (0 bus frames), HA off, group dissolved" as A_OFF_PARKED
+
+    [*] --> A_ON
+    A_ON --> A_PENDING: User presses Pause in Music Assistant (no Stop button)
+    A_PENDING --> A_ON: Same group resumes (< 60s, timer cancelled)
+    A_PENDING --> A_OFF_ACTIVE: Room B (Zone 36) plays (< 60s, claims decoder_1)
+    A_PENDING --> A_PARKED: 60s anti-hiss timer fires
+    A_PARKED --> A_ON: Same group resumes (wakes 17 & 18)
+    A_PARKED --> A_OFF_PARKED: Room B (Zone 36) plays (>= 60s, claims decoder_1)
 ```
 
 ### Bus Frame Decision Engine
