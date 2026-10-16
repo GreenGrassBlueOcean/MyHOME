@@ -243,6 +243,9 @@ class MyHOMEEntity(RestoreEntity):
         if health is not None and address is not None:
             health.name_address(*address, self._device_name, owner=self._health_owner)
         await super().async_added_to_hass()
+        # Must run after EntityPlatform._async_add_entity_impl has attached device_id
+        # and set has_entity_name=True (which clears compat_name on HA 2026.11+),
+        # and before add_to_platform_finish() writes the initial state.
         if (
             self._legacy_compat_name
             and (target_hass := self.hass or self._hass) is not None
