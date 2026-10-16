@@ -279,6 +279,38 @@ async def test_fan_speed_is_polled_only_in_the_fan_coil_season(hass) -> None:
     assert gw.sent == ["*#4*2##", "*#4*2*11##"]
 
 
+async def test_legacy_ownd_mode_event_extracts_season_fallback(hass) -> None:
+    """Older OWNd releases decode *4*1*Z## / *4*0*Z## as MESSAGE_TYPE_MODE."""
+    from OWNd.message import (
+        CLIMATE_MODE_COOL,
+        CLIMATE_MODE_HEAT,
+        MESSAGE_TYPE_MODE,
+    )
+
+    from custom_components.myhome.climate import SEASON_HEATING
+
+    gw = _gateway()
+    zone = (await _plant(hass, gw))["2"]
+
+    # Emulate older OWNd delivering *4*1*2## as MESSAGE_TYPE_MODE
+    ev_heat = MagicMock()
+    ev_heat.message_type = MESSAGE_TYPE_MODE
+    ev_heat.mode = CLIMATE_MODE_HEAT
+    ev_heat.__str__ = MagicMock(return_value="*4*1*2##")
+    ev_heat.human_readable_log = "Zone 2 mode heat"
+    zone.handle_event(ev_heat)
+    assert zone._season == SEASON_HEATING
+
+    # Emulate older OWNd delivering *4*0*2## as MESSAGE_TYPE_MODE
+    ev_cool = MagicMock()
+    ev_cool.message_type = MESSAGE_TYPE_MODE
+    ev_cool.mode = CLIMATE_MODE_COOL
+    ev_cool.__str__ = MagicMock(return_value="*4*0*2##")
+    ev_cool.human_readable_log = "Zone 2 mode cool"
+    zone.handle_event(ev_cool)
+    assert zone._season == "cooling"
+
+
 async def test_fan_speed_is_polled_while_the_sides_are_unknown(hass) -> None:
     gw = _gateway()
     zone = (await _plant(hass, gw))["2"]
