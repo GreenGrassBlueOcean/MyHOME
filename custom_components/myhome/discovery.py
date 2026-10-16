@@ -198,7 +198,7 @@ def prune_entity(hass: HomeAssistant, registry: er.EntityRegistry, entry: er.Reg
         if button is not None:
             registry.async_remove(button)
     if entry.device_id and not er.async_entries_for_device(registry, entry.device_id, include_disabled_entities=True):
-        dr.async_get(hass).async_update_device(entry.device_id, remove_config_entry_id=config_entry_id)
+        dr.async_get(hass).async_remove_device(entry.device_id)
 
 
 @callback
