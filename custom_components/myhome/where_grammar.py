@@ -126,13 +126,6 @@ def is_valid_rgb_tuple(rgb: Any, value: Any = None) -> bool:
 
 
 if not hasattr(OWNLightingEvent, "color_temp_kelvin"):  # pragma: no cover - PyPI OWNd < 2.0.0b11
-    def _evt_hs(self: Any) -> tuple[int, int] | None:
-        hs = getattr(self, "_hs", None)
-        v = getattr(self, "_value", None)
-        if is_valid_hs_tuple(hs, v) and hs is not None:
-            return (int(hs[0]), int(hs[1]))
-        return None
-
     setattr(
         OWNLightingEvent,
         "color_temp_kelvin",
@@ -142,6 +135,15 @@ if not hasattr(OWNLightingEvent, "color_temp_kelvin"):  # pragma: no cover - PyP
             else None
         ),
     )
+
+if OWNLightingEvent("*#1*11*12*400*150*200##").hs is not None:  # pragma: no cover - pre-OWNd#128
+    def _evt_hs(self: Any) -> tuple[int, int] | None:
+        hs = getattr(self, "_hs", None)
+        v = getattr(self, "_value", None)
+        if is_valid_hs_tuple(hs, v) and hs is not None:
+            return (int(hs[0]), int(hs[1]))
+        return None
+
     setattr(OWNLightingEvent, "hs", property(_evt_hs))
     setattr(OWNLightingEvent, "hs_color", property(_evt_hs))
 
@@ -168,6 +170,15 @@ if not hasattr(OWNLightingCommand, "brightness"):  # pragma: no cover - PyPI OWN
                 return val
         return None
 
+    setattr(OWNLightingCommand, "brightness", property(_cmd_brightness))
+    setattr(OWNLightingCommand, "color_temp", property(_cmd_color_temp))
+    setattr(
+        OWNLightingCommand,
+        "color_temp_kelvin",
+        property(lambda self: int(1000000 / self.color_temp) if self.color_temp is not None else None),
+    )
+
+if getattr(OWNLightingCommand("*#1*11*#12*200*50*150*0##"), "hs", (200, 50)) is not None:  # pragma: no cover - pre-OWNd#128
     def _cmd_hs(self: Any) -> tuple[int, int] | None:
         vals = getattr(self, _DIM_VAL_ATTR, [])
         if getattr(self, "_dimension", None) == 12 and len(vals) >= 3:
@@ -179,13 +190,6 @@ if not hasattr(OWNLightingCommand, "brightness"):  # pragma: no cover - PyPI OWN
                 return (h, s)
         return None
 
-    setattr(OWNLightingCommand, "brightness", property(_cmd_brightness))
-    setattr(OWNLightingCommand, "color_temp", property(_cmd_color_temp))
-    setattr(
-        OWNLightingCommand,
-        "color_temp_kelvin",
-        property(lambda self: int(1000000 / self.color_temp) if self.color_temp is not None else None),
-    )
     setattr(OWNLightingCommand, "hs", property(_cmd_hs))
     setattr(OWNLightingCommand, "hs_color", property(_cmd_hs))
 
