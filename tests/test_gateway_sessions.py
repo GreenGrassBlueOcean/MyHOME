@@ -23,6 +23,7 @@ from custom_components.myhome.gateway_sessions import (
     _PriorityQueueStorage,
     _resolve_written,
     _session_is_open,
+    _split_where,
     _wheres_overlap,
 )
 
@@ -777,11 +778,19 @@ def test_is_cover_stop(raw: str, is_stop: bool) -> None:
         ("#3", "21#4#02", True),  # group membership is unknown: be safe
         ("0#4#01", "11#4#02", False),
         ("#3#4#01", "21#4#02", False),
+        ("#4#4#01", "21#4#01", True),
     ],
 )
 def test_wheres_overlap(first: str, second: str, overlap: bool) -> None:
     assert _wheres_overlap(first, second) is overlap
     assert _wheres_overlap(second, first) is overlap
+
+
+def test_split_where() -> None:
+    assert _split_where("11") == ("11", None)
+    assert _split_where("11#4#02") == ("11", "2")
+    assert _split_where("#4#4#01") == ("#4", "1")
+    assert _split_where("21#4#01") == ("21", "1")
 
 
 def test_stop_overtakes_other_covers_frames() -> None:
@@ -798,6 +807,36 @@ def test_stop_never_overtakes_its_own_cover_frames() -> None:
         storage.append(_cmd(raw))
     storage.append(_cmd("*2*0*11##"))
     assert _order(storage) == ["*2*1*21##", "*2*1*11##", "*2*0*11##", "*2*1*31##"]
+
+
+def test_stops_for_different_covers_stay_fifo() -> None:
+    storage = _PriorityQueueStorage()
+    storage.append(_cmd("*1*1*01##"))
+    storage.append(_cmd("*1*1*02##"))
+    storage.append(_cmd("*2*0*21##"))
+    storage.append(_cmd("*2*0*31##"))
+    storage.append(_cmd("*2*0*41##"))
+    assert _order(storage) == [
+        "*2*0*21##",
+        "*2*0*31##",
+        "*2*0*41##",
+        "*1*1*01##",
+        "*1*1*02##",
+    ]
+
+
+def test_stop_for_different_cover_stays_behind_last_stop_and_overlapping() -> None:
+    storage = _PriorityQueueStorage()
+    storage.append(_cmd("*2*0*21##"))
+    storage.append(_cmd("*2*1*31##"))
+    storage.append(_cmd("*1*1*01##"))
+    storage.append(_cmd("*2*0*31##"))
+    assert _order(storage) == [
+        "*2*0*21##",
+        "*2*1*31##",
+        "*2*0*31##",
+        "*1*1*01##",
+    ]
 
 
 @pytest.mark.parametrize("scope_frame", ["*2*1*0##", "*2*1*1##", "*2*1*#3##"])
@@ -862,15 +901,65 @@ async def test_workers_keep_overlapping_cover_frames_in_order(mock_handler: Magi
     with patch("custom_components.myhome.gateway.OWNCommandSession", side_effect=lambda **_: _session()):
         await pool.send(OWNCommand("*2*1*11##"))
         workers = [asyncio.create_task(pool.sending_loop(i)) for i in range(2)]
+        pool.sending_workers = workers
         await asyncio.sleep(0.05)
-        await pool.send(OWNCommand("*2*0*11##"))  # other cover: independent
-        await pool.send(OWNCommand("*2*0*21##"))
+        await pool.send(OWNCommand("*2*0*21##"))  # other cover: independent
+        await pool.send(OWNCommand("*2*0*11##"))  # same cover: waits for direction frame
         await asyncio.sleep(0.05)
         assert "start *2*0*21##" in events
         assert "start *2*0*11##" not in events  # waits for the direction frame to finish
         release_direction.set()
         await asyncio.sleep(0.05)
         assert events.index("end *2*1*11##") < events.index("start *2*0*11##")
+        pool.close()
+        await asyncio.gather(*workers)
+    assert pool._cover_in_flight == []
+
+
+async def test_workers_preserve_cover_fifo_with_zero_queue_delay(mock_handler: MagicMock) -> None:
+    """With zero command_queue_delay, tickets guarantee FIFO across workers: UP, STOP, DOWN (#645)."""
+    mock_handler.gateway.profile.command_queue_delay = 0
+    pool = CommandWorkerPool(mock_handler)
+    pool._event_session_ready.set()
+    written: list[str] = []
+    worker_1_pause_up = asyncio.Event()
+
+    def _session() -> MagicMock:
+        session = MagicMock()
+        session.connect = AsyncMock(return_value={"Success": True})
+        session.close = AsyncMock()
+        session._stream_reader = object()
+        session._stream_writer = object()
+
+        async def send(message: Any, is_status_request: bool = False) -> list[Any]:
+            raw = str(message)
+            if raw == "*2*1*11##":
+                await worker_1_pause_up.wait()
+            written.append(raw)
+            return []
+
+        session.send = AsyncMock(side_effect=send)
+        return session
+
+    with patch("custom_components.myhome.gateway.OWNCommandSession", side_effect=lambda **_: _session()):
+        await pool.send(OWNCommand("*2*1*11##"))
+        workers = [asyncio.create_task(pool.sending_loop(i)) for i in range(2)]
+        pool.sending_workers = workers
+        await asyncio.sleep(0.02)
+
+        # Worker 0 dequeues STOP and suspends in _enter_cover_write waiting for ticket 1 (UP)
+        await pool.send(OWNCommand("*2*0*11##"))
+        await asyncio.sleep(0.02)
+
+        # DOWN is queued behind STOP
+        await pool.send(OWNCommand("*2*2*11##"))
+
+        # Release worker 1 from UP. With command_queue_delay=0, worker 1 completes UP and immediately
+        # dequeues DOWN before worker 0 can send STOP. Worker 1 must wait for ticket 2 (STOP).
+        worker_1_pause_up.set()
+        await asyncio.sleep(0.05)
+
+        assert written == ["*2*1*11##", "*2*0*11##", "*2*2*11##"]
         pool.close()
         await asyncio.gather(*workers)
     assert pool._cover_in_flight == []

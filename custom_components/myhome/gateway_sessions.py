@@ -13,6 +13,7 @@ import itertools
 import re
 import time
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -320,11 +321,19 @@ def _is_cover_stop(message: Any) -> bool:
     return parts is not None and (parts[0] == "0" or parts[0] == "10" or parts[0].startswith("10#"))
 
 
+@dataclass(slots=True)
+class _CoverTicket:
+    """Sequential claim ticket for a WHO 2 cover motion write (#645)."""
+
+    ticket_id: int
+    where: str
+
+
 def _split_where(where: str) -> tuple[str, str | None]:
     """Split ``11#4#02`` into ``("11", "2")``; an address on the main bus has no interface."""
-    base, sep, interface = where.partition("#4#")
-    if not sep:
-        return base, None
+    if "#4#" not in where:
+        return where, None
+    base, _, interface = where.rpartition("#4#")
     norm_if = (interface.lstrip("0") or "0") if interface.isdigit() else interface
     return base, norm_if
 
@@ -474,8 +483,9 @@ class _PriorityQueueStorage:
         """Append item to its corresponding priority tier.
 
         A WHO 2 stop is the exception inside the command tier (#645): it goes right
-        behind the last queued cover frame whose WHERE overlaps its own, or to the
-        front when none does, so it never overtakes a frame it has to stop.
+        behind earlier queued stops to preserve FIFO, behind any queued cover frame
+        whose WHERE overlaps its own, or to the front when none does, so it never
+        overtakes a frame it has to stop.
         """
         tier = _classify_tier(item)
         if tier == _TIER_COMMANDS:
@@ -492,12 +502,15 @@ class _PriorityQueueStorage:
             return end
         # ``_is_cover_stop`` guarantees a parsed frame, hence a WHERE.
         stop_where = str(_cover_where(item["message"]))
-        for index in range(end - 1, -1, -1):
-            queued = self._commands[index]
-            queued_where = _cover_where(queued.get("message")) if isinstance(queued, dict) else None
+        pos = 0
+        for index, queued in enumerate(self._commands):
+            msg = queued.get("message") if isinstance(queued, dict) else None
+            if _is_cover_stop(msg):
+                pos = max(pos, index + 1)
+            queued_where = _cover_where(msg)
             if queued_where is not None and _wheres_overlap(stop_where, queued_where):
-                return index + 1
-        return 0
+                pos = max(pos, index + 1)
+        return pos
 
     def appendleft(self, item: Any) -> None:
         """Append item to the head of its corresponding priority tier."""
@@ -663,10 +676,12 @@ class CommandWorkerPool:
         self._terminate_sender: bool = False
         self._sender_stop = asyncio.Event()
         self.sending_workers: list[asyncio.Task[None]] = []
-        # WHERE of every WHO 2 motion frame a worker is writing right now (#645).
+        # Sequential tickets for WHO 2 motion frames (#645).
         # With several command sessions, a stop queued behind a direction frame can be
-        # dequeued while that frame is still on the wire; overlapping frames wait here.
-        self._cover_in_flight: list[str] = []
+        # dequeued while that frame is still on the wire; workers acquire tickets at
+        # dequeue time to guarantee strict FIFO ordering across overlapping frames.
+        self._cover_ticket_counter: int = 0
+        self._active_cover_tickets: list[_CoverTicket] = []
         self._cover_waiters: list[asyncio.Future[None]] = []
 
         queue_max_size = (
@@ -677,6 +692,11 @@ class CommandWorkerPool:
         self.send_buffer: asyncio.Queue[Any] = CommandPriorityQueue(maxsize=queue_max_size)
 
         self._event_session_ready = event_session_ready if event_session_ready is not None else asyncio.Event()
+
+    @property
+    def _cover_in_flight(self) -> list[str]:
+        """List of cover WHEREs currently holding a ticket."""
+        return [t.where for t in self._active_cover_tickets]
 
     @property
     def gateway(self) -> OWNGateway:
@@ -748,15 +768,32 @@ class CommandWorkerPool:
                 return True
         return False
 
-    async def _enter_cover_write(self, where: str) -> None:
-        """Wait until no overlapping cover frame is being written, then claim ``where``.
+    def _take_cover_ticket(self, where: str) -> _CoverTicket:
+        """Register a sequential ticket for an overlapping cover write claim.
 
-        Check and claim run without an ``await`` in between, so on the single event loop
-        two workers can never both pass. Frames only wait for frames already being
-        written, never for queued ones, so this cannot deadlock. With nothing in flight
-        (always the case with one command session) there is no suspension at all.
+        No await may occur between dequeue and taking the ticket: this ensures that
+        frames are ticketed in their exact queue order, eliminating race conditions
+        across multiple sending workers (#645).
         """
-        while any(_wheres_overlap(where, other) for other in self._cover_in_flight):
+        self._cover_ticket_counter += 1
+        ticket = _CoverTicket(self._cover_ticket_counter, where)
+        self._active_cover_tickets.append(ticket)
+        return ticket
+
+    async def _enter_cover_write(self, ticket: _CoverTicket) -> None:
+        """Wait until no earlier overlapping cover frame holds a ticket.
+
+        A worker waits only for earlier tickets (ticket_id < ticket.ticket_id) whose
+        WHERE overlaps. Once all earlier overlapping writes complete, this worker
+        proceeds regardless of how many later frames have since been dequeued.
+        """
+        while (
+            not self._terminate_sender
+            and any(
+                other.ticket_id < ticket.ticket_id and _wheres_overlap(ticket.where, other.where)
+                for other in self._active_cover_tickets
+            )
+        ):
             waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             self._cover_waiters.append(waiter)
             try:
@@ -764,12 +801,11 @@ class CommandWorkerPool:
             finally:
                 with contextlib.suppress(ValueError):
                     self._cover_waiters.remove(waiter)
-        self._cover_in_flight.append(where)
 
-    def _leave_cover_write(self, where: str) -> None:
-        """Release a claim made by :meth:`_enter_cover_write` and wake waiting workers."""
+    def _leave_cover_write(self, ticket: _CoverTicket) -> None:
+        """Release a ticket made by :meth:`_take_cover_ticket` and wake waiting workers."""
         with contextlib.suppress(ValueError):
-            self._cover_in_flight.remove(where)
+            self._active_cover_tickets.remove(ticket)
         for waiter in self._cover_waiters:
             if not waiter.done():
                 waiter.set_result(None)
@@ -843,15 +879,18 @@ class CommandWorkerPool:
                         await _command_session.close()
                     continue
 
-                cover_where: str | None = None
-                try:
-                    if task is None:
-                        break
+                if task is None:
+                    break
 
-                    wanted_where = _cover_where(task["message"])
-                    if wanted_where is not None:
-                        await self._enter_cover_write(wanted_where)
-                        cover_where = wanted_where
+                # Dequeue and ticket acquisition happen without an await in between,
+                # and before any session reconnect. This ensures that a stop frame
+                # dequeued while its direction frame is still being written (or while
+                # that worker reopens its session) waits for it in strict FIFO order (#645).
+                wanted_where = _cover_where(task["message"]) if isinstance(task, dict) else None
+                ticket = self._take_cover_ticket(wanted_where) if wanted_where is not None else None
+                try:
+                    if ticket is not None:
+                        await self._enter_cover_write(ticket)
 
                     LOGGER.debug(
                         "%s Message `%s` was successfully unqueued by worker %s.",
@@ -923,8 +962,8 @@ class CommandWorkerPool:
                         task.get("message") if isinstance(task, dict) else task,
                     )
                 finally:
-                    if cover_where is not None:
-                        self._leave_cover_write(cover_where)
+                    if ticket is not None:
+                        self._leave_cover_write(ticket)
                     self.send_buffer.task_done()
 
                 if (
@@ -956,3 +995,7 @@ class CommandWorkerPool:
                 self.send_buffer.put_nowait(None)
             except (asyncio.QueueFull, Exception):
                 pass
+
+        for waiter in self._cover_waiters:
+            if not waiter.done():
+                waiter.set_result(None)
