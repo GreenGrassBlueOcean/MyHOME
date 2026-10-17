@@ -26,6 +26,7 @@ from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
 from .const import DOMAIN, eight_bits_to_min_percent, percent_to_eight_bits
 from .myhome_device import MyHOMEEntity
+from .where_grammar import is_valid_hs_tuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -177,23 +178,21 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
         # Also parse dimension frames (status replies and the gateway's echo of a
         # group dimension write, *#1*#G*#D*...##, which OWNd parses as a command).
         dim = getattr(msg, "dimension", None)
-        vals = getattr(msg, "_dimension_value", [])
-        if dim == 1 and vals:
-            # Dimension 1 carries ``level + 100`` on the bus (``150`` is 50 %); anything
-            # outside 100..200 is not a level.
-            raw = int(vals[0])
-            if 100 <= raw <= 200:
-                pct = raw - 100
+        if dim == 1:
+            pct = getattr(msg, "brightness", None)
+            if isinstance(pct, int) and not isinstance(pct, bool) and 0 <= pct <= 100:
                 self._attr_brightness = percent_to_eight_bits(pct)
                 if pct > 0:
                     self._last_brightness_pct = pct
-        elif dim == 14 and vals and int(vals[0]) > 1:
-            self._attr_color_temp_kelvin = int(1000000 / int(vals[0]))
-        elif dim == 12 and len(vals) >= 3:
-            h = int(vals[0])
-            s = int(vals[1])
-            if h <= 360:  # ``*12*511*127*255`` is the "not supported" sentinel
-                self._attr_hs_color = (h, s)
+        elif dim == 14:
+            kelvin = getattr(msg, "color_temp_kelvin", None)
+            if isinstance(kelvin, int) and not isinstance(kelvin, bool):
+                self._attr_color_temp_kelvin = kelvin
+        elif dim == 12:
+            hs_val = getattr(msg, "hs_color", getattr(msg, "hs", None))
+            raw_v = getattr(msg, "value", None)
+            if is_valid_hs_tuple(hs_val, raw_v):
+                self._attr_hs_color = hs_val
 
         if self._on_icon and self._off_icon:
             self._attr_icon = self._on_icon if self._attr_is_on else self._off_icon

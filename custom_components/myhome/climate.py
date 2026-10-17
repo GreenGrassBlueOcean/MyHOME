@@ -40,18 +40,15 @@ from OWNd.message import (
     MESSAGE_TYPE_MAIN_TEMPERATURE,
     MESSAGE_TYPE_MODE,
     MESSAGE_TYPE_MODE_TARGET,
+    MESSAGE_TYPE_SEASON,
     MESSAGE_TYPE_TARGET_TEMPERATURE,
+    MESSAGE_TYPE_ZONE_STATE,
+    SEASON_CONDITIONING,
+    SEASON_HEATING,
     OWNCommand,
     OWNHeatingCommand,
     OWNHeatingEvent,
 )
-
-try:  # OWNd > 2.0.0b10 (OpenWebNet-HA/OWNd#94)
-    from OWNd.message import MESSAGE_TYPE_SEASON, SEASON_CONDITIONING, SEASON_HEATING
-except ImportError:  # pragma: no cover - pinned OWNd 2.0.0b10 reports WHAT 1/0 as hvac_mode
-    MESSAGE_TYPE_SEASON = "hvac_season"
-    SEASON_HEATING = "heating"
-    SEASON_CONDITIONING = "conditioning"
 
 from .const import (
     BUS_ROUTING,
@@ -84,10 +81,6 @@ from .where_grammar import is_probe, is_pump, where_param, zone_number
 PLATFORM = Platform.CLIMATE
 PARALLEL_UPDATES = 0
 
-# WHO 4 dimension 7 zone state (OWNd#60); the values OWNd uses, spelled out
-# here until the OWNd pin exports them.  On MyHomeServer1 + Home+Control
-# plants this is the only frame carrying the zone's mode and setpoint (#429).
-MESSAGE_TYPE_ZONE_STATE = "zone_state"
 # A dimension 12 frame and the frame that turns the zone OFF follow within ~0.1 s (#454, #383)
 _PROTECTION_FRAME_WINDOW = 2.0
 _ZONE_CONTEXT_MODES = {"heating": HVACMode.HEAT, "cooling": HVACMode.COOL, "automatic": HVACMode.AUTO}
@@ -832,9 +825,7 @@ class MyHOMEClimate(MyHOMEEntity, ClimateEntity):
         """
         if self._attr_hvac_mode == HVACMode.OFF:
             return True
-        value = getattr(message, "_dimension_value", None)
-        if not value:
-            return False
+        value: list[str] = getattr(message, "dimension_value", None) or []
         return bool(len(value) > 1 and value[1] == "3" and self._attr_hvac_mode is None)
 
     def _remember_nominal(self) -> None:

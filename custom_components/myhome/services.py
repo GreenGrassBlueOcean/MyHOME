@@ -70,12 +70,8 @@ def _get_gateway_handler(hass: HomeAssistant, gateway_identifier: str | None) ->
 
 def _handler_supports_who(handler: MyHOMEGatewayHandler, who: int) -> bool:
     """Return whether the gateway handler profile advertises a WHO subsystem."""
-    fn = getattr(handler, "profile_supports_who", None)
-    private_fn = getattr(handler, "_profile_supports_who", None)
-    target = (
-        private_fn
-        if callable(private_fn) and type(fn).__name__ == "MagicMock" and type(private_fn).__name__ != "MagicMock"
-        else (fn or private_fn)
+    target = getattr(handler, "profile_supports_who", None) or getattr(
+        handler, "_profile_supports_who", None
     )
     if callable(target):
         try:
@@ -310,16 +306,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         cmd: Any = None
         if OWNScenarioPlusCommand is not None:
-            if action == "on":
-                cmd = OWNScenarioPlusCommand.turn_on(where)
-            elif action == "off":
-                cmd = OWNScenarioPlusCommand.turn_off(where)
-            elif action == "increase":
-                cmd = OWNScenarioPlusCommand.increase(where)
-            elif action == "decrease":
-                cmd = OWNScenarioPlusCommand.decrease(where)
-            elif action == "stop":
-                cmd = OWNScenarioPlusCommand.stop(where)
+            try:
+                if action == "on":
+                    cmd = OWNScenarioPlusCommand.turn_on(where)
+                elif action == "off":
+                    cmd = OWNScenarioPlusCommand.turn_off(where)
+                elif action == "increase":
+                    cmd = OWNScenarioPlusCommand.increase(where)
+                elif action == "decrease":
+                    cmd = OWNScenarioPlusCommand.decrease(where)
+                elif action == "stop":
+                    cmd = OWNScenarioPlusCommand.stop(where)
+            except ValueError:
+                cmd = None
         else:
             action_frames = {
                 "on": f"*25*11#0*{where}##",
@@ -332,7 +331,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
             cmd = OWNCommand.parse(action_frames[action])
 
-        if cmd is None:
+        # Fallback OWNCommand or legacy OWNd command objects may not define
+        # `is_valid`; default to True only when the attribute is absent.
+        if cmd is None or not getattr(cmd, "is_valid", True):
             raise ServiceValidationError(
                 f"Could not build scenario plus command for where '{where}' and action '{action}'",
                 translation_domain=DOMAIN,

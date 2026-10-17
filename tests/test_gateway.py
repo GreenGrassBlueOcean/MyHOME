@@ -1856,57 +1856,6 @@ def test_compat_gateway_timezone():
     assert cmd_short._time == datetime.time(23, 6, 59)
 
 
-def test_status_request_log_filter():
-    """Verify spurious status-request retry errors are downgraded to DEBUG (issue #406)."""
-    import logging
-
-    from custom_components.myhome.gateway import _StatusRequestLogFilter
-
-    log_filter = _StatusRequestLogFilter()
-
-    # 1. Status request retry error should be downgraded to DEBUG
-    rec_status = logging.LogRecord(
-        name="custom_components.myhome.gateway",
-        level=logging.ERROR,
-        pathname="gateway.py",
-        lineno=1,
-        msg="%s Could not send message `%s`. Retrying (%d)...",
-        args=("gw_id", "*#4*0##", 1),
-        exc_info=None,
-    )
-    assert log_filter.filter(rec_status) is True
-    assert rec_status.levelno == logging.DEBUG
-    assert rec_status.levelname == "DEBUG"
-
-    # 2. Regular command error should remain ERROR
-    rec_cmd = logging.LogRecord(
-        name="custom_components.myhome.gateway",
-        level=logging.ERROR,
-        pathname="gateway.py",
-        lineno=1,
-        msg="%s Could not send message `%s`. Retrying (%d)...",
-        args=("gw_id", "*1*1*21##", 1),
-        exc_info=None,
-    )
-    assert log_filter.filter(rec_cmd) is True
-    assert rec_cmd.levelno == logging.ERROR
-    assert rec_cmd.levelname == "ERROR"
-
-    # 3. Unrelated error message should remain ERROR
-    rec_other = logging.LogRecord(
-        name="custom_components.myhome.gateway",
-        level=logging.ERROR,
-        pathname="gateway.py",
-        lineno=1,
-        msg="Some other failure",
-        args=(),
-        exc_info=None,
-    )
-    assert log_filter.filter(rec_other) is True
-    assert rec_other.levelno == logging.ERROR
-    assert rec_other.levelname == "ERROR"
-
-
 @pytest.mark.asyncio
 async def test_initial_discovery_waits_for_bus_quiet_between_requests(gateway_handler, monkeypatch):
     """The next general request waits until the replies to the previous one stopped (#578).

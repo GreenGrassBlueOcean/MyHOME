@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import collections
-import logging
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -110,7 +109,6 @@ __all__ = [
     "OWNEventSession",
     "OWNGateway",
     "OWNSession",
-    "_StatusRequestLogFilter",
     "_cancel_written",
     "_resolve_written",
     "_session_is_open",
@@ -123,27 +121,6 @@ __all__ = [
     "get_gateway_profile",
     "time",
 ]
-
-
-class _StatusRequestLogFilter(logging.Filter):
-    """Downgrade spurious status-request retry errors to DEBUG.
-
-    OWNd < 2.0.0b8 logged intermediate status-request retries (*#...##) as ERROR
-    instead of DEBUG when the gateway NACKed uninstalled optional subsystems
-    (issue #406, OpenWebNet-HA/OWNd#43).
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if (
-            record.levelno == logging.ERROR
-            and "Could not send message `*#" in record.getMessage()
-        ):
-            record.levelno = logging.DEBUG
-            record.levelname = "DEBUG"
-        return True
-
-
-LOGGER.addFilter(_StatusRequestLogFilter())
 
 
 def command_session_limit(model: str | None) -> int | None:
@@ -873,8 +850,8 @@ class MyHOMEGatewayHandler:
 
     def _handle_gateway_diagnostics(self, message: OWNGatewayEvent) -> None:
         """Handle WHO=13 Gateway Management diagnostic telemetry."""
-        dim = getattr(message, "dimension", getattr(message, "_dimension", None))
-        dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
+        dim = getattr(message, "dimension", None)
+        dim_val = getattr(message, "dimension_value", [])
 
         # ── Dimension 0 & 22: Time & Timezone ────────────────────────────────
         if dim in (0, 22) and dim_val:
@@ -902,7 +879,7 @@ class MyHOMEGatewayHandler:
 
         # ── Dimension 16: Firmware Version ───────────────────────────────
         elif dim == 16:
-            fw = getattr(message, "firmware_version", getattr(message, "_firmware_version", None))
+            fw = getattr(message, "firmware_version", None)
             if fw:
                 self._who13["firmware"] = fw
             if fw and fw != self.gateway.firmware:
@@ -932,7 +909,7 @@ class MyHOMEGatewayHandler:
 
     def _handle_gateway_identity_diagnostics(self, message: Any) -> None:
         """Record a WHO=1013 dimension-1 (OBJECT_MODEL) reply and let the resolver decide."""
-        dim_val = getattr(message, "dimension_value", getattr(message, "_dimension_value", []))
+        dim_val = getattr(message, "dimension_value", [])
         if not dim_val or not isinstance(dim_val, list):
             return
         reading = read_who1013(str(dim_val[0]))

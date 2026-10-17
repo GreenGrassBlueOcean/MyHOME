@@ -96,6 +96,11 @@ def install_target(target: str, pinned_version: str, dev_ref: str = None) -> Tup
             return dev_ok, True
         return False, False
     elif target == "latest":
+        if not is_pypi_released("OWNd", pinned_version):
+            print(f"\n[NOTICE] Pinned OWNd=={pinned_version} is not yet published to PyPI (latest PyPI release is older).")
+            print("Falling back to installing development OWNd so PR validation can proceed...")
+            dev_ok, _ = install_target("dev", pinned_version, dev_ref=dev_ref)
+            return dev_ok, True
         cmd = [sys.executable, "-m", "pip", "install", "--pre", "-U", "OWNd"]
         res = run_cmd(cmd, check=False)
         return res.returncode == 0, False
@@ -103,12 +108,12 @@ def install_target(target: str, pinned_version: str, dev_ref: str = None) -> Tup
         ref = dev_ref or os.environ.get("OWND_REF") or os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or "master"
         # Try installing from matching branch/ref first if available
         print(f"Attempting to install OWNd@{ref}...")
-        cmd = [sys.executable, "-m", "pip", "install", f"git+https://github.com/OpenWebNet-HA/OWNd.git@{ref}"]
+        cmd = [sys.executable, "-m", "pip", "install", "--force-reinstall", f"git+https://github.com/OpenWebNet-HA/OWNd.git@{ref}"]
         res = run_cmd(cmd, check=False)
         if res.returncode == 0:
             return True, False
         print(f"[WARN] Failed to install OWNd@{ref}, falling back to master branch...")
-        cmd = [sys.executable, "-m", "pip", "install", "git+https://github.com/OpenWebNet-HA/OWNd.git@master"]
+        cmd = [sys.executable, "-m", "pip", "install", "--force-reinstall", "git+https://github.com/OpenWebNet-HA/OWNd.git@master"]
         res = run_cmd(cmd, check=False)
         return res.returncode == 0, False
     else:
@@ -266,7 +271,7 @@ def run_smoke_suite(target: str, skip_install: bool = False, dev_ref: str = None
         if not install_ok:
             print(f"❌ FAILED: Unable to install OWNd target '{target}'")
             return False
-    elif target == "pinned":
+    elif target in ("pinned", "latest"):
         try:
             if importlib.metadata.version("OWNd") != pinned and not is_pypi_released("OWNd", pinned):
                 dev_fallback = True

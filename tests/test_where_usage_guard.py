@@ -118,3 +118,24 @@ def test_probe_is_defined_once():
             ):
                 offenders.append(f"{path.name}:{node.lineno}")
     assert not offenders, f"probe test (>= 100) outside where_grammar: {offenders}"
+
+
+def test_no_magicmock_in_production():
+    """Production modules must not branch on ``MagicMock``."""
+    offenders = []
+    for path in sorted(ROOT.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "MagicMock" in text:
+            offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, f"MagicMock reference in production code: {offenders}"
+
+
+def test_no_private_dimension_value_in_production():
+    """Production modules must use public ``dimension_value``, never ``_dimension_value``."""
+    offenders = []
+    for path in sorted(ROOT.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "_dimension_value" in text:
+            offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, f"_dimension_value reference in production code: {offenders}"
+

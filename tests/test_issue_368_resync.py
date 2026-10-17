@@ -519,3 +519,109 @@ def test_lighting_resync_manager_schedule_resync_guards(
     assert not handler._resync_timers
 
 
+@pytest.mark.asyncio
+async def test_partial_area_echoes_do_not_skip_or_cancel_area_sweep(
+    hass: HomeAssistant, handler: MyHOMEGatewayHandler
+) -> None:
+    """Issue #746: Partial point-to-point echoes in an area must not skip or cancel `*#1*<area>##` until all registered entities in that area have echoed."""
+    reg = er.async_get(hass)
+    mac = handler.mac
+    entry_id = handler.config_entry.entry_id
+    for domain, where in (
+        ("light", "01"),
+        ("light", "03"),
+        ("switch", "04"),
+        ("light", "09"),
+        ("light", "0011"),
+    ):
+        reg.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"myhome-{mac}-1-{where}",
+            config_entry=handler.config_entry,
+        )
+    assert handler._resync_manager.known_area_entities("00") == {
+        "01",
+        "03",
+        "04",
+        "09",
+        "0011",
+    }
+    assert entry_id == handler.config_entry.entry_id
+
+    # Leading echo from 01 before General OFF (*1*0*0##), followed by trailing
+    # echoes from 03, 09, 0011 — but 04 (switch) never echoes.
+    await handler._process_message(OWNMessage.parse("*1*0*01##"))
+    await handler._process_message(OWNMessage.parse("*1*0*0##"))
+    assert "00" in handler._resync_timers
+
+    await handler._process_message(OWNMessage.parse("*1*0*03##"))
+    await handler._process_message(OWNMessage.parse("*1*0*09##"))
+    await handler._process_message(OWNMessage.parse("*1*0*0011##"))
+    # Area 00 timer must still be armed because 04 has not echoed!
+    assert "00" in handler._resync_timers
+
+    await _advance(hass)
+    frames = [str(call[0][0]) for call in handler.send_status_request.call_args_list]
+    assert frames == ["*#1*00##"]
+
+    # Now test when all registered entities (including 04) echo: sweep is cancelled!
+    handler.send_status_request.reset_mock()
+    await handler._process_message(OWNMessage.parse("*1*0*00##"))
+    assert "00" in handler._resync_timers
+    for where in ("01", "03", "04", "09", "0011"):
+        await handler._process_message(OWNMessage.parse(f"*1*0*{where}##"))
+    assert "00" not in handler._resync_timers
+    await _advance(hass)
+    handler.send_status_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_single_registered_entity_in_area_not_cancelled_by_unregistered_sibling_echo(
+    hass: HomeAssistant, handler: MyHOMEGatewayHandler
+) -> None:
+    """Issue #746 edge case: When only 1 entity (`04`) is registered in Area 00, an echo from unregistered `01` must not cancel `*#1*00##`."""
+    reg = er.async_get(hass)
+    mac = handler.mac
+    reg.async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"myhome-{mac}-1-04",
+        config_entry=handler.config_entry,
+    )
+    assert handler._resync_manager.known_area_entities("00") == {"04"}
+
+    await handler._process_message(OWNMessage.parse("*1*0*0##"))
+    assert "00" in handler._resync_timers
+
+    # Unregistered actuator 01 in Area 00 echoes OFF; 04 has not echoed yet
+    await handler._process_message(OWNMessage.parse("*1*0*01##"))
+    assert "00" in handler._resync_timers
+
+    await _advance(hass)
+    frames = [str(call[0][0]) for call in handler.send_status_request.call_args_list]
+    assert frames == ["*#1*00##"]
+
+
+@pytest.mark.asyncio
+async def test_opposite_polarity_leading_echo_does_not_skip_area_sweep(
+    hass: HomeAssistant, handler: MyHOMEGatewayHandler
+) -> None:
+    """Turning an entity ON right before General OFF must not count as a leading OFF echo."""
+    reg = er.async_get(hass)
+    mac = handler.mac
+    reg.async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"myhome-{mac}-1-04",
+        config_entry=handler.config_entry,
+    )
+
+    # 04 turns ON within the 1.5s leading window right before General OFF
+    await handler._process_message(OWNMessage.parse("*1*1*04##"))
+    await handler._process_message(OWNMessage.parse("*1*0*0##"))
+    assert "00" in handler._resync_timers
+
+    await _advance(hass)
+    frames = [str(call[0][0]) for call in handler.send_status_request.call_args_list]
+    assert frames == ["*#1*00##"]

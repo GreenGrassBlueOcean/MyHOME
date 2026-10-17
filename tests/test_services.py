@@ -81,8 +81,8 @@ def test_handler_supports_who_helper() -> None:
     assert _handler_supports_who(h1, 1) is True
     assert _handler_supports_who(h1, 5) is False
 
-    # 2. Legacy handler with only _profile_supports_who (where profile_supports_who is MagicMock default)
-    h2 = MagicMock()
+    # 2. Legacy handler stub with only _profile_supports_who
+    h2 = MagicMock(spec=["_profile_supports_who"])
     h2._profile_supports_who = lambda who: who == 4
     assert _handler_supports_who(h2, 4) is True
     assert _handler_supports_who(h2, 1) is False
@@ -560,6 +560,18 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
             )
         assert exc_parse.value.translation_key == "scenario_plus_command_invalid"
         assert exc_parse.value.translation_placeholders == {"where": "11", "action": "on"}
+
+    # Wildcard where rejected by OWNScenarioPlusCommand builder with ValueError
+    with pytest.raises(ServiceValidationError) as exc_wild:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_scenario_plus_command",
+            {"gateway": gw_mac, "where": "11*1", "action": "on"},
+            blocking=True,
+        )
+    assert exc_wild.value.translation_key == "scenario_plus_command_invalid"
+    assert exc_wild.value.translation_placeholders == {"where": "11*1", "action": "on"}
+
 
 
 async def test_send_scenario_plus_command_no_gateways(hass: HomeAssistant) -> None:
