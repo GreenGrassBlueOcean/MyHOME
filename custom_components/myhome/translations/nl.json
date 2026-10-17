@@ -461,6 +461,9 @@
     },
     "seek_not_supported": {
       "message": "{entity_id}: frequentie zoeken wordt alleen ondersteund op tunerbron-entiteiten"
+    },
+    "volume_not_finite": {
+      "message": "{entity_id}: volumeniveau {volume} is geen geldig eindig getal"
     }
   },
   "entity": {

@@ -461,6 +461,9 @@
     },
     "seek_not_supported": {
       "message": "{entity_id} : la recherche de fréquence n'est prise en charge que sur les entités tuner"
+    },
+    "volume_not_finite": {
+      "message": "{entity_id} : le niveau de volume {volume} n'est pas un nombre fini valide"
     }
   },
   "entity": {

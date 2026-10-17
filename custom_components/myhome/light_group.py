@@ -26,6 +26,7 @@ from OWNd.message import OWNLightingCommand, OWNLightingEvent
 
 from .const import DOMAIN, eight_bits_to_min_percent, percent_to_eight_bits
 from .myhome_device import MyHOMEEntity
+from .where_grammar import is_valid_hs_tuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -189,12 +190,8 @@ class MyHOMELightGroup(MyHOMEEntity, LightEntity):
                 self._attr_color_temp_kelvin = kelvin
         elif dim == 12:
             hs_val = getattr(msg, "hs_color", getattr(msg, "hs", None))
-            if (
-                isinstance(hs_val, tuple)
-                and len(hs_val) == 2
-                and 0 <= hs_val[0] <= 360
-                and 0 <= hs_val[1] <= 100
-            ):
+            raw_v = getattr(msg, "value", None)
+            if is_valid_hs_tuple(hs_val, raw_v):
                 self._attr_hs_color = hs_val
 
         if self._on_icon and self._off_icon:
