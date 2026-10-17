@@ -12,6 +12,13 @@ ECHO_WINDOW: float = 1.5
 # never relays the direction status (measured 0.55 s on a MyHOMEServer1, #302).
 MOTOR_START_DELAY: float = 0.55
 
+# Stop status follows the stop write almost immediately on both measured
+# gateway families (34-47 ms, median 42 ms on MyHOMEServer1; 64-120 ms on F461;
+# #705). Unlike the direction side (~0.5 s), no fixed fallback offset is added
+# to the stop write time; gateways that relay the stop status re-anchor on it.
+MOTOR_STOP_DELAY: float = 0.0
+STOP_LATENCY: float = MOTOR_STOP_DELAY
+
 # Upper bound on how long we wait for the send queue to write our frame before
 # falling back to "now" as the motion anchor. #302 measured the *queue*: with
 # twelve covers the last frame goes out 1.5-12 s after enqueue (the ~1.6 s often
