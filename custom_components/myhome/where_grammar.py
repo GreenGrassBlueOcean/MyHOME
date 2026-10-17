@@ -129,8 +129,8 @@ if not hasattr(OWNLightingEvent, "color_temp_kelvin"):  # pragma: no cover - PyP
     def _evt_hs(self: Any) -> tuple[int, int] | None:
         hs = getattr(self, "_hs", None)
         v = getattr(self, "_value", None)
-        if is_valid_hs_tuple(hs, v):
-            return tuple(hs)  # type: ignore[return-value]
+        if is_valid_hs_tuple(hs, v) and hs is not None:
+            return (int(hs[0]), int(hs[1]))
         return None
 
     setattr(
