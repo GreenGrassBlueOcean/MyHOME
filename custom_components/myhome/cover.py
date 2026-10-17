@@ -38,7 +38,9 @@ from .const import (
     BUS_ROUTING,
     CALIBRATION_CUTOFF_MAX,
     CALIBRATION_CUTOFF_MIN,
+    CALIBRATION_MAX_MOTOR_PULSE,
     CALIBRATION_MAX_RUN,
+    CALIBRATION_MIN_MOTOR_PULSE,
     CALIBRATION_MIN_RUN,
     CALIBRATION_RUN_TIMEOUT,
     CALIBRATION_SETTLE,
@@ -48,7 +50,9 @@ from .const import (
     CONF_ENTITY_NAME,
     CONF_MANUFACTURER,
     CONF_MEMBERS,
+    CONF_MIN_MOTOR_PULSE,
     CONF_TRAVEL_TIME,
+    DEFAULT_MIN_MOTOR_PULSE,
     DEFAULT_TRAVEL_TIME,
     DOMAIN,
     EVENT_COVER_CALIBRATION,
@@ -128,6 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
             model=cfg.get(CONF_DEVICE_MODEL, "Shutter / Cover"),
             gateway=runtime.gateway,
             travel_time=int(cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME)),
+            min_motor_pulse=float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE)),
             **kwargs,
         )
         family.add(cover)
@@ -159,6 +164,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         vol.Optional("travel_time"): vol.Coerce(float),
         vol.Optional("travel_time_down"): vol.Coerce(float),
         vol.Optional("travel_time_up"): vol.Coerce(float),
+        vol.Optional("min_motor_pulse"): vol.Coerce(float),
         vol.Optional("copied_from"): cv.string,
     }
 
@@ -206,6 +212,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         travel_time: int = DEFAULT_TRAVEL_TIME,
         travel_time_source: str = "default",
         calibration: dict | None = None,  # type: ignore
+        min_motor_pulse: float = DEFAULT_MIN_MOTOR_PULSE,
     ):
         super().__init__(
             hass=hass,
@@ -232,16 +239,20 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._travel_time = travel_time if travel_time else DEFAULT_TRAVEL_TIME
         self._travel_time_down = base_travel
         self._travel_time_up = base_travel
+        self._min_motor_pulse = float(min_motor_pulse)
         self._calibration_source = travel_time_source
         self._calibrated_at: str | None = None
         self._copied_from: str | None = None
-        if calibration and calibration.get("down") and calibration.get("up"):
-            self._travel_time_down = float(calibration["down"])
-            self._travel_time_up = float(calibration["up"])
-            self._travel_time = int(round(self._travel_time_down))
-            self._calibration_source = str(calibration.get("source") or "measured")
-            self._calibrated_at = calibration.get("measured_at")
-            self._copied_from = calibration.get("copied_from") or None
+        if calibration:
+            if calibration.get("down") and calibration.get("up"):
+                self._travel_time_down = float(calibration["down"])
+                self._travel_time_up = float(calibration["up"])
+                self._travel_time = int(round(self._travel_time_down))
+                self._calibration_source = str(calibration.get("source") or "measured")
+                self._calibrated_at = calibration.get("measured_at")
+                self._copied_from = calibration.get("copied_from") or None
+            if calibration.get("min_motor_pulse") is not None:
+                self._min_motor_pulse = float(calibration["min_motor_pulse"])
         self._calibrating = False
         self._calibration_interrupted: str | None = None
         self._stopped_event: asyncio.Event = asyncio.Event()
@@ -307,6 +318,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         attrs["travel_time"] = int(round(self._travel_time_down))
         attrs["travel_time_down"] = round(self._travel_time_down, 2)
         attrs["travel_time_up"] = round(self._travel_time_up, 2)
+        attrs["min_motor_pulse"] = round(self._min_motor_pulse, 2)
         attrs["calibration_source"] = self._calibration_source
         attrs["calibrated_at"] = self._calibrated_at
         # The motor-start anchor of the current run (wall clock) and the last
@@ -739,6 +751,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         result = {
             "down": self._travel_time_down,
             "up": self._travel_time_up,
+            "min_motor_pulse": self._min_motor_pulse,
             "measured_at": self._calibrated_at,
         }
         self._persist_calibration(result)
@@ -761,6 +774,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         travel_time: float | None = None,
         travel_time_down: float | None = None,
         travel_time_up: float | None = None,
+        min_motor_pulse: float | None = None,
         copied_from: str | None = None,
     ) -> dict:  # type: ignore
         """Set the physical travel times by hand, or copy them from another cover.
@@ -779,53 +793,90 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         down = travel_time_down if travel_time_down is not None else travel_time
         up = travel_time_up if travel_time_up is not None else (travel_time if travel_time is not None else down)
 
-        if down is None and up is None:
+        if (
+            travel_time is None
+            and travel_time_down is None
+            and travel_time_up is None
+            and min_motor_pulse is None
+        ):
             raise ServiceValidationError(
-                "At least travel_time or travel_time_down/up must be specified",
+                "At least travel_time, travel_time_down/up, or min_motor_pulse must be specified",
                 translation_domain=DOMAIN,
                 translation_key="travel_time_missing",
             )
 
-        if down is None:
-            down = self._travel_time_down
-
-        for field, value in (("travel_time_down", down), ("travel_time_up", up)):
-            if not CALIBRATION_MIN_RUN <= value <= CALIBRATION_MAX_RUN:  # type: ignore
+        if min_motor_pulse is not None:
+            if not CALIBRATION_MIN_MOTOR_PULSE <= min_motor_pulse <= CALIBRATION_MAX_MOTOR_PULSE:
                 raise ServiceValidationError(
-                    f"{field} must be between {CALIBRATION_MIN_RUN:.0f}s and {CALIBRATION_MAX_RUN:.0f}s",
+                    f"min_motor_pulse must be between {CALIBRATION_MIN_MOTOR_PULSE:.1f}s and {CALIBRATION_MAX_MOTOR_PULSE:.1f}s",
                     translation_domain=DOMAIN,
                     translation_key="travel_time_out_of_range",
                     translation_placeholders={
-                        "field": field, "min": f"{CALIBRATION_MIN_RUN:.0f}", "max": f"{CALIBRATION_MAX_RUN:.0f}",
+                        "field": "min_motor_pulse",
+                        "min": f"{CALIBRATION_MIN_MOTOR_PULSE:.1f}",
+                        "max": f"{CALIBRATION_MAX_MOTOR_PULSE:.1f}",
                     },
                 )
+            self._min_motor_pulse = round(float(min_motor_pulse), 2)
 
-        self._travel_time_down = round(float(down), 2)
-        self._travel_time_up = round(float(up), 2)  # type: ignore
-        self._travel_time = int(round(self._travel_time_down))
-        self._copied_from = str(copied_from) if copied_from else None
-        self._calibration_source = "copied" if self._copied_from else "manual"
-        self._calibrated_at = dt_util.utcnow().isoformat(timespec="seconds")
+        only_pulse = (
+            travel_time is None
+            and travel_time_down is None
+            and travel_time_up is None
+        )
+
+        if not only_pulse:
+            down = travel_time_down if travel_time_down is not None else travel_time
+            up = travel_time_up if travel_time_up is not None else (travel_time if travel_time is not None else down)
+
+            if down is None:
+                down = self._travel_time_down
+
+            for field, value in (("travel_time_down", down), ("travel_time_up", up)):
+                if not CALIBRATION_MIN_RUN <= value <= CALIBRATION_MAX_RUN:  # type: ignore
+                    raise ServiceValidationError(
+                        f"{field} must be between {CALIBRATION_MIN_RUN:.0f}s and {CALIBRATION_MAX_RUN:.0f}s",
+                        translation_domain=DOMAIN,
+                        translation_key="travel_time_out_of_range",
+                        translation_placeholders={
+                            "field": field, "min": f"{CALIBRATION_MIN_RUN:.0f}", "max": f"{CALIBRATION_MAX_RUN:.0f}",
+                        },
+                    )
+
+            self._travel_time_down = round(float(down), 2)
+            self._travel_time_up = round(float(up), 2)  # type: ignore
+            self._travel_time = int(round(self._travel_time_down))
+            self._copied_from = str(copied_from) if copied_from else None
+            self._calibration_source = "copied" if self._copied_from else "manual"
+            self._calibrated_at = dt_util.utcnow().isoformat(timespec="seconds")
 
         result = {
             "down": self._travel_time_down,
             "up": self._travel_time_up,
+            "min_motor_pulse": self._min_motor_pulse,
             "measured_at": self._calibrated_at,
             "source": self._calibration_source,
         }
         if self._copied_from:
             result["copied_from"] = self._copied_from
-        self._persist_calibration(result)
+        self._persist_calibration(result, only_pulse=only_pulse)
         self._refresh_travel_attributes()
         if self.hass is not None:
             self.async_write_ha_state()
 
         self._fire_calibration_event("done", **result)
-        LOGGER.info(
-            "%s Cover %s %s travel time set: down %.1f s, up %.1f s.",
-            self._gateway_handler.log_id, self._full_where, self._calibration_source,
-            self._travel_time_down, self._travel_time_up,
-        )
+        if only_pulse:
+            LOGGER.info(
+                "%s Cover %s motor start-up floor set: %.2f s (travel times untouched: down %.1f s, up %.1f s, source: %s).",
+                self._gateway_handler.log_id, self._full_where, self._min_motor_pulse,
+                self._travel_time_down, self._travel_time_up, self._calibration_source,
+            )
+        else:
+            LOGGER.info(
+                "%s Cover %s %s travel time set: down %.1f s, up %.1f s, min_pulse %.2f s.",
+                self._gateway_handler.log_id, self._full_where, self._calibration_source,
+                self._travel_time_down, self._travel_time_up, self._min_motor_pulse,
+            )
         return result
 
     async def async_reset_travel_time(self) -> None:
@@ -856,6 +907,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             base_travel = float(DEFAULT_TRAVEL_TIME)
             source = "default"
 
+        self._min_motor_pulse = float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE))
         self._travel_time_down = base_travel
         self._travel_time_up = base_travel
         self._travel_time = int(round(base_travel))
@@ -871,14 +923,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             "reset",
             down=self._travel_time_down,
             up=self._travel_time_up,
+            min_motor_pulse=self._min_motor_pulse,
             source=source,
         )
         LOGGER.info(
-            "%s Cover %s travel times reset to %s (%.1f s).",
-            self._gateway_handler.log_id, self._full_where, source, base_travel,
+            "%s Cover %s travel times reset to %s (%.1f s, min_pulse %.2f s).",
+            self._gateway_handler.log_id, self._full_where, source, base_travel, self._min_motor_pulse,
         )
 
-    def _persist_calibration(self, result: dict) -> None:  # type: ignore
+    def _persist_calibration(self, result: dict, only_pulse: bool = False) -> None:  # type: ignore
         """Store the measurement in the config entry options (survives restarts, applies to discovered covers)."""
         entry = getattr(self._gateway_handler, "config_entry", None)
         hass = self.hass or self._hass
@@ -887,7 +940,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         try:
             options = dict(getattr(entry, "options", None) or {})
             stored = dict(options.get(CONF_COVER_TRAVEL_TIMES) or {})
-            stored[str(self._device_id)] = result
+            dev_key = str(self._device_id)
+            if only_pulse:
+                existing = dict(stored.get(dev_key) or {})
+                existing["min_motor_pulse"] = result["min_motor_pulse"]
+                stored[dev_key] = existing
+            else:
+                stored[dev_key] = result
             options[CONF_COVER_TRAVEL_TIMES] = stored
             hass.config_entries.async_update_entry(entry, options=options)
         except Exception as err:  # pragma: no cover - defensive
@@ -1071,9 +1130,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
         opening = diff > 0
         travel_time = self._travel_for(opening)
-        run_duration = compute_run_duration(diff, travel_time)
+        run_duration = compute_run_duration(diff, travel_time, min_pulse=self._min_motor_pulse)
         # Where the model puts the cover when the run ends: the target, or
-        # further when MIN_MOTOR_PULSE stretched the run. A run that reaches an
+        # further when min_motor_pulse stretched the run. A run that reaches an
         # end becomes a full run to that end.
         achieved_position = compute_freeze_position(
             curr_pos, 0.0, run_duration, travel_time, opening, not opening, target_position
