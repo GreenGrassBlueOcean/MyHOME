@@ -391,6 +391,9 @@ async def ws_bus_monitor_send(
         )
         return
 
+    # Safety guard: WHO 4 Dimension 22 split-unit IR requests crash the thermostat daemon
+    # on F461 / F454 / MH200N-class gateways and force a gateway reboot within ~3 minutes
+    # (confirmed in tests/fixtures/traces/f461_live_2026-10-15). Block them from WebSocket injection.
     if _WHO4_DIMENSION_22.match(frame_str):
         connection.send_error(
             msg["id"],

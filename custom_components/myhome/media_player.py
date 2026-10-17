@@ -785,9 +785,20 @@ class MyHOMEMediaPlayer(ZoneGroupLayer):
 
         Args:
             volume: Target volume in the range 0.0–1.0.
+
+        Raises:
+            HomeAssistantError: If ``volume`` is not a finite number.
         """
         if not math.isfinite(volume):
-            return
+            raise HomeAssistantError(
+                f"{self.entity_id}: volume level {volume} is not a valid finite number",
+                translation_domain=DOMAIN,
+                translation_key="volume_not_finite",
+                translation_placeholders={
+                    "entity_id": str(self.entity_id),
+                    "volume": str(volume),
+                },
+            )
 
         # Auto-unmute if the user slides the volume up
         if self._attr_is_volume_muted and volume > 0:

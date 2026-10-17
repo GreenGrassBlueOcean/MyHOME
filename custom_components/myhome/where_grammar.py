@@ -103,18 +103,34 @@ if not hasattr(OWNMessage, "dimension_value"):  # pragma: no cover - PyPI OWNd <
     setattr(OWNMessage, "dimension_param", property(lambda self: getattr(self, "_dimension_param", [])))
     setattr(OWNMessage, "dimension_value", property(lambda self: getattr(self, _DIM_VAL_ATTR, [])))
 
+def is_valid_hs_tuple(hs: Any, value: Any = None) -> bool:
+    """Return True if hs is a valid OpenWebNet (hue, saturation) tuple within bounds."""
+    if not (isinstance(hs, (tuple, list)) and len(hs) == 2):
+        return False
+    if not (0 <= hs[0] <= 360 and 0 <= hs[1] <= 100):
+        return False
+    if isinstance(value, (int, float)) and not (0 <= value <= 100):
+        return False
+    return True
+
+
+def is_valid_rgb_tuple(rgb: Any, value: Any = None) -> bool:
+    """Return True if rgb is a valid OpenWebNet (r, g, b) tuple within bounds."""
+    if not (isinstance(rgb, (tuple, list)) and len(rgb) == 3):
+        return False
+    if not all(0 <= c <= 255 for c in rgb):
+        return False
+    if isinstance(value, (int, float)) and not (0 <= value <= 100):
+        return False
+    return True
+
+
 if not hasattr(OWNLightingEvent, "color_temp_kelvin"):  # pragma: no cover - PyPI OWNd < 2.0.0b11
     def _evt_hs(self: Any) -> tuple[int, int] | None:
         hs = getattr(self, "_hs", None)
         v = getattr(self, "_value", None)
-        if (
-            isinstance(hs, tuple)
-            and len(hs) == 2
-            and 0 <= hs[0] <= 360
-            and 0 <= hs[1] <= 100
-            and (v is None or 0 <= v <= 100)
-        ):
-            return hs
+        if is_valid_hs_tuple(hs, v):
+            return tuple(hs)  # type: ignore[return-value]
         return None
 
     setattr(
@@ -159,7 +175,7 @@ if not hasattr(OWNLightingCommand, "brightness"):  # pragma: no cover - PyPI OWN
                 h, s, v = int(vals[0]), int(vals[1]), int(vals[2])
             except (TypeError, ValueError):
                 return None
-            if 0 <= h <= 360 and 0 <= s <= 100 and 0 <= v <= 100:
+            if is_valid_hs_tuple((h, s), v):
                 return (h, s)
         return None
 
@@ -278,6 +294,8 @@ __all__ = [
     "is_apl_address",
     "is_probe",
     "is_pump",
+    "is_valid_hs_tuple",
+    "is_valid_rgb_tuple",
     "normalize_where",
     "where_param",
     "zone_number",

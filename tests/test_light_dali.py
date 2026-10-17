@@ -235,3 +235,50 @@ def test_light_and_group_reject_out_of_range_hsv_events(hass):
     assert parsed_bad.hs_color is None
 
 
+def test_where_grammar_hsv_and_rgb_tuple_validators():
+    """Verify is_valid_hs_tuple and is_valid_rgb_tuple boundary and type enforcement."""
+    from custom_components.myhome.where_grammar import is_valid_hs_tuple, is_valid_rgb_tuple
+
+    # Valid HS
+    assert is_valid_hs_tuple((0, 0)) is True
+    assert is_valid_hs_tuple((360, 100)) is True
+    assert is_valid_hs_tuple([180, 50], value=50) is True
+    assert is_valid_hs_tuple((180, 50), value=None) is True
+
+    # Invalid HS: type / length
+    assert is_valid_hs_tuple(None) is False
+    assert is_valid_hs_tuple("180,50") is False
+    assert is_valid_hs_tuple((180,)) is False
+    assert is_valid_hs_tuple((180, 50, 50)) is False
+
+    # Invalid HS: out-of-range components
+    assert is_valid_hs_tuple((-1, 50)) is False
+    assert is_valid_hs_tuple((361, 50)) is False
+    assert is_valid_hs_tuple((180, -1)) is False
+    assert is_valid_hs_tuple((180, 101)) is False
+    assert is_valid_hs_tuple((180, 50), value=-1) is False
+    assert is_valid_hs_tuple((180, 50), value=101) is False
+
+    # Valid RGB
+    assert is_valid_rgb_tuple((0, 0, 0)) is True
+    assert is_valid_rgb_tuple((255, 255, 255)) is True
+    assert is_valid_rgb_tuple([128, 64, 32], value=50) is True
+    assert is_valid_rgb_tuple((128, 64, 32), value=None) is True
+
+    # Invalid RGB: type / length
+    assert is_valid_rgb_tuple(None) is False
+    assert is_valid_rgb_tuple("255,255,255") is False
+    assert is_valid_rgb_tuple((255, 255)) is False
+    assert is_valid_rgb_tuple((255, 255, 255, 255)) is False
+
+    # Invalid RGB: out-of-range components
+    assert is_valid_rgb_tuple((-1, 100, 100)) is False
+    assert is_valid_rgb_tuple((256, 100, 100)) is False
+    assert is_valid_rgb_tuple((100, -1, 100)) is False
+    assert is_valid_rgb_tuple((100, 256, 100)) is False
+    assert is_valid_rgb_tuple((100, 100, -1)) is False
+    assert is_valid_rgb_tuple((100, 100, 256)) is False
+    assert is_valid_rgb_tuple((100, 100, 100), value=-1) is False
+    assert is_valid_rgb_tuple((100, 100, 100), value=101) is False
+
+

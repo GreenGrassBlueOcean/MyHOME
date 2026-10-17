@@ -331,6 +331,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
             cmd = OWNCommand.parse(action_frames[action])
 
+        # Fallback OWNCommand or legacy OWNd command objects may not define
+        # `is_valid`; default to True only when the attribute is absent.
         if cmd is None or not getattr(cmd, "is_valid", True):
             raise ServiceValidationError(
                 f"Could not build scenario plus command for where '{where}' and action '{action}'",

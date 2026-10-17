@@ -461,6 +461,9 @@
     },
     "seek_not_supported": {
       "message": "{entity_id}: la ricerca di frequenza è supportata solo sulle entità sintonizzatore"
+    },
+    "volume_not_finite": {
+      "message": "{entity_id}: il livello del volume {volume} non è un numero finito valido"
     }
   },
   "entity": {

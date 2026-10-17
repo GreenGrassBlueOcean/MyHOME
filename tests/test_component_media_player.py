@@ -434,11 +434,13 @@ async def test_volume_controls_and_gain_staging(hass, player, mock_gateway):
             {"entity_id": "media_player.squeezelite_1", "volume_level": 0.0},
         )
 
-        # Non-finite volume inputs (NaN, ±inf) are ignored without raising or sending frames
+        # Non-finite volume inputs (NaN, ±inf) raise HomeAssistantError without sending frames
         mock_gateway.send.reset_mock()
         mock_call.reset_mock()
         for non_finite in (float("nan"), float("inf"), float("-inf")):
-            await player.async_set_volume_level(non_finite)
+            with pytest.raises(HomeAssistantError) as exc_vol:
+                await player.async_set_volume_level(non_finite)
+            assert exc_vol.value.translation_key == "volume_not_finite"
         mock_gateway.send.assert_not_called()
         mock_call.assert_not_called()
 
