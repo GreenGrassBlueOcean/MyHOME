@@ -36,6 +36,7 @@ The table below outlines feature availability, gateway support, and protocol cap
   - **F500 Tuner Dimension Reports**: Tuner frequency stepping, RDS station name decoding, and FM presets for Legrand sound systems.
   - **Touchscreen Gateway Profiles**: Authoritative profile matching and SSDP discovery for `AM4890`, `H4890`, and `LN4890` Livinglight / Axolute 3.5" displays.
   - **WHO=2 Centralized Control Triggers**: Added cover and shutter group/general automation triggers.
+  - **Cover Motor Start-Up Floor & Endpoint Full Runs (#466)**: Timed covers enforce a `0.4 s` minimum motor pulse floor (`MIN_MOTOR_PULSE`) and book the stretched run, both timed and advanced covers send plain `UP` / `DOWN` (`*2*1*WHERE##` / `*2*2*WHERE##`) full runs at `0%` and `100%` (and advanced covers widen sub-2% moves when stationary), and timed endpoint runs settle automatically at `travel_time + 2 s` without waiting for a late or missing actuator stop status.
 
 ---
 

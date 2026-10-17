@@ -993,6 +993,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         target_position = kwargs[ATTR_POSITION]
 
         if self._advanced:
+            now = time.monotonic()
             current = self._attr_current_cover_position
             moving = bool(self._attr_is_opening or self._attr_is_closing)
             if current is not None and not moving and 0 < target_position < 100:
@@ -1000,9 +1001,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 # the actuator still books it (#466, see MIN_POSITION_DELTA).
                 # Not while it runs: it then reports the level it started from,
                 # so the widening and the early return would compare against
-                # a stale level and drop a retarget (40 -> 80, then 40).
+                # a stale level and drop a retarget (40 -> 80, then 40). Also
+                # skip the early return briefly after our own level write,
+                # before the actuator's first moving status arrives.
                 target_position = quantize_position_delta(current, target_position, MIN_POSITION_DELTA)
-                if target_position == current:
+                if target_position == current and not self._in_echo_window(now):
                     return
             # 0% and 100% are full runs: they end on the motor's limit switch
             # and so put the actuator's own level back in step with the curtain,
@@ -1013,6 +1016,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             elif target_position <= 0:
                 await self.async_close_cover()
             else:
+                self._echo_until = now + ECHO_WINDOW
                 await self._gateway_handler.send(
                     OWNAutomationCommand.set_shutter_level(
                         self._full_where, target_position
@@ -1208,6 +1212,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             return
         if position is not None:
             self._cancel_stop_task()
+            self._end_echo_window()
             self._attr_current_cover_position = position
             if not self._advanced:
                 self._start_position = position

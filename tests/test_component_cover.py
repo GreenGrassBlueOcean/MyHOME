@@ -381,8 +381,12 @@ class TestMyHOMECoverEntity:
         assert str(advanced_cover._gateway_handler.send.call_args[0][0]) == "*2*1*22#4#02##"
 
         # 3. Advanced cover: a 1% level change is widened to MIN_POSITION_DELTA.
+        advanced_cover.handle_event(OWNEvent.parse("*#2*22#4#02*10*10*40*001*0##"))
         advanced_cover._gateway_handler.send.reset_mock()
-        advanced_cover._attr_current_cover_position = 40
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 40})
+        advanced_cover._gateway_handler.send.assert_not_awaited()
+
+        advanced_cover._gateway_handler.send.reset_mock()
         await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 41})
         advanced_cover._gateway_handler.send.assert_awaited_once()
         assert (
@@ -399,10 +403,16 @@ class TestMyHOMECoverEntity:
             == "*#2*22#4#02*#11#001*38##"
         )
 
+        # 3b. Rapid retarget before the actuator's first moving status arrives:
+        # at 40, set 80 then 40 quickly -> must not drop the second call against stale 40.
+        advanced_cover.handle_event(OWNEvent.parse("*#2*22#4#02*10*10*40*001*0##"))
         advanced_cover._gateway_handler.send.reset_mock()
-        advanced_cover._attr_current_cover_position = 40
+        await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 80})
         await advanced_cover.async_set_cover_position(**{ATTR_POSITION: 40})
-        advanced_cover._gateway_handler.send.assert_not_awaited()
+        assert [str(c.args[0]) for c in advanced_cover._gateway_handler.send.await_args_list] == [
+            "*#2*22#4#02*#11#001*80##",
+            "*#2*22#4#02*#11#001*40##",
+        ]
 
         # 4. Widening that lands on an end becomes a full run to that end.
         advanced_cover._gateway_handler.send.reset_mock()
