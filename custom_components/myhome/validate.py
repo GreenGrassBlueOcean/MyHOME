@@ -44,7 +44,9 @@ from voluptuous import (
 
 from .const import (
     BUS_ROUTING,
+    CALIBRATION_MAX_MOTOR_PULSE,
     CALIBRATION_MAX_RUN,
+    CALIBRATION_MIN_MOTOR_PULSE,
     CALIBRATION_MIN_RUN,
     CONF_ADVANCED_SHUTTER,
     CONF_BUS_INTERFACE,
@@ -66,6 +68,7 @@ from .const import (
     CONF_LOCK_FEATURES,
     CONF_MANUFACTURER,
     CONF_MEMBERS,
+    CONF_MIN_MOTOR_PULSE,
     CONF_PLATFORMS,
     CONF_RGB,
     CONF_STANDALONE,
@@ -73,6 +76,7 @@ from .const import (
     CONF_WHERE,
     CONF_WHO,
     CONF_ZONE,
+    DEFAULT_MIN_MOTOR_PULSE,
 )
 
 
@@ -405,6 +409,9 @@ cover_schema = MyHomeDeviceSchema(
             Optional(CONF_TRAVEL_TIME, default=25): All(
                 Coerce(int),
                 Range(min=int(CALIBRATION_MIN_RUN), max=int(CALIBRATION_MAX_RUN)),
+            ),
+            Optional(CONF_MIN_MOTOR_PULSE, default=DEFAULT_MIN_MOTOR_PULSE): All(
+                Coerce(float), Range(min=CALIBRATION_MIN_MOTOR_PULSE, max=CALIBRATION_MAX_MOTOR_PULSE)
             ),
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
             Optional(CONF_DEVICE_MODEL): Coerce(str),
