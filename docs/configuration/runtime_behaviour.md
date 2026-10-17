@@ -60,8 +60,11 @@ Instead, the integration debounces across a bidirectional window:
 3. If member point-to-point status frames arrive before the timer fires (**trailing echoes**),
    the sweep is cancelled:
 
-   - For an **area**, only point-to-point echoes in that matching area cancel its timer;
-     unrelated areas stay armed.
+   - For an **area**, point-to-point echoes in that matching area only skip or cancel its
+     timer once *all* known `light`/`switch` entities registered in that area have echoed
+     with matching polarity (preventing partial CEN/Scenario bursts such as `MH200N`
+     scenarios from starving non-echoing actuators in the same area); unrelated areas stay
+     armed.
    - For a **group**, receiving multiple member echoes ($\ge 2$) in the window cancels its
      timer, protecting against unrelated bus frames.
 4. Otherwise, one status request is sent:
