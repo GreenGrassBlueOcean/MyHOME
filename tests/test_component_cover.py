@@ -1279,16 +1279,16 @@ async def test_timed_cover_auto_stop_reanchors_on_stop_status(hass, mock_gateway
             current_time = 106.0
             await cover._stop_task
 
-        # Stop command written at 106.0: provisional freeze is 83% with MOTOR_STOP_DELAY (or 80% without)
+        # Stop command written at 106.0: provisional freeze is 80%
         assert cover.is_opening is False
-        assert cover.current_cover_position in (80, 83)
+        assert cover.current_cover_position == 80
 
         # Now simulate gateway relaying the stop status at 106.5s (0.5s bus transit & relay release delay)
         current_time = 106.5
         cover.handle_event(OWNEvent.parse("*2*0*21##"))
 
-        # Actual run: 106.5 - 100.0 = 6.5s. Delta: (6.5 / 20.0) * 100 = 32.5% -> 82% (round-to-even) or 83%
-        assert cover.current_cover_position in (82, 83)
+        # Actual run: 106.5 - 100.0 = 6.5s. Delta: (6.5 / 20.0) * 100 = 32.5% -> 82% (round-to-even)
+        assert cover.current_cover_position == 82
         assert cover.extra_state_attributes["last_run_seconds"] == 6.5
         assert cover.extra_state_attributes["last_run_direction"] == "open"
         assert cover._stopped_event.is_set()
@@ -1335,10 +1335,10 @@ async def test_timed_cover_manual_stop_reanchors_on_stop_status(hass, mock_gatew
         current_time = 105.0
         await cover.async_stop_cover()
 
-        # Provisional freeze at stop write (with MOTOR_STOP_DELAY: 5.55s run -> 42%, or 5.0s run -> 40%)
+        # Provisional freeze at stop write (5.0s run -> 40%)
         assert cover.is_opening is False
-        assert cover.current_cover_position in (40, 42)
-        assert cover.extra_state_attributes["last_run_seconds"] in (5.0, 5.55)
+        assert cover.current_cover_position == 40
+        assert cover.extra_state_attributes["last_run_seconds"] == 5.0
 
         # Gateway relays stop status 0.6s later (105.6)
         current_time = 105.6
@@ -1388,8 +1388,8 @@ async def test_timed_cover_preserves_write_freeze_when_no_stop_status(hass, mock
             current_time = 106.0
             await cover._stop_task
 
-        # On gateways that never relay stop status, the provisional freeze at write + MOTOR_STOP_DELAY is kept
-        assert cover.current_cover_position in (80, 83)
+        # On gateways that never relay stop status, the provisional freeze at write is kept
+        assert cover.current_cover_position == 80
         assert cover.is_opening is False
 
         # Advance past echo window (ECHO_WINDOW = 1.5s)
@@ -1397,7 +1397,7 @@ async def test_timed_cover_preserves_write_freeze_when_no_stop_status(hass, mock
         assert not cover._in_echo_window(current_time)
 
         # Position remains preserved
-        assert cover.current_cover_position in (80, 83)
+        assert cover.current_cover_position == 80
         assert cover.is_opening is False
 
 
@@ -1569,10 +1569,10 @@ async def test_timed_cover_stop_reanchor_with_firmware_oracle_translation_frames
         cover.handle_event(OWNEvent.parse("*2*1*31##"))
         assert cover.is_opening is True
 
-        # User presses STOP at t=104.0s (provisional position: 73% with MOTOR_STOP_DELAY, or 70% without)
+        # User presses STOP at t=104.0s (provisional position: 70%)
         current_time = 104.0
         await cover.async_stop_cover()
-        assert cover.current_cover_position in (70, 73)
+        assert cover.current_cover_position == 70
         assert cover._pending_stop_context is not None
 
         # Gateway immediately emits *2*1000#0*31## translation at t=104.02s:
@@ -1583,7 +1583,7 @@ async def test_timed_cover_stop_reanchor_with_firmware_oracle_translation_frames
             assert ev.is_translation is True
             cover.handle_event(ev)
         assert cover._pending_stop_context is not None
-        assert cover.current_cover_position in (70, 73)
+        assert cover.current_cover_position == 70
 
         # Physical actuator stops and broadcasts *2*0*31## at t=105.0s (5.0s total run -> 75%)
         current_time = 105.0
@@ -1595,17 +1595,19 @@ async def test_timed_cover_stop_reanchor_with_firmware_oracle_translation_frames
 
 @pytest.mark.asyncio
 async def test_timed_cover_stop_reanchoring_measured_hardware_case(hass, mock_gateway):
-    """Verify stop status re-anchoring on Interstellar0verdrive's measured 15.2 s hardware trace (#705 / #707).
+    """Verify stop status re-anchoring on Interstellar0verdrive's 15.2 s cases (#705 / #707).
 
-    Measured trace:
+    Case A (delayed stop status at t=1.41 s):
       - Travel time: 15.2 s, starting position 50%
       - t=0.00 s: UP command sent (*2*1*21##)
       - t=0.05 s: momentary stop echo from gateway arrives (*2*0*21##, must not cancel the run)
       - t=0.49 s: direction echo arrives (*2*1*21##, anchors motor start)
-      - t=0.93 s: stop command written (*2*0*21##)
-      - t=1.41 s: physical actuator stop status arrives (*2*0*21##)
-      True elapsed run is 1.41 s - 0.49 s = 0.92 s (instead of 0.93 - 0.49 = 0.44 s).
-      Delta on 15.2 s travel: (0.92 / 15.2) * 100 = 6.05% -> 50% + 6% = 56% (booked 56% instead of 53%).
+      - t=0.93 s: stop command written (*2*0*21##) -> provisional 0.44 s / 53%
+      - t=1.41 s: stop status arrives (*2*0*21##) -> re-anchored to 0.92 s / 56%
+
+    Case B (MyHomeServer1 measured 42 ms median stop status delay, #705 comment 6240346903):
+      - Stop write at t=10.93 s after direction echo at t=10.49 s -> provisional 0.44 s / 53%
+      - Stop status 42 ms later at t=10.972 s -> re-anchored to 0.48 s / 53%
     """
     with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
         cover = MyHOMECover(
@@ -1654,17 +1656,35 @@ async def test_timed_cover_stop_reanchoring_measured_hardware_case(hass, mock_ga
         current_time = 0.93
         await cover.async_stop_cover()
         assert cover.is_opening is False
-        # Provisional freeze before status echo (with MOTOR_STOP_DELAY: 0.93 + 0.55 - 0.49 = 0.99s -> 57%)
-        assert cover.current_cover_position in (56, 57)
+        # Provisional freeze at stop write: 0.93 - 0.49 = 0.44 s -> 53%
+        assert cover.current_cover_position == 53
+        assert cover.extra_state_attributes["last_run_seconds"] == 0.44
 
-        # t=1.41 s: physical actuator stop status arrives
+        # t=1.41 s: stop status arrives
         current_time = 1.41
         cover.handle_event(OWNEvent.parse("*2*0*21##"))
 
-        # Re-anchored to true elapsed motor time: 1.41 - 0.49 = 0.92 s
-        # 50 + (0.92 / 15.2) * 100 = 50 + 6.0526% = 56% (booked 56% instead of 53%)
+        # Re-anchored to 1.41 - 0.49 = 0.92 s -> 50 + (0.92 / 15.2) * 100 = 56%
         assert cover.current_cover_position == 56
         assert cover.extra_state_attributes["last_run_seconds"] == 0.92
         assert cover.extra_state_attributes["last_run_direction"] == "open"
         assert cover._stopped_event.is_set()
+
+        # Case B: MyHomeServer1 measured 42 ms median stop status delay (34-47 ms across 15 writes)
+        cover._attr_current_cover_position = 50
+        cover._start_position = 50
+        current_time = 10.00
+        await cover.async_open_cover()
+        current_time = 10.49
+        cover.handle_event(OWNEvent.parse("*2*1*21##"))
+        current_time = 10.93
+        await cover.async_stop_cover()
+        assert cover.current_cover_position == 53
+        assert cover.extra_state_attributes["last_run_seconds"] == 0.44
+
+        current_time = 10.972  # +42 ms median stop status
+        cover.handle_event(OWNEvent.parse("*2*0*21##"))
+        assert cover.current_cover_position == 53
+        assert cover.extra_state_attributes["last_run_seconds"] == 0.48
+
 

@@ -908,6 +908,12 @@ async def test_plain_run_is_measured_from_motor_start_to_stop_write(hass, gatewa
     assert attrs["last_run_direction"] == "open"
     assert attrs["last_run_ended_at"] and attrs["motion_started_at"] is None
 
+    # When the gateway relays the stop status 42 ms later (MyHOMEServer1 median, #705),
+    # last_run_seconds re-anchors to the stop status timestamp.
+    clock.now += 0.042
+    cover.handle_event(OWNEvent.parse("*2*0*21##"))
+    assert cover.extra_state_attributes["last_run_seconds"] == pytest.approx(15.04)
+
 
 async def test_actuator_stop_status_ends_the_measured_run(hass, gateway, clock, fake_time):
     """Without a stop command the actuator's own stop status ends the run."""

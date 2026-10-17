@@ -364,12 +364,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 # The direction echo re-anchors precisely if the gateway relays it.
                 self._anchor_run(write_ts)
             elif self._pending_cmd == "stop":
-                # Motion stops within ~0.1 s on the TCP socket, but the physical
-                # actuator relay opens ~0.55 s after the stop write (matching
-                # MOTOR_START_DELAY). Freezing at write_ts + MOTOR_STOP_DELAY
-                # ensures start and stop latencies match on gateways that do not
-                # relay stop status, while _handle_echo re-anchors to the true
-                # status arrival time if relayed.
+                # Motion stops within ~0.04-0.12 s of the write on measured
+                # gateways (MyHOMEServer1 34-47 ms, F461 64-120 ms; #302, #705).
+                # Freeze provisionally at write_ts (+ MOTOR_STOP_DELAY) while
+                # _handle_echo re-anchors to the stop status arrival if relayed.
                 self._freeze_position(write_ts + MOTOR_STOP_DELAY)
                 self._motor_started.set()
             # The estimate changed (clock started, or frozen): show it. Not every
