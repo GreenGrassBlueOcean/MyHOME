@@ -169,7 +169,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
 
     PlatformDiscovery(
         hass, config_entry, async_add_entities,
-        platform=PLATFORM, who="2", event_type=(OWNAutomationEvent, OWNAutomationCommand), build=build, announce=True,
+        platform=PLATFORM, who="2", event_type=OWNAutomationEvent, build=build, announce=True,
         on_general=relay_general, on_scope=relay_scope,
         known_keys=lambda ctx: [*default_known_keys(ctx), "general"],
     ).start()
@@ -433,10 +433,37 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._motion_started_at = started.isoformat(timespec="milliseconds")
         self._refresh_travel_attributes()
 
+    def _slat_lead_time(self, is_opening: bool, is_closing: bool) -> float:
+        """Seconds a curtain run spends turning the slats before the curtain moves."""
+        if not self._slat_tilt or self._is_tilting or not (is_opening or is_closing):
+            return 0.0
+        curr = self._attr_current_cover_tilt_position
+        if curr is None:
+            curr = 0 if is_opening else 100
+        remaining = (100 - curr) if is_opening else curr
+        return max(0.0, remaining / 100.0 * self._slat_time)
+
+    def _turn_slats_for_run(
+        self, at: float, run_started_at: float | None, was_opening: bool, was_closing: bool
+    ) -> None:
+        """Turn the slats for a curtain run that ended at ``at``."""
+        if not self._slat_tilt or not (was_opening or was_closing):
+            return
+        run_duration = max(0.0, at - run_started_at) if run_started_at is not None else (self._slat_time + 1.0)
+        turned = (run_duration / self._slat_time) * 100.0 if self._slat_time > 0 else 100.0
+        if was_opening:
+            curr = self._attr_current_cover_tilt_position if self._attr_current_cover_tilt_position is not None else 0
+            self._attr_current_cover_tilt_position = min(100, int(round(curr + turned)))
+        else:
+            curr = self._attr_current_cover_tilt_position if self._attr_current_cover_tilt_position is not None else 100
+            self._attr_current_cover_tilt_position = max(0, int(round(curr - turned)))
+
     def _freeze_position(self, at: float) -> None:
         """Turn the running estimate into a fixed position as of ``at``."""
         is_opening = bool(self._attr_is_opening)
         is_closing = bool(self._attr_is_closing)
+        run_started_at = self._run_started_at
+        lead = self._slat_lead_time(is_opening, is_closing)
         if self._run_started_at is not None:
             self._last_run = {
                 "seconds": round(max(0.0, at - self._run_started_at), 2),
@@ -446,10 +473,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self._run_started_at = None
             self._motion_started_at = None
             self._refresh_travel_attributes()
+        curtain_at = max(self._move_start_time, at - lead) if self._move_start_time is not None else at
         frozen = compute_freeze_position(
             self._start_position,
             self._move_start_time,
-            at,
+            curtain_at,
             self._travel_for(is_opening),
             is_opening,
             is_closing,
@@ -459,6 +487,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if self._move_start_time is not None:
             self._start_position = frozen
             self._move_start_time = None
+        self._turn_slats_for_run(at, run_started_at, is_opening, is_closing)
         self._attr_is_opening = False
         self._attr_is_closing = False
         if self._attr_current_cover_position is not None:
@@ -558,11 +587,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if not self._advanced:
             is_opening = bool(self._attr_is_opening)
             is_closing = bool(self._attr_is_closing)
+            now = time.monotonic()
+            lead = self._slat_lead_time(is_opening, is_closing)
+            curtain_at = max(self._move_start_time, now - lead) if self._move_start_time is not None else now
             return compute_interpolated_position(
                 self._attr_current_cover_position,
                 self._start_position,
                 self._move_start_time,
-                time.monotonic(),
+                curtain_at,
                 self._travel_for(is_opening),
                 is_opening,
                 is_closing,
@@ -810,11 +842,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._start_position = 100
         self._attr_is_closed = False
         self._refresh_travel_attributes()
-        result = {
+        result: dict[str, Any] = {
             "down": self._travel_time_down,
             "up": self._travel_time_up,
             "measured_at": self._calibrated_at,
         }
+        if (stored := self._stored_record()) and stored.get(CONF_SLAT_TIME) is not None:
+            result[CONF_SLAT_TIME] = stored[CONF_SLAT_TIME]
         self._persist_calibration(result)
         if self.hass is not None:
             self.async_write_ha_state()
@@ -844,6 +878,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         is then reported as ``copied`` instead of ``manual``.
         """
         has_travel = travel_time is not None or travel_time_down is not None or travel_time_up is not None
+        if slat_time is not None and not self._slat_tilt:
+            raise ServiceValidationError(
+                f"{self._display_name} does not have slat_tilt enabled; slat_time cannot be set",
+                translation_domain=DOMAIN,
+                translation_key="slat_tilt_not_enabled",
+                translation_placeholders={"name": self._display_name},
+            )
         if self._advanced and (has_travel or slat_time is None):
             raise HomeAssistantError(
                 f"{self._display_name} reports its position; travel time cannot be set",
@@ -907,7 +948,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             "measured_at": self._calibrated_at,
             "source": self._calibration_source,
         }
-        if self._slat_tilt or slat_time is not None:
+        if self._slat_tilt:
             result["slat_time"] = self._slat_time
         if self._copied_from:
             result["copied_from"] = self._copied_from
@@ -1132,10 +1173,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             return
         self._cancel_stop_task()
 
-        travel_fraction = abs(diff) / 100.0
-        run_duration = travel_fraction * self._travel_for(diff > 0)
-
         written = await self._async_move("open" if diff > 0 else "close")
+        travel_fraction = abs(diff) / 100.0
+        run_duration = self._slat_lead_time(diff > 0, diff < 0) + travel_fraction * self._travel_for(diff > 0)
         generation = self._run_generation
 
         async def _auto_stop() -> None:
@@ -1152,6 +1192,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 # (target plus whatever the queue delay added).
                 self._start_position = target_position
                 self._attr_current_cover_position = target_position
+                if self._slat_tilt:
+                    self._attr_current_cover_tilt_position = 100 if diff > 0 else 0
                 self._move_start_time = time.monotonic()
                 await self.async_stop_cover()
                 if self.hass is not None:
@@ -1663,11 +1705,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     self._apply_tilt_stop(now)
                 if self._calibrating and not self._attr_is_opening:
                     self._interrupt_calibration("an external open command arrived")
-                if self._attr_is_closing:
+                was_closing = bool(self._attr_is_closing)
+                if was_closing:
                     self._cancel_stop_task()
                     self._run_generation += 1
                 if not self._advanced and not self._attr_is_opening:
                     self._start_position = self.current_cover_position if self.current_cover_position is not None else 0
+                if was_closing:
+                    self._turn_slats_for_run(now, self._run_started_at, False, True)
+                if not self._advanced and not self._attr_is_opening:
                     self._anchor_run(now)
                 self._attr_is_opening = True
                 self._attr_is_closing = False
@@ -1684,11 +1730,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     self._apply_tilt_stop(now)
                 if self._calibrating and not self._attr_is_closing:
                     self._interrupt_calibration("an external close command arrived")
-                if self._attr_is_opening:
+                was_opening = bool(self._attr_is_opening)
+                if was_opening:
                     self._cancel_stop_task()
                     self._run_generation += 1
                 if not self._advanced and not self._attr_is_closing:
                     self._start_position = self.current_cover_position if self.current_cover_position is not None else 100
+                if was_opening:
+                    self._turn_slats_for_run(now, self._run_started_at, True, False)
+                if not self._advanced and not self._attr_is_closing:
                     self._anchor_run(now)
                 self._attr_is_opening = False
                 self._attr_is_closing = True
@@ -1696,8 +1746,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         else:
             # Stopped (state == 0 or other): a genuine stop ends any timed run.
             was_tilting = self._is_tilting
-            was_opening = self._attr_is_opening
-            was_closing = self._attr_is_closing
+            was_opening = bool(self._attr_is_opening)
+            was_closing = bool(self._attr_is_closing)
             self._is_tilting = False
             self._cancel_stop_task()
             self._run_generation += 1
@@ -1705,33 +1755,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self._stopped_event.set()
             if was_tilting:
                 self._apply_tilt_stop(now)
+            elif not self._advanced:
+                self._freeze_position(now)
             else:
-                run_started_at = self._run_started_at
-                if not self._advanced:
-                    self._freeze_position(now)
-                if self._slat_tilt and (was_opening or was_closing):
-                    # Physical Venetian actuators rotate slats in the first slat_time of
-                    # travel. Only a curtain run turns them: the relayed stop of our own
-                    # slat pulse arrives with nothing running and must not snap them.
-                    run_duration = (now - run_started_at) if run_started_at is not None else (self._slat_time + 1.0)
-                    if was_opening:
-                        if run_duration >= self._slat_time:
-                            self._attr_current_cover_tilt_position = 100
-                        else:
-                            fraction = run_duration / self._slat_time
-                            curr = self.current_cover_tilt_position if self.current_cover_tilt_position is not None else 0
-                            self._attr_current_cover_tilt_position = min(100, int(round(curr + (100 - curr) * fraction)))
-                    elif was_closing:
-                        if run_duration >= self._slat_time:
-                            self._attr_current_cover_tilt_position = 0
-                        else:
-                            fraction = run_duration / self._slat_time
-                            curr = self.current_cover_tilt_position if self.current_cover_tilt_position is not None else 100
-                            self._attr_current_cover_tilt_position = max(0, int(round(curr - curr * fraction)))
-                    if self._attr_current_cover_position == 0:
-                        self._attr_current_cover_tilt_position = 0
-                    elif self._attr_current_cover_position == 100:
-                        self._attr_current_cover_tilt_position = 100
+                self._turn_slats_for_run(now, self._run_started_at, was_opening, was_closing)
             self._attr_is_opening = False
             self._attr_is_closing = False
             if getattr(message, "is_closed", None) is not None:

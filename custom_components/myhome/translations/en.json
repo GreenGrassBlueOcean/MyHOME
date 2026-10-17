@@ -497,6 +497,9 @@
     "cover_busy_moving": {
       "message": "{name} is moving; stop it before tilting the slats"
     },
+    "slat_tilt_not_enabled": {
+      "message": "{name} does not have slat_tilt enabled; slat_time cannot be set"
+    },
     "decoders_busy": {
       "message": "{entity_id}: all audio matrix inputs are currently in use by other rooms"
     },

@@ -1047,14 +1047,14 @@ class TestMyHOMECoverEntity:
         tilt_cover.handle_event(stop_msg)
         assert tilt_cover.current_cover_tilt_position == 50
 
-        # A short run that ends at position 0 forces tilt to 0
+        # A short 0.2s close from tilt 50 at position 0 turns slats by 10% (50 -> 40) without snapping
         tilt_cover._attr_current_cover_position = 0
         tilt_cover._attr_current_cover_tilt_position = 50
         tilt_cover._run_started_at = time.monotonic() - 0.2
         tilt_cover._attr_is_closing = True
         tilt_cover._attr_is_opening = False
         tilt_cover.handle_event(stop_msg)
-        assert tilt_cover.current_cover_tilt_position == 0
+        assert tilt_cover.current_cover_tilt_position == 40
 
         # A stop with nothing running (the relay of a slat pulse's stop) keeps
         # the slats of a lowered blind where they are
@@ -1062,14 +1062,14 @@ class TestMyHOMECoverEntity:
         tilt_cover.handle_event(stop_msg)
         assert tilt_cover.current_cover_tilt_position == 50
 
-        # A short run that ends at position 100 forces tilt to 100
+        # A short 0.2s open from tilt 50 at position 100 turns slats by 10% (50 -> 60) without snapping
         tilt_cover._attr_current_cover_position = 100
         tilt_cover._attr_current_cover_tilt_position = 50
         tilt_cover._run_started_at = time.monotonic() - 0.2
         tilt_cover._attr_is_closing = False
         tilt_cover._attr_is_opening = True
         tilt_cover.handle_event(stop_msg)
-        assert tilt_cover.current_cover_tilt_position == 100
+        assert tilt_cover.current_cover_tilt_position == 60
 
     @pytest.mark.asyncio
     async def test_cover_slat_tilt_manual_stop_interpolates_angle(self, tilt_cover, mock_gateway):
@@ -1197,11 +1197,11 @@ class TestTiltAuditRegressions:
 
     @pytest.fixture
     def make_cover(self, hass, mock_gateway):
-        def _make(advanced=False, **kwargs):
+        def _make(advanced=False, slat_tilt=True, **kwargs):
             with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
                 cover = MyHOMECover(
                     hass=hass, name="Blind", entity_name="Blind", device_id="31", who="2", where="31",
-                    interface=None, advanced=advanced, slat_tilt=True, manufacturer="BTicino",
+                    interface=None, advanced=advanced, slat_tilt=slat_tilt, manufacturer="BTicino",
                     model="Venetian Blind", gateway=mock_gateway, **kwargs,
                 )
             cover.entity_id = "cover.blind"
@@ -1944,6 +1944,93 @@ class TestTiltAuditRegressions:
 
         with pytest.raises(Invalid):
             cover_schema({"c": {"where": "31", "slat_tilt": True, "slat_time": "fast"}})
+
+    def test_keypad_run_turns_slats_before_moving_curtain(self, cover):
+        """Review: a keypad run turns slats first at 100 % / slat_time before moving the curtain."""
+        cover._slat_time = 2.0
+        cover._travel_time_down = cover._travel_time_up = 25.0
+
+        # 1. A 0.5 s close from position 50, tilt 50 turns slats 50 -> 25 (same as a pulse) and leaves curtain at 50
+        t0 = 1000.0
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        with patch("time.monotonic", return_value=t0):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        with patch("time.monotonic", return_value=t0 + 0.5):
+            assert cover.current_cover_position == 50
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 50
+        assert cover.current_cover_tilt_position == 25
+
+        # 2. A 1.5 s close from position 50, tilt 50 spends 1.0 s closing slats (50 -> 0) and 0.5 s moving curtain (50 -> 48)
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        with patch("time.monotonic", return_value=t0):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        with patch("time.monotonic", return_value=t0 + 1.0):
+            assert cover.current_cover_position == 50  # slats just reached 0
+        with patch("time.monotonic", return_value=t0 + 1.5):
+            assert cover.current_cover_position == 48
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 48
+        assert cover.current_cover_tilt_position == 0
+
+        # 3. Direct reversal (close -> open -> close) settles both curtain and slats at the reversal point
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        with patch("time.monotonic", return_value=t0):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        with patch("time.monotonic", return_value=t0 + 0.5):
+            cover.handle_event(OWNMessage.parse("*2*1*31##"))  # reverse to open at tilt 25, position 50
+        assert cover._start_position == 50
+        assert cover.current_cover_tilt_position == 25
+        with patch("time.monotonic", return_value=t0 + 1.5):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))  # 1.0 s open turned slats 25 -> 75, curtain still 50
+        assert cover._start_position == 50
+        assert cover.current_cover_tilt_position == 75
+
+    @pytest.mark.asyncio
+    async def test_set_cover_position_includes_slat_lead_time(self, cover, mock_gateway):
+        """Review: async_set_cover_position adds slat lead time to run_duration and settles slats."""
+        self._write_each_send(mock_gateway)
+        cover._slat_time = 2.0
+        cover._travel_time_down = cover._travel_time_up = 25.0
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            await cover.async_set_cover_position(position=40)  # 1.0 s slat lead + 2.5 s curtain = 3.5 s
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+            await cover._stop_task
+        assert sleeps[0] == pytest.approx(3.5, abs=0.1)
+        assert cover.current_cover_position == 40
+        assert cover.current_cover_tilt_position == 0
+
+    @pytest.mark.asyncio
+    async def test_calibrate_preserves_stored_slat_time(self, cover, hass):
+        """Review: async_calibrate must not drop a previously stored slat_time."""
+        entry = self._wire_options(cover, hass, {"cover_travel_times": {"31": {"slat_time": 3.5}}})
+        with (
+            patch.object(cover, "_calibration_run", AsyncMock(side_effect=[20.0, 21.0, 22.0])),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            res = await cover.async_calibrate()
+        assert res["down"] == 21.0
+        assert res["up"] == 22.0
+        assert res["slat_time"] == 3.5
+        assert entry.options["cover_travel_times"]["31"]["slat_time"] == 3.5
+
+    @pytest.mark.asyncio
+    async def test_slat_time_rejected_without_slat_tilt(self, make_cover):
+        """Review: slat_time is rejected on a cover without slat_tilt enabled."""
+        shutter = make_cover(slat_tilt=False)
+        with pytest.raises(ServiceValidationError, match="does not have slat_tilt enabled") as err:
+            await shutter.async_set_travel_time(slat_time=2.5)
+        assert err.value.translation_key == "slat_tilt_not_enabled"
 
 
 async def test_cover_general_commands_update_all_covers(hass: HomeAssistant, mock_gateway):

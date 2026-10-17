@@ -335,18 +335,27 @@ class TestDeviceSchemas:
             switch_schema(raw)
 
     def test_cover_schema(self):
-        """Test cover schema with advanced shutter boolean."""
+        """Test cover schema with advanced shutter boolean and slat_time validation."""
         raw = {
             "bedroom_blind": {
                 CONF_WHERE: "31",
                 CONF_NAME: "Bedroom Blind",
                 CONF_ADVANCED_SHUTTER: True,
+                CONF_SLAT_TILT: True,
+                CONF_SLAT_TIME: 2.5,
             }
         }
         res = cover_schema(raw)
         assert "2-31" in res
         assert res["2-31"][CONF_WHO] == "2"
         assert res["2-31"][CONF_ADVANCED_SHUTTER] is True
+        assert res["2-31"][CONF_SLAT_TILT] is True
+        assert res["2-31"][CONF_SLAT_TIME] == 2.5
+
+        with pytest.raises(Invalid, match="slat_time can only be defined on a cover with slat_tilt enabled"):
+            cover_schema({"c": {CONF_WHERE: "31", CONF_NAME: "Blind", CONF_SLAT_TIME: 2.0}})
+        with pytest.raises(Invalid, match="slat_time can only be defined on a cover with slat_tilt enabled"):
+            cover_schema({"c": {CONF_WHERE: "31", CONF_NAME: "Blind", CONF_SLAT_TILT: False, CONF_SLAT_TIME: 2.0}})
 
     def test_binary_sensor_schema(self):
         """Test binary sensor schema across supported WHOs (1, 9, 25)."""

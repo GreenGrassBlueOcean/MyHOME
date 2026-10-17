@@ -313,6 +313,10 @@
           "name": "Tempo di corsa in salita",
           "description": "Secondi per un'apertura completa (1-180)."
         },
+        "slat_time": {
+          "name": "Tempo di orientamento lamelle",
+          "description": "Secondi necessari alle lamelle di una veneziana per una rotazione completa (0.5-10). Usato solo dalle tapparelle con slat_tilt abilitato."
+        },
         "copied_from": {
           "name": "Copiato da",
           "description": "La tapparella da cui sono stati presi questi tempi; la sorgente viene quindi indicata come \"copied\" invece di \"manual\"."
@@ -425,6 +429,12 @@
     },
     "cover_busy_calibrating": {
       "message": "{entity_id} è in fase di calibrazione; riprova quando sarà terminata"
+    },
+    "cover_busy_moving": {
+      "message": "{name} è in movimento; fermala prima di orientare le lamelle"
+    },
+    "slat_tilt_not_enabled": {
+      "message": "{name} non ha slat_tilt abilitato; slat_time non può essere impostato"
     },
     "decoders_busy": {
       "message": "{entity_id}: tutti gli ingressi della matrice audio sono attualmente usati da altre stanze"

@@ -408,7 +408,7 @@ cover_schema = MyHomeDeviceSchema(
             Optional(CONF_ADVANCED_SHUTTER, default=False): Boolean(),
             Optional("advanced_shutter", default=False): Boolean(),
             Optional(CONF_SLAT_TILT, default=False): Boolean(),
-            Optional(CONF_SLAT_TIME, default=DEFAULT_SLAT_TIME): All(
+            Optional(CONF_SLAT_TIME): All(
                 Coerce(float), Range(min=MIN_SLAT_TIME, max=MAX_SLAT_TIME)
             ),
             Optional(CONF_TRAVEL_TIME, default=25): All(
@@ -431,6 +431,9 @@ def _validate_cover_members(data: dict[str, typing.Any]) -> dict[str, typing.Any
             where = cfg.get(CONF_WHERE)
             if not where or not str(where).startswith("#"):
                 raise Invalid("Members can only be defined on a group cover (where must start with #)")
+        if CONF_SLAT_TIME in cfg and not cfg.get(CONF_SLAT_TILT):
+            raise Invalid("slat_time can only be defined on a cover with slat_tilt enabled")
+        cfg.setdefault(CONF_SLAT_TIME, DEFAULT_SLAT_TIME)
     return data
 
 cover_schema = All(cover_schema, _validate_cover_members)  # type: ignore[assignment]
