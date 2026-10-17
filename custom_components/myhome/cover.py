@@ -75,6 +75,7 @@ from .cover_motion import (
     END_SETTLE_MARGIN,
     MIN_POSITION_DELTA,
     MOTOR_START_DELAY,
+    MOTOR_STOP_DELAY,
     WRITE_TIMEOUT,
     compute_freeze_position,
     compute_interpolated_position,
@@ -363,8 +364,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 # The direction echo re-anchors precisely if the gateway relays it.
                 self._anchor_run(write_ts)
             elif self._pending_cmd == "stop":
-                # Motion stops within ~0.1 s of the write, not at enqueue time.
-                self._freeze_position(write_ts)
+                # Motion stops within ~0.1 s on the TCP socket, but the physical
+                # actuator relay opens ~0.55 s after the stop write (matching
+                # MOTOR_START_DELAY). Freezing at write_ts + MOTOR_STOP_DELAY
+                # ensures start and stop latencies match on gateways that do not
+                # relay stop status, while _handle_echo re-anchors to the true
+                # status arrival time if relayed.
+                self._freeze_position(write_ts + MOTOR_STOP_DELAY)
                 self._motor_started.set()
             # The estimate changed (clock started, or frozen): show it. Not every
             # gateway relays the stop status that would otherwise repaint it.
@@ -1132,7 +1138,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if not self._advanced:
             self._track_write(written)
             if not isinstance(written, asyncio.Future):
-                self._freeze_position(time.monotonic())  # type: ignore
+                self._freeze_position(time.monotonic() + MOTOR_STOP_DELAY)  # type: ignore
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -1359,6 +1365,7 @@ __all__ = [
     "CoverScope",
     "ECHO_WINDOW",
     "MOTOR_START_DELAY",
+    "MOTOR_STOP_DELAY",
     "MyHOMECover",
     "MyHOMEScopeCover",
     "WRITE_TIMEOUT",

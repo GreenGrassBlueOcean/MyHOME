@@ -12,6 +12,12 @@ ECHO_WINDOW: float = 1.5
 # never relays the direction status (measured 0.55 s on a MyHOMEServer1, #302).
 MOTOR_START_DELAY: float = 0.55
 
+# Time from the write of a stop frame until the physical actuator opens its
+# relay contacts when the gateway never relays the stop status (measured
+# ~0.48-0.55 s on a MyHOMEServer1, #705 / #707). Symmetrical with MOTOR_START_DELAY.
+MOTOR_STOP_DELAY: float = 0.55
+STOP_LATENCY: float = MOTOR_STOP_DELAY
+
 # Upper bound on how long we wait for the send queue to write our frame before
 # falling back to "now" as the motion anchor. #302 measured the *queue*: with
 # twelve covers the last frame goes out 1.5-12 s after enqueue (the ~1.6 s often
