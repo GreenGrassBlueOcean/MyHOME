@@ -477,6 +477,8 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
     class MockScenarioPlusCommand:
         @classmethod
         def turn_on(cls, where: str) -> str:
+            if "*" in where:
+                raise ValueError("Invalid WHERE")
             return f"*25*11#0*{where}##"
 
         @classmethod
@@ -507,6 +509,18 @@ async def test_send_scenario_plus_command_service(hass: HomeAssistant, attach_ga
             assert mock_handler.send.call_count == 1
             sent_cmd = mock_handler.send.call_args[0][0]
             assert str(sent_cmd) == expected_str
+
+        mock_handler.send.reset_mock()
+        with pytest.raises(ServiceValidationError) as exc_val_err:
+            await hass.services.async_call(
+                DOMAIN,
+                "send_scenario_plus_command",
+                {"gateway": gw_mac, "where": "11*1", "action": "on"},
+                blocking=True,
+            )
+        assert exc_val_err.value.translation_key == "scenario_plus_command_invalid"
+        assert exc_val_err.value.translation_placeholders == {"where": "11*1", "action": "on"}
+        mock_handler.send.assert_not_called()
 
         mock_handler.send.reset_mock()
         with pytest.raises(ServiceValidationError) as exc_typed:
