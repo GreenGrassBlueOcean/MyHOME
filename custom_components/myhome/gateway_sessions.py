@@ -482,10 +482,10 @@ class _PriorityQueueStorage:
     def append(self, item: Any) -> None:
         """Append item to its corresponding priority tier.
 
-        A WHO 2 stop is the exception inside the command tier (#645): it goes right
-        behind earlier queued stops to preserve FIFO, behind any queued cover frame
-        whose WHERE overlaps its own, or to the front when none does, so it never
-        overtakes a frame it has to stop.
+        A WHO 2 stop is the exception inside the command tier (#645): it goes behind
+        the contiguous run of stops at the head, behind any queued cover frame whose
+        WHERE overlaps its own, or to the front when none does, so it never overtakes
+        a frame it has to stop while allowing unrelated stops to jump ahead.
         """
         tier = _classify_tier(item)
         if tier == _TIER_COMMANDS:
@@ -496,21 +496,33 @@ class _PriorityQueueStorage:
             self._others.append(item)
 
     def _stop_position(self, item: Any) -> int:
-        """Index in the command tier for ``item``: its end, or earlier for a cover stop."""
+        """Index in the command tier for ``item``: its end, or earlier for a cover stop.
+
+        Stops preserve FIFO with the run of stops at the head of the command tier,
+        while ensuring a stop never overtakes earlier queued frames whose WHERE
+        overlaps its own (including earlier stops for the same cover or overlapping
+        scopes). Stops for unrelated covers can overtake non-overlapping frames even
+        when earlier stops are queued deeper behind motion (#645).
+        """
         end = len(self._commands)
         if not isinstance(item, dict) or not _is_cover_stop(item.get("message")):
             return end
         # ``_is_cover_stop`` guarantees a parsed frame, hence a WHERE.
         stop_where = str(_cover_where(item["message"]))
-        pos = 0
+        head_run_end = 0
+        while head_run_end < end:
+            queued = self._commands[head_run_end]
+            msg = queued.get("message") if isinstance(queued, dict) else None
+            if not _is_cover_stop(msg):
+                break
+            head_run_end += 1
+        overlap_pos = 0
         for index, queued in enumerate(self._commands):
             msg = queued.get("message") if isinstance(queued, dict) else None
-            if _is_cover_stop(msg):
-                pos = max(pos, index + 1)
             queued_where = _cover_where(msg)
             if queued_where is not None and _wheres_overlap(stop_where, queued_where):
-                pos = max(pos, index + 1)
-        return pos
+                overlap_pos = max(overlap_pos, index + 1)
+        return max(overlap_pos, head_run_end)
 
     def appendleft(self, item: Any) -> None:
         """Append item to the head of its corresponding priority tier."""

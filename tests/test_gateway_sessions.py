@@ -839,6 +839,46 @@ def test_stop_for_different_cover_stays_behind_last_stop_and_overlapping() -> No
     ]
 
 
+def test_stop_for_unrelated_cover_overtakes_earlier_stop_queued_behind_motion() -> None:
+    """A stop for an unrelated cover jumps to the front even if an earlier stop is queued behind motion."""
+    storage = _PriorityQueueStorage()
+    for raw in ("*2*1*21##", "*2*1*31##", "*1*1*51##", "*2*1*11##"):
+        storage.append(_cmd(raw))
+    storage.append(_cmd("*2*0*11##"))
+    storage.append(_cmd("*2*0*41##"))
+    assert _order(storage) == [
+        "*2*0*41##",
+        "*2*1*21##",
+        "*2*1*31##",
+        "*1*1*51##",
+        "*2*1*11##",
+        "*2*0*11##",
+    ]
+    # Subsequent stop for another unrelated cover extends the head run in FIFO order
+    storage.append(_cmd("*2*0*42##"))
+    assert _order(storage) == [
+        "*2*0*41##",
+        "*2*0*42##",
+        "*2*1*21##",
+        "*2*1*31##",
+        "*1*1*51##",
+        "*2*1*11##",
+        "*2*0*11##",
+    ]
+    # Subsequent stop for cover 11 preserves FIFO with the earlier stop for cover 11
+    storage.append(_cmd("*2*0*11##"))
+    assert _order(storage) == [
+        "*2*0*41##",
+        "*2*0*42##",
+        "*2*1*21##",
+        "*2*1*31##",
+        "*1*1*51##",
+        "*2*1*11##",
+        "*2*0*11##",
+        "*2*0*11##",
+    ]
+
+
 @pytest.mark.parametrize("scope_frame", ["*2*1*0##", "*2*1*1##", "*2*1*#3##"])
 def test_stop_never_overtakes_scope_frames_covering_it(scope_frame: str) -> None:
     storage = _PriorityQueueStorage()
