@@ -232,3 +232,113 @@ async def test_intercom_ts10_firmware_oracle_conformance(hass: HomeAssistant) ->
         assert mh200_cmd["reply"] == "ack"
         assert mh200_cmd["verdict"] == "out"
         assert len(mh200_cmd["bus_frames"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_issue_669_mh202_visitor_doorbell_and_lock_trace_replay(hass: HomeAssistant) -> None:
+    """Replay the 61-frame MH202 visitor doorbell call and lock release trace (#669).
+
+    Verifies that:
+    1. All 61 frames process through MyHOMEGatewayHandler._process_message cleanly.
+    2. The 4-component WHO 8 call (*8*1#1#4#20*11##) fires exactly one
+       myhome_doorbell_event for indoor unit where="11", while the +4 ms caller ID
+       notification (*8*9#1#4*20##) does not fire a second doorbell event.
+    3. Both WHO 6 lock release frames (*6*22*1## in-conversation and *6*10*4000##
+       entrance panel) unlock their respective MyHOMELock entities, and the
+       subsequent pulse-release frames (*6*24*1##, *6*23*4000##) and camera teardown
+       (*6*9**##) are handled without errors.
+    """
+    from custom_components.myhome.lock import MyHOMELock
+
+    mh202_trace_path = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "traces"
+        / "mh202_sound_intercom_ducking"
+        / "myhome_trace_MH202_all_2026-10-18T10-27-48.json"
+    )
+    assert mh202_trace_path.is_file(), f"Missing trace fixture: {mh202_trace_path}"
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "192.168.1.51",
+            CONF_PORT: 20000,
+            CONF_PASSWORD: "open",
+            CONF_MAC: "00:03:50:11:22:33",
+        },
+        entry_id="test_mh202_issue_669_doorbell_entry",
+    )
+    entry.add_to_hass(hass)
+    gateway = MyHOMEGatewayHandler(hass, entry)
+
+    lock_4000 = MyHOMELock(
+        hass=hass,
+        name="Entrance Panel Lock 4000",
+        entity_name=None,
+        device_id="4000",
+        who="6",
+        where="4000",
+        interface=None,
+        manufacturer="BTicino",
+        model="Door Entry Lock",
+        gateway=gateway,
+    )
+    lock_1 = MyHOMELock(
+        hass=hass,
+        name="Conversation Lock 1",
+        entity_name=None,
+        device_id="1",
+        who="6",
+        where="1",
+        interface=None,
+        manufacturer="BTicino",
+        model="Door Entry Lock",
+        gateway=gateway,
+    )
+    lock_4000.async_write_ha_state = lambda: None  # type: ignore[method-assign]
+    lock_1.async_write_ha_state = lambda: None  # type: ignore[method-assign]
+    assert lock_4000.is_locked is True
+    assert lock_1.is_locked is True
+
+    captured_events: list[Event] = []
+    unsub_event = hass.bus.async_listen(
+        "myhome_doorbell_event",
+        lambda event: captured_events.append(event),
+    )
+
+    try:
+        data = json.loads(mh202_trace_path.read_text(encoding="utf-8"))
+        assert len(data["frames"]) == 61
+
+        for frame_entry in data["frames"]:
+            raw = frame_entry["raw"]
+            msg = OWNMessage.parse(raw)
+            assert msg is not None, f"Failed to parse frame: {raw}"
+            await gateway._process_message(msg)
+            if getattr(msg, "who", None) == 6:
+                if getattr(msg, "where", None) == "4000":
+                    lock_4000.handle_event(msg)
+                elif getattr(msg, "where", None) == "1":
+                    lock_1.handle_event(msg)
+
+        await hass.async_block_till_done()
+
+        # Exactly 1 doorbell event fired from *8*1#1#4#20*11## (and not from *8*9#1#4*20##)
+        assert len(captured_events) == 1
+        assert captured_events[0].data == {
+            "where": "11",
+            "event": "call",
+            "is_broadcast": False,
+            "gateway_mac": gateway.mac,
+            "entry_id": entry.entry_id,
+        }
+
+        # Both locks unlocked on *6*10*4000## and *6*22*1##
+        assert lock_4000.is_locked is False
+        assert lock_1.is_locked is False
+    finally:
+        lock_4000._cancel_auto_relock()
+        lock_1._cancel_auto_relock()
+        unsub_event()
+
