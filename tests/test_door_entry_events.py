@@ -180,6 +180,7 @@ async def test_doorbell_only_for_entrance_panel_calls(hass: HomeAssistant):
 def test_unreadable_call_kind_is_none():
     """A call kind that is not a number (from the library or the raw parameters) reads as None."""
     assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind="x")) is None
+    assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, what_param=["3"])) == 3
     assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, _what_param=["x"])) is None
     assert GatewayEventDispatcher._intercom_call_kind(MagicMock(call_kind=None, _what_param=[])) is None
 
@@ -198,7 +199,7 @@ async def test_doorbell_ignores_library_call_flags_for_who8(hass: HomeAssistant,
 
 
 async def test_doorbell_fires_once_on_a_shared_bus(hass: HomeAssistant):
-    """Only the gateway that owns the subsystem announces the ring; the other one stays silent."""
+    """Only the gateway that owns the subsystem announces the ring; standby failover routes under primary MAC."""
     gateway = _doorbell_gateway(hass)
     captured = async_capture_events(hass, "myhome_doorbell_event")
     dispatched: list[dict] = []
@@ -210,6 +211,11 @@ async def test_doorbell_fires_once_on_a_shared_bus(hass: HomeAssistant):
     unsub = async_dispatcher_connect(hass, f"myhome_doorbell_event_{gateway.mac}", record)
 
     try:
+        # Translation frames on WHO 6/8 are ignored (M-3)
+        translated = MagicMock(who=6, what=6, where="1", is_translation=True)
+        await gateway._process_message(translated)
+        assert captured == []
+
         with patch.object(MyHOMEGatewayHandler, "delegated_away_whos", new_callable=PropertyMock, return_value={6, 8}):
             await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
             await gateway._process_message(OWNEvent.parse("*6*6*1##"))
@@ -220,8 +226,30 @@ async def test_doorbell_fires_once_on_a_shared_bus(hass: HomeAssistant):
             await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
         assert captured == []
 
+        # Standby failover when primary is offline routes doorbell event under primary's MAC and entry_id (M-3)
+        primary_gw = MagicMock()
+        primary_gw.is_connected = False
+        primary_gw.mac = "00:03:50:aa:bb:cc"
+        primary_gw.config_entry = MagicMock(entry_id="primary_entry_id")
+        pri_dispatched: list[dict] = []
+        unsub_pri = async_dispatcher_connect(hass, f"myhome_doorbell_event_{primary_gw.mac}", pri_dispatched.append)
+        try:
+            with (
+                patch.object(MyHOMEGatewayHandler, "is_standby", new_callable=PropertyMock, return_value=True),
+                patch.object(gateway, "_get_primary_gateway", return_value=primary_gw),
+                patch.object(gateway, "_profile_supports_who", return_value=True),
+            ):
+                await gateway._process_message(OWNEvent.parse("*6*6*1##"))
+            assert len(captured) == 1
+            assert captured[0].data["gateway_mac"] == primary_gw.mac
+            assert captured[0].data["entry_id"] == "primary_entry_id"
+            assert len(pri_dispatched) == 1
+        finally:
+            unsub_pri()
+
         await gateway._process_message(OWNEvent.parse("*8*1#1#4*74##"))
-        assert len(captured) == 1
+        assert len(captured) == 2
         assert len(dispatched) == 1
     finally:
         unsub()
+

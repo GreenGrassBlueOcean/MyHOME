@@ -57,7 +57,7 @@ def mock_gateway():
 
 
 async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, mock_gateway):
-    """Locks come from the registry and myhome.yaml only; bus traffic never creates one."""
+    """Locks come from myhome.yaml (restored from the registry when still configured); bus traffic and removed entries never create one."""
     mac = mock_gateway.mac
     hass.data = {
         DOMAIN: {
@@ -65,6 +65,11 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
                 "entity": mock_gateway,
                 CONF_PLATFORMS: {
                     PLATFORM: {
+                        "1": {
+                            CONF_WHERE: "1",
+                            CONF_NAME: "Front Door Lock",
+                            "code": "1234",
+                        },
                         "2": {
                             CONF_WHERE: "2",
                             CONF_NAME: "Side Gate Lock",
@@ -87,13 +92,16 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
     reg_1 = MagicMock()
     reg_1.domain = Platform.LOCK
     reg_1.unique_id = f"{mac}-6-1"
+    reg_removed = MagicMock()  # removed from myhome.yaml: must not resurrect without its code (H-5)
+    reg_removed.domain = Platform.LOCK
+    reg_removed.unique_id = f"{mac}-6-9"
     reg_light = MagicMock()  # another subsystem's entry is never restored as a lock
     reg_light.domain = Platform.LOCK
     reg_light.unique_id = f"{mac}-1-7"
 
     with (
         patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er),
-        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1, reg_light]),
+        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1, reg_removed, reg_light]),
     ):
         added_entities = []
 
@@ -103,10 +111,11 @@ async def test_lock_setup_restores_and_ignores_bus_traffic(hass: HomeAssistant, 
         attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, fake_add_entities)
 
-        # Restored (1) + Configured from YAML (2) = 2 locks; the general WHERE 0 is not a lock
+        # Restored (1) + Configured from YAML (2) = 2 locks; removed (9) and general (0) are rejected
         assert len(added_entities) == 2
-        assert any(e._where == "1" for e in added_entities)
+        assert any(e._where == "1" and e._code == "1234" for e in added_entities)
         assert any(e._where == "2" for e in added_entities)
+        assert not any(e._where == "9" for e in added_entities)
 
         # A lock release seen on the bus must NOT create a lock: the entity would have
         # no code, so anyone with dashboard access could open the door.
@@ -315,3 +324,56 @@ async def test_lock_confirmed_write_future(hass: HomeAssistant, mock_gateway):
     assert fut.done()
     lock._cancel_auto_relock()
     await lock.async_will_remove_from_hass()
+
+
+async def test_lock_receives_live_bus_frames_and_isolates_sub_bus(hass: HomeAssistant, mock_gateway):
+    """Configured locks receive live WHO=6 bus frames (C-1) without auto-discovering unconfigured locks or colliding across F422 (H-2)."""
+    mac = mock_gateway.mac
+    hass.data.setdefault("myhome", {})[mac] = {
+        "entity": mock_gateway,
+        "platforms": {
+            "lock": {
+                "6-1": {"who": "6", "where": "1", "name": "Local Lock", "manufacturer": None, "model": None},
+                "6-5#4#01": {"who": "6", "where": "5", "interface": "01", "name": "Sub-bus Lock"},
+                "2-9": {"who": "2", "where": "9", "name": "Wrong WHO Lock"},
+            }
+        },
+    }
+    entry = MagicMock()
+    entry.data = {"mac": mac}
+    entry.entry_id = "lock_bus_entry"
+    attach_runtime(hass, entry)
+
+    added: list[MyHOMELock] = []
+    with (
+        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[]),
+        patch("custom_components.myhome.discovery.er.async_get"),
+    ):
+        await async_setup_entry(hass, entry, added.extend)
+
+    assert len(added) == 2
+    local_lock = next(e for e in added if e._where == "1")
+    sub_lock = next(e for e in added if e._where == "5")
+    assert local_lock._manufacturer == "BTicino"
+    assert local_lock._model == "Door Entry Lock"
+
+    for lck in added:
+        lck.hass = hass
+        lck.async_write_ha_state = MagicMock()
+
+    # Unconfigured bus frame *6*10*2## must NOT auto-discover a new lock
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse("*6*10*2##"))
+    assert len(added) == 2
+
+    # Local frame *6*10*5## must NOT unlock the F422 sub-bus lock at 5#4#01
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse("*6*10*5##"))
+    assert sub_lock.is_locked is True
+
+    # Live bus frame *6*10*1## unlocks local_lock via PlatformDiscovery listener
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse("*6*10*1##"))
+    assert local_lock.is_locked is False
+
+    for lck in added:
+        lck._cancel_auto_relock()
+        await lck.async_will_remove_from_hass()
+

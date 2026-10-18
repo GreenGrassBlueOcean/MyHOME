@@ -805,17 +805,30 @@ class TestLockSchemaValidation:
     def test_who_defaults_to_6(self):
         res = lock_schema({"lock1": {CONF_WHERE: "4001", CONF_NAME: "Front door"}})
         assert "6-4001" in res
+        assert res["6-4001"]["pulse_duration"] == 5.0
 
-    @pytest.mark.parametrize("where", ["4001#2", "4095#2", "4000", "1"])
+    @pytest.mark.parametrize("where", ["4001#2", "4095#2", "4000", "1", "99", "4099"])
     def test_who6_riser_and_panel_addresses_validate(self, where):
-        """WHO 6 endpoints are 4000..4095, with #2 appended on a riser installation."""
+        """WHO 6 endpoints are 1..99 or 4000..4099, with #2 appended on a riser installation."""
         res = lock_schema({"lock1": {CONF_WHO: "6", CONF_WHERE: where, CONF_NAME: "Door"}})
         assert f"6-{where}" in res
 
-    @pytest.mark.parametrize("where", ["4001#3", "#2", "40#2#2", "abc", "12345", "4001#"])
+    @pytest.mark.parametrize(
+        "where",
+        [
+            "4001#3", "#2", "40#2#2", "abc", "12345", "4001#", "100", "500",
+            "3999", "4101", "9999", "01", "0001", "0000", "0#2", "4100#2",
+        ],
+    )
     def test_who6_malformed_where_rejected(self, where):
-        with pytest.raises(Invalid):
+        with pytest.raises(Invalid, match="Invalid door entry WHERE"):
             lock_schema({"lock1": {CONF_WHO: "6", CONF_WHERE: where, CONF_NAME: "Door"}})
+
+    @pytest.mark.parametrize("bad_code", ["abc", "12-34", "123a", ""])
+    def test_lock_non_digit_code_rejected(self, bad_code):
+        """Lock code must contain only digits so it matches code_format."""
+        with pytest.raises(Invalid, match="only digits"):
+            lock_schema({"lock1": {CONF_WHO: "6", CONF_WHERE: "4001", CONF_NAME: "Door", "code": bad_code}})
 
     def test_who6_validates(self):
         """WHO=6 door entry lock with entrance panel WHERE succeeds."""
@@ -889,4 +902,15 @@ class TestImpulseCoverTypeConsistency:
         assert "1-72" in self._cover(**{CONF_WHO: "1"})
         with pytest.raises(Invalid, match="pin_code is checked by the access policy"):
             self._cover(**{CONF_WHO: "1", "pin_code": "1234"})
+
+    @pytest.mark.parametrize("bad_pin", ["abcd", "12-34", "12a4", ""])
+    def test_impulse_cover_non_digit_pin_rejected(self, bad_pin):
+        with pytest.raises(Invalid, match="only digits"):
+            self._cover(**{CONF_WHO: "1", "pin_code": bad_pin, "access": {}})
+
+    @pytest.mark.parametrize(("pulse", "cycle"), [(2.0, 1.0), (1.5, 1.5)])
+    def test_impulse_cover_min_cycle_time_must_exceed_pulse_duration(self, pulse, cycle):
+        with pytest.raises(Invalid, match="min_cycle_time must be greater than pulse_duration"):
+            self._cover(**{CONF_WHO: "1", "pulse_duration": pulse, "min_cycle_time": cycle})
+
 

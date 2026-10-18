@@ -229,6 +229,7 @@ class AccessController:
         self._cancel_event: asyncio.Event | None = None
         self._task: asyncio.Task[None] | None = None
         self._failed_pins: dict[str, tuple[int, float]] = {}
+        self._expected_sensor_state: str | None = None
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -316,10 +317,30 @@ class AccessController:
             pending = self._pending
             self._clear_pending()
             self._settle()
-            self._spawn(self._notify(pending.notify_service, f"{self._name}: request cancelled ({reason})"))
+            self._spawn(self._cancel_and_notify(pending.notify_service, f"{self._name}: request cancelled ({reason})"))
             return True
         if self.phase is Phase.PREWARNING and self._cancel_event is not None:
             self._cancel_event.set()
+            return True
+        return False
+
+    @callback
+    def on_sensor_state(self, state_str: str | None) -> None:
+        """Settle supervision immediately once the state sensor reaches the expected state."""
+        if (
+            self.phase is Phase.MONITORING
+            and self._expected_sensor_state is not None
+            and state_str == self._expected_sensor_state
+        ):
+            self._cancel_watchdog()
+            self._settle()
+
+    @callback
+    def on_external_impulse(self) -> bool:
+        """End active movement supervision when an external wall button actuates the relay."""
+        if self.phase is Phase.MONITORING:
+            self._cancel_watchdog()
+            self._settle()
             return True
         return False
 
@@ -378,7 +399,10 @@ class AccessController:
 
     def _check_lockout(self, user_id: str) -> None:
         fails, until = self._failed_pins.get(user_id, (0, 0.0))
-        if fails >= self.config.max_failed_pins and time.monotonic() < until:
+        if until > 0.0 and time.monotonic() >= until:
+            self._failed_pins.pop(user_id, None)
+            return
+        if fails >= self.config.max_failed_pins:
             raise AccessDenied(f"{self._name}: too many wrong PINs; try again later")
 
     def _check_close_allowed(self, at_home: bool) -> None:
@@ -495,6 +519,10 @@ class AccessController:
         except Exception as err:  # noqa: BLE001 - clearing is cosmetic
             LOGGER.debug("%s: could not clear notification: %s", self._name, err)
 
+    async def _cancel_and_notify(self, service: str, message: str) -> None:
+        await self._clear_notification(service)
+        await self._notify(service, message)
+
     @callback
     def _on_expired(self, _now: Any = None) -> None:
         self._unsub_expiry = None
@@ -532,7 +560,7 @@ class AccessController:
                 reply = event.data.get("textInput")
             if reply is None:
                 reply = event.data.get("reply")
-            if reply is None:
+            if reply is None or str(reply).strip() == "":
                 # The app returned no text at all (no input shown, or a client that
                 # ignores `behavior: textInput`): nothing was guessed, so it is no failed
                 # attempt and cannot lock the approver out. Nothing moves either way.
@@ -549,9 +577,12 @@ class AccessController:
         self._spawn(self._async_execute(pending))
 
     def _register_failed_pin(self, user_id: str) -> None:
-        fails, _ = self._failed_pins.get(user_id, (0, 0.0))
+        now = time.monotonic()
+        fails, until = self._failed_pins.get(user_id, (0, 0.0))
+        if until > 0.0 and now >= until:
+            fails = 0
         fails += 1
-        self._failed_pins[user_id] = (fails, time.monotonic() + self.config.lockout_seconds)
+        self._failed_pins[user_id] = (fails, now + self.config.lockout_seconds)
         LOGGER.warning("%s: wrong PIN from user %s (%d)", self._name, user_id, fails)
 
     def _clear_pending(self) -> None:
@@ -655,6 +686,7 @@ class AccessController:
             self._settle()
             return
         expected = STATE_ON if pending.effect is Effect.OPEN else STATE_OFF
+        self._expected_sensor_state = expected
         timeout = self.config.watchdog_margin
         if pending.effect is Effect.MAY_CLOSE:
             timeout += self._travel_time
@@ -664,6 +696,7 @@ class AccessController:
         @callback
         def _expired(_now: Any = None) -> None:
             self._unsub_watchdog = None
+            self._expected_sensor_state = None
             if self._sensor_state() == expected:
                 self._settle()
                 return
@@ -684,6 +717,7 @@ class AccessController:
         self._unsub_watchdog = async_call_later(hass, timeout, _expired)
 
     def _cancel_watchdog(self) -> None:
+        self._expected_sensor_state = None
         if self._unsub_watchdog is not None:
             self._unsub_watchdog()
             self._unsub_watchdog = None

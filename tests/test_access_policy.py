@@ -811,3 +811,58 @@ async def test_restored_fault_stays_latched_until_acknowledged_on_site(hass: Hom
         await h.ctrl.async_request(Intent.CLOSE, ctx)
     await h.ctrl.async_acknowledge_fault(ctx)
     assert h.ctrl.phase is Phase.IDLE
+
+
+async def test_pin_lockout_expiry_resets_counter_and_whitespace_reply_ignored(hass: HomeAssistant):
+    """Expired PIN lockout resets failed count (H-3), and whitespace-only reply does not count as wrong PIN."""
+    parent = await _user(hass, "Parent")
+    calls = async_mock_service(hass, "notify", "mobile_app_parent")
+    h = Harness(hass, _config(parent.id, pin_code="2468"))
+    hass.states.async_set(SENSOR, STATE_OFF)
+
+    # Whitespace-only reply is treated as missing PIN, not a failed attempt
+    await h.ctrl.async_request(Intent.OPEN, Context(user_id=parent.id))
+    await _press(hass, _approve_action(calls)["action"], parent.id, reply_text="   ")
+    await hass.async_block_till_done()
+    assert h.ctrl._failed_pins == {}
+
+    # Trigger lockout with 3 wrong PINs
+    for _ in range(3):
+        await h.ctrl.async_request(Intent.OPEN, Context(user_id=parent.id))
+        await _press(hass, _approve_action(calls)["action"], parent.id, reply_text="0000")
+        await hass.async_block_till_done()
+    assert h.ctrl._failed_pins[parent.id][0] == 3
+
+    # Simulate lockout expiry before _check_lockout
+    h.ctrl._failed_pins[parent.id] = (3, time.monotonic() - 1.0)
+    await h.ctrl.async_request(Intent.OPEN, Context(user_id=parent.id))
+    assert parent.id not in h.ctrl._failed_pins
+
+    # Also test expiry inside _register_failed_pin when lockout expired while request was pending
+    h.ctrl._failed_pins[parent.id] = (3, time.monotonic() - 1.0)
+    await _press(hass, _approve_action(calls)["action"], parent.id, reply_text="0000")
+    await hass.async_block_till_done()
+    # Counter reset to 1 (2 attempts left), not locked out!
+    assert h.ctrl._failed_pins[parent.id][0] == 1
+    await h.ctrl.async_shutdown()
+
+
+async def test_monitoring_settles_early_on_sensor_or_external_impulse(hass: HomeAssistant):
+    """on_sensor_state and on_external_impulse settle Phase.MONITORING and cancel the watchdog (H-4)."""
+    h, _calls = await _monitoring_close(hass)
+    h.ctrl.on_sensor_state(STATE_ON)  # MAY_CLOSE expects STATE_OFF
+    assert h.ctrl.phase is Phase.MONITORING
+    h.ctrl.on_sensor_state(STATE_OFF)
+    assert h.ctrl.phase is Phase.IDLE
+    assert h.ctrl._unsub_watchdog is None
+    h.ctrl.on_sensor_state(STATE_OFF)  # no longer MONITORING
+    assert h.ctrl.on_external_impulse() is False
+
+    h2, _calls2 = await _monitoring_close(hass)
+    assert h2.ctrl.on_external_impulse() is True
+    await hass.async_block_till_done()
+    assert h2.ctrl.phase is Phase.IDLE
+    assert h2.ctrl._unsub_watchdog is None
+    await h.ctrl.async_shutdown()
+    await h2.ctrl.async_shutdown()
+

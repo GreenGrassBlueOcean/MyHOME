@@ -139,6 +139,7 @@ PARALLEL_UPDATES = 0
 # Delivery of the OFF that ends a software pulse (OWNd without the timed WHAT 18 builder).
 OFF_ATTEMPTS = 3
 OFF_RETRY_DELAY = 1.0
+OFF_SETTLE_DELAY = 0.2
 
 
 def _clamp_slat_time(value: Any, fallback: float = DEFAULT_SLAT_TIME) -> float:
@@ -172,14 +173,14 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         return address_of
 
     def accept_shutter(ctx: DeviceContext) -> bool:
-        if ctx.source == "yaml":
+        if ctx.source == "yaml" or ctx.cfg:
             return str(ctx.cfg.get(CONF_WHO, "2")) == "2"
         return True
 
     def accept_impulse(ctx: DeviceContext) -> bool:
-        if ctx.source == "yaml":
-            return str(ctx.cfg.get(CONF_WHO, "2")) == "1"
-        return True
+        if ctx.source == "bus" or not ctx.cfg:
+            return False
+        return str(ctx.cfg.get(CONF_WHO, "2")) == "1"
 
     def build(ctx: DeviceContext) -> MyHOMECover:
         cfg = ctx.cfg
@@ -208,8 +209,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
             advanced=cfg.get(CONF_ADVANCED_SHUTTER, cfg.get("advanced_shutter", False)),
             slat_tilt=bool(cfg.get(CONF_SLAT_TILT, False)),
             slat_time=_clamp_slat_time(cfg.get(CONF_SLAT_TIME)),
-            manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
-            model=cfg.get(CONF_DEVICE_MODEL, "Shutter / Cover"),
+            manufacturer=cfg.get(CONF_MANUFACTURER) or "BTicino",
+            model=cfg.get(CONF_DEVICE_MODEL) or "Shutter / Cover",
             gateway=runtime.gateway,
             travel_time=int(cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME)),
             min_motor_pulse=float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE)),
@@ -239,8 +240,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
             min_cycle_time=float(cfg.get(CONF_MIN_CYCLE_TIME, cfg.get("min_cycle_time", DEFAULT_MIN_CYCLE_TIME))),
             pin_code=str(cfg[CONF_PIN_CODE]) if CONF_PIN_CODE in cfg else (str(cfg["pin_code"]) if "pin_code" in cfg else None),
             state_sensor=str(cfg[CONF_STATE_SENSOR]) if CONF_STATE_SENSOR in cfg else (str(cfg["state_sensor"]) if "state_sensor" in cfg else None),
-            manufacturer=cfg.get(CONF_MANUFACTURER, "BTicino"),
-            model=cfg.get(CONF_DEVICE_MODEL, "Impulse Cover"),
+            manufacturer=cfg.get(CONF_MANUFACTURER) or "BTicino",
+            model=cfg.get(CONF_DEVICE_MODEL) or "Impulse Cover",
             gateway=runtime.gateway,
             access_config=cfg.get(CONF_ACCESS),
         )
@@ -272,7 +273,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         hass, config_entry, async_add_entities,
         platform=PLATFORM, who="1", event_type=None, build=build_impulse, announce=True,
         registry_address=cover_registry_address("1"), accept=accept_impulse,
-        known_keys=lambda ctx: [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where],
     ).start(listen=False)
 
     SCHEMA_SET_COVER_TRAVEL_TIME = {
@@ -2161,6 +2161,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
         self._publish_state()
 
+    async def async_cancel_request(self) -> None:
+        """Raise when cancel_cover_request is called on a WHO=2 shutter."""
+        raise ServiceValidationError(f"{self._display_name}: cancel_cover_request is only supported on impulse covers")
+
+    async def async_acknowledge_fault(self) -> None:
+        """Raise when acknowledge_cover_fault is called on a WHO=2 shutter."""
+        raise ServiceValidationError(f"{self._display_name}: acknowledge_cover_fault is only supported on impulse covers")
+
 
 class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
     """An impulse-driven gate or garage door powered by a WHO=1 relay.
@@ -2299,6 +2307,11 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             self._attr_is_closed = False
         else:
             self._attr_is_closed = None
+        if self._access is not None:
+            self._access.on_sensor_state(state_str)
+        if state_str == STATE_ON and self._attr_is_opening:
+            self._publish_state()
+            return
         self._attr_is_opening = False
         self._attr_is_closing = False
         self._cancel_travel_timer()
@@ -2324,16 +2337,18 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             self._pulse_off_cancel()
             self._pulse_off_cancel = None
 
-        # The relay of an earlier pulse may still be energised (its OFF never reached the
-        # bus): release it first, and refuse to start another pulse on top of it.
-        if self._off_pending and not await self._async_send_off():
-            return False
-
         # The deadband starts only once the gateway confirmed the write: a failed send
         # must not lock the user out for min_cycle_time with nothing on the bus. The
         # in-flight flag keeps a second request and our own echo out meanwhile.
         self._pulse_in_flight = True
         try:
+            # The relay of an earlier pulse may still be energised (its OFF never reached the
+            # bus): release it first, and refuse to start another pulse on top of it.
+            if self._off_pending:
+                if not await self._async_send_off():
+                    return False
+                await asyncio.sleep(OFF_SETTLE_DELAY)
+
             if self._pulse_duration == 0.5 and hasattr(OWNLightingCommand, "switch_on_timed"):
                 # Use WHAT 18: Timed ON for 0.5 seconds (official WHO 1 specification).
                 # The physical actuator automatically turns off after 0.5s in hardware,
@@ -2442,7 +2457,11 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         door is already there or already on its way. Without one the direction is
         unknown and the pulse goes out as asked.
         """
-        if self._state_sensor is not None:
+        if (intent is Intent.OPEN and self._attr_is_closing) or (
+            intent is Intent.CLOSE and self._attr_is_opening
+        ):
+            intent = Intent.STOP
+        elif self._state_sensor is not None:
             if intent is Intent.OPEN and (self._attr_is_closed is False or self._attr_is_opening):
                 LOGGER.debug("%s: already open or opening, open request ignored", self._display_name)
                 return
@@ -2489,6 +2508,22 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
             raise HomeAssistantError(f"{self._display_name}: no `access:` policy is configured, no fault to clear")
         await self._access.async_acknowledge_fault(self._context)
 
+    async def async_calibrate(self) -> None:
+        """Raise when calibrate_cover is called on a WHO=1 impulse cover."""
+        raise ServiceValidationError(f"{self._display_name}: calibration is only supported on WHO=2 shutters")
+
+    async def async_stop_calibration(self) -> None:
+        """Raise when stop_cover_calibration is called on a WHO=1 impulse cover."""
+        raise ServiceValidationError(f"{self._display_name}: calibration is only supported on WHO=2 shutters")
+
+    async def async_set_travel_time(self, **kwargs: Any) -> None:
+        """Raise when set_cover_travel_time is called on a WHO=1 impulse cover."""
+        raise ServiceValidationError(f"{self._display_name}: set_cover_travel_time is only supported on WHO=2 shutters")
+
+    async def async_reset_travel_time(self) -> None:
+        """Raise when reset_cover_travel_time is called on a WHO=1 impulse cover."""
+        raise ServiceValidationError(f"{self._display_name}: reset_cover_travel_time is only supported on WHO=2 shutters")
+
     @callback
     def handle_event(self, message: Any) -> None:
         """Handle incoming WHO=1 relay frames for this impulse cover.
@@ -2500,7 +2535,9 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         """
         if getattr(message, "is_translation", None) is True:
             return
-        is_on = getattr(message, "is_on", False) or getattr(message, "_what", None) == 1
+        what_pub = getattr(message, "what", None)
+        what = what_pub if isinstance(what_pub, (int, str)) else getattr(message, "_what", None)
+        is_on = getattr(message, "is_on", False) or what in (1, 18)
         if not is_on:
             return  # Ignore *1*0*... release frames (such as the 5-minute delayed hardware timer)
 
@@ -2512,15 +2549,25 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
         # The button has already closed the relay and started the motor: pressing it
         # never aborts anything. Only Home Assistant's own pending request or
         # pre-warning is dropped, so no second pulse follows and stops or reverses it.
-        if self._access is not None and self._access.cancel("wall button pressed"):
-            LOGGER.info(
-                "%s: wall button pressed - the gate/door has already been actuated; "
-                "pending request or pre-warning cancelled so no second pulse follows",
-                self._display_name,
-            )
+        if self._access is not None:
+            if self._access.cancel("wall button pressed"):
+                LOGGER.info(
+                    "%s: wall button pressed - the gate/door has already been actuated; "
+                    "pending request or pre-warning cancelled so no second pulse follows",
+                    self._display_name,
+                )
+            elif self._access.on_external_impulse():
+                LOGGER.info(
+                    "%s: wall button pressed while moving - supervision ended so no false fault is latched",
+                    self._display_name,
+                )
 
         if self._state_sensor is None:
-            if self._attr_is_closed or self._attr_is_closing:
+            if self._attr_is_opening or self._attr_is_closing:
+                self._attr_is_opening = False
+                self._attr_is_closing = False
+                self._cancel_travel_timer()
+            elif self._attr_is_closed:
                 self._attr_is_opening = True
                 self._attr_is_closing = False
                 self._attr_is_closed = False
@@ -2535,9 +2582,6 @@ class MyHOMEImpulseCover(MyHOMEEntity, CoverEntity):
 
                 if self.hass is not None:
                     self._travel_timer_cancel = async_call_later(self.hass, self._travel_time, _finish_open)
-            elif self._attr_is_opening:
-                self._attr_is_opening = False
-                self._cancel_travel_timer()
             else:
                 self._attr_is_closing = True
                 self._attr_is_opening = False

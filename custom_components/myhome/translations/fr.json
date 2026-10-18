@@ -330,6 +330,14 @@
     "reset_cover_travel_time": {
       "name": "Réinitialiser le temps de course du volet",
       "description": "Oublie les temps de course mesurés ou définis manuellement et revient au travel_time de myhome.yaml ou à la valeur par défaut de 25 s."
+    },
+    "cancel_cover_request": {
+      "name": "Annuler la demande de portail ou de porte de garage",
+      "description": "Annule une demande d'approbation en attente ou un préavis en cours pour un portail ou une porte de garage à impulsion. L'annulation est toujours sûre ; rien ne bouge."
+    },
+    "acknowledge_cover_fault": {
+      "name": "Acquitter le défaut de portail ou de porte de garage",
+      "description": "Efface le défaut verrouillé lorsqu'un portail ou une porte de garage n'a pas atteint l'état attendu après une impulsion (obstacle ou inversion possible). Seul un utilisateur autorisé présent au domicile peut l'acquitter ; jusque-là, la fermeture depuis Home Assistant reste bloquée."
     }
   },
   "issues": {

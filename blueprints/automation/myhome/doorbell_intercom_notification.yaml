@@ -30,6 +30,13 @@ blueprint:
       selector:
         entity:
           domain: lock
+    lock_code:
+      name: "Door Lock PIN Code (Optional)"
+      description: "Optional PIN code required to unlock the configured lock entity (leave empty if the lock has no code)."
+      default: ""
+      selector:
+        text:
+          type: password
     language:
       name: "Notification Language"
       description: "Language for push notifications and action buttons (English, Italiano, Nederlands, Deutsch, Français)."
@@ -69,6 +76,7 @@ trigger:
 
 variables:
   door_target: !input door_entity
+  lock_code_val: !input lock_code
   camera_target: !input camera_entity
   lang: !input language
   custom_title_val: !input custom_title
@@ -130,7 +138,7 @@ action:
           ]
         } %}
         {% if camera_target != '' %}
-          {% set _ = payload.update({"entity_id": camera_target}) %}
+          {% set _ = payload.update({"entity_id": camera_target, "image": "/api/camera_proxy/" ~ camera_target}) %}
         {% endif %}
         {{ payload }}
 
@@ -149,3 +157,6 @@ action:
           - action: lock.unlock
             target:
               entity_id: !input door_entity
+            data: >-
+              {{ {'code': lock_code_val} if lock_code_val != '' else {} }}
+

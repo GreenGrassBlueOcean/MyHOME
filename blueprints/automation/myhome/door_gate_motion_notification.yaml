@@ -63,7 +63,8 @@ blueprint:
           unit_of_measurement: "min"
           mode: slider
 
-mode: restart
+mode: parallel
+max: 10
 max_exceeded: silent
 
 trigger:

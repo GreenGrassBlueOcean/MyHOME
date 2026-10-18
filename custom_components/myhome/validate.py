@@ -43,6 +43,7 @@ from voluptuous import (
     Coerce,
     In,
     Invalid,
+    Match,
     Optional,
     Range,
     Required,
@@ -501,7 +502,7 @@ cover_schema = MyHomeDeviceSchema(
                 ]
             ),
             Optional(CONF_TYPE): In([TYPE_IMPULSE_RELAY, "shutter", "standard"]),
-            Optional(CONF_PIN_CODE): Coerce(str),
+            Optional(CONF_PIN_CODE): All(Coerce(str), Match(r"^\d+$", msg="PIN code must contain only digits")),
             Optional(CONF_STATE_SENSOR): cv.entity_id,
             Optional(CONF_PULSE_DURATION, default=0.5): All(Coerce(float), Range(min=0.2, max=2.0)),
             Optional(CONF_MIN_CYCLE_TIME, default=5.0): All(Coerce(float), Range(min=1.0, max=120.0)),
@@ -558,6 +559,8 @@ def _validate_impulse_covers(data: dict[str, typing.Any]) -> dict[str, typing.An
                     f"{device}: an impulse cover (who: 1) needs a point-to-point <WHERE>; a general, area or "
                     "group address would pulse several motors at once"
                 ) from err
+            if float(cfg.get(CONF_MIN_CYCLE_TIME, 5.0)) <= float(cfg.get(CONF_PULSE_DURATION, 0.5)):
+                raise Invalid(f"{device}: min_cycle_time must be greater than pulse_duration")
             if CONF_PIN_CODE in cfg and CONF_ACCESS not in cfg:
                 raise Invalid(f"{device}: pin_code is checked by the access policy; add an access: block or remove it")
         elif CONF_ACCESS in cfg or CONF_PIN_CODE in cfg or CONF_STATE_SENSOR in cfg:
@@ -690,15 +693,22 @@ alarm_control_panel_schema = MyHomeDeviceSchema(
 )
 
 class DoorEntryWhere:
-    """WHERE of a WHO 6 door entry endpoint: digits, with ``#2`` appended on a riser installation."""
+    """WHERE of a WHO 6 door entry endpoint: 1..99 or 4000..4099, optionally with ``#2`` riser."""
 
     def __init__(self, msg: str | None = None) -> None:
         self.msg = msg
 
     def __call__(self, v: typing.Any) -> typing.Any:
-        if isinstance(v, str) and re.fullmatch(r"\d{1,4}(#2)?", v):
-            return v
-        raise Invalid(f"Invalid door entry WHERE {v}, it must be 1-4 digits, optionally followed by #2 (riser).")
+        if isinstance(v, str):
+            m = re.fullmatch(r"(\d{1,4})(#2)?", v)
+            if m and not (len(m.group(1)) > 1 and m.group(1).startswith("0")):
+                num = int(m.group(1))
+                riser = m.group(2) is not None
+                if (not riser and num in (0, 4100)) or (1 <= num <= 99) or (4000 <= num <= 4099):
+                    return v
+        raise Invalid(
+            f"Invalid door entry WHERE {v}, expected 1-99 or 4000-4099 (optionally followed by #2)."
+        )
 
     def __repr__(self) -> str:
         return "DoorEntryWhere(msg=%r)" % self.msg
@@ -714,8 +724,8 @@ lock_schema = MyHomeDeviceSchema(
             Optional(CONF_BUS_INTERFACE): All(Coerce(str), BusInterface()),  # type: ignore
             Required(CONF_NAME): str,
             Optional(CONF_ENTITY_NAME): str,
-            Optional(CONF_CODE): Coerce(str),
-            Optional(CONF_PULSE_DURATION, default=0.5): All(
+            Optional(CONF_CODE): All(Coerce(str), Match(r"^\d+$", msg="PIN code must contain only digits")),
+            Optional(CONF_PULSE_DURATION, default=5.0): All(
                 Coerce(float), Range(min=0.1, max=10.0)
             ),
             Optional(CONF_MANUFACTURER, default="BTicino S.p.A."): str,
@@ -729,7 +739,8 @@ def _validate_locks(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """A door entry lock needs a single entrance address, never general, area or broadcast."""
     for device, cfg in data.items():
         where = str(cfg.get(CONF_WHERE, ""))
-        if where in ("0", "4100"):
+        num = int(where.split("#", 1)[0])
+        if num in (0, 4100):
             raise Invalid(f"{device}: a door entry lock cannot use general ('0') or broadcast ('4100') addressing")
     return data
 

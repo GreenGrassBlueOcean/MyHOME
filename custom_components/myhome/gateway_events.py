@@ -199,7 +199,15 @@ class GatewayEventDispatcher:
         """Call kind of a WHO 8 call (`*8*1#<kind>#<mm>*<where>##`), or None when unreadable."""
         kind = getattr(message, "call_kind", None)
         if kind is None:
-            params = getattr(message, "_what_param", None) or []
+            pub_params = getattr(message, "what_param", None)
+            priv_params = getattr(message, "_what_param", None)
+            params = (
+                pub_params
+                if isinstance(pub_params, (list, tuple))
+                else priv_params
+                if isinstance(priv_params, (list, tuple))
+                else []
+            )
             kind = params[0] if params else None
         try:
             return int(kind) if kind is not None else None
@@ -593,8 +601,16 @@ class GatewayEventDispatcher:
             if isinstance(message, OWNGatewayEvent):
                 self.handler._handle_gateway_diagnostics(message)
         elif isinstance(message, OWNDoorEntryEvent) or getattr(message, "who", None) in (6, 8):
+            if getattr(message, "is_translation", False):
+                self._logger.debug(
+                    "%s Ignoring translation message `%s`",
+                    self.handler.log_id,
+                    message,
+                )
+                return
             who = getattr(message, "who", None)
-            what = getattr(message, "_what", None)
+            what_pub = getattr(message, "what", None)
+            what = what_pub if isinstance(what_pub, (int, str)) else getattr(message, "_what", None)
             where_val = getattr(message, "where", "")
             # WHO 8 WHAT 1 starts any call session. Only the entrance panels (kinds 1-4)
             # ring the door; internal handset calls (kind 6), external intercom calls
@@ -612,9 +628,28 @@ class GatewayEventDispatcher:
             else:
                 is_incoming = getattr(message, "is_incoming_call", who == 6 and what == 6)
                 is_call = getattr(message, "is_call", is_incoming or is_chime)
+
+            target_mac = self.handler.mac
+            config_entry = getattr(self.handler, "config_entry", None)
+            target_entry_id = getattr(config_entry, "entry_id", None) if config_entry else None
+
+            if getattr(self.handler, "is_standby", False):
+                primary_gw = self.handler._get_primary_gateway()
+                if (
+                    primary_gw is not None
+                    and not primary_gw.is_connected
+                    and who is not None
+                    and self.handler._profile_supports_who(who)
+                ):
+                    target_mac = primary_gw.mac
+                    pri_entry = getattr(primary_gw, "config_entry", None)
+                    target_entry_id = getattr(pri_entry, "entry_id", None) if pri_entry else None
+                else:
+                    target_mac = None
+
             # On a shared bus every gateway sees the same frame; only the active owner
             # of the subsystem may announce it or each ring fires once per gateway.
-            if is_call and self._is_active_for_who(who):
+            if target_mac is not None and is_call and self._is_active_for_who(who):
                 event_name = (
                     "broadcast_call"
                     if is_broadcast
@@ -626,13 +661,12 @@ class GatewayEventDispatcher:
                     "where": str(where_val),
                     "event": event_name,
                     "is_broadcast": is_broadcast,
-                    "gateway_mac": self.handler.mac,
+                    "gateway_mac": target_mac,
                 }
-                config_entry = getattr(self.handler, "config_entry", None)
-                if config_entry and hasattr(config_entry, "entry_id") and isinstance(config_entry.entry_id, str):
-                    doorbell_payload["entry_id"] = config_entry.entry_id
+                if target_entry_id and isinstance(target_entry_id, str):
+                    doorbell_payload["entry_id"] = target_entry_id
                 self.hass.bus.async_fire("myhome_doorbell_event", doorbell_payload)
-                dispatcher_send(self.hass, f"myhome_doorbell_event_{self.handler.mac}", doorbell_payload)
+                dispatcher_send(self.hass, f"myhome_doorbell_event_{target_mac}", doorbell_payload)
             self._logger.debug(
                 "%s %s",
                 self.handler.log_id,

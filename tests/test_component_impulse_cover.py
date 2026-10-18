@@ -82,7 +82,7 @@ def mock_gateway():
 
 
 async def test_impulse_cover_setup_restores_and_configures(hass: HomeAssistant, mock_gateway):
-    """Test setup of WHO=1 impulse covers from YAML and entity registry."""
+    """Test setup of WHO=1 impulse covers from YAML and entity registry (rejecting removed stale registry entries per H-5)."""
     mac = mock_gateway.mac
     hass.data = {
         DOMAIN: {
@@ -90,6 +90,13 @@ async def test_impulse_cover_setup_restores_and_configures(hass: HomeAssistant, 
                 "entity": mock_gateway,
                 CONF_PLATFORMS: {
                     PLATFORM: {
+                        "1-21": {
+                            CONF_WHERE: "21",
+                            CONF_WHO: "1",
+                            CONF_NAME: "Side Gate",
+                            CONF_DEVICE_CLASS: CoverDeviceClass.GATE,
+                            CONF_TYPE: TYPE_IMPULSE_RELAY,
+                        },
                         "1-22": {
                             CONF_WHERE: "22",
                             CONF_WHO: "1",
@@ -116,10 +123,13 @@ async def test_impulse_cover_setup_restores_and_configures(hass: HomeAssistant, 
     reg_1 = MagicMock()
     reg_1.domain = Platform.COVER
     reg_1.unique_id = f"{mac}-1-21"
+    reg_removed = MagicMock()  # removed from myhome.yaml: must not resurrect without its access policy (H-5)
+    reg_removed.domain = Platform.COVER
+    reg_removed.unique_id = f"{mac}-1-29"
 
     with (
         patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_er),
-        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1]),
+        patch("homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=[reg_1, reg_removed]),
     ):
         added_entities = []
 
@@ -129,9 +139,10 @@ async def test_impulse_cover_setup_restores_and_configures(hass: HomeAssistant, 
         attach_runtime(hass, config_entry)
         await async_setup_entry(hass, config_entry, fake_add_entities)
 
-        # 1 restored (where=21) + 1 configured from YAML (where=22)
+        # 1 restored (where=21) + 1 configured from YAML (where=22); removed (where=29) rejected
         impulse_entities = [e for e in added_entities if isinstance(e, MyHOMEImpulseCover)]
         assert len(impulse_entities) == 2
+        assert not any(e._where == "29" for e in impulse_entities)
         gate = next(e for e in impulse_entities if e._where == "22")
         assert gate._device_name == "Entrance Gate"
         assert gate.device_class == CoverDeviceClass.GATE
@@ -324,11 +335,11 @@ async def test_impulse_cover_state_sensor_binding(hass: HomeAssistant, mock_gate
             # Reset mock for sensor updates
             mock_gateway.send.reset_mock()
 
-            # Sensor state updates to on (open)
+            # Sensor state updates to on (not closed): cover stays opening until travel completes
             hass.states.async_set("binary_sensor.garage_door_contact", STATE_ON)
             await hass.async_block_till_done()
             assert cover.is_closed is False
-            assert cover.is_opening is False
+            assert cover.is_opening is True
 
             # Sensor state updates to off (closed)
             hass.states.async_set("binary_sensor.garage_door_contact", STATE_OFF)
@@ -847,3 +858,158 @@ async def test_lost_off_is_retried_and_blocks_the_next_pulse(hass: HomeAssistant
     await impulse_gate.async_will_remove_from_hass()
     assert str(mock_gateway.send.call_args[0][0]) == "*1*0*22##"
     assert impulse_gate._off_pending is False
+
+
+async def test_cross_class_cover_service_guards(hass: HomeAssistant, impulse_gate, mock_gateway):
+    """Impulse covers reject shutter calibration services and shutters reject impulse access services (C-2)."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    from custom_components.myhome.cover import MyHOMECover
+
+    with pytest.raises(ServiceValidationError, match="only supported on WHO=2 shutters"):
+        await impulse_gate.async_calibrate()
+    with pytest.raises(ServiceValidationError, match="only supported on WHO=2 shutters"):
+        await impulse_gate.async_stop_calibration()
+    with pytest.raises(ServiceValidationError, match="only supported on WHO=2 shutters"):
+        await impulse_gate.async_set_travel_time(travel_time=20.0)
+    with pytest.raises(ServiceValidationError, match="only supported on WHO=2 shutters"):
+        await impulse_gate.async_reset_travel_time()
+
+    with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
+        shutter = MyHOMECover(
+            hass=hass,
+            name="Shutter",
+            entity_name=None,
+            device_id="12",
+            who="2",
+            where="12",
+            interface=None,
+            advanced=False,
+            manufacturer="BTicino",
+            model="Shutter",
+            gateway=mock_gateway,
+        )
+    shutter.entity_id = "cover.shutter_12"
+    with pytest.raises(ServiceValidationError, match="only supported on impulse covers"):
+        await shutter.async_cancel_request()
+    with pytest.raises(ServiceValidationError, match="only supported on impulse covers"):
+        await shutter.async_acknowledge_fault()
+
+
+async def test_direct_cover_opposite_direction_stops_and_wall_button_stops_closing(
+    hass: HomeAssistant, direct_gate, impulse_gate, mock_gateway, caplog
+):
+    """Calling close while opening (or open while closing) on a direct cover stops it (H-6)."""
+    from custom_components.myhome.access_policy import Phase
+
+    cover = direct_gate(state_sensor="binary_sensor.garage_contact")
+    cover._handle_sensor_update(STATE_OFF)
+
+    await cover.async_open_cover()
+    assert cover.is_opening is True
+    cover._handle_sensor_update(STATE_ON)
+    assert cover.is_opening is True  # C-3: stays opening when contact lifts
+
+    # Opposite command while opening converts to STOP
+    await cover.async_close_cover()
+    assert cover.is_opening is False
+    assert cover.is_closing is False
+
+    # Now start closing, then call open_cover while closing -> converts to STOP
+    await cover.async_close_cover()
+    assert cover.is_closing is True
+    await cover.async_open_cover()
+    assert cover.is_closing is False
+    assert cover.is_opening is False
+
+    # Wall button press while closing on a sensorless cover stops closing
+    sensorless = direct_gate()
+    sensorless._attr_is_closed = False
+    sensorless._attr_is_closing = True
+    sensorless.handle_event(OWNEvent.parse("*1*1*24##"))
+    assert sensorless.is_closing is False
+    assert sensorless.is_opening is False
+
+    # Wall button press during supervised Phase.MONITORING ends supervision (H-4)
+    impulse_gate._access.phase = Phase.MONITORING
+    with caplog.at_level("INFO"):
+        impulse_gate.handle_event(OWNEvent.parse("*1*1*22##"))
+    assert impulse_gate._access.phase is Phase.IDLE
+    assert "supervision ended" in caplog.text
+
+
+async def test_f422_sub_bus_impulse_cover_does_not_swallow_local_light_or_cover(hass: HomeAssistant, mock_gateway):
+    """An impulse cover at 71#4#01 does not suppress a local light at 71 or cross-route bus frames (H-2)."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.myhome.light import async_setup_entry as async_setup_light_entry
+    from tests.conftest import attach_runtime
+
+    mac = mock_gateway.mac
+    hass.data.setdefault("myhome", {})[mac] = {
+        "entity": mock_gateway,
+        "platforms": {
+            "cover": {
+                "1-71#4#01": {
+                    "who": "1",
+                    "where": "71",
+                    "interface": "01",
+                    "name": "Sub-bus Gate",
+                    "manufacturer": None,
+                    "model": None,
+                },
+                "2-80": {
+                    "who": "2",
+                    "where": "80",
+                    "name": "Shutter 80",
+                    "manufacturer": None,
+                    "model": None,
+                },
+            },
+            "light": {
+                "1-71": {"who": "1", "where": "71", "name": "Local Light 71"},
+            },
+        },
+    }
+    entry = MagicMock()
+    entry.data = {"mac": mac}
+    entry.entry_id = "sub_bus_cover_entry"
+    attach_runtime(hass, entry)
+
+    covers = []
+    lights = []
+    cov_reg = MagicMock(domain="cover", unique_id=f"{mac}-1-71#4#01", has_entity_name=True, name=None)
+    with (
+        patch("custom_components.myhome.discovery.er.async_entries_for_config_entry", return_value=[cov_reg]),
+        patch("custom_components.myhome.discovery.er.async_get"),
+    ):
+        await async_setup_light_entry(hass, entry, lights.extend)
+        await async_setup_entry(hass, entry, covers.extend)
+
+    assert len(lights) == 1
+    assert lights[0]._where == "71"
+    sub_gate = next(c for c in covers if isinstance(c, MyHOMEImpulseCover))
+    shutter = next(c for c in covers if not isinstance(c, MyHOMEImpulseCover))
+    assert sub_gate._manufacturer == "BTicino"
+    assert sub_gate._model == "Impulse Cover"
+    assert shutter._manufacturer == "BTicino"
+    assert shutter._model == "Shutter / Cover"
+
+    for ent in (*lights, *covers):
+        ent.hass = hass
+        ent.async_write_ha_state = MagicMock()
+        ent.async_schedule_update_ha_state = MagicMock()
+
+    # Local light frame *1*1*71## turns on the local light and does NOT actuate sub_gate
+    sub_gate._attr_is_closed = True
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse("*1*1*71##"))
+    assert lights[0].is_on is True
+    assert sub_gate.is_opening is False
+
+    # Sub-bus frame *1*1*71#4#01## routes to sub_gate via light.route_foreign
+    async_dispatcher_send(hass, f"myhome_message_{mac}", OWNEvent.parse("*1*1*71#4#01##"))
+    assert sub_gate.is_opening is True
+
+    sub_gate._cancel_travel_timer()
+    await sub_gate.async_will_remove_from_hass()
+

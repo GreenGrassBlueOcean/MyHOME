@@ -48,7 +48,6 @@ from .discovery import (
     Address,
     DeviceContext,
     PlatformDiscovery,
-    default_known_keys,
     parse_unique_id,
 )
 from .gateway import MyHOMEGatewayHandler
@@ -84,8 +83,8 @@ async def async_setup_entry(
         name = str(name_val) if name_val else f"Lock {ctx.suffix}"
         raw_entity_name = cfg.get(CONF_ENTITY_NAME)
         entity_name = str(raw_entity_name) if raw_entity_name is not None else None
-        manufacturer = str(cfg.get(CONF_MANUFACTURER, "BTicino"))
-        model = str(cfg.get(CONF_DEVICE_MODEL, "Door Entry Lock"))
+        manufacturer = str(cfg.get(CONF_MANUFACTURER) or "BTicino")
+        model = str(cfg.get(CONF_DEVICE_MODEL) or "Door Entry Lock")
         code = str(cfg[CONF_CODE]) if CONF_CODE in cfg else None
         pulse = float(cfg.get(CONF_PULSE_DURATION, DEFAULT_LOCK_DURATION))
         return MyHOMELock(
@@ -104,11 +103,9 @@ async def async_setup_entry(
         )
 
     def accept(ctx: DeviceContext) -> bool:
-        if ctx.address.where in ("4100", "0", ""):
+        if ctx.source == "bus" or not ctx.cfg or ctx.address.where in ("4100", "0", ""):
             return False
-        if ctx.source == "yaml":
-            return str(ctx.cfg.get(CONF_WHO, "6")) == "6"
-        return True
+        return str(ctx.cfg.get(CONF_WHO, "6")) == "6"
 
     # Locks come only from myhome.yaml and the entity registry, never from bus traffic:
     # a lock release seen on the bus would otherwise add a code-less entity that anyone
@@ -124,8 +121,7 @@ async def async_setup_entry(
         announce=True,
         registry_address=registry_address,
         accept=accept,
-        known_keys=lambda ctx: [*default_known_keys(ctx), ctx.address.where, ctx.address.clean_where],
-    ).start(listen=False)
+    ).start(listen=True)
 
     return True
 
@@ -230,8 +226,10 @@ class MyHOMELock(MyHOMEEntity, LockEntity):
         )
         if getattr(message, "is_translation", None) is True:
             return
+        what_pub = getattr(message, "what", None)
+        what = what_pub if isinstance(what_pub, (int, str)) else getattr(message, "_what", None)
         is_lock_open = getattr(message, "is_lock_open", False) or (
-            getattr(message, "who", None) == 6 and getattr(message, "_what", None) in (10, 22)
+            getattr(message, "who", None) == 6 and what in (10, 22)
         )
         if is_lock_open:
             self._attr_is_locked = False

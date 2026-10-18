@@ -470,9 +470,9 @@ Add an `access:` block to opt in to the supervised workflow (phone approval, PIN
 | Key | Meaning |
 | :--- | :--- |
 | `state_sensor` | Binary sensor of the ground-truth position. Without it the position is assumed and, with `access:`, every pulse is treated as one that can close the door. |
-| `pulse_duration` | Relay pulse in seconds. `0.5` uses the timed WHAT 18 command where the installed OWNd has it, and ON followed by OFF otherwise. |
-| `min_cycle_time` | Deadband after a pulse that reached the bus. A failed send does not start it. |
-| `pin_code` | PIN asked in the approval notification; only valid together with `access:`. A reply that carries no text is refused without counting as a wrong attempt. |
+| `pulse_duration` | Relay pulse in seconds. `0.5` uses the timed WHAT 18 command (`*1*18*WHERE##`, specified in `WHO_1.pdf` for 0.5 s timed ON; not yet replayed in the firmware oracle) where the installed OWNd exposes `turn_on_for_half_second`, and ON (`*1*1*WHERE##`) followed by OFF (`*1*0*WHERE##`) otherwise. |
+| `min_cycle_time` | Deadband after a pulse that reached the bus (must be strictly greater than `pulse_duration`). A failed send does not start it. |
+| `pin_code` | Digit-only PIN asked in the approval notification; only valid together with `access:`. A reply that carries no text is refused without counting as a wrong attempt. |
 | `access.*` | Optional. Turns on the supervised workflow, see the flow above: `allowed_users`, `approvers`, `remote_close`, `camera`, `safety_devices_verified`, `safety_check_days`, `prewarn_light`, `prewarn_seconds`, `close_block_entity`, `watchdog_margin`, `approval_timeout`. |
 
 > [!NOTE]
@@ -485,13 +485,13 @@ Add an `access:` block to opt in to the supervised workflow (phone approval, PIN
   lock:
     front_door:
       who: 6                         # the only value; WHO 1 relays are covers
-      where: "4001"                  # 4000-4095 style endpoints; append #2 on a riser installation: "4001#2"
+      where: "4001"                  # 1-99 or 4000-4099 endpoints; append #2 on a riser installation: "4001#2"
       name: Front door
-      code: "1234"                   # optional; asked on every unlock
-      pulse_duration: 0.5            # seconds until the lock shows locked again
+      code: "1234"                   # optional digit-only PIN; asked on every unlock
+      pulse_duration: 5.0            # seconds until the lock shows locked again (default 5.0 s)
 ```
 
-Locks exist only when they are configured here (or were created earlier and are restored from the registry). A lock release seen on the bus never creates a lock entity, because such an entity would carry no code.
+Locks exist only when they are configured here (and are restored from the registry on restart with their YAML configuration intact). Neither a lock release seen on the bus nor a stale registry entry removed from `myhome.yaml` creates a lock entity, because such an entity would carry no code.
 
 ### ⚠️ Strict Distinction: Covers vs. Locks
 
