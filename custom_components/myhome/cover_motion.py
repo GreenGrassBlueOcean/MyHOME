@@ -144,4 +144,3 @@ def compute_freeze_position(
     if pos is not None:
         return pos
     return current_position if current_position is not None else start_position
-

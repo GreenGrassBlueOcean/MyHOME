@@ -71,12 +71,17 @@ from .const import (
     CONF_MIN_MOTOR_PULSE,
     CONF_PLATFORMS,
     CONF_RGB,
+    CONF_SLAT_TILT,
+    CONF_SLAT_TIME,
     CONF_STANDALONE,
     CONF_TRAVEL_TIME,
     CONF_WHERE,
     CONF_WHO,
     CONF_ZONE,
     DEFAULT_MIN_MOTOR_PULSE,
+    DEFAULT_SLAT_TIME,
+    MAX_SLAT_TIME,
+    MIN_SLAT_TIME,
 )
 
 
@@ -406,6 +411,10 @@ cover_schema = MyHomeDeviceSchema(
             Optional(CONF_ENTITY_NAME): str,
             Optional(CONF_ADVANCED_SHUTTER, default=False): Boolean(),
             Optional("advanced_shutter", default=False): Boolean(),
+            Optional(CONF_SLAT_TILT, default=False): Boolean(),
+            Optional(CONF_SLAT_TIME): All(
+                Coerce(float), Range(min=MIN_SLAT_TIME, max=MAX_SLAT_TIME)
+            ),
             Optional(CONF_TRAVEL_TIME, default=25): All(
                 Coerce(int),
                 Range(min=int(CALIBRATION_MIN_RUN), max=int(CALIBRATION_MAX_RUN)),
@@ -429,6 +438,9 @@ def _validate_cover_members(data: dict[str, typing.Any]) -> dict[str, typing.Any
             where = cfg.get(CONF_WHERE)
             if not where or not str(where).startswith("#"):
                 raise Invalid("Members can only be defined on a group cover (where must start with #)")
+        if CONF_SLAT_TIME in cfg and not cfg.get(CONF_SLAT_TILT):
+            raise Invalid("slat_time can only be defined on a cover with slat_tilt enabled")
+        cfg.setdefault(CONF_SLAT_TIME, DEFAULT_SLAT_TIME)
     return data
 
 cover_schema = All(cover_schema, _validate_cover_members)  # type: ignore[assignment]

@@ -8,7 +8,7 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.switch import SwitchDeviceClass
 from homeassistant.const import CONF_MAC, CONF_NAME
-from voluptuous import ALLOW_EXTRA, Invalid
+from voluptuous import ALLOW_EXTRA, Invalid, MultipleInvalid
 
 from custom_components.myhome.const import (
     CONF_ADVANCED_SHUTTER,
@@ -24,6 +24,8 @@ from custom_components.myhome.const import (
     CONF_INVERTED,
     CONF_MANUFACTURER,
     CONF_PLATFORMS,
+    CONF_SLAT_TILT,
+    CONF_SLAT_TIME,
     CONF_WHERE,
     CONF_WHO,
     CONF_ZONE,
@@ -333,18 +335,27 @@ class TestDeviceSchemas:
             switch_schema(raw)
 
     def test_cover_schema(self):
-        """Test cover schema with advanced shutter boolean."""
+        """Test cover schema with advanced shutter boolean and slat_time validation."""
         raw = {
             "bedroom_blind": {
                 CONF_WHERE: "31",
                 CONF_NAME: "Bedroom Blind",
                 CONF_ADVANCED_SHUTTER: True,
+                CONF_SLAT_TILT: True,
+                CONF_SLAT_TIME: 2.5,
             }
         }
         res = cover_schema(raw)
         assert "2-31" in res
         assert res["2-31"][CONF_WHO] == "2"
         assert res["2-31"][CONF_ADVANCED_SHUTTER] is True
+        assert res["2-31"][CONF_SLAT_TILT] is True
+        assert res["2-31"][CONF_SLAT_TIME] == 2.5
+
+        with pytest.raises(Invalid, match="slat_time can only be defined on a cover with slat_tilt enabled"):
+            cover_schema({"c": {CONF_WHERE: "31", CONF_NAME: "Blind", CONF_SLAT_TIME: 2.0}})
+        with pytest.raises(Invalid, match="slat_time can only be defined on a cover with slat_tilt enabled"):
+            cover_schema({"c": {CONF_WHERE: "31", CONF_NAME: "Blind", CONF_SLAT_TILT: False, CONF_SLAT_TIME: 2.0}})
 
     def test_binary_sensor_schema(self):
         """Test binary sensor schema across supported WHOs (1, 9, 25)."""
@@ -749,3 +760,27 @@ class TestFullConfigSchema:
                     {"cov1": {CONF_WHERE: "22", CONF_NAME: "Living Cover", "travel_time": invalid_tt}}
                 )
 
+        # Cover with slat_tilt
+        cov_tilt_data = {
+            "cov2": {
+                CONF_WHERE: "23",
+                CONF_NAME: "Venetian Blind",
+                "slat_tilt": True,
+                "slat_time": 3.5,
+            }
+        }
+        res_cov_tilt = cover_schema(cov_tilt_data)
+        assert res_cov_tilt["2-23"][CONF_SLAT_TILT] is True
+        assert res_cov_tilt["2-23"][CONF_SLAT_TIME] == 3.5
+
+        # Invalid slat_time (< 0.5s or > 10.0s)
+        for invalid_time in (0.2, 12.0, -1.0):
+            with pytest.raises(MultipleInvalid):
+                cover_schema({
+                    "cov_bad": {
+                        CONF_WHERE: "24",
+                        CONF_NAME: "Bad Blind",
+                        "slat_tilt": True,
+                        "slat_time": invalid_time,
+                    }
+                })
