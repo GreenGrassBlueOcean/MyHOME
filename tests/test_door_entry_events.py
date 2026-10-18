@@ -212,7 +212,7 @@ async def test_doorbell_fires_once_on_a_shared_bus(hass: HomeAssistant):
 
     try:
         # Translation frames on WHO 6/8 are ignored (M-3)
-        translated = MagicMock(who=6, what=6, where="1", is_translation=True)
+        translated = MagicMock(spec=OWNDoorEntryEvent, who=6, what=6, where="1", is_translation=True)
         await gateway._process_message(translated)
         assert captured == []
 
