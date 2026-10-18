@@ -6,6 +6,16 @@ from typing import Any
 
 from homeassistant.const import Platform
 
+from .where_grammar import (
+    area_of_where as area_of_where,
+)
+from .where_grammar import (
+    is_apl_address as is_apl_address,
+)
+from .where_grammar import (
+    normalize_where as normalize_where,
+)
+
 LOGGER = logging.getLogger(__package__)
 DOMAIN = "myhome"
 
@@ -103,6 +113,8 @@ CONF_CENTRALIZED_SHUTTER_CLOSE = "centralized_shutter_close"
 CONF_CENTRALIZED_SHUTTER_STOP = "centralized_shutter_stop"
 CONF_TRAVEL_TIME = "travel_time"
 DEFAULT_TRAVEL_TIME = 25
+CONF_MIN_MOTOR_PULSE = "min_motor_pulse"
+DEFAULT_MIN_MOTOR_PULSE = 0.4
 
 # Cover calibration (timed covers measure their own travel times on the bus)
 CONF_COVER_TRAVEL_TIMES = "cover_travel_times"  # config entry option: {device_id: {...}}
@@ -115,6 +127,8 @@ EVENT_COVER_CALIBRATION = "myhome_cover_calibration"
 CALIBRATION_RUN_TIMEOUT = 180.0  # s to wait for the actuator's stop status per run
 CALIBRATION_MIN_RUN = 1.0        # s: anything shorter is not a full travel
 CALIBRATION_MAX_RUN = 300.0      # s: anything longer is an actuator with no run-time limit
+CALIBRATION_MIN_MOTOR_PULSE = 0.0  # s: 0.0 disables floor
+CALIBRATION_MAX_MOTOR_PULSE = 5.0  # s: upper limit for motor start-up deadband floor
 CALIBRATION_SETTLE = 1.0         # s pause between runs so the actuator relay settles
 # An actuator with the factory 60 s run-time limit stops itself, not at the end
 # stop: measured 61.5 s for a 14 s shutter on a MyHOMEServer1 (#319). A run that
@@ -207,17 +221,6 @@ SHARED_BUS_EVIDENCE_COUNT = 3
 SHARED_BUS_EVIDENCE_WINDOW_S = 600.0
 
 
-def who4_raw_to_celsius(raw: str) -> float:
-    """Decode a raw WHO 4 temperature (``SXXX``, tenths of a degree) that OWNd did not decode.
-
-    Raises ``ValueError`` when ``raw`` is not a number. Exactly zero is ``0.0`` whatever the sign digit.
-    """
-    if len(raw) == 4 and raw.startswith("1"):
-        magnitude = float(raw[1:]) / 10.0
-        return -magnitude if magnitude else 0.0
-    return float(raw) / 10.0
-
-
 def eight_bits_to_percent(value: int) -> int:
     """Convert an 8-bit brightness (0-255) to percentage (0-100)."""
     return int(round((value * 100) / 255, 0))
@@ -235,85 +238,6 @@ def eight_bits_to_min_percent(value: int) -> int:
 def percent_to_eight_bits(value: int) -> int:
     """Convert a percentage (0-100) to 8-bit brightness (0-255)."""
     return int(round((value * 255) / 100, 0))
-
-
-def is_apl_address(base: str) -> bool:
-    """Check if base address is a valid OpenWebNet Point-to-Point (APL) address.
-
-    Point-to-point addressing combinations:
-      - A = 0; PL [1-9]        -> 2 digits (e.g. 02 = Area 0, PL 2; accepted by BTicino firmware)
-      - A = 00; PL [01-15]     -> 4 digits (e.g. 0015 = Area 00, PL 15)
-      - A [1-9]; PL [1-9]      -> 2 digits (e.g. 15 = Area 1, PL 5)
-      - A = 10; PL [01-15]     -> 4 digits (e.g. 1015 = Area 10, PL 15)
-      - A [01-09]; PL [10-15]  -> 4 digits (e.g. 0115 = Area 1, PL 15)
-    """
-    if not base.isdigit():
-        return False
-    if len(base) == 2:
-        a = int(base[0])
-        pl = int(base[1])
-        if a == 0:
-            return 1 <= pl <= 9
-        return 1 <= a <= 9 and 1 <= pl <= 9
-    if len(base) == 4:
-        a = int(base[:2])
-        pl = int(base[2:])
-        if a == 0:
-            return 1 <= pl <= 15
-        if 1 <= a <= 9:
-            return 10 <= pl <= 15
-        if a == 10:
-            return 1 <= pl <= 15
-    return False
-
-
-def area_of_where(where: str | int | None) -> str | None:
-    """Return the area status WHERE for a given Point-to-Point (APL) WHERE."""
-    if where is None:
-        return None
-    where_str = str(where).strip()
-    parts = where_str.split("#", 1)
-    base = parts[0]
-    if not is_apl_address(base):
-        return None
-    if len(base) == 2:
-        if base[0] == "0":
-            return "00"
-        return base[0]
-    # Length is 4
-    a = base[:2]
-    if a == "00":
-        return "00"
-    if a == "10":
-        return "100"
-    return str(int(a))
-
-
-def normalize_where(where: str | int | None) -> str:
-    """Normalize OpenWebNet address while preserving Point-to-Point (APL) addressing.
-
-    Point-to-point WHERE addresses must never have leading zeros stripped:
-      - '02' means Area 0, Point 2 (2 digits)
-      - '0015' means Area 00, Point 15 (4 digits)
-      - '15' means Area 1, Point 5 (2 digits)
-    Area broadcasts '00' (Area 0) and '100' (Area 10) are also preserved.
-    Other numeric addresses (such as zero-padded CEN+/dry contact object IDs like '0021')
-    have leading zeros stripped to match integer IDs.
-    """
-    if where is None:
-        return ""
-    where_str = str(where).strip()
-    if not where_str:
-        return ""
-    parts = where_str.split("#", 1)
-    base = parts[0]
-    if is_apl_address(base) or base in ("00", "100", "0"):
-        norm_base = base
-    elif base.isdigit():
-        norm_base = str(int(base))
-    else:
-        norm_base = base
-    return f"{norm_base}#{parts[1]}" if len(parts) > 1 else norm_base
 
 
 SERVICE_TURN_ON_TIMED = "turn_on_timed"
@@ -523,7 +447,7 @@ def build_timed_turn_on_command(
     seconds: float = 0,
 ) -> Any:
     """Build OpenWebNet hardware timer command for WHO=1."""
-    from OWNd.message import OWNCommand, OWNLightingCommand
+    from OWNd.message import OWNLightingCommand
 
     total_seconds = float(duration if duration is not None else 0.0)
     total_seconds += (int(hours) * 3600) + (int(minutes) * 60) + float(seconds)
@@ -536,9 +460,7 @@ def build_timed_turn_on_command(
         what = PRESET_TIMERS[rounded_secs]
         if hasattr(OWNLightingCommand, "switch_on_timed"):
             return OWNLightingCommand.switch_on_timed(where, what)
-        frame = f"*1*{what}*{where}##"  # pragma: no cover - fallback on released OWNd 2.0.0b10
-        parsed = OWNCommand.parse(frame)  # pragma: no cover
-        return parsed if parsed is not None else OWNCommand(frame)  # pragma: no cover
+        return OWNLightingCommand.parse(f"*1*{what}*{where}##")
 
     int_secs = int(round(total_seconds))
     h = max(0, min(255, int_secs // 3600))
@@ -546,8 +468,6 @@ def build_timed_turn_on_command(
     s = max(0, min(59, int_secs % 60))
     if hasattr(OWNLightingCommand, "set_variable_timer"):
         return OWNLightingCommand.set_variable_timer(where, h, m, s)
-    frame = f"*#1*{where}*#2*{h}*{m}*{s}##"  # pragma: no cover - fallback on released OWNd 2.0.0b10
-    parsed = OWNCommand.parse(frame)  # pragma: no cover
-    return parsed if parsed is not None else OWNCommand(frame)  # pragma: no cover
+    return OWNLightingCommand.parse(f"*#1*{where}*#2*{h}*{m}*{s}##")
 
 

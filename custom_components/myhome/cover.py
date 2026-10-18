@@ -38,7 +38,9 @@ from .const import (
     BUS_ROUTING,
     CALIBRATION_CUTOFF_MAX,
     CALIBRATION_CUTOFF_MIN,
+    CALIBRATION_MAX_MOTOR_PULSE,
     CALIBRATION_MAX_RUN,
+    CALIBRATION_MIN_MOTOR_PULSE,
     CALIBRATION_MIN_RUN,
     CALIBRATION_RUN_TIMEOUT,
     CALIBRATION_SETTLE,
@@ -48,7 +50,9 @@ from .const import (
     CONF_ENTITY_NAME,
     CONF_MANUFACTURER,
     CONF_MEMBERS,
+    CONF_MIN_MOTOR_PULSE,
     CONF_TRAVEL_TIME,
+    DEFAULT_MIN_MOTOR_PULSE,
     DEFAULT_TRAVEL_TIME,
     DOMAIN,
     EVENT_COVER_CALIBRATION,
@@ -72,11 +76,16 @@ from .cover_calibration import (
 )
 from .cover_motion import (
     ECHO_WINDOW,
+    END_SETTLE_MARGIN,
+    MIN_POSITION_DELTA,
     MOTOR_START_DELAY,
+    MOTOR_STOP_DELAY,
     WRITE_TIMEOUT,
     compute_freeze_position,
     compute_interpolated_position,
+    compute_run_duration,
     is_in_echo_window,
+    quantize_position_delta,
     travel_for,
 )
 from .discovery import Address, DeviceContext, PlatformDiscovery, default_known_keys
@@ -123,6 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
             model=cfg.get(CONF_DEVICE_MODEL, "Shutter / Cover"),
             gateway=runtime.gateway,
             travel_time=int(cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME)),
+            min_motor_pulse=float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE)),
             **kwargs,
         )
         family.add(cover)
@@ -154,6 +164,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         vol.Optional("travel_time"): vol.Coerce(float),
         vol.Optional("travel_time_down"): vol.Coerce(float),
         vol.Optional("travel_time_up"): vol.Coerce(float),
+        vol.Optional("min_motor_pulse"): vol.Coerce(float),
         vol.Optional("copied_from"): cv.string,
     }
 
@@ -201,6 +212,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         travel_time: int = DEFAULT_TRAVEL_TIME,
         travel_time_source: str = "default",
         calibration: dict | None = None,  # type: ignore
+        min_motor_pulse: float = DEFAULT_MIN_MOTOR_PULSE,
     ):
         super().__init__(
             hass=hass,
@@ -227,16 +239,20 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._travel_time = travel_time if travel_time else DEFAULT_TRAVEL_TIME
         self._travel_time_down = base_travel
         self._travel_time_up = base_travel
+        self._min_motor_pulse = float(min_motor_pulse)
         self._calibration_source = travel_time_source
         self._calibrated_at: str | None = None
         self._copied_from: str | None = None
-        if calibration and calibration.get("down") and calibration.get("up"):
-            self._travel_time_down = float(calibration["down"])
-            self._travel_time_up = float(calibration["up"])
-            self._travel_time = int(round(self._travel_time_down))
-            self._calibration_source = str(calibration.get("source") or "measured")
-            self._calibrated_at = calibration.get("measured_at")
-            self._copied_from = calibration.get("copied_from") or None
+        if calibration:
+            if calibration.get("down") and calibration.get("up"):
+                self._travel_time_down = float(calibration["down"])
+                self._travel_time_up = float(calibration["up"])
+                self._travel_time = int(round(self._travel_time_down))
+                self._calibration_source = str(calibration.get("source") or "measured")
+                self._calibrated_at = calibration.get("measured_at")
+                self._copied_from = calibration.get("copied_from") or None
+            if calibration.get("min_motor_pulse") is not None:
+                self._min_motor_pulse = float(calibration["min_motor_pulse"])
         self._calibrating = False
         self._calibration_interrupted: str | None = None
         self._stopped_event: asyncio.Event = asyncio.Event()
@@ -282,6 +298,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._echo_until: float | None = None
         self._motor_started: asyncio.Event = asyncio.Event()
         self._run_generation: int = 0
+        self._run_start_position: int | None = None
+        self._pending_stop_context: dict[str, Any] | None = None
+        self._auto_stop_duration: float | None = None
 
     @property
     def calibration_hub(self) -> CoverCalibrationHub:
@@ -299,6 +318,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         attrs["travel_time"] = int(round(self._travel_time_down))
         attrs["travel_time_down"] = round(self._travel_time_down, 2)
         attrs["travel_time_up"] = round(self._travel_time_up, 2)
+        attrs["min_motor_pulse"] = round(self._min_motor_pulse, 2)
         attrs["calibration_source"] = self._calibration_source
         attrs["calibrated_at"] = self._calibrated_at
         # The motor-start anchor of the current run (wall clock) and the last
@@ -356,8 +376,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 # The direction echo re-anchors precisely if the gateway relays it.
                 self._anchor_run(write_ts)
             elif self._pending_cmd == "stop":
-                # Motion stops within ~0.1 s of the write, not at enqueue time.
-                self._freeze_position(write_ts)
+                # Motion stops within ~0.04-0.12 s of the write on measured
+                # gateways (MyHOMEServer1 34-47 ms, F461 64-120 ms; #302, #705).
+                # Freeze provisionally at write_ts (+ MOTOR_STOP_DELAY) while
+                # _handle_echo re-anchors to the stop status arrival if relayed.
+                self._freeze_position(write_ts + MOTOR_STOP_DELAY)
                 self._motor_started.set()
             # The estimate changed (clock started, or frozen): show it. Not every
             # gateway relays the stop status that would otherwise repaint it.
@@ -371,11 +394,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
     def _end_echo_window(self) -> None:
         self._pending_cmd = None
         self._echo_until = None
+        self._pending_stop_context = None
 
     def _anchor_run(self, at: float) -> None:
         """Anchor the running estimate and the run measurement on the motor start."""
         self._move_start_time = at
         self._run_started_at = at
+        if self._run_start_position is None:
+            self._run_start_position = self._start_position
         started = dt_util.utcnow() - timedelta(seconds=max(0.0, time.monotonic() - at))
         self._motion_started_at = started.isoformat(timespec="milliseconds")
         self._refresh_travel_attributes()
@@ -408,6 +434,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self._move_start_time = None
         self._attr_is_opening = False
         self._attr_is_closing = False
+        self._run_start_position = None
         if self._attr_current_cover_position is not None:
             self._attr_is_closed = (self._attr_current_cover_position == 0)
 
@@ -415,6 +442,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         """Abort motion state when a command frame failed to reach the bus."""
         self._cancel_stop_task()
         self._end_echo_window()
+        self._run_start_position = None
+        self._pending_stop_context = None
+        self._auto_stop_duration = None
         self._move_start_time = None
         self._run_started_at = None
         self._motion_started_at = None
@@ -560,6 +590,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         """Run when entity will be removed from hass."""
         self._run_generation += 1  # a run in flight must not act on a removed entity
         self._cancel_stop_task()
+        self._pending_stop_context = None
         await super().async_will_remove_from_hass()
 
 
@@ -720,6 +751,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         result = {
             "down": self._travel_time_down,
             "up": self._travel_time_up,
+            "min_motor_pulse": self._min_motor_pulse,
             "measured_at": self._calibrated_at,
         }
         self._persist_calibration(result)
@@ -742,6 +774,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         travel_time: float | None = None,
         travel_time_down: float | None = None,
         travel_time_up: float | None = None,
+        min_motor_pulse: float | None = None,
         copied_from: str | None = None,
     ) -> dict:  # type: ignore
         """Set the physical travel times by hand, or copy them from another cover.
@@ -760,53 +793,90 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         down = travel_time_down if travel_time_down is not None else travel_time
         up = travel_time_up if travel_time_up is not None else (travel_time if travel_time is not None else down)
 
-        if down is None and up is None:
+        if (
+            travel_time is None
+            and travel_time_down is None
+            and travel_time_up is None
+            and min_motor_pulse is None
+        ):
             raise ServiceValidationError(
-                "At least travel_time or travel_time_down/up must be specified",
+                "At least travel_time, travel_time_down/up, or min_motor_pulse must be specified",
                 translation_domain=DOMAIN,
                 translation_key="travel_time_missing",
             )
 
-        if down is None:
-            down = self._travel_time_down
-
-        for field, value in (("travel_time_down", down), ("travel_time_up", up)):
-            if not CALIBRATION_MIN_RUN <= value <= CALIBRATION_MAX_RUN:  # type: ignore
+        if min_motor_pulse is not None:
+            if not CALIBRATION_MIN_MOTOR_PULSE <= min_motor_pulse <= CALIBRATION_MAX_MOTOR_PULSE:
                 raise ServiceValidationError(
-                    f"{field} must be between {CALIBRATION_MIN_RUN:.0f}s and {CALIBRATION_MAX_RUN:.0f}s",
+                    f"min_motor_pulse must be between {CALIBRATION_MIN_MOTOR_PULSE:.1f}s and {CALIBRATION_MAX_MOTOR_PULSE:.1f}s",
                     translation_domain=DOMAIN,
                     translation_key="travel_time_out_of_range",
                     translation_placeholders={
-                        "field": field, "min": f"{CALIBRATION_MIN_RUN:.0f}", "max": f"{CALIBRATION_MAX_RUN:.0f}",
+                        "field": "min_motor_pulse",
+                        "min": f"{CALIBRATION_MIN_MOTOR_PULSE:.1f}",
+                        "max": f"{CALIBRATION_MAX_MOTOR_PULSE:.1f}",
                     },
                 )
+            self._min_motor_pulse = round(float(min_motor_pulse), 2)
 
-        self._travel_time_down = round(float(down), 2)
-        self._travel_time_up = round(float(up), 2)  # type: ignore
-        self._travel_time = int(round(self._travel_time_down))
-        self._copied_from = str(copied_from) if copied_from else None
-        self._calibration_source = "copied" if self._copied_from else "manual"
-        self._calibrated_at = dt_util.utcnow().isoformat(timespec="seconds")
+        only_pulse = (
+            travel_time is None
+            and travel_time_down is None
+            and travel_time_up is None
+        )
+
+        if not only_pulse:
+            down = travel_time_down if travel_time_down is not None else travel_time
+            up = travel_time_up if travel_time_up is not None else (travel_time if travel_time is not None else down)
+
+            if down is None:
+                down = self._travel_time_down
+
+            for field, value in (("travel_time_down", down), ("travel_time_up", up)):
+                if not CALIBRATION_MIN_RUN <= value <= CALIBRATION_MAX_RUN:  # type: ignore
+                    raise ServiceValidationError(
+                        f"{field} must be between {CALIBRATION_MIN_RUN:.0f}s and {CALIBRATION_MAX_RUN:.0f}s",
+                        translation_domain=DOMAIN,
+                        translation_key="travel_time_out_of_range",
+                        translation_placeholders={
+                            "field": field, "min": f"{CALIBRATION_MIN_RUN:.0f}", "max": f"{CALIBRATION_MAX_RUN:.0f}",
+                        },
+                    )
+
+            self._travel_time_down = round(float(down), 2)
+            self._travel_time_up = round(float(up), 2)  # type: ignore
+            self._travel_time = int(round(self._travel_time_down))
+            self._copied_from = str(copied_from) if copied_from else None
+            self._calibration_source = "copied" if self._copied_from else "manual"
+            self._calibrated_at = dt_util.utcnow().isoformat(timespec="seconds")
 
         result = {
             "down": self._travel_time_down,
             "up": self._travel_time_up,
+            "min_motor_pulse": self._min_motor_pulse,
             "measured_at": self._calibrated_at,
             "source": self._calibration_source,
         }
         if self._copied_from:
             result["copied_from"] = self._copied_from
-        self._persist_calibration(result)
+        self._persist_calibration(result, only_pulse=only_pulse)
         self._refresh_travel_attributes()
         if self.hass is not None:
             self.async_write_ha_state()
 
         self._fire_calibration_event("done", **result)
-        LOGGER.info(
-            "%s Cover %s %s travel time set: down %.1f s, up %.1f s.",
-            self._gateway_handler.log_id, self._full_where, self._calibration_source,
-            self._travel_time_down, self._travel_time_up,
-        )
+        if only_pulse:
+            LOGGER.info(
+                "%s Cover %s motor start-up floor set: %.2f s (travel times untouched: down %.1f s, up %.1f s, source: %s).",
+                self._gateway_handler.log_id, self._full_where, self._min_motor_pulse,
+                self._travel_time_down, self._travel_time_up, self._calibration_source,
+            )
+        else:
+            LOGGER.info(
+                "%s Cover %s %s travel time set: down %.1f s, up %.1f s, min_pulse %.2f s.",
+                self._gateway_handler.log_id, self._full_where, self._calibration_source,
+                self._travel_time_down, self._travel_time_up, self._min_motor_pulse,
+            )
         return result
 
     async def async_reset_travel_time(self) -> None:
@@ -837,6 +907,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             base_travel = float(DEFAULT_TRAVEL_TIME)
             source = "default"
 
+        self._min_motor_pulse = float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE))
         self._travel_time_down = base_travel
         self._travel_time_up = base_travel
         self._travel_time = int(round(base_travel))
@@ -852,14 +923,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             "reset",
             down=self._travel_time_down,
             up=self._travel_time_up,
+            min_motor_pulse=self._min_motor_pulse,
             source=source,
         )
         LOGGER.info(
-            "%s Cover %s travel times reset to %s (%.1f s).",
-            self._gateway_handler.log_id, self._full_where, source, base_travel,
+            "%s Cover %s travel times reset to %s (%.1f s, min_pulse %.2f s).",
+            self._gateway_handler.log_id, self._full_where, source, base_travel, self._min_motor_pulse,
         )
 
-    def _persist_calibration(self, result: dict) -> None:  # type: ignore
+    def _persist_calibration(self, result: dict, only_pulse: bool = False) -> None:  # type: ignore
         """Store the measurement in the config entry options (survives restarts, applies to discovered covers)."""
         entry = getattr(self._gateway_handler, "config_entry", None)
         hass = self.hass or self._hass
@@ -868,7 +940,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         try:
             options = dict(getattr(entry, "options", None) or {})
             stored = dict(options.get(CONF_COVER_TRAVEL_TIMES) or {})
-            stored[str(self._device_id)] = result
+            dev_key = str(self._device_id)
+            if only_pulse:
+                existing = dict(stored.get(dev_key) or {})
+                existing["min_motor_pulse"] = result["min_motor_pulse"]
+                stored[dev_key] = existing
+            else:
+                stored[dev_key] = result
             options[CONF_COVER_TRAVEL_TIMES] = stored
             hass.config_entries.async_update_entry(entry, options=options)
         except Exception as err:  # pragma: no cover - defensive
@@ -905,6 +983,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             command = OWNAutomationCommand.lower_shutter(self._full_where)
         if not self._advanced:
             self._start_position = self.current_cover_position if self.current_cover_position is not None else (0 if direction == "open" else 100)
+            self._run_start_position = self._start_position
+            self._pending_stop_context = None
+            self._auto_stop_duration = None
             # The clock starts when the frame is written (see _track_write),
             # not now: with a busy queue the motor is still idle for a while.
             self._move_start_time = None
@@ -943,17 +1024,79 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self.async_write_ha_state()
         return written
 
+    async def _async_run_to_end(self, opening: bool) -> None:
+        """Run a timed cover to its limit switch and settle the state on a timer.
+
+        No stop frame is sent: the motor stops itself. The actuator's own stop
+        status can come long after the curtain arrived (its timer, ~60 s seen on
+        a MyHOMEServer1) or not at all on a gateway that does not relay it, so
+        the entity would stay opening/closing. Once the travel time plus
+        END_SETTLE_MARGIN has passed, publish the end position; the real stop
+        status, if it comes, finds nothing left to change.
+        """
+        travel_time = self._travel_for(opening)
+        written = await self._async_move("open" if opening else "close")
+        generation = self._run_generation
+
+        async def _settle() -> None:
+            try:
+                anchor = await self._await_motion_anchor(written)
+                if generation != self._run_generation:
+                    return  # a newer command or a real stop superseded this run
+                await asyncio.sleep(max(0.0, travel_time + END_SETTLE_MARGIN - (time.monotonic() - anchor)))
+                if generation != self._run_generation:
+                    return
+                self._attr_current_cover_position = 100 if opening else 0
+                self._start_position = self._attr_current_cover_position
+                self._move_start_time = None
+                self._run_started_at = None
+                self._motion_started_at = None
+                self._attr_is_opening = False
+                self._attr_is_closing = False
+                self._attr_is_closed = not opening
+                self._run_start_position = None
+                self._pending_stop_context = None
+                self._auto_stop_duration = None
+                self._refresh_travel_attributes()
+                self._publish_state()
+            except HomeAssistantError as err:
+                LOGGER.error("%s End-of-run settle aborted for %s: %s", self._gateway_handler.log_id, self._full_where, err)
+            except asyncio.CancelledError:
+                pass
+
+        self._stop_task = asyncio.create_task(_settle())  # type: ignore
+
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
         if ATTR_POSITION not in kwargs:
             return
         target_position = kwargs[ATTR_POSITION]
+
         if self._advanced:
-            if target_position <= 0:
-                await self._gateway_handler.send(
-                    OWNAutomationCommand.lower_shutter(self._full_where)
-                )
+            now = time.monotonic()
+            current = self._attr_current_cover_position
+            moving = bool(self._attr_is_opening or self._attr_is_closing)
+            if current is not None and not moving and 0 < target_position < 100:
+                # A 1% level change is a run too short to move the motor while
+                # the actuator still books it (#466, see MIN_POSITION_DELTA).
+                # Not while it runs: it then reports the level it started from,
+                # so the widening and the early return would compare against
+                # a stale level and drop a retarget (40 -> 80, then 40). Also
+                # skip the early return briefly after our own level write,
+                # before the actuator's first moving status arrives.
+                target_position = quantize_position_delta(current, target_position, MIN_POSITION_DELTA)
+                if target_position == current and not self._in_echo_window(now):
+                    return
+            # 0% and 100% are full runs: they end on the motor's limit switch
+            # and so put the actuator's own level back in step with the curtain,
+            # also when it already reports that end. The MH201 rejects the
+            # level command at 0% anyway.
+            if target_position >= 100:
+                await self.async_open_cover()
+            elif target_position <= 0:
+                await self.async_close_cover()
             else:
+                self._echo_until = now + ECHO_WINDOW
                 await self._gateway_handler.send(
                     OWNAutomationCommand.set_shutter_level(
                         self._full_where, target_position
@@ -969,16 +1112,39 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 translation_placeholders={"entity_id": str(self.entity_id)},
             )
 
+        # 0% and 100% are full runs, like the open/close buttons: the motor stops
+        # on its limit switch, which resets any drift in the estimate, also when
+        # the estimate already says 0% or 100%.
+        if target_position >= 100:
+            await self._async_run_to_end(True)
+            return
+        if target_position <= 0:
+            await self._async_run_to_end(False)
+            return
+
         self._cancel_stop_task()
         curr_pos = self.current_cover_position if self.current_cover_position is not None else 50
         diff = target_position - curr_pos
         if diff == 0:
             return
 
-        travel_fraction = abs(diff) / 100.0
-        run_duration = travel_fraction * self._travel_for(diff > 0)
+        opening = diff > 0
+        travel_time = self._travel_for(opening)
+        run_duration = compute_run_duration(diff, travel_time, min_pulse=self._min_motor_pulse)
+        # Where the model puts the cover when the run ends: the target, or
+        # further when min_motor_pulse stretched the run. A run that reaches an
+        # end becomes a full run to that end.
+        achieved_position = compute_freeze_position(
+            curr_pos, 0.0, run_duration, travel_time, opening, not opening, target_position
+        )
+        if achieved_position >= 100:
+            await self._async_run_to_end(True)
+            return
+        if achieved_position <= 0:
+            await self._async_run_to_end(False)
+            return
 
-        written = await self._async_move("open" if diff > 0 else "close")
+        written = await self._async_move("open" if opening else "close")
         generation = self._run_generation
 
         async def _auto_stop() -> None:
@@ -989,12 +1155,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 await asyncio.sleep(max(0.0, run_duration - (time.monotonic() - anchor)))
                 if generation != self._run_generation:
                     return
-                # By the model we are at the target now; the motor keeps
+                # By the model we are at achieved_position now; the motor keeps
                 # running until the stop frame is written, so re-anchor the
                 # run here and let the stop's write time freeze the estimate
-                # (target plus whatever the queue delay added).
-                self._start_position = target_position
-                self._attr_current_cover_position = target_position
+                # (that position plus whatever the queue delay added).
+                self._auto_stop_duration = run_duration
+                self._start_position = achieved_position
+                self._attr_current_cover_position = achieved_position
                 self._move_start_time = time.monotonic()
                 await self.async_stop_cover()
                 if self.hass is not None:
@@ -1013,6 +1180,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             # The estimate keeps running until the stop frame is actually
             # written (_track_write freezes it then); if delivery never
             # happens the next status frame will correct us.
+            self._pending_stop_context = {
+                "run_start_position": self._run_start_position if self._run_start_position is not None else self._start_position,
+                "run_started_at": self._run_started_at,
+                "is_opening": bool(self._attr_is_opening),
+                "is_closing": bool(self._attr_is_closing),
+                "auto_stop_duration": self._auto_stop_duration,
+            }
             self._begin_command("stop")
         cmd = OWNAutomationCommand.stop_shutter(self._full_where)
         written = await self._gateway_handler.send(cmd)
@@ -1021,7 +1195,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if not self._advanced:
             self._track_write(written)
             if not isinstance(written, asyncio.Future):
-                self._freeze_position(time.monotonic())  # type: ignore
+                self._freeze_position(time.monotonic() + MOTOR_STOP_DELAY)  # type: ignore
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -1052,7 +1226,52 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             # Opposite direction inside the window: somebody else took over.
             self._end_echo_window()
             return False
-        # Pending stop: the relayed stop confirms it, anything else is external.
+        # Pending stop command:
+        is_general = (
+            getattr(message, "is_general", False)
+            or getattr(message, "is_area", False)
+            or getattr(message, "is_group", False)
+            or str(getattr(message, "where", "")) == "0"
+        )
+        if is_stop and not is_general:
+            ctx = self._pending_stop_context
+            self._end_echo_window()
+            self._auto_stop_duration = None
+            self._last_stop_at = now
+            self._stopped_event.set()
+            if ctx and ctx.get("run_started_at") is not None and ctx.get("run_start_position") is not None:
+                start_anchor = ctx["run_started_at"]
+                run_start_pos = ctx["run_start_position"]
+                is_opening = ctx["is_opening"]
+                is_closing = ctx["is_closing"]
+                auto_dur = ctx.get("auto_stop_duration")
+                raw_elapsed = max(0.0, now - start_anchor)
+                elapsed = max(raw_elapsed, auto_dur) if auto_dur is not None else raw_elapsed
+                travel_time = self._travel_for(is_opening)
+                if travel_time > 0 and (is_opening or is_closing):
+                    delta = (elapsed / travel_time) * 100.0
+                    if is_opening:
+                        reanchored = min(100, int(round(run_start_pos + delta)))
+                    else:
+                        reanchored = max(0, int(round(run_start_pos - delta)))
+                    self._attr_current_cover_position = reanchored
+                    self._start_position = reanchored
+                    self._attr_is_closed = (reanchored == 0)
+                self._last_run = {
+                    "seconds": round(elapsed, 2),
+                    "direction": "open" if is_opening else "close" if is_closing else None,
+                    "ended_at": dt_util.utcnow().isoformat(timespec="milliseconds"),
+                }
+                self._refresh_travel_attributes()
+                LOGGER.debug(
+                    "%s Stop status echo for %s; re-anchored to %s%% (elapsed %.2f s).",
+                    self._gateway_handler.log_id,
+                    self._full_where,
+                    self._attr_current_cover_position,
+                    elapsed,
+                )
+            return True
+        # Opposite or external command during stop echo window: end window and handle externally.
         self._end_echo_window()
         return False
 
@@ -1126,6 +1345,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             return
         if position is not None:
             self._cancel_stop_task()
+            self._end_echo_window()
             self._attr_current_cover_position = position
             if not self._advanced:
                 self._start_position = position
@@ -1202,6 +1422,7 @@ __all__ = [
     "CoverScope",
     "ECHO_WINDOW",
     "MOTOR_START_DELAY",
+    "MOTOR_STOP_DELAY",
     "MyHOMECover",
     "MyHOMEScopeCover",
     "WRITE_TIMEOUT",

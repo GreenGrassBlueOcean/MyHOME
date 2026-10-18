@@ -157,7 +157,7 @@ The measured values are the actuator's run times (motor start → actuator stop 
 
 The guard catches **only that factory cutoff** (a run ending in the 59–65 s window). An actuator whose run-time parameter the installer set significantly longer than the physical travel stops itself when its timer expires, and that duration is stored as the travel time: nothing on the bus tells it apart from a real end stop, only a stopwatch can. If the stored time is longer than the shutter visibly takes to move, time a run stopped by hand (`last_run_seconds`) or set `travel_time` manually with `myhome.set_cover_travel_time`.
 
-Results are stored in the config entry options (`cover_travel_times`), survive restarts and reinstalls, apply to discovered covers without any YAML, and show up as entity attributes: `travel_time_down`, `travel_time_up`, `calibration_source` (`measured` / `manual` / `copied` / `yaml` / `default`), `calibrated_at` (and `copied_from` when copied). Every run of a timed cover is measured the same way, calibration or not: `motion_started_at` is the motor-start anchor of the current run and `last_run_seconds` / `last_run_direction` / `last_run_ended_at` describe the last completed run (motor start → stop frame written or actuator stop status), so a run stopped by hand at the end stop gives the physical travel without the calibration service. Advanced covers (which report their position) are refused. Progress is published on the event bus as `myhome_cover_calibration` (`phase`: `queued`, `start`, `run`, `done`, `failed`).
+Results are stored in the config entry options (`cover_travel_times`), survive restarts and reinstalls, apply to discovered covers without any YAML, and show up as entity attributes: `travel_time_down`, `travel_time_up`, `calibration_source` (`measured` / `manual` / `copied` / `yaml` / `default`), `calibrated_at` (and `copied_from` when copied). Every run of a timed cover is measured the same way, calibration or not: `motion_started_at` is the motor-start anchor of the current run and `last_run_seconds` / `last_run_direction` / `last_run_ended_at` describe the last completed run (motor start → stop frame written, re-anchored to the stop status when relayed, or actuator stop status), so a run stopped by hand at the end stop gives the physical travel without the calibration service. Advanced covers (which report their position) are refused. Progress is published on the event bus as `myhome_cover_calibration` (`phase`: `queued`, `start`, `run`, `done`, `failed`).
 
 The same action sits behind the **Calibrate travel time** button on every timed cover's device page (`button.<cover name>_calibrate_travel_time`), and the **Calibrate all covers** button on the gateway device (`button.<gateway name>_calibrate_all_covers`), which targets every enabled cover of that gateway at once and lets the lock serialise them.
 
@@ -195,7 +195,7 @@ action: myhome.stop_cover_calibration
 
 ## 9. `myhome.set_cover_travel_time`
 
-Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch and pass them here. `travel_time` fills whichever direction has no explicit value; note that `travel_time_down` on its own also sets the up time (the two are assumed equal unless `travel_time_up` is given), whereas `travel_time_up` on its own leaves the stored down time untouched — pass both when you only want to change one. Values must lie between 1 s and 180 s; anything else is rejected before the entity is touched. The result is stored exactly like a measured calibration (`calibration_source: manual`).
+Stores the physical travel times of a timed cover **by hand** — the manual alternative to `calibrate_cover` for gateways that cannot calibrate reliably (MH200 / MH200N single-session pacing, or actuators with the 60 s safety cut-off). Measure the closing and opening runs with a stopwatch and pass them here. `travel_time` fills whichever direction has no explicit value; note that `travel_time_down` on its own also sets the up time (the two are assumed equal unless `travel_time_up` is given), whereas `travel_time_up` on its own leaves the stored down time untouched — pass both when you only want to change one. Travel times must lie between 1 s and 180 s. The motor start-up floor (`min_motor_pulse`) can also be configured here (0.0 to 5.0 s, 0.0 disables). When setting travel times, the result is stored like a measured calibration (`calibration_source: manual`); when only `min_motor_pulse` is specified, existing travel times, source, and calibration timestamps remain untouched.
 
 ### Fields
 | Parameter | Type | Required | Description | Example |
@@ -205,8 +205,9 @@ Stores the physical travel times of a timed cover **by hand** — the manual alt
 | `travel_time_down` | float | No* | Seconds for a full closing run. | `24.5` |
 | `travel_time_up` | float | No* | Seconds for a full opening run. | `26.0` |
 | `copied_from` | entity id | No | The cover the times were taken from; `calibration_source` becomes `copied` and `copied_from` is exposed as an attribute. | `cover.living_room_west` |
+| `min_motor_pulse` | float | No | Minimum duration in seconds (0.0–5.0) of a motor pulse to overcome mechanical deadband and brake inertia. Defaults to 0.4 s (0.0 disables). | `0.4` |
 
-\* at least one of the time fields is required.
+\* at least one of the time fields or min_motor_pulse is required.
 
 ### Example YAML Call
 ```yaml
@@ -216,6 +217,7 @@ target:
 data:
   travel_time_down: 24.5
   travel_time_up: 26.0
+  min_motor_pulse: 0.3
 ```
 
 ---

@@ -908,6 +908,12 @@ async def test_plain_run_is_measured_from_motor_start_to_stop_write(hass, gatewa
     assert attrs["last_run_direction"] == "open"
     assert attrs["last_run_ended_at"] and attrs["motion_started_at"] is None
 
+    # When the gateway relays the stop status 42 ms later (MyHOMEServer1 median, #705),
+    # last_run_seconds re-anchors to the stop status timestamp.
+    clock.now += 0.042
+    cover.handle_event(OWNEvent.parse("*2*0*21##"))
+    assert cover.extra_state_attributes["last_run_seconds"] == pytest.approx(15.04)
+
 
 async def test_actuator_stop_status_ends_the_measured_run(hass, gateway, clock, fake_time):
     """Without a stop command the actuator's own stop status ends the run."""
@@ -1460,5 +1466,205 @@ async def test_concurrent_two_gateway_async_calibrate(hass):
 
     # Stopping one gateway leaves the other unaffected
     assert await async_stop_cover_calibration(hass, gateway_mac=gw_a.mac) is False
+
+
+async def test_set_cover_travel_time_min_motor_pulse_only(hass, gateway):
+    """Setting only min_motor_pulse retains travel times, source, and timestamps."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import CONF_COVER_TRAVEL_TIMES, DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={"mac": gateway.mac}, unique_id="entry_pulse_only_test", options={CONF_COVER_TRAVEL_TIMES: {}})
+    entry.add_to_hass(hass)
+    gateway.config_entry = entry
+
+    # 1. Default cover without stored calibration: keeps source='default', no 'down'/'up' in stored
+    cover = _make_cover(hass, gateway)
+    assert cover._travel_time_down == 25.0
+    assert cover._travel_time_up == 25.0
+    assert cover._min_motor_pulse == 0.4
+    assert cover._calibration_source == "default"
+    assert cover._calibrated_at is None
+
+    res = await cover.async_set_travel_time(min_motor_pulse=0.25)
+    assert res["down"] == 25.0
+    assert res["up"] == 25.0
+    assert res["min_motor_pulse"] == 0.25
+    assert res["source"] == "default"
+    assert res["measured_at"] is None
+
+    assert cover._min_motor_pulse == 0.25
+    assert cover._calibration_source == "default"
+    assert cover._calibrated_at is None
+    assert cover.extra_state_attributes["min_motor_pulse"] == 0.25
+    assert cover.extra_state_attributes["travel_time_down"] == 25.0
+    assert cover.extra_state_attributes["travel_time_up"] == 25.0
+    assert cover.extra_state_attributes["calibration_source"] == "default"
+
+    stored = _stored_calibration(gateway.config_entry, cover._device_id)
+    assert stored is not None
+    assert stored == {"min_motor_pulse": 0.25}
+    assert "down" not in stored
+    assert "up" not in stored
+    assert "source" not in stored
+
+    # 2. Cover with measured calibration: preserves source='measured', timestamp, and travel times
+    cal_measured = {
+        "down": 19.5,
+        "up": 21.0,
+        "source": "measured",
+        "measured_at": "2026-10-10T12:00:00",
+    }
+    options = dict(gateway.config_entry.options)
+    stored_all = dict(options.get(CONF_COVER_TRAVEL_TIMES, {}))
+    stored_all["22"] = dict(cal_measured)
+    options[CONF_COVER_TRAVEL_TIMES] = stored_all
+    hass.config_entries.async_update_entry(gateway.config_entry, options=options)
+
+    cover_measured = _make_cover(hass, gateway, device_id="22", where="22", calibration=cal_measured)
+    res_m = await cover_measured.async_set_travel_time(min_motor_pulse=0.35)
+    assert res_m["down"] == 19.5
+    assert res_m["up"] == 21.0
+    assert res_m["min_motor_pulse"] == 0.35
+    assert res_m["source"] == "measured"
+    assert res_m["measured_at"] == "2026-10-10T12:00:00"
+
+    assert cover_measured._calibration_source == "measured"
+    assert cover_measured._calibrated_at == "2026-10-10T12:00:00"
+    stored_m = _stored_calibration(gateway.config_entry, "22")
+    assert stored_m["down"] == 19.5
+    assert stored_m["up"] == 21.0
+    assert stored_m["source"] == "measured"
+    assert stored_m["measured_at"] == "2026-10-10T12:00:00"
+    assert stored_m["min_motor_pulse"] == 0.35
+
+    # 3. Cover with copied calibration: preserves source='copied' and copied_from
+    cal_copied = {
+        "down": 18.0,
+        "up": 18.5,
+        "source": "copied",
+        "measured_at": "2026-10-11T15:00:00",
+        "copied_from": "cover.living_room_west",
+    }
+    stored_all["23"] = dict(cal_copied)
+    options[CONF_COVER_TRAVEL_TIMES] = stored_all
+    hass.config_entries.async_update_entry(gateway.config_entry, options=options)
+
+    cover_copied = _make_cover(hass, gateway, device_id="23", where="23", calibration=cal_copied)
+    res_c = await cover_copied.async_set_travel_time(min_motor_pulse=0.15)
+    assert res_c["source"] == "copied"
+    assert res_c["copied_from"] == "cover.living_room_west"
+    assert res_c["min_motor_pulse"] == 0.15
+
+    assert cover_copied._calibration_source == "copied"
+    assert cover_copied._copied_from == "cover.living_room_west"
+    stored_c = _stored_calibration(gateway.config_entry, "23")
+    assert stored_c["source"] == "copied"
+    assert stored_c["copied_from"] == "cover.living_room_west"
+    assert stored_c["min_motor_pulse"] == 0.15
+
+    # 4. Cover on YAML times: only min_motor_pulse is stored so later YAML edits are respected
+    cover_yaml = _make_cover(hass, gateway, device_id="24", where="24", travel_time=18, travel_time_source="yaml")
+    res_y = await cover_yaml.async_set_travel_time(min_motor_pulse=0.2)
+    assert res_y["down"] == 18.0
+    assert res_y["up"] == 18.0
+    assert res_y["source"] == "yaml"
+    assert res_y["measured_at"] is None
+
+    stored_y = _stored_calibration(gateway.config_entry, "24")
+    assert stored_y == {"min_motor_pulse": 0.2}
+
+    # Simulate YAML configuration edit on reload: travel_time changed to 30.0 s
+    reloaded = _make_cover(
+        hass, gateway, device_id="24", where="24", travel_time=30, travel_time_source="yaml", calibration=stored_y
+    )
+    assert reloaded._travel_time_down == 30.0
+    assert reloaded._travel_time_up == 30.0
+    assert reloaded._min_motor_pulse == 0.2
+    assert reloaded._calibration_source == "yaml"
+
+
+
+async def test_set_cover_travel_time_both_times_and_min_motor_pulse(hass, gateway):
+    """Setting both travel times and min_motor_pulse updates all values."""
+    cover = _make_cover(hass, gateway)
+    res = await cover.async_set_travel_time(travel_time=15.0, min_motor_pulse=0.3)
+    assert res["down"] == 15.0
+    assert res["up"] == 15.0
+    assert res["min_motor_pulse"] == 0.3
+
+    assert cover._min_motor_pulse == 0.3
+    assert cover.extra_state_attributes["min_motor_pulse"] == 0.3
+    assert cover.extra_state_attributes["travel_time_down"] == 15.0
+    assert cover.extra_state_attributes["travel_time_up"] == 15.0
+
+
+async def test_set_cover_travel_time_validation_min_motor_pulse(hass, gateway):
+    """min_motor_pulse outside 0.0-5.0 or missing all arguments raises ServiceValidationError."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    cover = _make_cover(hass, gateway)
+
+    with pytest.raises(ServiceValidationError, match="min_motor_pulse must be between") as err:
+        await cover.async_set_travel_time(min_motor_pulse=-0.1)
+    assert err.value.translation_key == "travel_time_out_of_range"
+    assert err.value.translation_placeholders["field"] == "min_motor_pulse"
+
+    with pytest.raises(ServiceValidationError, match="min_motor_pulse must be between") as err:
+        await cover.async_set_travel_time(min_motor_pulse=5.1)
+    assert err.value.translation_key == "travel_time_out_of_range"
+    assert err.value.translation_placeholders["field"] == "min_motor_pulse"
+
+    with pytest.raises(ServiceValidationError, match="must be specified") as err:
+        await cover.async_set_travel_time()
+    assert err.value.translation_key == "travel_time_missing"
+
+
+async def test_reset_cover_travel_time_restores_min_motor_pulse(hass, gateway):
+    """Resetting travel time restores min_motor_pulse to YAML/default and clears options."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.myhome.const import DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={"mac": gateway.mac}, unique_id="entry_pulse_reset_test", options={})
+    entry.add_to_hass(hass)
+    gateway.config_entry = entry
+
+    cover = _make_cover(hass, gateway)
+    await cover.async_set_travel_time(travel_time=18.0, min_motor_pulse=0.2)
+    assert cover.extra_state_attributes["min_motor_pulse"] == 0.2
+
+    events = []
+    hass.bus.async_listen(EVENT_COVER_CALIBRATION, lambda ev: events.append(ev.data))
+
+    await cover.async_reset_travel_time()
+    assert cover._min_motor_pulse == 0.4
+    assert cover.extra_state_attributes["min_motor_pulse"] == 0.4
+    assert any(ev.get("phase") == "reset" and ev.get("min_motor_pulse") == 0.4 for ev in events)
+
+    stored = _stored_calibration(gateway.config_entry, cover._device_id)
+    assert stored is None
+
+
+def test_stored_calibration_restores_min_motor_pulse(hass, gateway):
+    """Restoring calibration with or without min_motor_pulse initializes properly."""
+    # Stored calibration with min_motor_pulse
+    cal_with_pulse = {"down": 19.5, "up": 21.0, "source": "measured", "min_motor_pulse": 0.15}
+    cover1 = _make_cover(hass, gateway, device_id="31", where="31", calibration=cal_with_pulse)
+    assert cover1._min_motor_pulse == 0.15
+    assert cover1.extra_state_attributes["min_motor_pulse"] == 0.15
+
+    # Stored legacy calibration without min_motor_pulse defaults to 0.4
+    cal_legacy = {"down": 19.5, "up": 21.0, "source": "measured"}
+    cover2 = _make_cover(hass, gateway, device_id="32", where="32", calibration=cal_legacy)
+    assert cover2._min_motor_pulse == 0.4
+    assert cover2.extra_state_attributes["min_motor_pulse"] == 0.4
+
+    # Stored calibration with min_motor_pulse=0.0 (disabled floor)
+    cal_zero_pulse = {"down": 19.5, "up": 21.0, "source": "measured", "min_motor_pulse": 0.0}
+    cover3 = _make_cover(hass, gateway, device_id="33", where="33", calibration=cal_zero_pulse)
+    assert cover3._min_motor_pulse == 0.0
+    assert cover3.extra_state_attributes["min_motor_pulse"] == 0.0
+
 
 

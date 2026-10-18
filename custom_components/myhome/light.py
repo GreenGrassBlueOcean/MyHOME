@@ -77,6 +77,7 @@ from .light_fade import SoftwareFadeEngine
 from .light_group import MyHOMELightGroup, _color_modes_from_flags
 from .myhome_device import MyHOMEEntity
 from .typing_compat import as_any
+from .where_grammar import is_valid_hs_tuple, is_valid_rgb_tuple
 
 PARALLEL_UPDATES = 0
 
@@ -1007,10 +1008,11 @@ class MyHOMELight(MyHOMEEntity, LightEntity):
         if is_fading and not self._attr_is_on:
             self._cancel_fade_if_active()
 
+        raw_val = getattr(message, "value", None)
         hs = getattr(message, "hs", None)
-        has_hs = isinstance(hs, (tuple, list)) and len(hs or ()) == 2
+        has_hs = is_valid_hs_tuple(hs, raw_val)
         rgb = getattr(message, "rgb", None)
-        has_rgb = isinstance(rgb, (tuple, list)) and len(rgb or ()) == 3
+        has_rgb = is_valid_rgb_tuple(rgb, raw_val)
         has_color_temp = isinstance(getattr(message, "color_temp", None), int)
         has_level = message.brightness is not None or message.brightness_preset is not None
 

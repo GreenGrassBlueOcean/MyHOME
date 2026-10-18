@@ -56,6 +56,7 @@ contributed by @manfredgittmaier-afk on PR #427):
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -292,7 +293,8 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
         Raises:
             HomeAssistantError: If the frequency is outside the FM band.
         """
-        kilohertz = int(round(float(megahertz) * 1000))
+        val = float(megahertz)
+        kilohertz = int(round(val * 1000)) if math.isfinite(val) else 0
         if not FM_MIN_KHZ <= kilohertz <= FM_MAX_KHZ:
             raise HomeAssistantError(
                 f"{self.entity_id}: {megahertz} MHz is outside the FM band",
@@ -343,7 +345,7 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
     @callback
     def handle_event(self, message: OWNSoundEvent) -> None:
         """Apply a WHO=16 event addressed to this source device."""
-        raw_dim = getattr(message, "dimension", getattr(message, "_dimension", None))
+        raw_dim = getattr(message, "dimension", None)
         try:
             dimension = int(raw_dim) if raw_dim is not None else None
         except (ValueError, TypeError):
@@ -353,7 +355,6 @@ class MyHOMESoundSource(MyHOMEEntity, MediaPlayerEntity):
             str(v)
             for v in (
                 getattr(message, "dimension_value", None)
-                or getattr(message, "_dimension_value", None)
                 or getattr(message, "dimension_values", None)
                 or []
             )

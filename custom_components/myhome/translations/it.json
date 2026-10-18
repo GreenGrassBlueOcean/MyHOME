@@ -316,6 +316,10 @@
         "copied_from": {
           "name": "Copiato da",
           "description": "La tapparella da cui sono stati presi questi tempi; la sorgente viene quindi indicata come \"copied\" invece di \"manual\"."
+        },
+        "min_motor_pulse": {
+          "name": "Soglia minima di avvio motore",
+          "description": "Durata minima in secondi (0.0-5.0) di un impulso motore per superare l'inerzia e il freno meccanico (0.0 disabilita)."
         }
       }
     },
@@ -415,7 +419,7 @@
       "message": "{name}: corsa {direction} non plausibile di {seconds} s; non salvata"
     },
     "travel_time_missing": {
-      "message": "Specifica almeno travel_time oppure travel_time_down/up"
+      "message": "Specifica almeno travel_time, travel_time_down/up oppure min_motor_pulse"
     },
     "travel_time_out_of_range": {
       "message": "{field} deve essere compreso tra {min} s e {max} s"
@@ -461,6 +465,9 @@
     },
     "seek_not_supported": {
       "message": "{entity_id}: la ricerca di frequenza è supportata solo sulle entità sintonizzatore"
+    },
+    "volume_not_finite": {
+      "message": "{entity_id}: il livello del volume {volume} non è un numero finito valido"
     }
   },
   "entity": {

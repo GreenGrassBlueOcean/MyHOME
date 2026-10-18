@@ -64,8 +64,11 @@ def is_volume_rocker_up(message: Any) -> bool:
     """
     if getattr(message, "is_off", False) is True:
         return False
-    what = getattr(message, "what", getattr(message, "_what", None))
-    if not isinstance(what, (int, str)):
+    delta = getattr(message, "volume_step_delta", None)
+    if isinstance(delta, int) and not isinstance(delta, bool):
+        return delta > 0
+    what = getattr(message, "what", None)
+    if not isinstance(what, (int, str)) or isinstance(what, bool):
         return False
     try:
         val = int(what)
@@ -82,8 +85,11 @@ def is_volume_rocker_down(message: Any) -> bool:
     """
     if getattr(message, "is_off", False) is True:
         return False
-    what = getattr(message, "what", getattr(message, "_what", None))
-    if not isinstance(what, (int, str)):
+    delta = getattr(message, "volume_step_delta", None)
+    if isinstance(delta, int) and not isinstance(delta, bool):
+        return delta < 0
+    what = getattr(message, "what", None)
+    if not isinstance(what, (int, str)) or isinstance(what, bool):
         return False
     try:
         val = int(what)
@@ -102,7 +108,7 @@ def is_dimension_1_volume_report(message: Any) -> bool:
     hardware audio ducking and volume restoration frames for all zones in the house.
     These reports MUST NEVER change the amplifier power state (#669, #682).
     """
-    dimension = getattr(message, "dimension", getattr(message, "_dimension", None))
+    dimension = getattr(message, "dimension", None)
     if isinstance(dimension, (int, str)):
         try:
             return int(dimension) == 1
