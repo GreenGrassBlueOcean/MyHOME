@@ -1042,17 +1042,17 @@ def test_cover_stop_priority_with_firmware_oracle_who2_frames() -> None:
 
 
 async def test_close_wakes_pending_cover_waiters(mock_handler: MagicMock) -> None:
-    """Closing the command worker pool wakes any workers waiting in _enter_cover_write."""
+    """Closing the command worker pool wakes any workers waiting on an in-flight cover target."""
     pool = CommandWorkerPool(mock_handler)
-    pool._take_cover_ticket("11")
-    ticket2 = pool._take_cover_ticket("11")
+    await pool.send(OWNCommand("*2*1*11##"))
+    pool.send_buffer.acquire_nowait()  # type: ignore[union-attr]
+    await pool.send(OWNCommand("*2*0*11##"))
 
-    waiter_task = asyncio.create_task(pool._enter_cover_write(ticket2))
+    waiter_task = asyncio.create_task(pool.send_buffer.acquire_next())  # type: ignore[union-attr]
     await asyncio.sleep(0.01)
-    assert len(pool._cover_waiters) == 1
-    assert not pool._cover_waiters[0].done()
+    assert not waiter_task.done()
 
     pool.close()
-    await waiter_task
+    assert await waiter_task is None
     assert pool._terminate_sender is True
 
