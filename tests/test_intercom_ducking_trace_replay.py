@@ -13,12 +13,21 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.media_player.const import MediaPlayerState
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from OWNd.message import OWNMessage, OWNSoundEvent
+from homeassistant.const import CONF_MAC, Platform
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from OWNd.message import OWNAuxEvent, OWNDryContactEvent, OWNMessage, OWNSoundEvent
 
 from custom_components.myhome.const import CONF_SOURCE_DEFAULTS, CONF_SOURCE_NAME
 from custom_components.myhome.data import MyHOMERuntimeData
 from custom_components.myhome.decoder_pool import DecoderPool
+from custom_components.myhome.discovery import PlatformDiscovery
+from custom_components.myhome.media_player import _sound_route_keys, _zone_address
+from custom_components.myhome.media_player_routing import route_pseudo_zones
+from custom_components.myhome.sound_source import (
+    MyHOMESoundSource,
+    who22_source_id,
+    who22_tuner_listener,
+)
 from tests.test_component_media_player import _create_test_zone
 
 FIXTURE_PATH = (
@@ -299,11 +308,13 @@ async def test_mh202_visitor_doorbell_call_trace_replay(hass, mock_gateway):
        - 4-component WHO 8 call initiation (*8*1#1#4#20*11##) and caller ID (*8*9#1#4*20##)
        - WHO 6 door lock release in conversation (*6*22*1##, *6*10*4000##) and
          pulse release (*6*24*1##, *6*23*4000##)
-       - WHO 6 camera OFF (*6*9**##) and WHO 25 dry-contact confirmation (*25*32#1*31##)
+       - WHO 6 camera OFF (*6*9**##), WHO 25 dry-contact OFF event (*25*32#1*31##),
+         and WHO 9 auxiliary events (*9*1*6##, *9*0*6##)
     2. All 6 powered-off amplifiers (31, 41, 51, 61, 71, 81) remain strictly OFF
        throughout ducking and restoration while an independent group (21 + 22) streams.
     3. Restored amplifier volumes match the on-wire post-call values
-       (31->0, 41->6, 51->6, 61->7, 71->1, 81->1).
+       (31->0, 41->6, 51->6, 61->7, 71->1, 81->1) and no phantom media_player
+       entities are discovered from non-WHO 16 or WHO 22 frames.
     """
     assert DOORBELL_TRACE_PATH.is_file(), f"Missing trace fixture: {DOORBELL_TRACE_PATH}"
 
@@ -323,7 +334,7 @@ async def test_mh202_visitor_doorbell_call_trace_replay(hass, mock_gateway):
         assert msg is not None, f"Failed to parse frame: {raw}"
         parsed_frames.append((raw, msg))
 
-    # Spot-check key WHO 8 / WHO 6 / WHO 25 frames in the visitor call sequence
+    # Spot-check key WHO 8 / WHO 6 / WHO 25 / WHO 9 frames in the visitor call sequence
     by_raw = dict(parsed_frames)
 
     call_msg = by_raw["*8*1#1#4#20*11##"]
@@ -371,10 +382,23 @@ async def test_mh202_visitor_doorbell_call_trace_replay(hass, mock_gateway):
     assert cam_off_msg.where == "*"
 
     dry_contact_msg = by_raw["*25*32#1*31##"]
+    assert isinstance(dry_contact_msg, OWNDryContactEvent)
     assert dry_contact_msg.who == 25
     assert dry_contact_msg.where == "31"
+    assert dry_contact_msg.is_on is False
+
+    aux_on_msg = by_raw["*9*1*6##"]
+    assert isinstance(aux_on_msg, OWNAuxEvent)
+    assert aux_on_msg.where == "6"
+    assert aux_on_msg.is_on is True
+
+    aux_off_msg = by_raw["*9*0*6##"]
+    assert isinstance(aux_off_msg, OWNAuxEvent)
+    assert aux_off_msg.where == "6"
+    assert aux_off_msg.is_on is False
 
     # Replay across active streaming group (21 + 22) and 6 OFF zones (31..81)
+    # through the real PlatformDiscovery + FrameRouter pipeline.
     runtime = MyHOMERuntimeData(gateway=mock_gateway)
     pool = DecoderPool(hass, {"media_player.streamer": 2})
     runtime.decoder_pool = pool
@@ -384,7 +408,15 @@ async def test_mh202_visitor_doorbell_call_trace_replay(hass, mock_gateway):
         CONF_SOURCE_NAME.format(2): "Cambridge",
         CONF_SOURCE_DEFAULTS: {"2": 2, "3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2},
     }
-    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+    unload_cbs = []
+    config_entry = MagicMock(
+        entry_id="test_doorbell_trace_entry",
+        data={CONF_MAC: mock_gateway.mac},
+        options=dict(base_options),
+        runtime_data=runtime,
+    )
+    config_entry.async_on_unload.side_effect = unload_cbs.append
+    mock_gateway.config_entry = config_entry
 
     leader = _create_test_zone(hass, mock_gateway, runtime, "21", "media_player.living_room")
     member = _create_test_zone(hass, mock_gateway, runtime, "22", "media_player.kitchen")
@@ -406,50 +438,86 @@ async def test_mh202_visitor_doorbell_call_trace_replay(hass, mock_gateway):
         z._attr_state = MediaPlayerState.OFF
         inactive_zones[where] = z
 
-    for raw, msg in parsed_frames:
-        target = _resolve_where(raw)
-        if target and target in inactive_zones:
-            sound_evt = OWNSoundEvent.parse(raw)
-            if sound_evt:
-                inactive_zones[target].handle_event(sound_evt)
-        else:
+    added_entities: list = []
+    discovery = PlatformDiscovery(
+        hass,
+        config_entry,
+        added_entities.extend,
+        platform=Platform.MEDIA_PLAYER,
+        who="16",
+        event_type=OWNSoundEvent,
+        build=lambda ctx: None,
+        address=_zone_address,
+        pre_message=route_pseudo_zones(runtime.router),
+        route_keys=_sound_route_keys,
+        key_suffix="#16",
+    )
+    for where, z in {"21": leader, "22": member, **inactive_zones}.items():
+        key = f"{where}#16"
+        discovery.known.add(key)
+        unload_cbs.append(runtime.router.subscribe("16", [key], z.handle_event))
+    discovery.listen()
+
+    try:
+        for raw, msg in parsed_frames:
             async_dispatcher_send(hass, f"myhome_message_{mock_gateway.mac}", msg)
+            # Also feed paired WHO 22 volume frames directly to verify OWNSoundEvent.parse
+            # resilience if a WHO 22 Dimension 1 frame reaches handle_event.
+            if raw.startswith("*#22*3#"):
+                target = _resolve_where(raw)
+                if target and target in inactive_zones:
+                    who22_evt = OWNSoundEvent.parse(raw)
+                    if who22_evt:
+                        inactive_zones[target].handle_event(who22_evt)
 
-    await hass.async_block_till_done()
+        await hass.async_block_till_done()
 
-    # Active group remains playing and undisturbed
-    assert leader.state == MediaPlayerState.PLAYING
-    assert member.state == MediaPlayerState.PLAYING
-    assert leader.group_members == ["media_player.living_room", "media_player.kitchen"]
+        # No phantom media_player entities were discovered
+        assert added_entities == []
 
-    # All 6 plant zones stayed strictly OFF with exact post-call restored volumes
-    for where, z in inactive_zones.items():
-        assert z.state == MediaPlayerState.OFF, f"Zone {where} woke to {z.state}"
-        assert z.group_members is None
-        assert pool.get_leader(z.entity_id) is None
+        # Active group remains playing and undisturbed
+        assert leader.state == MediaPlayerState.PLAYING
+        assert member.state == MediaPlayerState.PLAYING
+        assert leader.group_members == ["media_player.living_room", "media_player.kitchen"]
 
-    assert inactive_zones["31"].volume_level == pytest.approx(0.0)
-    assert inactive_zones["41"].volume_level == pytest.approx(6 / 31.0)
-    assert inactive_zones["51"].volume_level == pytest.approx(6 / 31.0)
-    assert inactive_zones["61"].volume_level == pytest.approx(7 / 31.0)
-    assert inactive_zones["71"].volume_level == pytest.approx(1 / 31.0)
-    assert inactive_zones["81"].volume_level == pytest.approx(1 / 31.0)
+        # All 6 plant zones stayed strictly OFF with exact post-call restored volumes
+        for where, z in inactive_zones.items():
+            assert z.state == MediaPlayerState.OFF, f"Zone {where} woke to {z.state}"
+            assert z.group_members is None
+            assert pool.get_leader(z.entity_id) is None
+
+        assert inactive_zones["31"].volume_level == pytest.approx(0.0)
+        assert inactive_zones["41"].volume_level == pytest.approx(6 / 31.0)
+        assert inactive_zones["51"].volume_level == pytest.approx(6 / 31.0)
+        assert inactive_zones["61"].volume_level == pytest.approx(7 / 31.0)
+        assert inactive_zones["71"].volume_level == pytest.approx(1 / 31.0)
+        assert inactive_zones["81"].volume_level == pytest.approx(1 / 31.0)
+    finally:
+        for unsub in unload_cbs:
+            unsub()
 
 
 @pytest.mark.asyncio
 async def test_mh202_wall_controls_trace_zone_41_lifecycle(hass, mock_gateway):
     """Replay the 146-frame physical wall switch ON, volume ramp, and OFF trace (#669).
 
-    Validates:
+    Validates through the real PlatformDiscovery + FrameRouter + route_pseudo_zones +
+    MyHOMESoundSource + who22_tuner_listener pipeline:
     1. All 146 frames parse cleanly via OWNMessage.parse (dual-dialect WHO 22 + WHO 16).
-    2. Matrix routing frame (*16*3*143##) sets Zone 41 source to Source 3 without
-       prematurely waking Zone 41 before the amplifier ON frame (*16*3*41##) arrives.
+    2. Matrix routing frame (*16*3*143##) is routed via route_pseudo_zones to Zone 41,
+       setting Zone 41 source to Source 3 ("Streamer 3") without prematurely waking
+       Zone 41 before the amplifier ON frame (*16*3*41##) arrives, and without
+       discovering a phantom entity for "143".
     3. Amplifier ON frame (*16*3*41##) wakes Zone 41 and auto-joins the active stream
-       on Source 3, while source activation (*16*3*103##) is ignored by zone entities.
-    4. Physical wall rocker volume steps (*22*3#1*3#4#1## / *22*4#1*3#4#1##) paired with
+       on Source 3, while source activation (*16*3*103##) turns on the declared
+       MyHOMESoundSource ("103#16") via _sound_route_keys and is ignored by zone entities.
+    4. WHO 22 source frames (*22*1#4#4*2#3##, *22*21#4#4*5#2#3##, *22*2#4#4*5#2#3##,
+       *#22*2#3*12*1*4##) resolve who22_source_id == 3 and are handled cleanly by
+       who22_tuner_listener without creating phantom entities.
+    5. Physical wall rocker volume steps (*22*3#1*3#4#1## / *22*4#1*3#4#1##) paired with
        WHO 16 volume reports (*#16*41*1*<vol>##) drive Zone 41 through the exact on-wire
        volume trajectory: 6 -> 15 -> 5 -> 12 -> 7 (on the 0..31 scale).
-    5. Physical wall switch OFF (*16*13*41##) turns Zone 41 OFF cleanly while all other
+    6. Physical wall switch OFF (*16*13*41##) turns Zone 41 OFF cleanly while all other
        zones (31, 51, 61, 71, 81) remain OFF throughout the entire trace.
     """
     assert WALL_CONTROLS_TRACE_PATH.is_file(), f"Missing trace fixture: {WALL_CONTROLS_TRACE_PATH}"
@@ -471,7 +539,15 @@ async def test_mh202_wall_controls_trace_zone_41_lifecycle(hass, mock_gateway):
         CONF_SOURCE_NAME.format(3): "Streamer 3",
         CONF_SOURCE_DEFAULTS: {"3": 3, "4": 3, "5": 3, "6": 3, "7": 3, "8": 3},
     }
-    mock_gateway.config_entry = MagicMock(options=dict(base_options))
+    unload_cbs = []
+    config_entry = MagicMock(
+        entry_id="test_wall_controls_trace_entry",
+        data={CONF_MAC: mock_gateway.mac},
+        options=dict(base_options),
+        runtime_data=runtime,
+    )
+    config_entry.async_on_unload.side_effect = unload_cbs.append
+    mock_gateway.config_entry = config_entry
 
     zones = {}
     for where in ("31", "41", "51", "61", "71", "81"):
@@ -481,69 +557,120 @@ async def test_mh202_wall_controls_trace_zone_41_lifecycle(hass, mock_gateway):
         z._attr_state = MediaPlayerState.OFF
         zones[where] = z
 
+    # Also register a declared MyHOMESoundSource for Source 3 (WHERE=103)
+    source_103 = MyHOMESoundSource(
+        hass=hass,
+        name="Streamer 3",
+        device_id="103#16",
+        who="16",
+        where="103",
+        manufacturer="BTicino",
+        model="Audio Source",
+        gateway=mock_gateway,
+    )
+    source_103.entity_id = "media_player.audio_source_3"
+    source_103._publish_state = MagicMock()
+
+    added_entities: list = []
+    discovery = PlatformDiscovery(
+        hass,
+        config_entry,
+        added_entities.extend,
+        platform=Platform.MEDIA_PLAYER,
+        who="16",
+        event_type=OWNSoundEvent,
+        build=lambda ctx: None,
+        address=_zone_address,
+        pre_message=route_pseudo_zones(runtime.router),
+        route_keys=_sound_route_keys,
+        key_suffix="#16",
+    )
+    for where, z in zones.items():
+        key = f"{where}#16"
+        discovery.known.add(key)
+        unload_cbs.append(runtime.router.subscribe("16", [key], z.handle_event))
+
+    unload_cbs.append(
+        runtime.router.subscribe("16", [source_103.device_key], source_103.handle_event)
+    )
+    unload_cbs.append(
+        async_dispatcher_connect(
+            hass,
+            f"myhome_message_{mock_gateway.mac}",
+            who22_tuner_listener([source_103]),
+        )
+    )
+    discovery.listen()
+
     zone41 = zones["41"]
     observed_states: list[tuple[str, MediaPlayerState | None, float | None, str | None]] = []
     volume_trajectory_hw: list[int] = []
+    who22_source_frames: list[str] = []
 
-    for entry in frames:
-        raw = entry["raw"]
-        msg = OWNMessage.parse(raw)
-        assert msg is not None, f"Failed to parse frame: {raw}"
+    try:
+        for entry in frames:
+            raw = entry["raw"]
+            msg = OWNMessage.parse(raw)
+            assert msg is not None, f"Failed to parse frame: {raw}"
 
-        if isinstance(msg, OWNSoundEvent):
-            where = msg.where or ""
-            if where in zones:
-                zones[where].handle_event(msg)
-                if where == "41":
-                    if msg.volume is not None:
-                        volume_trajectory_hw.append(msg.volume)
-                    observed_states.append((raw, zone41.state, zone41.volume_level, zone41.source))
-            elif len(where) == 3 and where.startswith("1") and where[1] != "0":
-                # Matrix routing pseudo-zone 1ES (e.g. *16*3*143## routes environment 4 to source 3)
-                env = where[1]
-                for z_where, z_ent in zones.items():
-                    if z_where[0] == env:
-                        z_ent.handle_event(msg)
-                        if z_where == "41":
-                            observed_states.append(
-                                (raw, zone41.state, zone41.volume_level, zone41.source)
-                            )
-            elif getattr(msg, "is_source_event", False):
-                # Source power frame (*16*3*103##) must be ignored by zone entities
-                zone41.handle_event(msg)
+            if who22_source_id(msg) == 3:
+                who22_source_frames.append(raw)
 
-    await hass.async_block_till_done()
+            async_dispatcher_send(hass, f"myhome_message_{mock_gateway.mac}", msg)
 
-    # 1. Verify *16*3*143## set source to "Streamer 3" while keeping Zone 41 OFF until *16*3*41##
-    routing_step = next(s for s in observed_states if s[0] == "*16*3*143##")
-    assert routing_step[1] == MediaPlayerState.OFF
-    assert routing_step[3] == "Streamer 3"
+            if isinstance(msg, OWNSoundEvent):
+                where = msg.where or ""
+                if where == "41" and msg.volume is not None:
+                    volume_trajectory_hw.append(msg.volume)
+                if where in ("41", "143", "103"):
+                    observed_states.append(
+                        (raw, zone41.state, zone41.volume_level, zone41.source)
+                    )
 
-    # 2. Verify *16*3*41## turned Zone 41 ON
-    wake_step = next(s for s in observed_states if s[0] == "*16*3*41##")
-    assert wake_step[1] in (MediaPlayerState.ON, MediaPlayerState.PLAYING)
+        await hass.async_block_till_done()
 
-    # 3. Verify the exact hardware volume trajectory reported by *#16*41*1*<vol>##
-    # Starts at 6, ramps UP to peak 15, ramps DOWN to trough 5, ramps UP to 12, ramps DOWN to 7
-    assert volume_trajectory_hw[0] == 6
-    assert max(volume_trajectory_hw) == 15
-    assert min(volume_trajectory_hw) == 5
-    assert volume_trajectory_hw[-1] == 7
-    assert volume_trajectory_hw == [
-        6,
-        7, 8, 9, 10, 11, 12, 13, 14, 15,
-        14, 13, 12, 11, 10, 9, 8, 7, 6, 5,
-        6, 7, 8, 9, 10, 11, 12,
-        11, 10, 9, 8, 7,
-    ]
+        # 0. No phantom entities created for 143, 103, or WHO 22 addresses
+        assert added_entities == []
 
-    # 4. Verify *16*13*41## turned Zone 41 back OFF at final volume 7/31
-    assert zone41.state == MediaPlayerState.OFF
-    assert zone41.volume_level == pytest.approx(7 / 31.0)
-    assert zone41.source == "Streamer 3"
+        # 1. Verify *16*3*143## was routed by route_pseudo_zones to Zone 41, setting
+        #    source to "Streamer 3" while keeping Zone 41 OFF until *16*3*41##
+        routing_step = next(s for s in observed_states if s[0] == "*16*3*143##")
+        assert routing_step[1] == MediaPlayerState.OFF
+        assert routing_step[3] == "Streamer 3"
 
-    # 5. All other zones remained strictly OFF throughout
-    for where in ("31", "51", "61", "71", "81"):
-        assert zones[where].state == MediaPlayerState.OFF
+        # 2. Verify *16*3*41## turned Zone 41 ON and *16*3*103## turned Source 103 ON
+        wake_step = next(s for s in observed_states if s[0] == "*16*3*41##")
+        assert wake_step[1] in (MediaPlayerState.ON, MediaPlayerState.PLAYING)
+        assert source_103.state == MediaPlayerState.ON
+        assert who22_source_frames == [
+            "*22*1#4#4*2#3##",
+            "*22*21#4#4*5#2#3##",
+            "*22*2#4#4*5#2#3##",
+            "*#22*2#3*12*1*4##",
+        ]
 
+        # 3. Verify the exact hardware volume trajectory reported by *#16*41*1*<vol>##
+        # Starts at 6, ramps UP to peak 15, ramps DOWN to trough 5, ramps UP to 12, ramps DOWN to 7
+        assert volume_trajectory_hw[0] == 6
+        assert max(volume_trajectory_hw) == 15
+        assert min(volume_trajectory_hw) == 5
+        assert volume_trajectory_hw[-1] == 7
+        assert volume_trajectory_hw == [
+            6,
+            7, 8, 9, 10, 11, 12, 13, 14, 15,
+            14, 13, 12, 11, 10, 9, 8, 7, 6, 5,
+            6, 7, 8, 9, 10, 11, 12,
+            11, 10, 9, 8, 7,
+        ]
 
+        # 4. Verify *16*13*41## turned Zone 41 back OFF at final volume 7/31
+        assert zone41.state == MediaPlayerState.OFF
+        assert zone41.volume_level == pytest.approx(7 / 31.0)
+        assert zone41.source == "Streamer 3"
+
+        # 5. All other zones remained strictly OFF throughout
+        for where in ("31", "51", "61", "71", "81"):
+            assert zones[where].state == MediaPlayerState.OFF
+    finally:
+        for unsub in unload_cbs:
+            unsub()
