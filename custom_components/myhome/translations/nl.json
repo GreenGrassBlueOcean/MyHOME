@@ -313,6 +313,10 @@
           "name": "Looptijd omhoog",
           "description": "Seconden voor een volledige openingsbeweging (1-180)."
         },
+        "slat_time": {
+          "name": "Kanteltijd lamellen",
+          "description": "Seconden die de lamellen van een jaloezie nodig hebben voor een volledige kanteling (0.5-10). Alleen gebruikt door rolluiken met slat_tilt ingeschakeld."
+        },
         "copied_from": {
           "name": "Gekopieerd van",
           "description": "Het rolluik waarvan deze tijden zijn overgenomen; de bron wordt dan gemeld als \"copied\" in plaats van \"manual\"."
@@ -429,6 +433,12 @@
     },
     "cover_busy_calibrating": {
       "message": "{entity_id} wordt gekalibreerd; probeer het opnieuw wanneer dat klaar is"
+    },
+    "cover_busy_moving": {
+      "message": "{name} beweegt; stop het voordat u de lamellen kantelt"
+    },
+    "slat_tilt_not_enabled": {
+      "message": "{name} heeft slat_tilt niet ingeschakeld; slat_time kan niet worden ingesteld"
     },
     "decoders_busy": {
       "message": "{entity_id}: alle ingangen van de audiomatrix zijn momenteel in gebruik door andere ruimtes"

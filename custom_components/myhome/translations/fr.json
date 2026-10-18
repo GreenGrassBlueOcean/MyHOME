@@ -313,6 +313,10 @@
           "name": "Temps de course en montée",
           "description": "Secondes pour une ouverture complète (1-180)."
         },
+        "slat_time": {
+          "name": "Temps d'orientation des lames",
+          "description": "Secondes nécessaires aux lames d'un store vénitien pour une rotation complète (0.5-10). Utilisé uniquement par les volets ayant slat_tilt activé."
+        },
         "copied_from": {
           "name": "Copié depuis",
           "description": "Le volet dont ces temps ont été repris ; la source est alors indiquée comme \"copied\" au lieu de \"manual\"."
@@ -429,6 +433,12 @@
     },
     "cover_busy_calibrating": {
       "message": "{entity_id} est en cours de calibration ; réessayez lorsqu'elle sera terminée"
+    },
+    "cover_busy_moving": {
+      "message": "{name} est en mouvement ; arrêtez-le avant d'orienter les lames"
+    },
+    "slat_tilt_not_enabled": {
+      "message": "{name} n'a pas slat_tilt activé ; slat_time ne peut pas être défini"
     },
     "decoders_busy": {
       "message": "{entity_id} : toutes les entrées de la matrice audio sont actuellement utilisées par d'autres pièces"

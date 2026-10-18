@@ -19,6 +19,13 @@ MOTOR_START_DELAY: float = 0.55
 MOTOR_STOP_DELAY: float = 0.0
 STOP_LATENCY: float = MOTOR_STOP_DELAY
 
+# Shortest slat pulse worth sending (#492). Shorter tilt steps are skipped: the
+# direction and stop frames are ~0.1 s apart on the bus at best, and on-wire
+# testing on physical hardware (#466 comment 6038376669) demonstrated that pulses
+# under ~0.2 s (130-200 ms) click the actuator relay without overcoming tubular motor
+# inertia/deadband, causing silent mathematical desync.
+MIN_TILT_PULSE: float = 0.2
+
 # Upper bound on how long we wait for the send queue to write our frame before
 # falling back to "now" as the motion anchor. #302 measured the *queue*: with
 # twelve covers the last frame goes out 1.5-12 s after enqueue (the ~1.6 s often
@@ -144,4 +151,3 @@ def compute_freeze_position(
     if pos is not None:
         return pos
     return current_position if current_position is not None else start_position
-
