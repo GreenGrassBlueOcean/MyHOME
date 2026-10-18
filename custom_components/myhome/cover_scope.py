@@ -360,5 +360,7 @@ class MyHOMEScopeCover(MyHOMECover):
         self._freeze_position(time.monotonic())
         # A full run by the model; the anchor may trail the timer by the queue delay.
         self._attr_current_cover_position = self._start_position = 100 if opening else 0
+        if self._slat_tilt:
+            self._attr_current_cover_tilt_position = 100 if opening else 0
         self._attr_is_closed = not opening
         self._publish_state()

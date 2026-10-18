@@ -86,7 +86,6 @@ from .cover_motion import (
     ECHO_WINDOW,
     END_SETTLE_MARGIN,
     MIN_POSITION_DELTA,
-    MIN_TILT_PULSE,
     MOTOR_START_DELAY,
     MOTOR_STOP_DELAY,
     WRITE_TIMEOUT,
@@ -348,6 +347,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._motor_started: asyncio.Event = asyncio.Event()
         self._run_generation: int = 0
         self._run_start_position: int | None = None
+        self._run_start_tilt: int | None = None
+        self._run_lead: float = 0.0
         self._pending_stop_context: dict[str, Any] | None = None
         self._auto_stop_duration: float | None = None
 
@@ -361,6 +362,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
     def _travel_for(self, opening: bool) -> float:
         """Full-travel seconds for the given direction (motors are often slower going up)."""
         return travel_for(self._travel_time_up, self._travel_time_down, opening)
+
+    def _curtain_travel_for(self, opening: bool) -> float:
+        """Curtain-only travel seconds for the given direction (end-to-end travel minus slat rotation)."""
+        travel = self._travel_for(opening)
+        if self._slat_tilt and travel > self._slat_time:
+            return travel - self._slat_time
+        return travel
 
     def _refresh_travel_attributes(self) -> None:
         attrs = self._attr_extra_state_attributes
@@ -455,6 +463,15 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._run_started_at = at
         if self._run_start_position is None:
             self._run_start_position = self._start_position
+        if self._slat_tilt and self._run_start_tilt is None:
+            is_opening = bool(self._attr_is_opening)
+            is_closing = bool(self._attr_is_closing)
+            self._run_start_tilt = (
+                self._attr_current_cover_tilt_position
+                if self._attr_current_cover_tilt_position is not None
+                else (0 if is_opening else 100)
+            )
+            self._run_lead = self._slat_lead_time(is_opening, is_closing)
         started = dt_util.utcnow() - timedelta(seconds=max(0.0, time.monotonic() - at))
         self._motion_started_at = started.isoformat(timespec="milliseconds")
         self._refresh_travel_attributes()
@@ -504,7 +521,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self._start_position,
             self._move_start_time,
             curtain_at,
-            self._travel_for(is_opening),
+            self._curtain_travel_for(is_opening),
             is_opening,
             is_closing,
             self._attr_current_cover_position,
@@ -517,6 +534,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._attr_is_opening = False
         self._attr_is_closing = False
         self._run_start_position = None
+        self._run_start_tilt = None
+        self._run_lead = 0.0
         if self._attr_current_cover_position is not None:
             self._attr_is_closed = (self._attr_current_cover_position == 0)
 
@@ -525,6 +544,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._cancel_stop_task()
         self._end_echo_window()
         self._run_start_position = None
+        self._run_start_tilt = None
+        self._run_lead = 0.0
         self._pending_stop_context = None
         self._auto_stop_duration = None
         self._move_start_time = None
@@ -625,7 +646,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._start_position,
                 self._move_start_time,
                 curtain_at,
-                self._travel_for(is_opening),
+                self._curtain_travel_for(is_opening),
                 is_opening,
                 is_closing,
             )
@@ -871,6 +892,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         # The sequence ends with the cover fully open.
         self._attr_current_cover_position = 100
         self._start_position = 100
+        if self._slat_tilt:
+            self._attr_current_cover_tilt_position = 100
         self._attr_is_closed = False
         self._refresh_travel_attributes()
         result: dict[str, Any] = {
@@ -1159,6 +1182,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         elif not self._advanced:
             self._start_position = self.current_cover_position if self.current_cover_position is not None else (0 if direction == "open" else 100)
             self._run_start_position = self._start_position
+            self._run_start_tilt = None
+            self._run_lead = 0.0
             self._pending_stop_context = None
             self._auto_stop_duration = None
             # The clock starts when the frame is written (see _track_write),
@@ -1221,6 +1246,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     return
                 self._attr_current_cover_position = 100 if opening else 0
                 self._start_position = self._attr_current_cover_position
+                if self._slat_tilt:
+                    self._attr_current_cover_tilt_position = 100 if opening else 0
                 self._move_start_time = None
                 self._run_started_at = None
                 self._motion_started_at = None
@@ -1228,6 +1255,8 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._attr_is_closing = False
                 self._attr_is_closed = not opening
                 self._run_start_position = None
+                self._run_start_tilt = None
+                self._run_lead = 0.0
                 self._pending_stop_context = None
                 self._auto_stop_duration = None
                 self._refresh_travel_attributes()
@@ -1319,7 +1348,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
         self._end_pulse_for_takeover()
         opening = diff > 0
-        travel_time = self._travel_for(opening)
+        travel_time = self._curtain_travel_for(opening)
         lead = self._slat_lead_time(opening, not opening)
         curtain_duration = compute_run_duration(
             diff, travel_time, min_pulse=max(0.0, self._min_motor_pulse - lead)
@@ -1378,12 +1407,16 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             # The estimate keeps running until the stop frame is actually
             # written (_track_write freezes it then); if delivery never
             # happens the next status frame will correct us.
+            is_opening = bool(self._attr_is_opening)
+            is_closing = bool(self._attr_is_closing)
             self._pending_stop_context = {
                 "run_start_position": self._run_start_position if self._run_start_position is not None else self._start_position,
                 "run_started_at": self._run_started_at,
-                "is_opening": bool(self._attr_is_opening),
-                "is_closing": bool(self._attr_is_closing),
+                "is_opening": is_opening,
+                "is_closing": is_closing,
                 "auto_stop_duration": self._auto_stop_duration,
+                "lead": self._run_lead if self._run_start_tilt is not None else self._slat_lead_time(is_opening, is_closing),
+                "run_start_tilt": self._run_start_tilt if self._run_start_tilt is not None else self._attr_current_cover_tilt_position,
             }
             self._begin_command("stop")
         generation = self._run_generation
@@ -1464,7 +1497,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         excess = (at - self._tilt_start_time) - to_end
         if excess <= 0:
             return
-        moved = excess / self._travel_for(opening) * 100.0
+        moved = excess / self._curtain_travel_for(opening) * 100.0
         position = max(0, min(100, int(round(self._attr_current_cover_position + (moved if opening else -moved)))))
         LOGGER.debug(
             "%s Slat pulse of %s ran %.2f s past a full rotation: curtain %s -> %s.",
@@ -1594,7 +1627,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             curr_tilt = 0 if self.is_closed else 50
         diff = target_tilt - curr_tilt
         run_duration = abs(diff) / 100.0 * self._slat_time
-        if run_duration < MIN_TILT_PULSE:
+        if diff == 0 or run_duration < self._min_motor_pulse:
             # Nothing to do, or a pulse too short for the motor to answer.
             if was_tilting:
                 # Already there while the motor still runs: end the pulse here.
@@ -1777,11 +1810,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 is_opening = ctx["is_opening"]
                 is_closing = ctx["is_closing"]
                 auto_dur = ctx.get("auto_stop_duration")
+                lead = float(ctx.get("lead") or 0.0)
                 raw_elapsed = max(0.0, now - start_anchor)
                 elapsed = max(raw_elapsed, auto_dur) if auto_dur is not None else raw_elapsed
-                travel_time = self._travel_for(is_opening)
+                curtain_elapsed = max(0.0, elapsed - lead)
+                travel_time = self._curtain_travel_for(is_opening)
                 if travel_time > 0 and (is_opening or is_closing):
-                    delta = (elapsed / travel_time) * 100.0
+                    delta = (curtain_elapsed / travel_time) * 100.0
                     if is_opening:
                         reanchored = min(100, int(round(run_start_pos + delta)))
                     else:
@@ -1789,6 +1824,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     self._attr_current_cover_position = reanchored
                     self._start_position = reanchored
                     self._attr_is_closed = (reanchored == 0)
+                if self._slat_tilt and (is_opening or is_closing):
+                    raw_tilt = ctx.get("run_start_tilt")
+                    start_tilt = raw_tilt if raw_tilt is not None else (0 if is_opening else 100)
+                    turned = (elapsed / self._slat_time) * 100.0 if self._slat_time > 0 else 100.0
+                    if is_opening:
+                        self._attr_current_cover_tilt_position = min(100, int(round(start_tilt + turned)))
+                    else:
+                        self._attr_current_cover_tilt_position = max(0, int(round(start_tilt - turned)))
                 self._last_run = {
                     "seconds": round(elapsed, 2),
                     "direction": "open" if is_opening else "close" if is_closing else None,
@@ -1930,11 +1973,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     self._start_position = self.current_cover_position if self.current_cover_position is not None else 0
                 if was_closing:
                     self._turn_slats_for_run(now, self._run_started_at, False, True)
-                if not self._advanced and not self._attr_is_opening:
-                    self._anchor_run(now)
+                was_already_opening = bool(self._attr_is_opening)
                 self._attr_is_opening = True
                 self._attr_is_closing = False
                 self._attr_is_closed = False
+                if not self._advanced and not was_already_opening:
+                    self._run_start_position = self._start_position
+                    self._run_start_tilt = None
+                    self._anchor_run(now)
         elif is_closing:
             if self._is_tilting and self._tilt_direction == "close":
                 # Movement frame caused by our tilt pulse: preserve tilt state, do not anchor linear travel
@@ -1955,11 +2001,14 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                     self._start_position = self.current_cover_position if self.current_cover_position is not None else 100
                 if was_opening:
                     self._turn_slats_for_run(now, self._run_started_at, True, False)
-                if not self._advanced and not self._attr_is_closing:
-                    self._anchor_run(now)
+                was_already_closing = bool(self._attr_is_closing)
                 self._attr_is_opening = False
                 self._attr_is_closing = True
                 self._attr_is_closed = False
+                if not self._advanced and not was_already_closing:
+                    self._run_start_position = self._start_position
+                    self._run_start_tilt = None
+                    self._anchor_run(now)
         else:
             # Stopped (state == 0 or other): a genuine stop ends any timed run.
             was_tilting = self._is_tilting

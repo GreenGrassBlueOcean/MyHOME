@@ -1847,10 +1847,21 @@ class TestTiltAuditRegressions:
     async def test_tilt_step_below_the_minimum_pulse_sends_nothing(self, cover, mock_gateway):
         cover._attr_current_cover_tilt_position = 50
         cover._slat_time = 2.0
-        await cover.async_set_cover_tilt_position(tilt_position=56)  # a 120 ms pulse (< 0.2s)
+        await cover.async_set_cover_tilt_position(tilt_position=62)  # 240 ms (< default 0.4 s min_motor_pulse)
         mock_gateway.send.assert_not_called()
         assert cover.current_cover_tilt_position == 50
-        await cover.async_set_cover_tilt_position(tilt_position=62)  # 240 ms (>= 0.2s)
+        await cover.async_set_cover_tilt_position(tilt_position=72)  # 440 ms (>= 0.4 s)
+        assert mock_gateway.send.call_count == 1
+        cover._cancel_stop_task()
+
+        # Custom min_motor_pulse on the cover is honoured
+        mock_gateway.send.reset_mock()
+        cover._abort_tilt()
+        cover._attr_current_cover_tilt_position = 50
+        cover._min_motor_pulse = 0.2
+        await cover.async_set_cover_tilt_position(tilt_position=56)  # 120 ms (< 0.2 s)
+        mock_gateway.send.assert_not_called()
+        await cover.async_set_cover_tilt_position(tilt_position=62)  # 240 ms (>= 0.2 s)
         assert mock_gateway.send.call_count == 1
         cover._cancel_stop_task()
 
@@ -1886,6 +1897,7 @@ class TestTiltAuditRegressions:
         self._written_now(mock_gateway)
         cover._attr_current_cover_tilt_position = 0
         cover._slat_time = 2.0
+        cover._min_motor_pulse = 0.2
         started = time.monotonic()
         await cover.async_set_cover_tilt_position(tilt_position=10)  # 0.2 s of slat travel
         await cover._stop_task
@@ -2018,7 +2030,7 @@ class TestTiltAuditRegressions:
         self._write_each_send(mock_gateway)
         cover._attr_current_cover_tilt_position = 0
         cover._slat_time = 2.0
-        await cover.async_set_cover_tilt_position(tilt_position=10)  # stop due ~0.75 s after the write
+        await cover.async_set_cover_tilt_position(tilt_position=20)  # 0.4 s pulse, stop due ~0.95 s after write
 
         def supersede():
             cover._run_generation += 1
@@ -2093,8 +2105,8 @@ class TestTiltAuditRegressions:
     @pytest.mark.parametrize(
         ("initial", "direction", "position", "overrun", "expected_position", "expected_tilt"),
         [
-            (0, "open", 0, 2.5, 10, 100),     # 2.5 s past the slats' 2 s: 10 % of a 25 s travel up
-            (100, "close", 50, 5.0, 30, 0),   # 5 s past: 20 % down
+            (0, "open", 0, 2.3, 10, 100),     # 2.3 s past the slats' 2 s: 10 % of a 23 s (25 - 2) curtain travel up
+            (100, "close", 50, 4.6, 30, 0),   # 4.6 s past: 20 % down
             (0, "open", 0, -0.5, 0, 75),      # stopped before the slats were turned: no curtain travel
         ],
     )
@@ -2327,10 +2339,10 @@ class TestTiltAuditRegressions:
             sleeps.append(delay)
 
         with patch("asyncio.sleep", side_effect=fake_sleep):
-            await cover.async_set_cover_position(position=40)  # 1.0 s slat lead + 2.5 s curtain = 3.5 s
+            await cover.async_set_cover_position(position=40)  # 1.0 s slat lead + 2.3 s curtain (10% of 23 s) = 3.3 s
             cover.handle_event(OWNMessage.parse("*2*2*31##"))
             await cover._stop_task
-        assert sleeps[0] == pytest.approx(3.5, abs=0.1)
+        assert sleeps[0] == pytest.approx(3.3, abs=0.1)
         assert cover.current_cover_position == 40
         assert cover.current_cover_tilt_position == 0
 
@@ -2355,6 +2367,168 @@ class TestTiltAuditRegressions:
         with pytest.raises(ServiceValidationError, match="does not have slat_tilt enabled") as err:
             await shutter.async_set_travel_time(slat_time=2.5)
         assert err.value.translation_key == "slat_tilt_not_enabled"
+
+    # ── Review 5562111186 regressions ────────────────────────────────────
+
+    def test_keypad_full_measured_close_reaches_zero(self, cover):
+        """Review #1: a keypad close lasting the measured 25 s from 100 % / tilt 100 settles at 0 %, not 8 %."""
+        t0 = 1000.0
+        cover._slat_time = 2.0
+        cover._travel_time_down = cover._travel_time_up = 25.0
+        cover._attr_current_cover_position = cover._start_position = 100
+        cover._attr_current_cover_tilt_position = 100
+
+        with patch("time.monotonic", return_value=t0):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        with patch("time.monotonic", return_value=t0 + 25.0):
+            assert cover.current_cover_position == 0
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 0
+        assert cover.current_cover_tilt_position == 0
+
+        # Fallback when travel_time <= slat_time uses full travel_time without dividing by <= 0
+        cover._travel_time_down = 2.0
+        assert cover._curtain_travel_for(False) == 2.0
+
+    @pytest.mark.asyncio
+    async def test_run_to_end_settles_tilt_at_limit(self, cover, mock_gateway, hass):
+        """Review #2: set_position(0) from tilt 100 settles at 0 % with tilt 0 (and 100 % with tilt 100)."""
+        from custom_components.myhome.cover_scope import CoverScope, MyHOMEScopeCover
+
+        self._write_each_send(mock_gateway)
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 100
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await cover.async_set_cover_position(position=0)
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+            await cover._stop_task
+        assert cover.current_cover_position == 0
+        assert cover.current_cover_tilt_position == 0
+
+        cover._attr_current_cover_tilt_position = 0
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await cover.async_set_cover_position(position=100)
+            cover.handle_event(OWNMessage.parse("*2*1*31##"))
+            await cover._stop_task
+        assert cover.current_cover_position == 100
+        assert cover.current_cover_tilt_position == 100
+
+        # A memberless scope cover with slat_tilt also settles tilt at the end of a timed run
+        with patch("custom_components.myhome.myhome_device.Entity.__init__", return_value=None):
+            scope_cover = MyHOMEScopeCover(
+                hass=hass,
+                name="Group Blind",
+                entity_name="Group Blind",
+                device_id="#3",
+                who="2",
+                where="#3",
+                interface=None,
+                advanced=False,
+                slat_tilt=True,
+                manufacturer="BTicino",
+                model="Venetian Blind",
+                gateway=mock_gateway,
+                scope=CoverScope.of("#3"),
+            )
+        scope_cover.entity_id = "cover.group_blind"
+        scope_cover.hass = hass
+        scope_cover.async_write_ha_state = MagicMock()
+        scope_cover._attr_current_cover_position = scope_cover._start_position = 50
+        scope_cover._attr_current_cover_tilt_position = 100
+        scope_cover._attr_is_closing = True
+        scope_cover._run_timeout_direction = "close"
+        scope_cover._end_run(None)
+        assert scope_cover.current_cover_position == 0
+        assert scope_cover.current_cover_tilt_position == 0
+
+    @pytest.mark.asyncio
+    async def test_stop_status_reanchor_subtracts_slat_lead(self, cover, mock_gateway):
+        """Review #3: the #707 stop-status re-anchor subtracts the slat lead and divides by curtain travel."""
+        t0 = 1000.0
+        # Scenario A: 50 -> 45 move from tilt 50 with travel 10 s (curtain travel 8 s, lead 1 s, curtain 0.4 s)
+        cover._slat_time = 2.0
+        cover._travel_time_down = cover._travel_time_up = 10.0
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+
+        loop = asyncio.get_running_loop()
+        write_times = iter([t0, t0 + 1.4])
+
+        async def send_a(_cmd):
+            fut = loop.create_future()
+            fut.set_result(next(write_times))
+            return fut
+
+        mock_gateway.send.side_effect = send_a
+        with patch("asyncio.sleep", new=AsyncMock()):
+            with patch("time.monotonic", return_value=t0):
+                await cover.async_set_cover_position(position=45)
+                cover.handle_event(OWNMessage.parse("*2*2*31##"))
+            with patch("time.monotonic", return_value=t0 + 1.4):
+                await cover._stop_task
+        assert cover.current_cover_position == 45
+        assert cover.current_cover_tilt_position == 0
+
+        # Relayed stop status shortly after stop write keeps position at 45 (not 34)
+        with patch("time.monotonic", return_value=t0 + 1.42):
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 45
+        assert cover.current_cover_tilt_position == 0
+
+        # Scenario B: 1.5 s HA close from position 50, tilt 50 on a 25 s blind shows 48 after stop write and 48 after relayed stop
+        cover._travel_time_down = cover._travel_time_up = 25.0
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        write_times_b = iter([t0, t0 + 1.5])
+
+        async def send_b(_cmd):
+            fut = loop.create_future()
+            fut.set_result(next(write_times_b))
+            return fut
+
+        mock_gateway.send.side_effect = send_b
+        with patch("time.monotonic", return_value=t0):
+            await cover.async_close_cover()
+            await asyncio.sleep(0)
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        with patch("time.monotonic", return_value=t0 + 1.5):
+            await cover.async_stop_cover()
+            await asyncio.sleep(0)
+        assert cover.current_cover_position == 48
+        assert cover.current_cover_tilt_position == 0
+
+        with patch("time.monotonic", return_value=t0 + 1.54):
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 48
+        assert cover.current_cover_tilt_position == 0
+
+        # Scenario C: HA open stopped during the slat phase (0.5 s from tilt 50) re-anchors tilt without moving curtain
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+        write_times_c = iter([t0, t0 + 0.5])
+
+        async def send_c(_cmd):
+            fut = loop.create_future()
+            fut.set_result(next(write_times_c))
+            return fut
+
+        mock_gateway.send.side_effect = send_c
+        with patch("time.monotonic", return_value=t0):
+            await cover.async_open_cover()
+            await asyncio.sleep(0)
+            cover.handle_event(OWNMessage.parse("*2*1*31##"))
+        with patch("time.monotonic", return_value=t0 + 0.5):
+            await cover.async_stop_cover()
+            await asyncio.sleep(0)
+        assert cover.current_cover_position == 50
+        assert cover.current_cover_tilt_position == 75
+
+        with patch("time.monotonic", return_value=t0 + 0.54):
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 50
+        assert cover.current_cover_tilt_position == 77
+
 
 
 async def test_cover_general_commands_update_all_covers(hass: HomeAssistant, mock_gateway):
