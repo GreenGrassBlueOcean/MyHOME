@@ -2529,6 +2529,85 @@ class TestTiltAuditRegressions:
         assert cover.current_cover_position == 50
         assert cover.current_cover_tilt_position == 77
 
+    @pytest.mark.asyncio
+    async def test_mid_run_reversal_and_retarget_settle_slat_lead_and_auto_stop_duration(
+        self, cover, mock_gateway
+    ):
+        """Mid-run HA retarget/reversal settles in-progress slat rotation, and _freeze_position clears _auto_stop_duration."""
+        t0 = 1000.0
+        loop = asyncio.get_running_loop()
+        cover._slat_time = 2.0
+        cover._travel_time_down = cover._travel_time_up = 25.0
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 50
+
+        # 1. Start closing at t0; after 1.0 s (slats now at 0 %, curtain still at 50 %),
+        # retarget in the same direction to 40 %. Slat lead must be 0.0 s (not 1.0 s again).
+        write_times = iter([t0, t0 + 1.0, t0 + 3.3])
+
+        async def send_seq(_cmd):
+            fut = loop.create_future()
+            fut.set_result(next(write_times))
+            return fut
+
+        mock_gateway.send.side_effect = send_seq
+        with patch("time.monotonic", return_value=t0):
+            await cover.async_close_cover()
+            await asyncio.sleep(0)
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+
+        now_box = [t0 + 1.0]
+        sleep_calls: list[float] = []
+
+        async def record_sleep(delay: float):
+            sleep_calls.append(delay)
+            now_box[0] += delay
+
+        with (
+            patch("asyncio.sleep", side_effect=record_sleep),
+            patch("time.monotonic", side_effect=lambda: now_box[0]),
+        ):
+            await cover.async_set_cover_position(position=40)
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+            assert cover.current_cover_tilt_position == 0
+            await cover._stop_task
+        assert sleep_calls == [pytest.approx(2.3)]
+        assert cover.current_cover_position == 40
+        assert cover._auto_stop_duration is None
+
+        # 2. Without a stop echo for step 1, an external keypad close (*2*2*31##) followed
+        # 1.0 s later by a keypad open reversal (*2*1*31##) and an HA stop must not inherit
+        # step 1's _auto_stop_duration, and must re-anchor lead from the reversed tilt.
+        cover._attr_current_cover_position = cover._start_position = 50
+        cover._attr_current_cover_tilt_position = 100
+        with patch("time.monotonic", return_value=t0 + 10.0):
+            cover.handle_event(OWNMessage.parse("*2*2*31##"))
+        # 1.0 s into closing from tilt 100 -> slats are at 50 %, curtain at 50 %; reverse to open
+        with patch("time.monotonic", return_value=t0 + 11.0):
+            cover.handle_event(OWNMessage.parse("*2*1*31##"))
+        assert cover.current_cover_tilt_position == 50
+        assert cover._run_start_tilt == 50
+        assert cover._run_lead == pytest.approx(1.0)
+
+        write_times_stop = iter([t0 + 13.3])
+
+        async def send_stop(_cmd):
+            fut = loop.create_future()
+            fut.set_result(next(write_times_stop))
+            return fut
+
+        mock_gateway.send.side_effect = send_stop
+        with patch("time.monotonic", return_value=t0 + 13.3):
+            await cover.async_stop_cover()
+            await asyncio.sleep(0)
+        assert cover.current_cover_position == 56
+        assert cover.current_cover_tilt_position == 100
+
+        with patch("time.monotonic", return_value=t0 + 13.34):
+            cover.handle_event(OWNMessage.parse("*2*0*31##"))
+        assert cover.current_cover_position == 56
+        assert cover.current_cover_tilt_position == 100
+
 
 
 async def test_cover_general_commands_update_all_covers(hass: HomeAssistant, mock_gateway):

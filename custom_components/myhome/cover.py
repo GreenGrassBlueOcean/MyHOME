@@ -536,6 +536,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._run_start_position = None
         self._run_start_tilt = None
         self._run_lead = 0.0
+        self._auto_stop_duration = None
         if self._attr_current_cover_position is not None:
             self._attr_is_closed = (self._attr_current_cover_position == 0)
 
@@ -1180,6 +1181,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             self._attr_is_opening = direction == "open"
             self._attr_is_closing = direction == "close"
         elif not self._advanced:
+            self._end_curtain_for_takeover(time.monotonic())
             self._start_position = self.current_cover_position if self.current_cover_position is not None else (0 if direction == "open" else 100)
             self._run_start_position = self._start_position
             self._run_start_tilt = None
@@ -1347,6 +1349,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._cancel_stop_task()
 
         self._end_pulse_for_takeover()
+        self._end_curtain_for_takeover(time.monotonic())
         opening = diff > 0
         travel_time = self._curtain_travel_for(opening)
         lead = self._slat_lead_time(opening, not opening)
@@ -1589,6 +1592,20 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         if self._is_tilting:
             self._run_generation += 1  # the pulse's queued stop must not settle anything now
             self._apply_tilt_stop(time.monotonic())
+
+    def _end_curtain_for_takeover(self, now: float) -> None:
+        """Settle an in-progress curtain run's position and slat angle when a new command takes over."""
+        if (
+            not self._advanced
+            and not self._is_tilting
+            and (self._attr_is_opening or self._attr_is_closing)
+            and self._run_started_at is not None
+        ):
+            self._start_position = self.current_cover_position if self.current_cover_position is not None else self._start_position
+            self._attr_current_cover_position = self._start_position
+            self._turn_slats_for_run(now, self._run_started_at, bool(self._attr_is_opening), bool(self._attr_is_closing))
+            self._move_start_time = None
+            self._run_started_at = None
 
     async def async_set_cover_tilt_position(self, **kwargs: Any) -> None:
         """Move the cover tilt to a specific position."""
@@ -1978,8 +1995,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._attr_is_closing = False
                 self._attr_is_closed = False
                 if not self._advanced and not was_already_opening:
-                    self._run_start_position = self._start_position
+                    self._run_start_position = None
                     self._run_start_tilt = None
+                    self._auto_stop_duration = None
                     self._anchor_run(now)
         elif is_closing:
             if self._is_tilting and self._tilt_direction == "close":
@@ -2006,8 +2024,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
                 self._attr_is_closing = True
                 self._attr_is_closed = False
                 if not self._advanced and not was_already_closing:
-                    self._run_start_position = self._start_position
+                    self._run_start_position = None
                     self._run_start_tilt = None
+                    self._auto_stop_duration = None
                     self._anchor_run(now)
         else:
             # Stopped (state == 0 or other): a genuine stop ends any timed run.
