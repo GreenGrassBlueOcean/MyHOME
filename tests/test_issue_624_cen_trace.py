@@ -24,7 +24,7 @@ from homeassistant.const import (
     CONF_PORT,
     CONF_TYPE,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from OWNd.message import OWNCENEvent, OWNCENPlusEvent, OWNMessage
 
 from custom_components.myhome.const import (
@@ -457,7 +457,7 @@ async def test_cen_bus_routing_and_non_int_no_value_error(hass: HomeAssistant) -
     assert isinstance(msg, OWNCENEvent)
 
     events: list[dict] = []
-    hass.bus.async_listen("myhome_cen_event", lambda ev: events.append(ev.data))
+    hass.bus.async_listen("myhome_cen_event", callback(lambda ev: events.append(ev.data)))
 
     with patch("homeassistant.helpers.device_registry.async_get", return_value=MagicMock()):
         await handler._event_dispatcher.process_message(msg)
@@ -488,8 +488,8 @@ async def test_cen_and_cenplus_non_integer_fallback(hass: HomeAssistant) -> None
 
     cen_events: list[dict] = []
     cenplus_events: list[dict] = []
-    hass.bus.async_listen("myhome_cen_event", lambda ev: cen_events.append(ev.data))
-    hass.bus.async_listen("myhome_cenplus_event", lambda ev: cenplus_events.append(ev.data))
+    hass.bus.async_listen("myhome_cen_event", callback(lambda ev: cen_events.append(ev.data)))
+    hass.bus.async_listen("myhome_cenplus_event", callback(lambda ev: cenplus_events.append(ev.data)))
 
     # Mock non-integer CEN message
     cen_msg = MagicMock(spec=OWNCENEvent)
