@@ -550,11 +550,11 @@ async def test_live_2026_10_16_parked_group_yields_decoder_to_bathroom_multiroom
 
     mock_gateway.send.reset_mock()
     async_mock_service(hass, "media_player", "play_media")
-    hass.services.async_register(
-        "media_player",
-        "turn_on",
-        lambda call: hass.states.async_set(call.data["entity_id"], "on"),
-    )
+
+    async def _turn_on_side_effect(call):
+        hass.states.async_set(call.data["entity_id"], "on")
+
+    hass.services.async_register("media_player", "turn_on", _turn_on_side_effect)
     async_mock_service(hass, "media_player", "volume_set")
 
     with patch("asyncio.sleep", return_value=None):
@@ -596,11 +596,11 @@ async def test_live_2026_10_16_parked_group_yields_decoder_to_bathroom_two_room_
 
     mock_gateway.send.reset_mock()
     async_mock_service(hass, "media_player", "play_media")
-    hass.services.async_register(
-        "media_player",
-        "turn_on",
-        lambda call: hass.states.async_set(call.data["entity_id"], "on"),
-    )
+
+    async def _turn_on_side_effect(call):
+        hass.states.async_set(call.data["entity_id"], "on")
+
+    hass.services.async_register("media_player", "turn_on", _turn_on_side_effect)
     async_mock_service(hass, "media_player", "volume_set")
 
     with patch("asyncio.sleep", return_value=None):
