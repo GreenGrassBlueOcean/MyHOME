@@ -350,7 +350,7 @@ async def test_calibrate_button_calls_the_service_for_its_cover(hass, gateway):
     await btn.async_update()  # no-op
 
     calls = []
-    hass.services.async_register(DOMAIN, "calibrate_cover", lambda call: calls.append(dict(call.data)))
+    hass.services.async_register(DOMAIN, "calibrate_cover", callback(lambda call: calls.append(dict(call.data))))
     await btn.async_press()
     await hass.async_block_till_done()
     assert calls == [{"entity_id": "cover.bedroom_shutter"}]
@@ -385,7 +385,7 @@ async def test_calibrate_all_button_targets_every_enabled_cover_of_the_entry(has
     assert btn.available is True
 
     calls = []
-    hass.services.async_register(DOMAIN, "calibrate_cover", lambda call: calls.append(dict(call.data)))
+    hass.services.async_register(DOMAIN, "calibrate_cover", callback(lambda call: calls.append(dict(call.data))))
     await btn.async_press()
     await hass.async_block_till_done()
     assert calls == [{"entity_id": ["cover.a", "cover.b"]}]
@@ -1635,7 +1635,7 @@ async def test_reset_cover_travel_time_restores_min_motor_pulse(hass, gateway):
     assert cover.extra_state_attributes["min_motor_pulse"] == 0.2
 
     events = []
-    hass.bus.async_listen(EVENT_COVER_CALIBRATION, lambda ev: events.append(ev.data))
+    hass.bus.async_listen(EVENT_COVER_CALIBRATION, callback(lambda ev: events.append(ev.data)))
 
     await cover.async_reset_travel_time()
     assert cover._min_motor_pulse == 0.4

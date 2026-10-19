@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -1305,7 +1305,7 @@ async def test_standby_connected_creates_no_cen_devices(hass: HomeAssistant) -> 
     gw_sb.is_connected = True
 
     cen_events = []
-    unsub = hass.bus.async_listen("myhome_cenplus_event", lambda e: cen_events.append(e))
+    unsub = hass.bus.async_listen("myhome_cenplus_event", callback(lambda e: cen_events.append(e)))
 
     msg = OWNCENPlusEvent.parse("*25*21#1*01##")
     await gw_sb._process_message(msg)
@@ -1536,10 +1536,10 @@ async def test_secondary_gateway_event_delegation_filtering(hass: HomeAssistant)
 
     events = []
     unsub_light = hass.bus.async_listen(
-        "myhome_general_light_event", lambda e: events.append(e)
+        "myhome_general_light_event", callback(lambda e: events.append(e))
     )
     unsub_auto = hass.bus.async_listen(
-        "myhome_general_automation_event", lambda e: events.append(e)
+        "myhome_general_automation_event", callback(lambda e: events.append(e))
     )
 
     # Delegated WHO=1 event should be processed
@@ -1576,10 +1576,10 @@ async def test_primary_gateway_ignores_delegated_away_whos(hass: HomeAssistant) 
 
     events = []
     unsub_light = hass.bus.async_listen(
-        "myhome_general_light_event", lambda e: events.append(e)
+        "myhome_general_light_event", callback(lambda e: events.append(e))
     )
     unsub_auto = hass.bus.async_listen(
-        "myhome_general_automation_event", lambda e: events.append(e)
+        "myhome_general_automation_event", callback(lambda e: events.append(e))
     )
 
     # Non-delegated WHO=1 event is processed by primary

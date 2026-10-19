@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -390,7 +390,7 @@ async def test_calibrate_all_button_reactive_availability_and_no_covers(
 
         # 4. Pressing with covers dispatches calibration service
         calls = []
-        hass.services.async_register(DOMAIN, SERVICE_CALIBRATE_COVER, lambda call: calls.append(call))
+        hass.services.async_register(DOMAIN, SERVICE_CALIBRATE_COVER, callback(lambda call: calls.append(call)))
         await btn.async_press()
         await hass.async_block_till_done()
         assert len(calls) == 1
