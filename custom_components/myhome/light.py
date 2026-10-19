@@ -193,9 +193,12 @@ async def async_setup_entry(
             known.discard(address.key)
             return True
         if foreign.owns(address, address.key):
-            runtime.router.publish(
-                "1", (address.key, address.where, normalize_where(address.where)), message
+            keys: tuple[str, ...] = (
+                (address.key, address.clean_key)
+                if address.interface and not foreign.is_switch(address, address.key)
+                else (address.key, address.where, normalize_where(address.where))
             )
+            runtime.router.publish("1", keys, message)
             return True
         return False
 
@@ -234,7 +237,7 @@ async def async_setup_entry(
 
 
 class _ForeignAddresses:
-    """WHO=1 addresses that belong to the switch or sensor platforms, not to a light."""
+    """WHO=1 addresses that belong to the switch, cover, lock, or sensor platforms, not to a light."""
 
     SENSOR_MESSAGE_TYPES = (
         "motion_detected",
@@ -248,6 +251,7 @@ class _ForeignAddresses:
     ) -> None:
         runtime = config_entry.runtime_data
         self.switches: set[str] = set()
+        self.covers: set[str] = set()
         self.sensors: set[str] = set()
 
         for dev_id, cfg in runtime.platforms.get("switch", {}).items():
@@ -255,6 +259,12 @@ class _ForeignAddresses:
             self.switches.update(
                 {str(dev_id), address.where, address.clean_key, address.clean_where}
             )
+        for platform, default_who in (("cover", "2"), ("lock", "6")):
+            for dev_id, cfg in runtime.platforms.get(platform, {}).items():
+                if str(cfg.get(CONF_WHO, default_who)) != "1":
+                    continue
+                address = Address.from_config(dev_id, cfg)
+                self._add_cover(str(dev_id), address)
         for platform, default_who in (("binary_sensor", "25"), ("sensor", "1")):
             for dev_id, cfg in runtime.platforms.get(platform, {}).items():
                 if str(cfg.get(CONF_WHO, default_who)) != "1":
@@ -271,6 +281,8 @@ class _ForeignAddresses:
             who, device_id = parse_unique_id(entry.unique_id or "", gateway_mac, entry_mac)
             if entry.domain == "switch":
                 self.switches.update({device_id, device_id.split("#4#")[0].split("-")[-1]})
+            elif entry.domain in ("cover", "lock") and who == "1":
+                self._add_cover(device_id, Address.from_device_id(device_id))
             elif entry.domain in ("binary_sensor", "sensor"):
                 if who == "1":
                     dev = device_id.split("-")[0]
@@ -284,6 +296,14 @@ class _ForeignAddresses:
                     continue
                 self._add_sensor(dev, dev.split("#4#")[0].split("-")[-1])
 
+    def _add_cover(self, dev_id: str, address: Address) -> None:
+        if address.interface:
+            self.covers.update({dev_id, address.key, address.clean_key})
+        else:
+            self.covers.update(
+                {dev_id, address.key, address.clean_key, address.where, address.clean_where}
+            )
+
     def _add_sensor(self, *wheres: str) -> None:
         for where in wheres:
             self.sensors.update({where, normalize_where(where)})
@@ -291,11 +311,26 @@ class _ForeignAddresses:
     def mark_sensor(self, address: Address) -> None:
         self._add_sensor(address.where, address.key, address.clean_where)
 
+    def is_switch(self, address: Address, key: str) -> bool:
+        return bool({key, address.where, address.clean_where} & self.switches)
+
     def owns(self, address: Address, key: str) -> bool:
-        candidates = {key, address.where, address.clean_where}
-        if candidates & self.switches:
+        if self.is_switch(address, key):
             return True
-        candidates |= {normalize_where(address.where), normalize_where(address.clean_where)}
+        cover_candidates = (
+            {key, address.key, address.clean_key}
+            if address.interface
+            else {key, address.key, address.clean_key, address.where, address.clean_where}
+        )
+        if cover_candidates & self.covers:
+            return True
+        candidates = {
+            key,
+            address.where,
+            address.clean_where,
+            normalize_where(address.where),
+            normalize_where(address.clean_where),
+        }
         return bool(candidates & self.sensors)
 
     @classmethod

@@ -330,6 +330,14 @@
     "reset_cover_travel_time": {
       "name": "Reimposta il tempo di corsa della tapparella",
       "description": "Dimentica i tempi di corsa misurati o impostati manualmente e torna al travel_time di myhome.yaml o al valore predefinito di 25 s."
+    },
+    "cancel_cover_request": {
+      "name": "Annulla richiesta cancello o porta garage",
+      "description": "Annulla una richiesta di approvazione in sospeso o un preavviso in corso di un cancello o porta garage a impulso. L'annullamento è sempre sicuro; non si muove nulla."
+    },
+    "acknowledge_cover_fault": {
+      "name": "Riconosci guasto cancello o porta garage",
+      "description": "Cancella il guasto bloccato quando un cancello o una porta garage non ha raggiunto lo stato previsto dopo un impulso (possibile ostacolo o inversione). Solo un utente autorizzato presente a casa può riconoscerlo; fino ad allora la chiusura da Home Assistant resta bloccata."
     }
   },
   "issues": {
