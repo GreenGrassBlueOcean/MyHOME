@@ -1123,7 +1123,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
     def _demote_to_simple_strategy(self) -> None:
         """Return a promoted cover to SimpleUpDownStopStrategy when its calibration is reset."""
-        if isinstance(self._strategy, (SimpleUpDownStopStrategy, NativePositionStrategy)):
+        if isinstance(self._strategy, SimpleUpDownStopStrategy):
             return
         self._strategy = SimpleUpDownStopStrategy(
             travel_time=self._strategy.travel_time_down,

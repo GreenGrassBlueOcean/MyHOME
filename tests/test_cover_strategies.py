@@ -870,3 +870,16 @@ async def test_simple_cover_publishes_no_travel_time(hass) -> None:
     cover._travel_time_up = 16.5
     cover._refresh_travel_attributes()
     assert (attrs["travel_time"], attrs["travel_time_down"], attrs["travel_time_up"]) == (15, 15.0, 16.5)
+
+
+@pytest.mark.asyncio
+async def test_reset_travel_time_on_uncalibrated_simple_cover(hass) -> None:
+    """Resetting a simple cover that was never calibrated leaves it simple."""
+    cover = _make_cover(hass, travel_time=0)
+    cover._device_config = MagicMock(return_value={CONF_TRAVEL_TIME: 0})
+    cover._fire_calibration_event = MagicMock()
+    strategy = cover.strategy
+    await cover.async_reset_travel_time()
+    assert cover.strategy is strategy
+    assert cover.assumed_state is True
+    assert cover.current_cover_position is None
