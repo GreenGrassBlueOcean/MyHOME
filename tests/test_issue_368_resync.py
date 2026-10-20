@@ -704,9 +704,18 @@ async def test_multi_entity_area_sweep_waits_for_all_known_entities(
 async def test_replay_f461_live_2026_10_18_run1_lights_group_and_general(
     hass: HomeAssistant, handler: MyHOMEGatewayHandler
 ) -> None:
-    """Replay live BTicino F461 run1_lights_group_and_general trace through LightingResyncManager (#734, #740)."""
+    """Replay the live F461 run1_lights_group_and_general trace on its own timeline (#734, #740).
+
+    The frames are fed at their captured timestamps on a virtual clock, with a
+    virtual ``async_call_later``, so the 1.5 s leading window and the 0.5 s
+    debounce see the real bus spacing. Fed back to back, the whole trace falls
+    inside one leading window and the replay passes on the pre-#740 logic too.
+    """
+    import itertools
     import json
     from pathlib import Path
+    from types import SimpleNamespace
+    from typing import Any
 
     trace_path = (
         Path(__file__).parent
@@ -731,19 +740,58 @@ async def test_replay_f461_live_2026_10_18_run1_lights_group_and_general(
         reg.async_get_or_create(
             "light",
             DOMAIN,
-            f"myhome-{mac}-1-{where}",
+            f"{mac}-1-{where}",
             config_entry=handler.config_entry,
         )
     handler._resync_manager.register_group_members("#1", ["06", "07"])
 
-    for frame in run1_frames:
-        msg = OWNMessage.parse(frame["raw"])
-        assert msg is not None
-        await handler._process_message(msg)
+    clock = SimpleNamespace(now=0.0)
+    pending: dict[int, tuple[float, Any]] = {}
+    keys = itertools.count()
+    sent: list[tuple[float, str]] = []
 
-    # Because both members (06 and 07) echoed ON after *1*1*#1## / *1*1*0## and
-    # echoed OFF after *1*0*#1## / *1*0*0##, all group #1 and area 00 sweeps were
-    # cancelled by the real bus echoes without emitting redundant *#1*#1## / *#1*00## polls!
+    def _call_later(_hass: HomeAssistant, delay: float, cb: Any) -> Any:
+        key = next(keys)
+        pending[key] = (clock.now + delay, cb)
+        return lambda: pending.pop(key, None)
+
+    async def _run_due(until: float) -> None:
+        for key, (due, cb) in sorted(pending.items(), key=lambda kv: kv[1][0]):
+            if due <= until and key in pending:
+                del pending[key]
+                clock.now = due
+                cb(None)
+                await hass.async_block_till_done()
+
+    async def _send(cmd: Any) -> None:
+        sent.append((round(clock.now, 3), str(cmd)))
+
+    handler.send_status_request.side_effect = _send
+    armed_after: dict[str, bool] = {}
+    with (
+        patch("custom_components.myhome.gateway.time", SimpleNamespace(monotonic=lambda: clock.now)),
+        patch("custom_components.myhome.gateway.async_call_later", _call_later),
+    ):
+        for frame in run1_frames:
+            await _run_due(frame["timestamp"])
+            clock.now = frame["timestamp"]
+            msg = OWNMessage.parse(frame["raw"])
+            assert msg is not None
+            await handler._process_message(msg)
+            if frame["raw"] in ("*1*1*#1##", "*1*0*#1##"):
+                armed_after[frame["raw"]] = "#1" in handler._resync_timers
+        await _run_due(clock.now + 5.0)
+
+    # *1*0*#1## follows the ON echoes of 06 (8.786) and 07 (8.898) inside the
+    # leading window: those are the wrong polarity, so the OFF sweep is armed
+    # rather than skipped, and the OFF echoes at 9.505 / 9.555 then cancel it.
+    assert armed_after == {"*1*1*#1##": True, "*1*0*#1##": True}
     assert not handler._resync_timers
-    handler.send_status_request.assert_not_called()
+    # The group #1 sweeps are cancelled by the member echoes, ~50 ms apart. After
+    # the general *1*1*0## (10.183) and *1*0*0## (12.461) the F461 echoes 06 and
+    # 07 0.7 s and 1.5 s later, past the 0.5 s debounce, so both area 00 sweeps go out.
+    assert sent == [
+        (round(10.183 + RESYNC_DEBOUNCE_S, 3), "*#1*00##"),
+        (round(12.461 + RESYNC_DEBOUNCE_S, 3), "*#1*00##"),
+    ]
 
