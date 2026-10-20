@@ -168,9 +168,6 @@ class TimedCurtainStrategy(BaseCoverStrategy):
 
     def current_position(self, entity: Any, now: float) -> int | None:
         """Interpolate current position from start position, motor anchor, and strategy kinematics."""
-        if getattr(entity, "_advanced", False) is True:
-            pos_adv: int | None = getattr(entity, "_attr_current_cover_position", None)
-            return pos_adv
         is_opening = getattr(entity, "_attr_is_opening", False) is True
         is_closing = getattr(entity, "_attr_is_closing", False) is True
         move_start = getattr(entity, "_move_start_time", None)

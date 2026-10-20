@@ -419,6 +419,7 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             if (calibration and calibration.get("down") and calibration.get("up"))
             else travel_time
         )
+        self._strategy_name = strategy_name
         self._strategy: CoverKinematicsStrategy = resolve_cover_strategy(
             strategy_name=strategy_name,
             advanced=self._advanced,
@@ -429,10 +430,13 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             slat_time=raw_slat_time,
             min_motor_pulse=raw_min_pulse,
         )
-        if isinstance(self._strategy, NativePositionStrategy):
-            self._advanced = True
+        # The resolved strategy decides; the entity's code paths follow it, so an
+        # explicit strategy next to a contradicting flag cannot mix the two.
+        self._advanced = isinstance(self._strategy, NativePositionStrategy)
         if isinstance(self._strategy, VenetianTiltStrategy):
             self._slat_tilt = True
+        elif isinstance(self._strategy, SimpleUpDownStopStrategy):
+            self._slat_tilt = False
 
         self._attr_supported_features = self._strategy.supported_features
         self._attr_assumed_state = self._strategy.assumed_state
@@ -533,9 +537,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
 
     def _refresh_travel_attributes(self) -> None:
         attrs = self._attr_extra_state_attributes
-        attrs["travel_time"] = int(round(self._travel_time_down))
-        attrs["travel_time_down"] = round(self._travel_time_down, 2)
-        attrs["travel_time_up"] = round(self._travel_time_up, 2)
+        # Through the strategy: a simple cover has no travel time to show.
+        down = self._strategy.travel_for_direction(False)
+        attrs["travel_time"] = int(round(down))
+        attrs["travel_time_down"] = round(down, 2)
+        attrs["travel_time_up"] = round(self._strategy.travel_for_direction(True), 2)
         attrs["min_motor_pulse"] = round(self._min_motor_pulse, 2)
         attrs["calibration_source"] = self._calibration_source
         attrs["calibrated_at"] = self._calibrated_at
@@ -706,6 +712,10 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         self._auto_stop_duration = None
         if self._attr_current_cover_position is not None:
             self._attr_is_closed = (self._attr_current_cover_position == 0)
+        elif self._strategy.assumed_state and (is_opening or is_closing):
+            # No position to derive it from: an assumed-state cover is closed after
+            # a closing run and open after an opening one, as HA's optimistic covers.
+            self._attr_is_closed = is_closing
 
     def _abort_motion(self) -> None:
         """Abort motion state when a command frame failed to reach the bus."""
@@ -1082,8 +1092,11 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         return result
 
     def _promote_to_timed_strategy(self) -> None:
-        """Promote a SimpleUpDownStopStrategy cover to Timed/Venetian once calibrated."""
-        if isinstance(self._strategy, SimpleUpDownStopStrategy):
+        """Promote a SimpleUpDownStopStrategy cover to Timed/Venetian once calibrated.
+
+        An explicit ``strategy: simple`` stays simple, as it does after a restart.
+        """
+        if isinstance(self._strategy, SimpleUpDownStopStrategy) and self._strategy_name != "simple":
             if self._slat_tilt:
                 self._strategy = VenetianTiltStrategy(
                     slat_time=self._strategy.slat_time,
@@ -1107,6 +1120,23 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
             )
             if self._attr_current_cover_position is None:
                 self._attr_current_cover_position = self._start_position
+
+    def _demote_to_simple_strategy(self) -> None:
+        """Return a promoted cover to SimpleUpDownStopStrategy when its calibration is reset."""
+        if isinstance(self._strategy, (SimpleUpDownStopStrategy, NativePositionStrategy)):
+            return
+        self._strategy = SimpleUpDownStopStrategy(
+            travel_time=self._strategy.travel_time_down,
+            travel_time_up=self._strategy.travel_time_up,
+            travel_time_down=self._strategy.travel_time_down,
+            min_motor_pulse=self._strategy.min_motor_pulse,
+            slat_time=self._strategy.slat_time,
+        )
+        self._attr_assumed_state = True
+        self._attr_supported_features = (
+            self._attr_supported_features or CoverEntityFeature(0)
+        ) & ~CoverEntityFeature.SET_POSITION
+        self._attr_current_cover_position = None
 
     async def async_stop_calibration(self) -> None:
         """Stop calibration on this cover's gateway."""
@@ -1286,6 +1316,9 @@ class MyHOMECover(MyHOMEEntity, CoverEntity):
         else:
             base_travel = float(DEFAULT_TRAVEL_TIME)
             source = "default"
+        if base_travel <= 0 or cfg.get(CONF_STRATEGY) == "simple":
+            # Back to the uncalibrated relay the yaml describes.
+            self._demote_to_simple_strategy()
 
         self._min_motor_pulse = float(cfg.get(CONF_MIN_MOTOR_PULSE, DEFAULT_MIN_MOTOR_PULSE))
         self._travel_time_down = base_travel
